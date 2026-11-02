@@ -128,8 +128,7 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
-    private var shortcutPressedDate: Date?
-    private static let longestTapSeconds: TimeInterval = 0.35
+    private var escapeKeyCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
@@ -226,6 +225,7 @@ final class CompanionManager: ObservableObject {
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindPinchToFieldTripZoom()
+        bindEscapeToCloseFieldTripScene()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -354,6 +354,7 @@ final class CompanionManager: ObservableObject {
         fieldTripTourFinishedTask = nil
         shortcutTransitionCancellable?.cancel()
         pinchCancellable?.cancel()
+        escapeKeyCancellable?.cancel()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
@@ -528,6 +529,16 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    /// Escape closes a finished scene, so the push-to-talk shortcut always means talk.
+    private func bindEscapeToCloseFieldTripScene() {
+        escapeKeyCancellable = globalPushToTalkShortcutMonitor
+            .escapeKeyPressPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.clearFinishedFieldTripScene()
+            }
+    }
+
     private func bindPinchToFieldTripZoom() {
         pinchCancellable = globalPushToTalkShortcutMonitor
             .pinchMagnificationPublisher
@@ -546,7 +557,6 @@ final class CompanionManager: ObservableObject {
 
             // The scene sits above every window, so a quick tap of the shortcut
             // is how the learner gets back to the page under it.
-            shortcutPressedDate = Date()
             FieldTripStatusLabel.shared.hide()
 
             // Cancel any pending transient hide so the overlay stays visible
@@ -598,12 +608,6 @@ final class CompanionManager: ObservableObject {
                 )
             }
         case .released:
-            // A quick tap closes a finished scene. Holding to talk keeps it up,
-            // so the learner can ask about what they are looking at.
-            if let shortcutPressedDate, Date().timeIntervalSince(shortcutPressedDate) < Self.longestTapSeconds {
-                clearFinishedFieldTripScene()
-            }
-            shortcutPressedDate = nil
             // Cancel the pending start task in case the user released the shortcut
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and

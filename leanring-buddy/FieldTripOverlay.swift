@@ -187,6 +187,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     private var fieldTripOverlayWindow: OverlayWindow?
     private var fieldTripWebView: WKWebView?
     private var networkBlockRuleList: WKContentRuleList?
+    private var liveSceneShowsEveryLabel = false
     private var networkBlockRuleListHasFinishedCompiling = false
     private var pageHasFinishedLoading = false
     private var loadedPageKind: LoadedFieldTripPage = .none
@@ -249,6 +250,9 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// this stays off until the scene is finished and clear() turns it off.
     func letLearnerDragTheModel() {
         fieldTripOverlayWindow?.ignoresMouseEvents = false
+        if liveSceneShowsEveryLabel {
+            reveal()
+        }
     }
 
     /// The overlay never becomes key, so AppKit does not deliver a pinch to it.
@@ -265,6 +269,17 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     func reveal() {
         evaluateOnThePage("window.fieldTrip.reveal()")
+    }
+
+    /// A generated page imports three.js, so window.fieldTrip can appear after
+    /// the load event. Revealing then would fail and leave a "?" on the model.
+    private func revealOnceTheGeneratedPageIsReady() {
+        evaluateOnThePage("""
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if (window.fieldTrip?.reveal) { window.fieldTrip.reveal(); return; }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        """)
     }
 
     /// Generated pages can move to and highlight a part. Templates cannot, so
@@ -423,8 +438,9 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         case .live(_, let hidesQuizLabel):
             guard loadedPageKind == .live else { return }
             self.queuedPageLoad = nil
+            liveSceneShowsEveryLabel = !hidesQuizLabel
             if !hidesQuizLabel {
-                evaluateOnThePage("window.fieldTrip.reveal()")
+                revealOnceTheGeneratedPageIsReady()
             }
         }
     }

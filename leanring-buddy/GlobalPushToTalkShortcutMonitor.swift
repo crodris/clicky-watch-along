@@ -15,6 +15,8 @@ import Foundation
 final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
     let pinchMagnificationPublisher = PassthroughSubject<Double, Never>()
+    let escapeKeyPressPublisher = PassthroughSubject<Void, Never>()
+    private static let escapeKeyCode: UInt16 = 53
 
     // CoreGraphics has no public names for gesture events. These are the values
     // the window server uses for a gesture and for a trackpad zoom inside it.
@@ -124,6 +126,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         let eventKeyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        if eventType == .keyDown && eventKeyCode == Self.escapeKeyCode {
+            escapeKeyPressPublisher.send()
+        }
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,
