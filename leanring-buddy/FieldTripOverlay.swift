@@ -431,7 +431,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         webViewConfiguration.userContentController.addUserScript(WKUserScript(
             source: Self.pageErrorForwardingScript,
             injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
+            forMainFrameOnly: false
         ))
 
         let webView = FieldTripWebView(frame: frame, configuration: webViewConfiguration)

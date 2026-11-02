@@ -48,7 +48,7 @@ export function checkLiveSceneModelReply(modelReply: string): CheckedLiveSceneRe
     new RegExp(`https?:\\/\\/${svgNamespacePrefix}\\/?(?=$|[^a-z0-9._~-])`, "g"),
     "",
   );
-  const htmlHasADisallowedURL = ["http://", "https://", "ws://", "wss://"].some((urlPrefix) =>
+  const htmlHasADisallowedURL = ["http://", "https://", "ws://", "wss://", "stun:", "turn:", "RTCPeerConnection", "<iframe"].some((urlPrefix) =>
     htmlWithoutTheSvgNamespace.includes(urlPrefix),
   );
   if (htmlHasADisallowedURL) {
