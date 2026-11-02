@@ -131,6 +131,7 @@ struct leanring_buddyTests {
     @Test func onlyAnExplicitQuizRequestStartsTheQuiz() async throws {
         #expect(fieldTripSceneKind(for: "What does this look like inside?") == .explore)
         #expect(fieldTripSceneKind(for: "Can I see that in 3D?") == .explore)
+        #expect(fieldTripSceneKind(for: "Can you make a 3-D model of it?") == .explore)
         #expect(fieldTripSceneKind(for: "Can you quiz me on it?") == .quiz)
         #expect(fieldTripSceneKind(for: "Can you kiss me on it?") == .quiz)
         #expect(fieldTripSceneKind(for: "show me inside and test me on it") == .quiz)
