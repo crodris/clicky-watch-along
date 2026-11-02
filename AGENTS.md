@@ -33,6 +33,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /tts` | `api.elevenlabs.io/v1/text-to-speech/{voiceId}` | ElevenLabs TTS audio |
 | `POST /transcribe-token` | `streaming.assemblyai.com/v3/token` | Fetches a short-lived (480s) AssemblyAI websocket token |
 | `POST /scene` | `api.anthropic.com/v1/messages` | Picks a hand-tuned template (blue whale or water molecule), or generates a scene spec from the screenshot |
+| `POST /watch-moment` | `api.anthropic.com/v1/messages` | Haiku reads the last 3 minutes of video speech and decides whether to pause for a quiz question. Returns `{ shouldPause: false }` or the question, answer label, function words, explanation, and 3D subject |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`
 Worker vars: `ELEVENLABS_VOICE_ID`
