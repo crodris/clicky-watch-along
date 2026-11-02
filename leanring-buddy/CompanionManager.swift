@@ -912,8 +912,10 @@ final class CompanionManager: ObservableObject {
         sceneKind: FieldTripSceneKind,
         requestGeneration: Int
     ) async {
-        voiceState = .processing
         FieldTripStatusLabel.shared.show("Reading your screen")
+        await speakFieldTripLine("Sure, let me build that for you.")
+        guard !Task.isCancelled else { return }
+        voiceState = .processing
         var cursorScreenJPEGData: Data?
         var labeledImages: [(data: Data, label: String)] = []
         do {
