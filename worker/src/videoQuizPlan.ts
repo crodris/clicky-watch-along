@@ -71,7 +71,7 @@ export const maximumFirstPauseAtSeconds = 60;
 /** A fraction of the video's length, so a short video can still fit three moments. */
 export const minimumGapBetweenMomentsAsFractionOfVideo = 0.1;
 
-const maximumPlanAttempts = 2;
+const maximumPlanAttempts = 3;
 
 const planToolName = "plan_quiz_moments";
 
@@ -283,7 +283,7 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
     return jsonResponse({ error: parsedRequest.error.message }, 400);
   }
 
-  // One retry that names the broken rule, because a forced tool call still
+  // Retries that name the broken rule, because a forced tool call still
   // sometimes breaks one the schema cannot enforce, such as a pause that is not
   // on a line boundary, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
