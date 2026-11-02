@@ -168,6 +168,7 @@ final class VideoQuizSession {
     private let workerBaseURL: String
     private let canAskQuestionNow: @MainActor () -> Bool
     private let askQuestion: @MainActor (FieldTripQuiz) -> Void
+    private static let secondsForTheReadyLineToFinish: Double = 3.5
     private let speakLine: @MainActor (String) -> Void
 
     private(set) var isRunning = false
@@ -274,7 +275,12 @@ final class VideoQuizSession {
             }
             print("Video quiz: planned \(plannedMoments.count) moments in \(String(format: "%.1f", planningSeconds))s")
 
-            speakLine("Okay, I've got \(plannedMoments.count) spots picked out. Press play whenever you're ready!")
+            speakLine("Okay, I've got \(plannedMoments.count) spots picked out. Here we go!")
+            // The line takes about this long, and the video should start after it.
+            try await Task.sleep(for: .seconds(Self.secondsForTheReadyLineToFinish))
+            guard isRunning else { return }
+            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: videoTab)
+            print("Video quiz: started the video")
             await pollPlaybackUntilTheQuizEnds(videoTab: videoTab)
         } catch is CancellationError {
             return
