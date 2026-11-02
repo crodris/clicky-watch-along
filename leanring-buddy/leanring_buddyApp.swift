@@ -78,7 +78,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             if specJSONText.hasPrefix("\u{feff}") {
                 specJSONText.removeFirst()
             }
-            FieldTripOverlay.shared.play(specJSONText: specJSONText)
+            FieldTripOverlay.shared.play(specJSONData: Data(specJSONText.utf8))
         } catch {
             print("Field trip: could not read spec at \(specFilePath): \(error.localizedDescription)")
         }

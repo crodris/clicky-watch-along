@@ -86,6 +86,16 @@ final class CompanionManager: ObservableObject {
         return ElevenLabsTTSClient(proxyURL: "\(Self.workerBaseURL)/tts")
     }()
 
+    private lazy var fieldTripSceneClient: FieldTripSceneClient = {
+        FieldTripSceneClient(workerBaseURL: Self.workerBaseURL)
+    }()
+
+    private var fieldTripPhase: FieldTripPhase = .idle
+    /// Bumped on every new question so a scene request still in flight cannot play late.
+    private var fieldTripSceneRequestGeneration = 0
+    private var fieldTripSceneRequestTask: Task<Void, Never>?
+    private var fieldTripTourFinishedTask: Task<Void, Never>?
+
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
     private var conversationHistory: [(userTranscript: String, assistantResponse: String)] = []
@@ -180,6 +190,9 @@ final class CompanionManager: ObservableObject {
     }
 
     func start() {
+        FieldTripOverlay.shared.onTourFinished = { [weak self] in
+            self?.speakFieldTripQuizAfterTheVoiceAnswerFinishes()
+        }
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
@@ -302,6 +315,10 @@ final class CompanionManager: ObservableObject {
 
         currentResponseTask?.cancel()
         currentResponseTask = nil
+        fieldTripSceneRequestTask?.cancel()
+        fieldTripSceneRequestTask = nil
+        fieldTripTourFinishedTask?.cancel()
+        fieldTripTourFinishedTask = nil
         shortcutTransitionCancellable?.cancel()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
@@ -592,7 +609,35 @@ final class CompanionManager: ObservableObject {
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
         currentResponseTask?.cancel()
+        fieldTripSceneRequestTask?.cancel()
+        fieldTripTourFinishedTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
+        fieldTripSceneRequestGeneration += 1
+        let requestGeneration = fieldTripSceneRequestGeneration
+
+        if case .awaitingAnswer(let quiz, let wrongAnswerCount) = fieldTripPhase {
+            currentResponseTask = Task {
+                await self.respondToFieldTripAnswer(
+                    transcript: transcript,
+                    quiz: quiz,
+                    wrongAnswerCount: wrongAnswerCount
+                )
+            }
+            return
+        }
+
+        if case .revealed = fieldTripPhase {
+            FieldTripOverlay.shared.clear()
+            fieldTripPhase = .idle
+        }
+
+        if case .buildingScene = fieldTripPhase {
+            fieldTripPhase = .idle
+        }
+
+        if shouldBuildScene(for: transcript) {
+            fieldTripPhase = .buildingScene
+        }
 
         currentResponseTask = Task {
             // Stay in processing (spinner) state — no streaming text displayed
@@ -603,6 +648,27 @@ final class CompanionManager: ObservableObject {
                 let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
 
                 guard !Task.isCancelled else { return }
+
+                // The scene request uses this same capture, then runs beside Claude
+                // so the spoken answer is not waiting on the scene.
+                if case .buildingScene = self.fieldTripPhase,
+                   requestGeneration == self.fieldTripSceneRequestGeneration {
+                    if let cursorScreenCapture = screenCaptures.first(where: { screenCapture in
+                        screenCapture.isCursorScreen
+                    }) ?? screenCaptures.first {
+                        let cursorScreenJPEGData = cursorScreenCapture.imageData
+                        self.fieldTripSceneRequestTask = Task {
+                            await self.requestFieldTripScene(
+                                question: transcript,
+                                cursorScreenJPEGData: cursorScreenJPEGData,
+                                requestGeneration: requestGeneration
+                            )
+                        }
+                    } else {
+                        print("Field trip scene failed: no cursor screen was captured")
+                        self.fieldTripPhase = .idle
+                    }
+                }
 
                 // Build image labels with the actual screenshot pixel dimensions
                 // so Claude's coordinate space matches the image it sees. We
@@ -720,6 +786,10 @@ final class CompanionManager: ObservableObject {
             } catch is CancellationError {
                 // User spoke again — response was interrupted
             } catch {
+                if case .buildingScene = self.fieldTripPhase,
+                   requestGeneration == self.fieldTripSceneRequestGeneration {
+                    self.fieldTripPhase = .idle
+                }
                 ClickyAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 speakCreditsErrorFallback()
@@ -729,6 +799,105 @@ final class CompanionManager: ObservableObject {
                 voiceState = .idle
                 scheduleTransientHideIfNeeded()
             }
+        }
+    }
+
+    private func requestFieldTripScene(
+        question: String,
+        cursorScreenJPEGData: Data,
+        requestGeneration: Int
+    ) async {
+        do {
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
+            let specJSONData = try await fieldTripSceneClient.requestScene(
+                question: question,
+                cursorScreenJPEGData: cursorScreenJPEGData
+            )
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
+            let quiz = try FieldTripQuiz(specJSONData: specJSONData)
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
+            FieldTripOverlay.shared.play(specJSONData: specJSONData)
+            fieldTripPhase = .touring(quiz)
+        } catch is CancellationError {
+            return
+        } catch {
+            print("Field trip scene failed: \(error)")
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
+            if case .buildingScene = fieldTripPhase {
+                fieldTripPhase = .idle
+            }
+        }
+    }
+
+    private func respondToFieldTripAnswer(
+        transcript: String,
+        quiz: FieldTripQuiz,
+        wrongAnswerCount: Int
+    ) async {
+        voiceState = .processing
+        let spokenLine: String
+        let answerIsCorrect = FieldTripAnswerJudge.isCorrect(
+            transcript: transcript,
+            answerLabel: quiz.answerLabel
+        )
+        if answerIsCorrect {
+            spokenLine = "That's right, it's the \(quiz.answerLabel)."
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .revealed
+        } else if wrongAnswerCount == 0 {
+            spokenLine = "Not quite. Take another look."
+            fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
+        } else {
+            spokenLine = "That's the \(quiz.answerLabel)."
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .revealed
+        }
+        await speakFieldTripLine(spokenLine)
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+    }
+
+    private func speakFieldTripQuizAfterTheVoiceAnswerFinishes() {
+        guard case .touring(let quiz) = fieldTripPhase else { return }
+        fieldTripTourFinishedTask?.cancel()
+        fieldTripTourFinishedTask = Task {
+            await self.waitUntilTheVoiceAnswerIsQuiet()
+            guard !Task.isCancelled else { return }
+            guard case .touring = fieldTripPhase else { return }
+            fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
+            await self.speakFieldTripLine(quiz.question)
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// The tour can finish while Claude is still thinking, and isPlaying is
+    /// false until the voice answer actually starts. Wait through that, and
+    /// through playback, so the quiz is the next thing Clicky says.
+    private func waitUntilTheVoiceAnswerIsQuiet() async {
+        while !Task.isCancelled {
+            let voiceAnswerIsStillRunning = voiceState == .processing
+                || voiceState == .listening
+                || elevenLabsTTSClient.isPlaying
+            if !voiceAnswerIsStillRunning {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
+    private func speakFieldTripLine(_ line: String) async {
+        do {
+            try await elevenLabsTTSClient.speakText(line)
+            voiceState = .responding
+        } catch is CancellationError {
+            return
+        } catch {
+            ClickyAnalytics.trackTTSError(error: error.localizedDescription)
+            print("⚠️ ElevenLabs TTS error: \(error)")
+            speakCreditsErrorFallback()
         }
     }
 

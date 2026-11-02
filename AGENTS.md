@@ -32,6 +32,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /chat` | `api.anthropic.com/v1/messages` | Claude vision + streaming chat |
 | `POST /tts` | `api.elevenlabs.io/v1/text-to-speech/{voiceId}` | ElevenLabs TTS audio |
 | `POST /transcribe-token` | `streaming.assemblyai.com/v3/token` | Fetches a short-lived (480s) AssemblyAI websocket token |
+| `POST /scene` | `api.anthropic.com/v1/messages` | Picks the hand-tuned blue whale template, or generates a scene spec from the screenshot |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`
 Worker vars: `ELEVENLABS_VOICE_ID`
@@ -48,18 +49,20 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 
 **Transient Cursor Mode**: When "Show Clicky" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
-**Field Trip Scene**: `--field-trip-spec <path>` reads a JSON spec and plays it in the cursor overlay, then returns before the menu bar app starts. The `scene/` package validates that spec with Zod and renders it with three.js into `leanring-buddy/FieldTripScene.html`. The page is self-contained: no voice pipeline, API keys, or Worker. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
+**Field Trip Scene**: A transcript that contains "inside", "look like", or "show me" calls `POST /scene` while the normal voice answer plays. Haiku picks a template. `blue_whale` is a hand-tuned template (`scene/fixtures/whale.json`). Other subjects are generated live by Sonnet and checked with `sceneSpecSchema`. The overlay plays the spec on the screen under the mouse cursor. When the camera tour ends, one label becomes "?" and Clicky asks the learner to name that part. The learner answers by voice. `--field-trip-spec <path>` reads a JSON spec, plays it through the same overlay, and returns before the menu bar app starts. The `scene/` package validates specs with Zod and renders them with three.js into `leanring-buddy/FieldTripScene.html`. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
 
 ## Key Files
 
 | File | Lines | Purpose |
 |------|-------|---------|
 | `leanring_buddyApp.swift` | ~119 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which creates `MenuBarPanelManager` and starts `CompanionManager`. No main window. The app lives entirely in the status bar. `--field-trip-spec` plays a scene and returns early. |
-| `FieldTripOverlay.swift` | ~73 | Loads the bundled field-trip page into `OverlayWindow` and calls `window.fieldTrip.play` after navigation finishes. |
-| `scene/src/spec.ts` | ~58 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
-| `scene/src/main.ts` | ~611 | three.js renderer. Dithered meshes, a three-stop camera tour, and DOM labels. |
+| `FieldTripOverlay.swift` | ~189 | Reusable transparent window and page on the screen under the mouse. Plays a spec, reveals the quiz label, and clears the scene. |
+| `FieldTripSession.swift` | ~109 | Field-trip phase, quiz, spoken-answer judge, and the inside / look like / show me trigger. |
+| `FieldTripSceneClient.swift` | ~64 | Posts the cursor screen JPEG to `POST /scene` and returns the spec data. |
+| `scene/src/spec.ts` | ~158 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
+| `scene/src/main.ts` | ~812 | three.js renderer. Translucent shells, a three-stop camera tour, DOM labels, and a tour-finished message when the quiz label becomes "?". |
 | `scene/fixtures/whale.json` | ~98 | Hand-written blue whale. Translucent shell, inner organs, last camera stop beside the heart. |
-| `CompanionManager.swift` | ~1026 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the full push-to-talk → screenshot → Claude → TTS → pointing pipeline. |
+| `CompanionManager.swift` | ~1202 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the push-to-talk pipeline and the field-trip scene quiz. |
 | `MenuBarPanelManager.swift` | ~243 | NSStatusItem + custom NSPanel lifecycle. Creates the menu bar icon, manages the floating companion panel (show/hide/position), installs click-outside-to-dismiss monitor. |
 | `CompanionPanelView.swift` | ~761 | SwiftUI panel content for the menu bar dropdown. Shows companion status, push-to-talk instructions, model picker (Sonnet/Opus), permissions UI, DM feedback button, and quit button. Dark aesthetic using `DS` design system. |
 | `OverlayWindow.swift` | ~881 | Full-screen transparent overlay hosting the blue cursor, response text, waveform, and spinner. Handles cursor animation, element pointing with bezier arcs, multi-monitor coordinate mapping, and fade-out transitions. |
@@ -80,7 +83,8 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `ClickyAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
-| `worker/src/index.ts` | ~142 | Cloudflare Worker proxy. Three routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token). |
+| `worker/src/index.ts` | ~148 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/scene` (field-trip spec). |
+| `worker/src/scene.ts` | ~543 | `POST /scene`. Haiku picks `blue_whale` or `none`. The whale template is returned as-is. Other subjects are generated live and validated. |
 
 ## Build & Run
 

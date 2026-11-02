@@ -2,8 +2,9 @@
 //  FieldTripOverlay.swift
 //  leanring-buddy
 //
-//  Plays a bundled field-trip scene inside the transparent cursor overlay.
-//  The page is self-contained. Nothing here talks to the Worker.
+//  One transparent window and one page, reused for every field trip. The
+//  window is created on the screen under the mouse, and later plays move it
+//  there again. The page reports tourFinished when the quiz label becomes "?".
 //
 
 import AppKit
@@ -12,6 +13,8 @@ import WebKit
 // A class, not an enum: WKNavigationDelegate has to be an NSObject.
 final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     static let shared = FieldTripOverlay()
+
+    var onTourFinished: (() -> Void)?
 
     private static let pageErrorForwardingScript = """
     (() => {
@@ -25,97 +28,56 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     })();
     """
 
+    private var fieldTripOverlayWindow: OverlayWindow?
+    private var fieldTripWebView: WKWebView?
+    private var pageHasFinishedLoading = false
+    private var queuedSpecJSONData: Data?
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        print("Field trip page: \(message.body)")
+        if message.name == "fieldTripLog" {
+            print("Field trip page: \(message.body)")
+            return
+        }
+        guard message.name == "fieldTripEvent" else {
+            return
+        }
+        // The page posts this string when the quiz label becomes "?".
+        guard let eventName = message.body as? String, eventName == "tourFinished" else {
+            return
+        }
+        onTourFinished?()
     }
 
-    // A local OverlayWindow would be released when play returns.
-    // Nothing else owns this window, so the static keeps the scene up.
-    private var retainedOverlayWindow: OverlayWindow?
-    private var specJSONText: String?
-    private var didPlaySpec = false
-
-    func play(specJSONText: String) {
-        guard let mainScreen = NSScreen.main else {
-            print("Field trip: NSScreen.main was nil")
+    func play(specJSONData: Data) {
+        placeOverlayOnTheScreenUnderTheMouse()
+        guard fieldTripWebView != nil else {
             return
         }
-
-        guard let scenePageURL = Bundle.main.url(forResource: "FieldTripScene", withExtension: "html") else {
-            print("Field trip: FieldTripScene.html is not in the app bundle")
-            return
+        if pageHasFinishedLoading {
+            queuedSpecJSONData = nil
+            sendSpecToPage(specJSONData)
+        } else {
+            queuedSpecJSONData = specJSONData
         }
+    }
 
-        self.specJSONText = specJSONText
-        didPlaySpec = false
+    func reveal() {
+        evaluateOnThePage("window.fieldTrip.reveal()")
+    }
 
-        let overlayWindow = OverlayWindow(screen: mainScreen)
-        retainedOverlayWindow = overlayWindow
-
-        // WebKit keeps page errors to itself, so shader and script failures would
-        // otherwise show up as an empty overlay with nothing in the app log.
-        let webViewConfiguration = WKWebViewConfiguration()
-        webViewConfiguration.userContentController.add(self, name: "fieldTripLog")
-        webViewConfiguration.userContentController.addUserScript(WKUserScript(
-            source: Self.pageErrorForwardingScript,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        ))
-
-        let webView = WKWebView(
-            frame: overlayWindow.contentView?.bounds ?? .zero,
-            configuration: webViewConfiguration
-        )
-        webView.autoresizingMask = [.width, .height]
-        #if DEBUG
-        webView.isInspectable = true
-        #endif
-        // drawsBackground is a private WKWebView switch. It has to be off or
-        // WebKit paints an opaque layer over the desktop.
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.underPageBackgroundColor = .clear
-        // The page script defines window.fieldTrip. Play waits until that has run.
-        webView.navigationDelegate = self
-
-        overlayWindow.contentView = webView
-        overlayWindow.orderFrontRegardless()
-        print("Field trip: loading \(scenePageURL.path), screen \(mainScreen.frame), window visible \(overlayWindow.isVisible)")
-        webView.loadFileURL(scenePageURL, allowingReadAccessTo: scenePageURL.deletingLastPathComponent())
+    func clear() {
+        queuedSpecJSONData = nil
+        evaluateOnThePage("window.fieldTrip.clear()")
+        fieldTripOverlayWindow?.orderOut(nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard !didPlaySpec, let specJSONText else {
+        pageHasFinishedLoading = true
+        guard let queuedSpecJSONData else {
             return
         }
-        didPlaySpec = true
-        print("Field trip: page loaded, webView frame \(webView.frame), device scale \(webView.window?.backingScaleFactor ?? 0)")
-        // The trailing void keeps evaluateJavaScript from serializing a result.
-        let playScript = "window.fieldTrip.play(\(specJSONText)); void 0"
-        webView.evaluateJavaScript(playScript) { _, error in
-            if let error {
-                print("Field trip: play failed: \(error)")
-            } else {
-                print("Field trip: play started")
-            }
-        }
-        let diagnosticScript = """
-        (() => { const c = document.querySelector('canvas'); const g = c && c.getContext('webgl2');
-        return JSON.stringify({ size: c ? [c.width, c.height, innerWidth, innerHeight] : null, webgl: !!g,
-        lost: g ? g.isContextLost() : null, title: document.title, labels: document.querySelectorAll('body div').length }); })()
-        """
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-            webView.evaluateJavaScript(diagnosticScript) { result, error in
-                print("Field trip: page state \(result ?? "none") \(error.map { "\($0)" } ?? "")")
-            }
-        }
-    }
-
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        print("Field trip: navigation started \(webView.url?.absoluteString ?? "nil")")
-    }
-
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        print("Field trip: navigation committed")
+        self.queuedSpecJSONData = nil
+        sendSpecToPage(queuedSpecJSONData)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -128,5 +90,100 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         print("Field trip: page failed to load: \(error.localizedDescription)")
+    }
+
+    private func screenUnderTheMouseCursor() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        if let screenContainingTheMouse = NSScreen.screens.first(where: { screen in
+            screen.frame.contains(mouseLocation)
+        }) {
+            return screenContainingTheMouse
+        }
+        return NSScreen.screens.first
+    }
+
+    private func placeOverlayOnTheScreenUnderTheMouse() {
+        guard let screen = screenUnderTheMouseCursor() else {
+            print("Field trip: no screen is available")
+            return
+        }
+        if let fieldTripOverlayWindow {
+            fieldTripOverlayWindow.setFrame(screen.frame, display: true)
+            fieldTripOverlayWindow.orderFrontRegardless()
+            return
+        }
+        guard let scenePageURL = Bundle.main.url(forResource: "FieldTripScene", withExtension: "html") else {
+            print("Field trip: FieldTripScene.html is not in the app bundle")
+            return
+        }
+
+        let fieldTripOverlayWindow = OverlayWindow(screen: screen)
+        let webViewFrame = fieldTripOverlayWindow.contentView?.bounds
+            ?? CGRect(origin: .zero, size: screen.frame.size)
+        let fieldTripWebView = makeFieldTripWebView(frame: webViewFrame)
+        fieldTripOverlayWindow.contentView = fieldTripWebView
+        self.fieldTripOverlayWindow = fieldTripOverlayWindow
+        self.fieldTripWebView = fieldTripWebView
+        fieldTripOverlayWindow.orderFrontRegardless()
+        fieldTripWebView.loadFileURL(
+            scenePageURL,
+            allowingReadAccessTo: scenePageURL.deletingLastPathComponent()
+        )
+    }
+
+    private func makeFieldTripWebView(frame: CGRect) -> WKWebView {
+        let webViewConfiguration = WKWebViewConfiguration()
+        webViewConfiguration.userContentController.add(self, name: "fieldTripLog")
+        webViewConfiguration.userContentController.add(self, name: "fieldTripEvent")
+        webViewConfiguration.userContentController.addUserScript(WKUserScript(
+            source: Self.pageErrorForwardingScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+
+        let webView = WKWebView(frame: frame, configuration: webViewConfiguration)
+        webView.autoresizingMask = [.width, .height]
+        #if DEBUG
+        webView.isInspectable = true
+        #endif
+        // drawsBackground is a private WKWebView switch. It has to be off or
+        // WebKit paints an opaque layer over the desktop.
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.underPageBackgroundColor = .clear
+        // The page script defines window.fieldTrip. Play waits until that has run.
+        webView.navigationDelegate = self
+        return webView
+    }
+
+    private func sendSpecToPage(_ specJSONData: Data) {
+        do {
+            let specJSONValue = try JSONSerialization.jsonObject(with: specJSONData)
+            // JSONSerialization returns Any. callAsyncJavaScript takes a dictionary,
+            // and a scene spec is a JSON object.
+            guard let specDictionary = specJSONValue as? [String: Any] else {
+                print("Field trip: spec JSON was not an object")
+                return
+            }
+            evaluateOnThePage("window.fieldTrip.play(spec)", arguments: ["spec": specDictionary])
+        } catch {
+            print("Field trip: spec JSON could not be parsed: \(error.localizedDescription)")
+        }
+    }
+
+    // arguments uses WebKit's dictionary type. Callers pass JSON values.
+    private func evaluateOnThePage(_ functionBody: String, arguments: [String: Any] = [:]) {
+        guard let fieldTripWebView, pageHasFinishedLoading else {
+            return
+        }
+        fieldTripWebView.callAsyncJavaScript(
+            functionBody,
+            arguments: arguments,
+            in: nil,
+            in: .page
+        ) { result in
+            if case .failure(let error) = result {
+                print("Field trip: page call failed: \(error.localizedDescription)")
+            }
+        }
     }
 }

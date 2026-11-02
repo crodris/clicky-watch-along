@@ -744,6 +744,11 @@ function startCameraTour(sceneSpec: SceneSpec): void {
               return;
             }
             setQuizLabelShowsQuestionMark(true);
+            // The Mac app speaks the quiz after this. A normal browser has no
+            // handler, so the optional chain does nothing there.
+            window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
+              "tourFinished",
+            );
           },
         );
       });
@@ -783,6 +788,13 @@ declare global {
       play(spec: unknown): void;
       reveal(): void;
       clear(): void;
+    };
+    webkit?: {
+      messageHandlers?: {
+        fieldTripEvent?: {
+          postMessage(message: "tourFinished"): void;
+        };
+      };
     };
   }
 }

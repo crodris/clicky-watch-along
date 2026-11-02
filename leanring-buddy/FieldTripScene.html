@@ -32269,6 +32269,9 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
                 return;
               }
               setQuizLabelShowsQuestionMark(true);
+              window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
+                "tourFinished"
+              );
             }
           );
         });

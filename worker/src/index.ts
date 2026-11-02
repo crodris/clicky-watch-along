@@ -7,7 +7,10 @@
  * Routes:
  *   POST /chat  → Anthropic Messages API (streaming)
  *   POST /tts   → ElevenLabs TTS API
+ *   POST /scene → Anthropic Messages API (field-trip spec)
  */
+
+import { handleScene } from "./scene";
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -35,6 +38,10 @@ export default {
 
       if (url.pathname === "/transcribe-token") {
         return await handleTranscribeToken(env);
+      }
+
+      if (url.pathname === "/scene") {
+        return await handleScene(request, env.ANTHROPIC_API_KEY);
       }
     } catch (error) {
       console.error(`[${url.pathname}] Unhandled error:`, error);

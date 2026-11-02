@@ -37,4 +37,18 @@ struct leanring_buddyTests {
         #expect(shouldTreatPermissionAsGranted)
     }
 
+    @Test func fieldTripAnswerJudgeAcceptsTheHeartAndRejectsTheLungs() async throws {
+        let heartAnswerIsCorrect = FieldTripAnswerJudge.isCorrect(
+            transcript: "it's the heart",
+            answerLabel: "Heart"
+        )
+        let lungsAnswerIsCorrect = FieldTripAnswerJudge.isCorrect(
+            transcript: "the lungs",
+            answerLabel: "Heart"
+        )
+
+        #expect(heartAnswerIsCorrect)
+        #expect(lungsAnswerIsCorrect == false)
+    }
+
 }

@@ -148,7 +148,15 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All three APIs are proxied through a Cloudflare Worker.
+**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
+
+## Field trip
+
+Hold Control + Option and ask what something looks like inside. Clicky answers aloud and opens a labeled 3D scene on the screen under the cursor. The camera moves in, one label turns into "?", and Clicky asks you to name it. Answer by holding the same keys.
+
+A blue whale uses a hand-tuned template. Other subjects are generated live from the screenshot.
+
+This app is based on [farzaa/clicky](https://github.com/farzaa/clicky) (MIT). The whale's side profile is traced from Kurzon's [Blue whale size.svg](https://commons.wikimedia.org/wiki/File:Blue_whale_size.svg) (CC BY-SA 3.0).
 
 ## Project structure
 
@@ -162,7 +170,8 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   AssemblyAI*.swift         # Real-time transcription
   BuddyDictation*.swift     # Push-to-talk pipeline
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Three routes: /chat, /tts, /transcribe-token
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /scene
+  src/scene.ts              # Blue whale is a hand-tuned template. Other subjects are generated live.
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
 
