@@ -916,6 +916,16 @@ final class CompanionManager: ObservableObject {
     ) async {
         do {
             guard requestGeneration == fieldTripSceneRequestGeneration else { return }
+            let liveSceneDidPlay = await playLiveFieldTripScene(
+                question: question,
+                sceneKind: sceneKind,
+                cursorScreenJPEGData: cursorScreenJPEGData,
+                requestGeneration: requestGeneration
+            )
+            if liveSceneDidPlay {
+                return
+            }
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
             let specJSONData = try await fieldTripSceneClient.requestScene(
                 question: question,
                 cursorScreenJPEGData: cursorScreenJPEGData
@@ -925,6 +935,7 @@ final class CompanionManager: ObservableObject {
                 ? try FieldTripQuiz(specJSONData: specJSONData)
                 : nil
             guard requestGeneration == fieldTripSceneRequestGeneration else { return }
+            print("Field trip scene path: template")
             FieldTripOverlay.shared.play(
                 specJSONData: specJSONData,
                 hidesQuizLabel: quizToAskAfterTour != nil
@@ -941,12 +952,71 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// True when the live page is playing, or when this question was cancelled.
+    /// False asks the caller to fall back to the template scene.
+    private func playLiveFieldTripScene(
+        question: String,
+        sceneKind: FieldTripSceneKind,
+        cursorScreenJPEGData: Data,
+        requestGeneration: Int
+    ) async -> Bool {
+        do {
+            let liveScene = try await fieldTripSceneClient.requestLiveScene(
+                question: question,
+                cursorScreenJPEGData: cursorScreenJPEGData
+            )
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return true }
+            let quizToAskAfterTour = sceneKind == .quiz ? liveScene.quiz : nil
+            guard requestGeneration == fieldTripSceneRequestGeneration else { return true }
+            print("Field trip scene path: live")
+            FieldTripOverlay.shared.playLiveScene(
+                html: liveScene.html,
+                hidesQuizLabel: quizToAskAfterTour != nil
+            )
+            fieldTripPhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
+            return true
+        } catch is CancellationError {
+            return true
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return true
+        } catch {
+            print("Field trip live scene failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private func respondToFieldTripAnswer(
         transcript: String,
         quiz: FieldTripQuiz,
         wrongAnswerCount: Int
     ) async {
         voiceState = .processing
+        if !quiz.explanation.isEmpty {
+            do {
+                let judgedAnswer = try await fieldTripSceneClient.judgeSpokenAnswer(
+                    question: quiz.question,
+                    answerLabel: quiz.answerLabel,
+                    explanation: quiz.explanation,
+                    transcript: transcript
+                )
+                let spokenLine = applyJudgedFieldTripAnswer(
+                    judgedAnswer: judgedAnswer,
+                    quiz: quiz,
+                    wrongAnswerCount: wrongAnswerCount
+                )
+                await speakFieldTripLine(spokenLine)
+                guard !Task.isCancelled else { return }
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+                return
+            } catch is CancellationError {
+                return
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                return
+            } catch {
+                print("Field trip answer judge failed, using the word match: \(error.localizedDescription)")
+            }
+        }
         let spokenLine: String
         let spokenAnswerGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
             transcript: transcript,
@@ -978,11 +1048,66 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
+    /// The first wrong answer keeps the model's sentence, which does not give the answer away.
+    /// A second wrong answer uses the closing line, so the learner hears what the part does.
+    private func applyJudgedFieldTripAnswer(
+        judgedAnswer: FieldTripJudgedAnswer,
+        quiz: FieldTripQuiz,
+        wrongAnswerCount: Int
+    ) -> String {
+        switch judgedAnswer.grade {
+        case .nameAndFunctionWord:
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .allLabelsShowing
+            return judgedAnswer.spokenReply
+        case .nameOnly:
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+            return judgedAnswer.spokenReply
+        case .wrong:
+            if wrongAnswerCount == 0 {
+                fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
+                return judgedAnswer.spokenReply
+            }
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .allLabelsShowing
+            return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
+        }
+    }
+
     private func respondToFieldTripFollowUpOnWhatThePartDoes(
         transcript: String,
         quiz: FieldTripQuiz
     ) async {
         voiceState = .processing
+        if !quiz.explanation.isEmpty {
+            do {
+                let judgedAnswer = try await fieldTripSceneClient.judgeSpokenAnswer(
+                    question: quiz.question,
+                    answerLabel: quiz.answerLabel,
+                    explanation: quiz.explanation,
+                    transcript: transcript
+                )
+                let spokenLine: String
+                if judgedAnswer.grade == .nameAndFunctionWord {
+                    spokenLine = judgedAnswer.spokenReply
+                } else {
+                    spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
+                }
+                fieldTripPhase = .allLabelsShowing
+                await speakFieldTripLine(spokenLine)
+                guard !Task.isCancelled else { return }
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+                return
+            } catch is CancellationError {
+                return
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                return
+            } catch {
+                print("Field trip answer judge failed, using the word match: \(error.localizedDescription)")
+            }
+        }
         let transcriptSaysWhatThePartDoes = FieldTripAnswerJudge.transcriptIncludesFunctionWord(
             transcript: transcript,
             functionWords: quiz.functionWords
