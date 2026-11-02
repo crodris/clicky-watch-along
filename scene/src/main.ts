@@ -63,12 +63,19 @@ const dragRadiansPerPixel = 0.005;
 // The last stop sits close to the organs, so a wider orbit puts the lens inside one.
 const maximumDragAzimuthRadians = 1;
 const maximumDragPolarRadians = 0.6;
+const minimumZoomRadiusScale = 0.55;
+const maximumZoomRadiusScale = 1.8;
+// A Retina frame costs about four times a standard one, so gestures draw at
+// pixel ratio 1 and one sharp frame follows once the input stops.
+const gesturePixelRatio = 1;
+const gestureSettleMilliseconds = 150;
 
 type ModelOrbit = {
   target: Vector3;
   restingOffset: Spherical;
   azimuthOffset: number;
   polarOffset: number;
+  radiusScale: number;
 };
 
 type PageElements = {
@@ -141,6 +148,7 @@ let cameraMoveFrameId: number | null = null;
 let modelOrbit: ModelOrbit | null = null;
 let lastDragPoint: { x: number; y: number } | null = null;
 let dragRenderFrameId: number | null = null;
+let gestureSettleTimeoutId: number | null = null;
 const scheduledTimeoutIds: number[] = [];
 
 function requiredCanvas(): HTMLCanvasElement {
@@ -249,7 +257,7 @@ function ensureRenderer(): void {
     antialias: true,
     premultipliedAlpha: true,
   });
-  glRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maximumPixelRatio));
+  glRenderer.setPixelRatio(fullPixelRatio());
   elements.canvas.addEventListener("webglcontextlost", () => {
     console.warn("WebGL context lost");
   });
@@ -337,6 +345,18 @@ function setShellFade(shellFade: number): void {
   }
 }
 
+function fullPixelRatio(): number {
+  return Math.min(window.devicePixelRatio, maximumPixelRatio);
+}
+
+// setPixelRatio reallocates the drawing buffer, so it only runs on a change.
+function applyPixelRatio(pixelRatio: number): void {
+  if (renderer === null || renderer.getPixelRatio() === pixelRatio) {
+    return;
+  }
+  renderer.setPixelRatio(pixelRatio);
+}
+
 function renderSceneOnce(): void {
   if (renderer === null) {
     return;
@@ -363,6 +383,11 @@ function cancelCameraTour(): void {
   activeTourId += 1;
   modelOrbit = null;
   lastDragPoint = null;
+  if (gestureSettleTimeoutId !== null) {
+    window.clearTimeout(gestureSettleTimeoutId);
+    gestureSettleTimeoutId = null;
+  }
+  applyPixelRatio(fullPixelRatio());
   if (dragRenderFrameId !== null) {
     window.cancelAnimationFrame(dragRenderFrameId);
     dragRenderFrameId = null;
@@ -779,6 +804,7 @@ function startCameraTour(sceneSpec: SceneSpec): void {
               ),
               azimuthOffset: 0,
               polarOffset: 0,
+              radiusScale: 1,
             };
             // The Mac app decides what follows the tour. A normal browser has
             // no handler, so the optional chain does nothing there.
@@ -822,20 +848,53 @@ function orbitCameraByDrag(deltaX: number, deltaY: number): void {
     -maximumDragPolarRadians,
     maximumDragPolarRadians,
   );
+  placeCameraOnOrbit(orbit);
+}
+
+function zoomCameraBy(magnification: number): void {
+  if (modelOrbit === null) {
+    return;
+  }
+  const orbit = modelOrbit;
+  orbit.radiusScale = clampNumber(
+    orbit.radiusScale * (1 - magnification),
+    minimumZoomRadiusScale,
+    maximumZoomRadiusScale,
+  );
+  placeCameraOnOrbit(orbit);
+}
+
+function placeCameraOnOrbit(orbit: ModelOrbit): void {
   const offset = new Spherical(
-    orbit.restingOffset.radius,
+    orbit.restingOffset.radius * orbit.radiusScale,
     orbit.restingOffset.phi + orbit.polarOffset,
     orbit.restingOffset.theta + orbit.azimuthOffset,
   ).makeSafe();
   camera.position.setFromSpherical(offset).add(orbit.target);
   camera.lookAt(orbit.target);
-  // Mouse events arrive faster than the screen draws, so renders are merged.
+  applyPixelRatio(gesturePixelRatio);
+  // Gesture events arrive faster than the screen draws, so renders are merged.
   if (dragRenderFrameId === null) {
     dragRenderFrameId = window.requestAnimationFrame(() => {
       dragRenderFrameId = null;
       renderSceneOnce();
+      restoreFullPixelRatioAfterGestureSettles();
     });
   }
+}
+
+// The wait starts after a gesture frame is drawn, not at the input. A slow
+// frame would otherwise outlast the wait and trigger a slow sharp frame
+// in the middle of the gesture.
+function restoreFullPixelRatioAfterGestureSettles(): void {
+  if (gestureSettleTimeoutId !== null) {
+    window.clearTimeout(gestureSettleTimeoutId);
+  }
+  gestureSettleTimeoutId = window.setTimeout(() => {
+    gestureSettleTimeoutId = null;
+    applyPixelRatio(fullPixelRatio());
+    renderSceneOnce();
+  }, gestureSettleMilliseconds);
 }
 
 window.addEventListener("pointerdown", (event) => {
@@ -876,6 +935,7 @@ declare global {
       play(spec: unknown, hidesQuizLabel: boolean): void;
       reveal(): void;
       clear(): void;
+      zoomBy(magnification: number): void;
     };
     webkit?: {
       messageHandlers?: {
@@ -896,5 +956,8 @@ window.fieldTrip = {
   },
   clear() {
     clearScene();
+  },
+  zoomBy(magnification: number) {
+    zoomCameraBy(magnification);
   },
 };

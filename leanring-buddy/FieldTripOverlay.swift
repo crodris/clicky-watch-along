@@ -16,6 +16,18 @@ private final class FieldTripWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
+
+    /// Trackpad pinch. allowsMagnification stays off because it would scale
+    /// the whole page, so the page gets the raw gesture and zooms the camera.
+    override func magnify(with event: NSEvent) {
+        callAsyncJavaScript(
+            "window.fieldTrip?.zoomBy(magnification)",
+            arguments: ["magnification": event.magnification],
+            in: nil,
+            in: .page,
+            completionHandler: nil
+        )
+    }
 }
 
 // A class, not an enum: WKNavigationDelegate has to be an NSObject.

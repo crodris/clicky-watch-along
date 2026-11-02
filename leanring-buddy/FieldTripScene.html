@@ -31806,6 +31806,10 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
   var dragRadiansPerPixel = 5e-3;
   var maximumDragAzimuthRadians = 1;
   var maximumDragPolarRadians = 0.6;
+  var minimumZoomRadiusScale = 0.55;
+  var maximumZoomRadiusScale = 1.8;
+  var gesturePixelRatio = 1;
+  var gestureSettleMilliseconds = 150;
   var scene = new Scene();
   var camera = new PerspectiveCamera(
     cameraFieldOfViewDegrees,
@@ -31846,6 +31850,7 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
   var modelOrbit = null;
   var lastDragPoint = null;
   var dragRenderFrameId = null;
+  var gestureSettleTimeoutId = null;
   var scheduledTimeoutIds = [];
   function requiredCanvas() {
     const element = document.getElementById("field-trip-canvas");
@@ -31942,7 +31947,7 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
       antialias: true,
       premultipliedAlpha: true
     });
-    glRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maximumPixelRatio));
+    glRenderer.setPixelRatio(fullPixelRatio());
     elements.canvas.addEventListener("webglcontextlost", () => {
       console.warn("WebGL context lost");
     });
@@ -32018,6 +32023,15 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
       }
     }
   }
+  function fullPixelRatio() {
+    return Math.min(window.devicePixelRatio, maximumPixelRatio);
+  }
+  function applyPixelRatio(pixelRatio) {
+    if (renderer === null || renderer.getPixelRatio() === pixelRatio) {
+      return;
+    }
+    renderer.setPixelRatio(pixelRatio);
+  }
   function renderSceneOnce() {
     if (renderer === null) {
       return;
@@ -32041,6 +32055,11 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     activeTourId += 1;
     modelOrbit = null;
     lastDragPoint = null;
+    if (gestureSettleTimeoutId !== null) {
+      window.clearTimeout(gestureSettleTimeoutId);
+      gestureSettleTimeoutId = null;
+    }
+    applyPixelRatio(fullPixelRatio());
     if (dragRenderFrameId !== null) {
       window.cancelAnimationFrame(dragRenderFrameId);
       dragRenderFrameId = null;
@@ -32379,7 +32398,8 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
                   camera.position.clone().sub(target)
                 ),
                 azimuthOffset: 0,
-                polarOffset: 0
+                polarOffset: 0,
+                radiusScale: 1
               };
               window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
                 "tourFinished"
@@ -32417,19 +32437,46 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
       -maximumDragPolarRadians,
       maximumDragPolarRadians
     );
+    placeCameraOnOrbit(orbit);
+  }
+  function zoomCameraBy(magnification) {
+    if (modelOrbit === null) {
+      return;
+    }
+    const orbit = modelOrbit;
+    orbit.radiusScale = clampNumber(
+      orbit.radiusScale * (1 - magnification),
+      minimumZoomRadiusScale,
+      maximumZoomRadiusScale
+    );
+    placeCameraOnOrbit(orbit);
+  }
+  function placeCameraOnOrbit(orbit) {
     const offset = new Spherical(
-      orbit.restingOffset.radius,
+      orbit.restingOffset.radius * orbit.radiusScale,
       orbit.restingOffset.phi + orbit.polarOffset,
       orbit.restingOffset.theta + orbit.azimuthOffset
     ).makeSafe();
     camera.position.setFromSpherical(offset).add(orbit.target);
     camera.lookAt(orbit.target);
+    applyPixelRatio(gesturePixelRatio);
     if (dragRenderFrameId === null) {
       dragRenderFrameId = window.requestAnimationFrame(() => {
         dragRenderFrameId = null;
         renderSceneOnce();
+        restoreFullPixelRatioAfterGestureSettles();
       });
     }
+  }
+  function restoreFullPixelRatioAfterGestureSettles() {
+    if (gestureSettleTimeoutId !== null) {
+      window.clearTimeout(gestureSettleTimeoutId);
+    }
+    gestureSettleTimeoutId = window.setTimeout(() => {
+      gestureSettleTimeoutId = null;
+      applyPixelRatio(fullPixelRatio());
+      renderSceneOnce();
+    }, gestureSettleMilliseconds);
   }
   window.addEventListener("pointerdown", (event) => {
     lastDragPoint = { x: event.clientX, y: event.clientY };
@@ -32467,6 +32514,9 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     },
     clear() {
       clearScene();
+    },
+    zoomBy(magnification) {
+      zoomCameraBy(magnification);
     }
   };
 })();
