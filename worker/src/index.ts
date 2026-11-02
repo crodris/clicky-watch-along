@@ -8,11 +8,11 @@
  *   POST /chat  → Anthropic Messages API (streaming)
  *   POST /tts   → ElevenLabs TTS API
  *   POST /scene → Anthropic Messages API (field-trip spec)
- *   POST /watch-moment → Anthropic Messages API (pause decision for a watch-along)
+ *   POST /video-quiz-plan → Anthropic Messages API (three quiz pause moments for a video transcript)
  */
 
 import { handleScene } from "./scene";
-import { handleWatchMoment } from "./watchMoment";
+import { handleVideoQuizPlan } from "./videoQuizPlan";
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -46,8 +46,8 @@ export default {
         return await handleScene(request, env.ANTHROPIC_API_KEY);
       }
 
-      if (url.pathname === "/watch-moment") {
-        return await handleWatchMoment(request, env.ANTHROPIC_API_KEY);
+      if (url.pathname === "/video-quiz-plan") {
+        return await handleVideoQuizPlan(request, env.ANTHROPIC_API_KEY);
       }
     } catch (error) {
       console.error(`[${url.pathname}] Unhandled error:`, error);

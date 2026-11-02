@@ -96,19 +96,28 @@ final class CompanionManager: ObservableObject {
     private var fieldTripSceneRequestTask: Task<Void, Never>?
     private var fieldTripTourFinishedTask: Task<Void, Never>?
 
-    private lazy var videoWatchAlongSession = VideoWatchAlongSession(
+    private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
-            guard let self, case .idle = self.fieldTripPhase else { return false }
-            return self.voiceState == .idle && !self.elevenLabsTTSClient.isPlaying
+            guard let self else { return false }
+            switch self.fieldTripPhase {
+            case .idle, .allLabelsShowing:
+                // A finished scene stays up until the next press, and the video is already paused.
+                return self.voiceState == .idle && !self.elevenLabsTTSClient.isPlaying
+            default:
+                return false
+            }
         },
         askQuestion: { [weak self] quiz in
-            self?.askWatchAlongQuiz(quiz)
+            self?.askVideoQuizQuestion(quiz)
+        },
+        speakLine: { [weak self] line in
+            self?.speakVideoQuizLine(line)
         }
     )
-    /// True from the moment a watch-along question is asked until its explanation
+    /// True from the moment a video quiz question is asked until its explanation
     /// has been spoken and the video has been resumed.
-    private var watchAlongQuizIsActive = false
+    private var videoQuizQuestionIsActive = false
 
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
@@ -220,10 +229,8 @@ final class CompanionManager: ObservableObject {
         _ = claudeAPI
 
         #if DEBUG
-        if let watchAlongFilePath = VideoWatchAlongSession.rehearsalFilePath(
-            fromLaunchArguments: ProcessInfo.processInfo.arguments
-        ) {
-            videoWatchAlongSession.startRehearsal(fromTranscriptFileAt: watchAlongFilePath)
+        if ProcessInfo.processInfo.arguments.contains("--video-quiz-rehearsal") {
+            handleVideoQuizVoiceCommand(.start)
         }
         #endif
 
@@ -685,8 +692,8 @@ final class CompanionManager: ObservableObject {
     #endif
 
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
-        if let watchAlongCommand = watchAlongVoiceCommand(for: transcript) {
-            handleWatchAlongVoiceCommand(watchAlongCommand)
+        if let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
+            handleVideoQuizVoiceCommand(videoQuizCommand)
             return
         }
 
@@ -972,7 +979,7 @@ final class CompanionManager: ObservableObject {
             }
         }
         await speakFieldTripLine(spokenLine)
-        await resumeWatchAlongVideoAfterExplanation()
+        await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
@@ -993,28 +1000,28 @@ final class CompanionManager: ObservableObject {
         )
         fieldTripPhase = .allLabelsShowing
         await speakFieldTripLine(spokenLine)
-        await resumeWatchAlongVideoAfterExplanation()
+        await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
     }
 
-    private func handleWatchAlongVoiceCommand(_ watchAlongCommand: WatchAlongVoiceCommand) {
+    private func handleVideoQuizVoiceCommand(_ videoQuizCommand: VideoQuizVoiceCommand) {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
 
         let spokenLine: String
-        switch watchAlongCommand {
+        switch videoQuizCommand {
         case .start:
-            videoWatchAlongSession.start()
-            spokenLine = "Yay, let's watch together! I'll jump in when something cool comes up!"
+            videoQuizSession.start()
+            spokenLine = "Sure! Let me read through this video."
         case .stop:
-            videoWatchAlongSession.stop()
-            if watchAlongQuizIsActive {
-                watchAlongQuizIsActive = false
+            videoQuizSession.stop()
+            if videoQuizQuestionIsActive {
+                videoQuizQuestionIsActive = false
                 fieldTripPhase = .idle
             }
-            spokenLine = "Okay, I'll stop watching. That was fun!"
+            spokenLine = "Okay, I'll stop quizzing. That was fun!"
         }
 
         currentResponseTask = Task {
@@ -1025,8 +1032,24 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func askWatchAlongQuiz(_ quiz: FieldTripQuiz) {
-        watchAlongQuizIsActive = true
+    /// Speaks a line from the video quiz after whatever Clicky is already saying,
+    /// so a quick failure does not cut off "Let me read through this video."
+    private func speakVideoQuizLine(_ line: String) {
+        let previousSpokenLineTask = currentResponseTask
+        currentResponseTask = Task {
+            await previousSpokenLineTask?.value
+            await self.waitUntilTheVoiceAnswerIsQuiet()
+            guard !Task.isCancelled else { return }
+            await self.speakFieldTripLine(line)
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    private func askVideoQuizQuestion(_ quiz: FieldTripQuiz) {
+        clearFinishedFieldTripScene()
+        videoQuizQuestionIsActive = true
         fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
         currentResponseTask = Task {
             await self.speakFieldTripLine(quiz.question)
@@ -1036,16 +1059,16 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// A watch-along question is over once the quiz reaches .allLabelsShowing. The
+    /// A video quiz question is over once the quiz reaches .allLabelsShowing. The
     /// explanation is already playing, so press play only after it ends.
-    private func resumeWatchAlongVideoAfterExplanation() async {
-        guard watchAlongQuizIsActive, case .allLabelsShowing = fieldTripPhase else { return }
-        watchAlongQuizIsActive = false
+    private func resumeVideoQuizAfterExplanation() async {
+        guard videoQuizQuestionIsActive, case .allLabelsShowing = fieldTripPhase else { return }
+        videoQuizQuestionIsActive = false
         fieldTripPhase = .idle
         while elevenLabsTTSClient.isPlaying && !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        videoWatchAlongSession.resumeVideoAfterQuestion()
+        videoQuizSession.resumeVideoAfterQuestion()
     }
 
     /// Quizzes written before explanations keep the original spoken lines.

@@ -37,12 +37,44 @@ struct leanring_buddyTests {
         #expect(shouldTreatPermissionAsGranted)
     }
 
-    @Test func watchAlongVoiceCommandStartsOnItsPhrasesAndStopsOnStopWatching() async throws {
-        #expect(watchAlongVoiceCommand(for: "Hey Clicky, watch this with me.") == .start)
-        #expect(watchAlongVoiceCommand(for: "can we watch along?") == .start)
-        #expect(watchAlongVoiceCommand(for: "Hey Clicky, watch this video with me.") == .start)
-        #expect(watchAlongVoiceCommand(for: "Okay, stop watching.") == .stop)
-        #expect(watchAlongVoiceCommand(for: "what does the heart do") == nil)
+    @Test func videoQuizVoiceCommandNeedsAVideoWordAndAQuizWordToStart() async throws {
+        #expect(videoQuizVoiceCommand(for: "Hey Clicky, can you watch this video with me and quiz me on the important parts?") == .start)
+        #expect(videoQuizVoiceCommand(for: "quiz me on this video") == .start)
+        #expect(videoQuizVoiceCommand(for: "test me on the video") == .start)
+        #expect(videoQuizVoiceCommand(for: "Hey Clicky, watch this with me.") == nil)
+        #expect(videoQuizVoiceCommand(for: "can we watch along?") == nil)
+        #expect(videoQuizVoiceCommand(for: "quiz me on the heart") == nil)
+        #expect(videoQuizVoiceCommand(for: "what does the heart do") == nil)
+    }
+
+    @Test func videoQuizVoiceCommandStopsOnStopQuizzingOrStopWatching() async throws {
+        #expect(videoQuizVoiceCommand(for: "Okay, stop quizzing.") == .stop)
+        #expect(videoQuizVoiceCommand(for: "stop watching") == .stop)
+        #expect(videoQuizVoiceCommand(for: "stop watching the video and quizzing me") == .stop)
+    }
+
+    @Test func videoQuizAsksAMomentOnlyWhenTheVideoIsJustPastItAndItIsNotAnswered() async throws {
+        let pauseAtSecondsPerMoment: [Double] = [30, 90, 150]
+
+        #expect(videoQuizMomentIndexToAsk(currentSeconds: 29.9, pauseAtSecondsPerMoment: pauseAtSecondsPerMoment, askedMomentIndices: []) == nil)
+        #expect(videoQuizMomentIndexToAsk(currentSeconds: 30.3, pauseAtSecondsPerMoment: pauseAtSecondsPerMoment, askedMomentIndices: []) == 0)
+        #expect(videoQuizMomentIndexToAsk(currentSeconds: 34.9, pauseAtSecondsPerMoment: pauseAtSecondsPerMoment, askedMomentIndices: []) == 0)
+        #expect(videoQuizMomentIndexToAsk(currentSeconds: 35.1, pauseAtSecondsPerMoment: pauseAtSecondsPerMoment, askedMomentIndices: []) == nil)
+        #expect(videoQuizMomentIndexToAsk(currentSeconds: 30.3, pauseAtSecondsPerMoment: pauseAtSecondsPerMoment, askedMomentIndices: [0]) == nil)
+        #expect(videoQuizMomentIndexToAsk(currentSeconds: 91, pauseAtSecondsPerMoment: pauseAtSecondsPerMoment, askedMomentIndices: [0]) == 1)
+    }
+
+    @Test func videoQuizTranscriptLinesKeepTextEventsAndDropEmptyAndAppendEvents() async throws {
+        let captionsJSON3Data = Data("""
+        {"events":[{"tStartMs":0,"segs":[{"utf8":"\\n"}]},{"tStartMs":6495,"segs":[{"utf8":"For most of history,"}]},{"tStartMs":8485,"segs":[{"utf8":"humans had "},{"utf8":"no idea"}]},{"tStartMs":9000,"aAppend":1,"segs":[{"utf8":"extra"}]},{"tStartMs":9100}]}
+        """.utf8)
+
+        let transcriptLines = try videoQuizTranscriptLines(fromCaptionsJSON3Data: captionsJSON3Data)
+
+        #expect(transcriptLines == [
+            VideoQuizTranscriptLine(seconds: 6.5, text: "For most of history,"),
+            VideoQuizTranscriptLine(seconds: 8.5, text: "humans had no idea"),
+        ])
     }
 
     @Test func fieldTripAnswerJudgeAcceptsTheHeartAndRejectsTheLungs() async throws {
