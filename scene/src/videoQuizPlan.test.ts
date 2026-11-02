@@ -159,7 +159,7 @@ describe("parseVideoQuizPlan", () => {
       transcriptLines,
     );
 
-    expect(checkedPlan.ok && checkedPlan.moments.length).toBe(2);
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(2);
   });
 
   it("allows an answer label that is only part of a longer word in the question", () => {
