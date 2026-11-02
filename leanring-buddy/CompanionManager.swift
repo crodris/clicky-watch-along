@@ -624,6 +624,14 @@ final class CompanionManager: ObservableObject {
     for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask them a question as soon as the camera stops moving. reply with one or two short, cheerful spoken sentences, like an excited tour guide, saying you're heading inside what they asked about and telling them to look closely. use exclamation marks and at most 18 words. never name any part or ingredient of the thing, because that could give away the answer. do not say the words quiz, question, test, or tour, do not ask anything yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
     """
 
+    /// Added to the system prompt for a look-inside request. Without it Claude
+    /// answers from the page and tells the learner to scroll while the scene opens.
+    private static let fieldTripExploreVoiceResponseInstructions = """
+
+
+    for this reply only: a labeled 3d model of what they asked about is already opening on their screen, and the camera is moving through it. reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. talk about the model, not the web page. never tell them to scroll, click, or look anywhere else. the only tag you may write is [POINT:none], at the very end.
+    """
+
     // MARK: - AI Response Pipeline
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
@@ -683,9 +691,15 @@ final class CompanionManager: ObservableObject {
         if let requestedSceneKind {
             fieldTripPhase = .buildingScene(requestedSceneKind)
         }
-        let voiceResponseSystemPrompt = requestedSceneKind == .quiz
-            ? Self.companionVoiceResponseSystemPrompt + Self.fieldTripQuizVoiceResponseInstructions
-            : Self.companionVoiceResponseSystemPrompt
+        let voiceResponseSystemPrompt: String
+        switch requestedSceneKind {
+        case .quiz:
+            voiceResponseSystemPrompt = Self.companionVoiceResponseSystemPrompt + Self.fieldTripQuizVoiceResponseInstructions
+        case .explore:
+            voiceResponseSystemPrompt = Self.companionVoiceResponseSystemPrompt + Self.fieldTripExploreVoiceResponseInstructions
+        case nil:
+            voiceResponseSystemPrompt = Self.companionVoiceResponseSystemPrompt
+        }
 
         currentResponseTask = Task {
             // Stay in processing (spinner) state — no streaming text displayed
