@@ -70,7 +70,12 @@ final class CompanionManager: ObservableObject {
 
     /// Base URL for the Cloudflare Worker proxy. All API requests route
     /// through this so keys never ship in the app binary.
+    #if DEBUG
     private static let workerBaseURL = "http://127.0.0.1:8787"
+    #else
+    // A release build must never send screenshots to a plain HTTP local port.
+    private static let workerBaseURL = "https://your-worker-name.your-subdomain.workers.dev"
+    #endif
 
     private lazy var claudeAPI: ClaudeAPI = {
         return ClaudeAPI(proxyURL: "\(Self.workerBaseURL)/chat", model: selectedModel)
@@ -146,8 +151,9 @@ final class CompanionManager: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
     }
 
-    /// Whether the user has submitted their email during onboarding.
-    @Published var hasSubmittedEmail: Bool = UserDefaults.standard.bool(forKey: "hasSubmittedEmail")
+    /// Always true in this fork, so the email step never appears and no
+    /// address goes to the upstream signup form.
+    @Published var hasSubmittedEmail: Bool = true
 
     /// Submits the user's email to FormSpark and identifies them in PostHog.
     func submitEmail(_ email: String) {
