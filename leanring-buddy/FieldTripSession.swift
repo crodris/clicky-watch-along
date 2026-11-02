@@ -11,7 +11,7 @@ import Foundation
 enum FieldTripSceneKind {
     /// Every label stays visible, and nothing is asked after the tour.
     case explore
-    /// One label shows "?" and Clicky asks the learner to name that part after the tour.
+    /// One label shows "?" and Clicky asks what that part is and what it does after the tour.
     case quiz
 }
 
@@ -20,17 +20,34 @@ enum FieldTripPhase {
     case buildingScene(FieldTripSceneKind)
     case touring(quizToAskAfterTour: FieldTripQuiz?)
     case awaitingAnswer(FieldTripQuiz, wrongAnswerCount: Int)
+    /// The learner named the part. Clicky is waiting to hear what it does.
+    case awaitingFollowUpOnWhatThePartDoes(FieldTripQuiz, missedFunctionAnswerCount: Int)
     /// The scene stays on screen until the next question clears it.
     case allLabelsShowing
+}
+
+enum FieldTripQuizGrade: Equatable {
+    case nameAndFunctionWord
+    case nameOnly
+    case wrong
 }
 
 struct FieldTripQuiz {
     let answerLabel: String
     let question: String
+    let functionWords: [String]
+    let explanation: String
 
-    init(answerLabel: String, question: String) {
+    init(
+        answerLabel: String,
+        question: String,
+        functionWords: [String] = [],
+        explanation: String = ""
+    ) {
         self.answerLabel = answerLabel
         self.question = question
+        self.functionWords = functionWords
+        self.explanation = explanation
     }
 
     init(specJSONData: Data) throws {
@@ -57,6 +74,8 @@ struct FieldTripQuiz {
         }
         self.answerLabel = answerLabel
         self.question = question
+        self.functionWords = quizDictionary["functionWords"] as? [String] ?? []
+        self.explanation = quizDictionary["explanation"] as? String ?? ""
     }
 }
 
@@ -85,6 +104,34 @@ enum FieldTripAnswerJudge {
         let answerWords = words(in: answerLabel)
         return answerWords.allSatisfy { answerWord in
             transcriptWords.contains(answerWord)
+        }
+    }
+
+    /// A quiz with no function words is complete once the learner names the part.
+    /// Older specs have nothing else to grade.
+    nonisolated static func gradeSpokenAnswer(transcript: String, quiz: FieldTripQuiz) -> FieldTripQuizGrade {
+        let transcriptNamesThePart = isCorrect(transcript: transcript, answerLabel: quiz.answerLabel)
+        if !transcriptNamesThePart {
+            return .wrong
+        }
+        let transcriptSaysWhatThePartDoes = quiz.functionWords.isEmpty
+            || transcriptIncludesFunctionWord(transcript: transcript, functionWords: quiz.functionWords)
+        if transcriptSaysWhatThePartDoes {
+            return .nameAndFunctionWord
+        }
+        return .nameOnly
+    }
+
+    nonisolated static func transcriptIncludesFunctionWord(transcript: String, functionWords: [String]) -> Bool {
+        let transcriptWords = words(in: transcript)
+        return functionWords.contains { functionWord in
+            let functionWordTokens = words(in: functionWord)
+            guard !functionWordTokens.isEmpty else {
+                return false
+            }
+            return functionWordTokens.allSatisfy { functionWordToken in
+                transcriptWords.contains(functionWordToken)
+            }
         }
     }
 

@@ -10,6 +10,21 @@ describe("scene spec", () => {
     expect(parsedWhale.title).toBe("Blue whale");
     expect(parsedWhale.cameraStops).toHaveLength(3);
     expect(parsedWhale.quiz.partId).toBe("heart");
+    expect(parsedWhale.quiz.question).toBe(
+      "Here we are, inside the whale's body! See the spot marked with a question mark? What organ is this, and what does it do?",
+    );
+    expect(parsedWhale.quiz.functionWords).toEqual([
+      "pump",
+      "pumps",
+      "pumping",
+      "blood",
+      "circulate",
+      "circulates",
+      "beats",
+    ]);
+    expect(parsedWhale.quiz.explanation).toBe(
+      "That's the heart, and it pumps blood through the whale's whole body.",
+    );
     expect(parsedWhale.parts.map((part) => part.id)).toEqual([
       "body",
       "flipper",
@@ -39,6 +54,25 @@ describe("scene spec", () => {
 
     expect(parsedWater.title).toBe("Water molecule");
     expect(parsedWater.quiz.partId).toBe("oxygen");
+    expect(parsedWater.quiz.question).toBe(
+      "Here we are, inside a water molecule! See the big atom marked with a question mark? What atom is this, and what does it do here?",
+    );
+    expect(parsedWater.quiz.functionWords).toEqual([
+      "bond",
+      "bonds",
+      "bonded",
+      "bonding",
+      "share",
+      "shares",
+      "sharing",
+      "hold",
+      "holds",
+      "holding",
+      "electrons",
+    ]);
+    expect(parsedWater.quiz.explanation).toBe(
+      "That's oxygen, and it shares electrons with the two hydrogen atoms to hold the molecule together.",
+    );
     expect(parsedWater.parts.map((part) => [part.id, part.label])).toEqual([
       ["droplet", "Water droplet"],
       ["oxygen", "Oxygen"],

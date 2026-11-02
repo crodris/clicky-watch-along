@@ -323,6 +323,8 @@
   ],
   "quiz": {
     "partId": "oxygen",
-    "question": "Here we are, inside a water molecule! See the big atom marked with a question mark? Which atom holds the two hydrogen atoms together?"
+    "question": "Here we are, inside a water molecule! See the big atom marked with a question mark? What atom is this, and what does it do here?",
+    "functionWords": ["bond", "bonds", "bonded", "bonding", "share", "shares", "sharing", "hold", "holds", "holding", "electrons"],
+    "explanation": "That's oxygen, and it shares electrons with the two hydrogen atoms to hold the molecule together."
   }
 }

@@ -138,6 +138,10 @@ export const sceneSpecSchema = z
     quiz: z.object({
       partId: z.string(),
       question: z.string(),
+      functionWords: z
+        .array(z.string().regex(/^[a-z]+$/, "function word must be lowercase"))
+        .optional(),
+      explanation: z.string().optional(),
     }),
   })
   .refine(

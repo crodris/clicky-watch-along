@@ -51,6 +51,43 @@ struct leanring_buddyTests {
         #expect(lungsAnswerIsCorrect == false)
     }
 
+    @Test func fieldTripQuizGradeCoversNameAndFunctionNameOnlyAndWrong() async throws {
+        let heartQuiz = FieldTripQuiz(
+            answerLabel: "Heart",
+            question: "What organ is this, and what does it do?",
+            functionWords: ["pump", "pumps", "pumping", "blood", "circulate", "circulates", "beats"],
+            explanation: "That's the heart, and it pumps blood through the whale's whole body."
+        )
+        let quizWithNoFunctionWords = FieldTripQuiz(
+            answerLabel: "Heart",
+            question: "Which organ is this?",
+            functionWords: [],
+            explanation: ""
+        )
+
+        let nameAndFunctionGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+            transcript: "it's the heart and it pumps",
+            quiz: heartQuiz
+        )
+        let nameOnlyGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+            transcript: "the heart",
+            quiz: heartQuiz
+        )
+        let wrongGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+            transcript: "the lungs",
+            quiz: heartQuiz
+        )
+        let nameWithNoFunctionWordsGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+            transcript: "the heart",
+            quiz: quizWithNoFunctionWords
+        )
+
+        #expect(nameAndFunctionGrade == .nameAndFunctionWord)
+        #expect(nameOnlyGrade == .nameOnly)
+        #expect(wrongGrade == .wrong)
+        #expect(nameWithNoFunctionWordsGrade == .nameAndFunctionWord)
+    }
+
     @Test func onlyAnExplicitQuizRequestStartsTheQuiz() async throws {
         #expect(fieldTripSceneKind(for: "What does this look like inside?") == .explore)
         #expect(fieldTripSceneKind(for: "Can you quiz me on it?") == .quiz)

@@ -360,7 +360,21 @@ const buildSceneInputSchema: JsonSchema = {
         },
         question: {
           type: "string",
-          description: "Asks the learner to name the hidden part. Does not contain the answer.",
+          description:
+            "Opens inside the subject, points at the question mark, and asks what the part is and what it does. Does not contain the answer.",
+        },
+        functionWords: {
+          type: "array",
+          description: "Lowercase words that count as saying what the hidden part does.",
+          items: {
+            type: "string",
+            pattern: "^[a-z]+$",
+            description: "One lowercase word.",
+          },
+        },
+        explanation: {
+          type: "string",
+          description: "One spoken sentence that names the part and says what it does.",
         },
       },
       required: ["partId", "question"],
@@ -388,7 +402,7 @@ const buildSceneSystemPrompt = [
   "- When the subject has an inside, the outer part is a translucent shell.",
   "- Center the subject at the origin, inside a box 6 units on each side.",
   "- Use three camera stops. The last stop ends beside the most interesting part, with neighboring parts still in view.",
-  "- The quiz hides that part. quiz.partId is that part. quiz.question opens with one cheerful sentence saying you have arrived inside the subject, points at the spot marked with a question mark, then asks the learner to name it. It does not contain the answer. That part's label is one word the learner would say out loud, such as Oxygen, not Oxygen atom.",
+  "- The quiz hides that part. quiz.partId is that part. quiz.question opens with one cheerful sentence saying you have arrived inside the subject, points at the spot marked with a question mark, then asks what the part is and what it does. It does not contain the answer. Include quiz.functionWords, lowercase words for what the part does, and quiz.explanation, one spoken sentence that names the part and says what it does. That part's label is one word the learner would say out loud, such as Oxygen, not Oxygen atom.",
   "",
   "Worked example of this schema. The blue whale below is a hand-tuned template, so its coordinates extend past the 6 unit box. A new subject still has to fit inside that box.",
   JSON.stringify(whaleScene),

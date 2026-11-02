@@ -681,6 +681,16 @@ final class CompanionManager: ObservableObject {
             return
         }
 
+        if case .awaitingFollowUpOnWhatThePartDoes(let quiz, _) = fieldTripPhase {
+            currentResponseTask = Task {
+                await self.respondToFieldTripFollowUpOnWhatThePartDoes(
+                    transcript: transcript,
+                    quiz: quiz
+                )
+            }
+            return
+        }
+
         clearFinishedFieldTripScene()
 
         if case .buildingScene = fieldTripPhase {
@@ -911,26 +921,67 @@ final class CompanionManager: ObservableObject {
     ) async {
         voiceState = .processing
         let spokenLine: String
-        let answerIsCorrect = FieldTripAnswerJudge.isCorrect(
+        let spokenAnswerGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
             transcript: transcript,
-            answerLabel: quiz.answerLabel
+            quiz: quiz
         )
-        if answerIsCorrect {
-            spokenLine = "Yes! The answer is \(quiz.answerLabel.lowercased()). Nice work!"
+        switch spokenAnswerGrade {
+        case .nameAndFunctionWord:
+            spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: true)
             FieldTripOverlay.shared.reveal()
             fieldTripPhase = .allLabelsShowing
-        } else if wrongAnswerCount == 0 {
-            spokenLine = "Ooh, not quite! Take another look."
-            fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-        } else {
-            spokenLine = "Good try! The answer is \(quiz.answerLabel.lowercased())."
+        case .nameOnly:
+            spokenLine = "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
             FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .allLabelsShowing
+            fieldTripPhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+        case .wrong:
+            if wrongAnswerCount == 0 {
+                spokenLine = "Ooh, not quite! Take another look."
+                fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
+            } else {
+                spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
+                FieldTripOverlay.shared.reveal()
+                fieldTripPhase = .allLabelsShowing
+            }
         }
         await speakFieldTripLine(spokenLine)
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
+    }
+
+    private func respondToFieldTripFollowUpOnWhatThePartDoes(
+        transcript: String,
+        quiz: FieldTripQuiz
+    ) async {
+        voiceState = .processing
+        let transcriptSaysWhatThePartDoes = FieldTripAnswerJudge.transcriptIncludesFunctionWord(
+            transcript: transcript,
+            functionWords: quiz.functionWords
+        )
+        let spokenLine = spokenLineAfterTheQuizEnds(
+            quiz: quiz,
+            learnerSaidWhatThePartDoes: transcriptSaysWhatThePartDoes
+        )
+        fieldTripPhase = .allLabelsShowing
+        await speakFieldTripLine(spokenLine)
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+    }
+
+    /// Quizzes written before explanations keep the original spoken lines.
+    private func spokenLineAfterTheQuizEnds(quiz: FieldTripQuiz, learnerSaidWhatThePartDoes: Bool) -> String {
+        if quiz.explanation.isEmpty {
+            if learnerSaidWhatThePartDoes {
+                return "Yes! The answer is \(quiz.answerLabel.lowercased()). Nice work!"
+            }
+            return "Good try! The answer is \(quiz.answerLabel.lowercased())."
+        }
+        if learnerSaidWhatThePartDoes {
+            return "Yes! \(quiz.explanation) Nice work!"
+        }
+        return "Good try! \(quiz.explanation)"
     }
 
     private func handleFieldTripTourFinished() {

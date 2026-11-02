@@ -1547,6 +1547,8 @@
   ],
   "quiz": {
     "partId": "heart",
-    "question": "Here we are, inside the whale's body! See the spot marked with a question mark? Which organ pumps the whale's blood?"
+    "question": "Here we are, inside the whale's body! See the spot marked with a question mark? What organ is this, and what does it do?",
+    "functionWords": ["pump", "pumps", "pumping", "blood", "circulate", "circulates", "beats"],
+    "explanation": "That's the heart, and it pumps blood through the whale's whole body."
   }
 }
