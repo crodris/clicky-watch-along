@@ -105,6 +105,7 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    private var pinchCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
@@ -199,6 +200,7 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
+        bindPinchToFieldTripZoom()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -320,6 +322,7 @@ final class CompanionManager: ObservableObject {
         fieldTripTourFinishedTask?.cancel()
         fieldTripTourFinishedTask = nil
         shortcutTransitionCancellable?.cancel()
+        pinchCancellable?.cancel()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
@@ -491,6 +494,15 @@ final class CompanionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] transition in
                 self?.handleShortcutTransition(transition)
+            }
+    }
+
+    private func bindPinchToFieldTripZoom() {
+        pinchCancellable = globalPushToTalkShortcutMonitor
+            .pinchMagnificationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { magnification in
+                FieldTripOverlay.shared.zoomModelForPinch(magnification: magnification)
             }
     }
 

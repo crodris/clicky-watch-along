@@ -14,6 +14,14 @@ import Foundation
 
 final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
+    let pinchMagnificationPublisher = PassthroughSubject<Double, Never>()
+
+    // CoreGraphics has no public names for gesture events. These are the values
+    // the window server uses for a gesture and for a trackpad zoom inside it.
+    private static let gestureEventTypeRawValue: UInt32 = 29
+    private static let gestureKindField = CGEventField(rawValue: 110)!
+    private static let gestureKindZoom: Int64 = 8
+    private static let gestureZoomAmountField = CGEventField(rawValue: 113)!
 
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
@@ -35,7 +43,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         guard globalEventTap == nil else { return }
 
         let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp]
-        let eventMask = monitoredEventTypes.reduce(CGEventMask(0)) { currentMask, eventType in
+        let eventMask = monitoredEventTypes.reduce(CGEventMask(1) << Self.gestureEventTypeRawValue) { currentMask, eventType in
             currentMask | (CGEventMask(1) << eventType.rawValue)
         }
 
@@ -104,6 +112,13 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         if eventType == .tapDisabledByTimeout || eventType == .tapDisabledByUserInput {
             if let globalEventTap {
                 CGEvent.tapEnable(tap: globalEventTap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        if eventType.rawValue == Self.gestureEventTypeRawValue {
+            if event.getIntegerValueField(Self.gestureKindField) == Self.gestureKindZoom {
+                pinchMagnificationPublisher.send(event.getDoubleValueField(Self.gestureZoomAmountField))
             }
             return Unmanaged.passUnretained(event)
         }
