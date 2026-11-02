@@ -39,6 +39,8 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
     let transcriptAsksToBeQuizzed = transcriptWords.contains { transcriptWord in
         transcriptWord.hasPrefix("quiz")
     } || normalizedTranscript.contains("test me")
+        // Apple Speech hears "quiz me" as "kiss me" often enough to matter.
+        || normalizedTranscript.contains("kiss me")
     return transcriptNamesAVideo && transcriptAsksToBeQuizzed ? .start : nil
 }
 

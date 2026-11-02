@@ -160,7 +160,7 @@ enum FieldTripAnswerJudge {
 nonisolated func fieldTripSceneKind(for transcript: String) -> FieldTripSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
     let asksToBeQuizzed = lowercaseTranscript.range(
-        of: #"\b(quiz\w*|test me)\b"#,
+        of: #"\b(quiz\w*|test me|kiss me)\b"#,
         options: .regularExpression
     ) != nil
     if asksToBeQuizzed {

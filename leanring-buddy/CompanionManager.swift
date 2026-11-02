@@ -545,6 +545,7 @@ final class CompanionManager: ObservableObject {
             // The scene sits above every window, so a quick tap of the shortcut
             // is how the learner gets back to the page under it.
             clearFinishedFieldTripScene()
+            FieldTripStatusLabel.shared.hide()
 
             // Cancel any pending transient hide so the overlay stays visible
             transientHideTask?.cancel()
@@ -645,14 +646,6 @@ final class CompanionManager: ObservableObject {
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
 
-    /// Added to the system prompt for a quiz request. Without it Claude asks its
-    /// own question over the tour, and the learner hears two quizzes.
-    private static let fieldTripQuizVoiceResponseInstructions = """
-
-
-    for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask them a question as soon as the camera stops moving. reply with one or two short, cheerful spoken sentences, like an excited tour guide, saying you're heading inside what they asked about and telling them to look closely. use exclamation marks and at most 18 words. never name any part or ingredient of the thing, because that could give away the answer. do not say the words quiz, question, test, or tour, do not ask anything yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
-    """
-
     /// Added to the system prompt for a look-inside request. Without it Claude
     /// answers from the page and tells the learner to scroll while the scene opens.
     private static let fieldTripExploreVoiceResponseInstructions = """
@@ -731,18 +724,16 @@ final class CompanionManager: ObservableObject {
             fieldTripPhase = .idle
         }
 
-        let requestedSceneKind = fieldTripSceneKind(for: transcript)
-        if let requestedSceneKind {
+        if let requestedSceneKind = fieldTripSceneKind(for: transcript) {
             fieldTripPhase = .buildingScene(requestedSceneKind)
-        }
-        let voiceResponseSystemPrompt: String
-        switch requestedSceneKind {
-        case .quiz:
-            voiceResponseSystemPrompt = Self.companionVoiceResponseSystemPrompt + Self.fieldTripQuizVoiceResponseInstructions
-        case .explore:
-            voiceResponseSystemPrompt = Self.companionVoiceResponseSystemPrompt + Self.fieldTripExploreVoiceResponseInstructions
-        case nil:
-            voiceResponseSystemPrompt = Self.companionVoiceResponseSystemPrompt
+            currentResponseTask = Task {
+                await self.buildFieldTripSceneWithStatusLabel(
+                    transcript: transcript,
+                    sceneKind: requestedSceneKind,
+                    requestGeneration: requestGeneration
+                )
+            }
+            return
         }
 
         currentResponseTask = Task {
@@ -754,28 +745,6 @@ final class CompanionManager: ObservableObject {
                 let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
 
                 guard !Task.isCancelled else { return }
-
-                // The scene request uses this same capture, then runs beside Claude
-                // so the spoken answer is not waiting on the scene.
-                if case .buildingScene(let sceneKind) = self.fieldTripPhase,
-                   requestGeneration == self.fieldTripSceneRequestGeneration {
-                    if let cursorScreenCapture = screenCaptures.first(where: { screenCapture in
-                        screenCapture.isCursorScreen
-                    }) ?? screenCaptures.first {
-                        let cursorScreenJPEGData = cursorScreenCapture.imageData
-                        self.fieldTripSceneRequestTask = Task {
-                            await self.requestFieldTripScene(
-                                question: transcript,
-                                sceneKind: sceneKind,
-                                cursorScreenJPEGData: cursorScreenJPEGData,
-                                requestGeneration: requestGeneration
-                            )
-                        }
-                    } else {
-                        print("Field trip scene failed: no cursor screen was captured")
-                        self.fieldTripPhase = .idle
-                    }
-                }
 
                 // Build image labels with the actual screenshot pixel dimensions
                 // so Claude's coordinate space matches the image it sees. We
@@ -792,7 +761,7 @@ final class CompanionManager: ObservableObject {
 
                 let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                     images: labeledImages,
-                    systemPrompt: voiceResponseSystemPrompt,
+                    systemPrompt: Self.companionVoiceResponseSystemPrompt,
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
                     onTextChunk: { _ in
@@ -893,10 +862,6 @@ final class CompanionManager: ObservableObject {
             } catch is CancellationError {
                 // User spoke again — response was interrupted
             } catch {
-                if case .buildingScene = self.fieldTripPhase,
-                   requestGeneration == self.fieldTripSceneRequestGeneration {
-                    self.fieldTripPhase = .idle
-                }
                 ClickyAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 speakCreditsErrorFallback()
@@ -906,6 +871,82 @@ final class CompanionManager: ObservableObject {
                 voiceState = .idle
                 scheduleTransientHideIfNeeded()
             }
+        }
+    }
+
+    /// Clicky stays quiet until the scene exists, because a voice over an empty
+    /// screen felt broken during the 8 to 14 second wait.
+    private func buildFieldTripSceneWithStatusLabel(
+        transcript: String,
+        sceneKind: FieldTripSceneKind,
+        requestGeneration: Int
+    ) async {
+        voiceState = .processing
+        FieldTripStatusLabel.shared.show("Reading your screen")
+        var cursorScreenJPEGData: Data?
+        var labeledImages: [(data: Data, label: String)] = []
+        do {
+            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            cursorScreenJPEGData = (screenCaptures.first { $0.isCursorScreen } ?? screenCaptures.first)?.imageData
+            labeledImages = screenCaptures.map { capture in
+                (data: capture.imageData, label: capture.label)
+            }
+        } catch {
+            print("Field trip scene failed: \(error)")
+        }
+        guard !Task.isCancelled else { return }
+
+        if let cursorScreenJPEGData {
+            FieldTripStatusLabel.shared.show("Building your 3D scene")
+            let almostThereTask = Task {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard !Task.isCancelled else { return }
+                FieldTripStatusLabel.shared.show("Almost there")
+            }
+            let sceneRequestTask = Task {
+                await self.requestFieldTripScene(
+                    question: transcript,
+                    sceneKind: sceneKind,
+                    cursorScreenJPEGData: cursorScreenJPEGData,
+                    requestGeneration: requestGeneration
+                )
+            }
+            fieldTripSceneRequestTask = sceneRequestTask
+            await sceneRequestTask.value
+            almostThereTask.cancel()
+        }
+        guard requestGeneration == fieldTripSceneRequestGeneration, !Task.isCancelled else { return }
+        FieldTripStatusLabel.shared.hide()
+
+        guard case .touring = fieldTripPhase else {
+            fieldTripPhase = .idle
+            await speakFieldTripLine("Sorry, I couldn't build that one.")
+            voiceState = .idle
+            return
+        }
+        if sceneKind == .explore {
+            await speakAboutTheFieldTripSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
+        }
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+    }
+
+    private func speakAboutTheFieldTripSceneOnScreen(
+        transcript: String,
+        labeledImages: [(data: Data, label: String)]
+    ) async {
+        do {
+            let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
+                images: labeledImages,
+                systemPrompt: Self.companionVoiceResponseSystemPrompt + Self.fieldTripExploreVoiceResponseInstructions,
+                userPrompt: transcript,
+                onTextChunk: { _ in }
+            )
+            guard !Task.isCancelled else { return }
+            await speakFieldTripLine(Self.parsePointingCoordinates(from: fullResponseText).spokenText)
+        } catch {
+            print("Field trip explore reply failed: \(error)")
         }
     }
 

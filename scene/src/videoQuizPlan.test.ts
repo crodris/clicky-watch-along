@@ -86,6 +86,15 @@ describe("parseVideoQuizPlan", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("rejects a plan whose first pause is past the first minute", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      { moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok).toBe(false);
+  });
+
   it("rejects a pause inside the first 20 seconds", () => {
     const result = parseVideoQuizPlan(
       { moments: [{ ...liverMoment, pauseAtSeconds: 12 }, denticleMoment, poreMoment] },

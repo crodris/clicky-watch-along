@@ -62,6 +62,7 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `FieldTripOverlay.swift` | ~432 | Reusable transparent window and page on the screen under the mouse. Plays a template spec or a live HTML page, serves bundled three.js at `clicky-asset`, blocks http and https, reveals the quiz label, and clears the scene. |
 | `FieldTripSession.swift` | ~109 | Field-trip phase, scene kind, quiz, spoken-answer judge, and the transcript trigger that picks explore or quiz. |
 | `VideoQuizSession.swift` | ~620 | Voice command, Chrome tab finder, yt-dlp caption reader, and the session that pauses a YouTube video at each planned moment. Talks to Chrome through AppleScript and posts the transcript to `POST /video-quiz-plan`. |
+| `FieldTripStatusLabel.swift` | ~90 | Small label at the bottom of the screen while a scene builds. Clicky stays quiet until the scene exists. |
 | `FieldTripSceneClient.swift` | ~190 | Posts the cursor screen JPEG to `POST /scene` and `POST /live-scene`, and posts a spoken answer to `POST /judge-answer`. |
 | `scene/src/spec.ts` | ~159 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
 | `scene/src/liveSceneReply.ts` | ~70 | Zod and plain checks for a live scene model reply: required page markers, no external URL, and a quiz JSON block. |

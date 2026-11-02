@@ -66,6 +66,7 @@ export type VideoQuizPlanParseResult =
   | { ok: false; error: string };
 
 export const minimumPauseAtSeconds = 20;
+export const maximumFirstPauseAtSeconds = 60;
 /** A fraction of the video's length, so a short video can still fit three moments. */
 export const minimumGapBetweenMomentsAsFractionOfVideo = 0.1;
 
@@ -128,7 +129,8 @@ const systemPrompt = [
   "Pick each pauseAtSeconds by finding a concrete, teachable fact or explanation that finishes, then copying the seconds value of the line right after it, exactly as written.",
   "",
   "Rules for the three moments:",
-  "- Spread them across the video: one early, one in the middle, one late. Keep them far apart.",
+  "- The first moment comes as early as a real fact allows, between 20 and 45 seconds when the video has one there. Viewers should not wait long for the first question.",
+  "- Spread the other two across the rest of the video. Keep them far apart.",
   `- None in the first ${minimumPauseAtSeconds} seconds, which are usually an intro or a hook.`,
   "- None during or after a sponsor read, an ad, a plug for a product or channel, or a request to like and subscribe.",
   "- Each fact must be stated in the transcript. Never ask about anything the transcript does not say, and never use outside knowledge.",
@@ -189,6 +191,14 @@ export function parseVideoQuizPlan(
         error: `pauseAtSeconds ${moment.pauseAtSeconds} is inside the first ${minimumPauseAtSeconds} seconds`,
       };
     }
+  }
+
+  const firstPauseAtSeconds = Math.min(...moments.map((moment) => moment.pauseAtSeconds));
+  if (firstPauseAtSeconds > maximumFirstPauseAtSeconds) {
+    return {
+      ok: false,
+      error: `The first pause at ${firstPauseAtSeconds} is later than ${maximumFirstPauseAtSeconds} seconds`,
+    };
   }
 
   const videoLengthSeconds = Math.max(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
