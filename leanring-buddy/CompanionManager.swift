@@ -501,6 +501,10 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
+            // The scene sits above every window, so a quick tap of the shortcut
+            // is how the learner gets back to the page under it.
+            clearFinishedFieldTripScene()
+
             // Cancel any pending transient hide so the overlay stays visible
             transientHideTask?.cancel()
             transientHideTask = nil
@@ -657,10 +661,7 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        if case .allLabelsShowing = fieldTripPhase {
-            FieldTripOverlay.shared.clear()
-            fieldTripPhase = .idle
-        }
+        clearFinishedFieldTripScene()
 
         if case .buildingScene = fieldTripPhase {
             fieldTripPhase = .idle
@@ -836,6 +837,12 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
             }
         }
+    }
+
+    private func clearFinishedFieldTripScene() {
+        guard case .allLabelsShowing = fieldTripPhase else { return }
+        FieldTripOverlay.shared.clear()
+        fieldTripPhase = .idle
     }
 
     private func requestFieldTripScene(

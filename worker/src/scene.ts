@@ -380,6 +380,7 @@ const buildSceneSystemPrompt = [
   "Requirements:",
   "- Labels are words a 10-year-old can read.",
   "- Use 16 parts at most.",
+  "- Every part's shape is box, sphere, cylinder, capsule, torus, loft, fin, or tube. There is no cone shape, so use a cylinder for a cone. A loft needs at least 4 sections.",
   "- When the subject has an inside, the outer part is a translucent shell.",
   "- Center the subject at the origin, inside a box 6 units on each side.",
   "- Use three camera stops. The last stop ends beside the most interesting part, with neighboring parts still in view.",
