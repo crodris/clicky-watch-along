@@ -1,42 +1,62 @@
 import {
-  AmbientLight,
-  BufferGeometry,
+  ACESFilmicToneMapping,
+  BackSide,
+  Box3,
   BoxGeometry,
+  BufferGeometry,
   CapsuleGeometry,
   CylinderGeometry,
   DirectionalLight,
-  DoubleSide,
-  FrontSide,
-  LinearSRGBColorSpace,
+  Euler,
+  Group,
+  HemisphereLight,
   Mesh,
-  MeshLambertMaterial,
-  NearestFilter,
-  NoToneMapping,
-  OrthographicCamera,
+  MeshPhysicalMaterial,
+  PCFSoftShadowMap,
   PerspectiveCamera,
-  PlaneGeometry,
+  PMREMGenerator,
   Scene,
-  ShaderMaterial,
   SphereGeometry,
   TorusGeometry,
-  Vector2,
   Vector3,
-  WebGLRenderTarget,
   WebGLRenderer,
 } from "three";
-import { paletteSize, paletteVectors, virtualPixelCssSize } from "./palette";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import {
+  applyWorldSpaceBellyAmount,
+  createFinGeometry,
+  createLoftGeometry,
+  createTubeGeometry,
+} from "./geometry";
 import {
   sceneSpecSchema,
   type CameraStop,
   type Part,
   type SceneSpec,
 } from "./spec";
+import {
+  createInteriorMaterial,
+  createSurfaceMaterial,
+  type SurfaceFadeUniforms,
+} from "./surface";
 
 const cameraStopHoldMilliseconds = 1000;
 const cameraMoveDurationMilliseconds = 1800;
-const cameraFieldOfViewDegrees = 40;
+const cameraFieldOfViewDegrees = 34;
 const cameraNearPlane = 0.08;
 const cameraFarPlane = 200;
+const maximumPixelRatio = 2;
+const shadowMapSize = 4096;
+// The skin holds until the camera is well into the last move, so the viewer
+// sees the whale before they see through it.
+const shellFadeStartProgress = 0.3;
+const shellFadeEndProgress = 0.92;
+const interiorWallResolution = 0.4;
+const labelSwapFade = 0.6;
+const labelDistancePixels = 74;
+const labelLiftPixels = 18;
+const labelGapPixels = 6;
+const labelEdgeMarginPixels = 12;
 
 type PageElements = {
   canvas: HTMLCanvasElement;
@@ -44,21 +64,24 @@ type PageElements = {
   leaderLayer: SVGSVGElement;
 };
 
+type PartLabel = {
+  element: HTMLDivElement;
+  leaderLine: SVGLineElement;
+  anchor: Vector3;
+};
+
+type PartSurface = {
+  geometry: BufferGeometry;
+  material: MeshPhysicalMaterial;
+};
+
 type ScenePart = {
   id: string;
   labelText: string;
-  mesh: Mesh;
-  geometry: BufferGeometry;
-  material: MeshLambertMaterial;
-  labelElement: HTMLDivElement;
-  leaderLine: SVGLineElement;
-};
-
-type DitherPass = {
-  target: WebGLRenderTarget;
-  scene: Scene;
-  camera: OrthographicCamera;
-  lowResolutionSize: Vector2;
+  isInner: boolean;
+  root: Group;
+  surfaces: PartSurface[];
+  label: PartLabel | null;
 };
 
 const scene = new Scene();
@@ -70,10 +93,29 @@ const camera = new PerspectiveCamera(
 );
 const projectedAnchor = new Vector3();
 const cameraSpaceAnchor = new Vector3();
+const keyLight = new DirectionalLight(0xfff4e6, 2.3);
+const shellFadeUniform = { value: 0 };
+const fadedOpacityUniform = { value: 1 };
+const shellSurfaceUniforms: SurfaceFadeUniforms = {
+  shellFade: shellFadeUniform,
+  fadedOpacity: fadedOpacityUniform,
+  fadedRim: { value: 1 },
+};
+// Fins and other outer parts leave the picture entirely, because a ghost of a
+// flipper across the organs reads as a rendering fault.
+const vanishingSurfaceUniforms: SurfaceFadeUniforms = {
+  shellFade: shellFadeUniform,
+  fadedOpacity: { value: 0 },
+  fadedRim: { value: 0 },
+};
+const solidSurfaceUniforms: SurfaceFadeUniforms = {
+  shellFade: { value: 0 },
+  fadedOpacity: { value: 1 },
+  fadedRim: { value: 0 },
+};
 
 let page: PageElements | null = null;
 let renderer: WebGLRenderer | null = null;
-let ditherPass: DitherPass | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let lightsInstalled = false;
 let sceneParts: ScenePart[] = [];
@@ -82,54 +124,6 @@ let quizLabelShowsQuestionMark = false;
 let activeTourId = 0;
 let cameraMoveFrameId: number | null = null;
 const scheduledTimeoutIds: number[] = [];
-
-const postVertexShader = `
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = vec4(position.xy, 0.0, 1.0);
-}
-`;
-
-// Ordered dither copied from the birthday post pass. The alpha test is
-// screen-door instead of a 0.4 cutoff, so a translucent shell stays visible
-// as stippled coverage. Blending stores coverage-weighted rgb, so divide by
-// alpha before quantizing or that shell becomes a dark smear.
-const postFragmentShader = `
-precision highp float;
-varying vec2 vUv;
-uniform sampler2D tScene;
-uniform vec2 uLow;
-uniform vec3 uPalette[${paletteSize}];
-float bayer2(vec2 coordinate) {
-  coordinate = floor(coordinate);
-  return fract(coordinate.x / 2.0 + coordinate.y * coordinate.y * 0.75);
-}
-void main() {
-  vec2 lowPixel = floor(vUv * uLow);
-  vec4 sampleColor = texture2D(tScene, (lowPixel + 0.5) / uLow);
-  float bayerThreshold = bayer2(lowPixel);
-  if (sampleColor.a <= bayerThreshold) {
-    gl_FragColor = vec4(0.0);
-    return;
-  }
-  vec3 linearColor = sampleColor.rgb / sampleColor.a;
-  vec3 gammaColor = pow(max(linearColor, 0.0), vec3(1.0 / 2.2));
-  float dither = bayer2(0.5 * lowPixel) * 0.25 + bayer2(lowPixel);
-  gammaColor += (dither - 0.5) * 0.12 * smoothstep(0.1, 0.3, dot(gammaColor, vec3(0.333)));
-  vec3 nearest = uPalette[0];
-  float nearestDistance = 1e9;
-  for (int paletteIndex = 0; paletteIndex < ${paletteSize}; paletteIndex++) {
-    vec3 paletteColor = uPalette[paletteIndex];
-    float colorDistance = dot(gammaColor - paletteColor, gammaColor - paletteColor);
-    if (colorDistance < nearestDistance) {
-      nearestDistance = colorDistance;
-      nearest = paletteColor;
-    }
-  }
-  gl_FragColor = vec4(nearest, 1.0);
-}
-`;
 
 function requiredCanvas(): HTMLCanvasElement {
   const element = document.getElementById("field-trip-canvas");
@@ -168,66 +162,62 @@ function pageElements(): PageElements {
 }
 
 function createPartGeometry(part: Part): BufferGeometry {
-  const [width, height, depth] = part.size;
   switch (part.shape) {
-    case "box":
+    case "box": {
+      const [width, height, depth] = part.size;
       return new BoxGeometry(width, height, depth);
+    }
     case "sphere": {
       // Diameter-sized sphere, then scaled into an ellipsoid.
-      const sphere = new SphereGeometry(0.5, 32, 24);
+      const [width, height, depth] = part.size;
+      const sphere = new SphereGeometry(0.5, 48, 32);
       sphere.scale(width, height, depth);
       return sphere;
     }
     case "cylinder": {
       // Unit cylinder points along Y. size.y is the length before rotation.
-      const cylinder = new CylinderGeometry(0.5, 0.5, 1, 24);
+      const [width, height, depth] = part.size;
+      const cylinder = new CylinderGeometry(0.5, 0.5, 1, 32);
       cylinder.scale(width, height, depth);
       return cylinder;
     }
     case "capsule": {
       // CapsuleGeometry(0.5, 1) is 2 units along Y. size.y is that length.
-      const capsule = new CapsuleGeometry(0.5, 1, 8, 16);
+      const [width, height, depth] = part.size;
+      const capsule = new CapsuleGeometry(0.5, 1, 12, 24);
       capsule.scale(width, height, depth);
       return capsule;
     }
     case "torus": {
-      const torus = new TorusGeometry(0.32, 0.18, 16, 28);
+      const [width, height, depth] = part.size;
+      const torus = new TorusGeometry(0.32, 0.18, 24, 48);
       torus.scale(width, height, depth);
       return torus;
     }
+    case "loft":
+      return createLoftGeometry(part);
+    case "fin":
+      return createFinGeometry(part);
+    case "tube":
+      return createTubeGeometry(part);
     default: {
-      const unexpectedShape: never = part.shape;
-      throw new Error(`Unknown part shape: ${unexpectedShape}`);
+      const unexpectedPart: never = part;
+      throw new Error(`Unknown part: ${JSON.stringify(unexpectedPart)}`);
     }
   }
 }
 
-function createDitherPass(): DitherPass {
-  const lowResolutionSize = new Vector2(2, 2);
-  const target = new WebGLRenderTarget(2, 2, {
-    minFilter: NearestFilter,
-    magFilter: NearestFilter,
-    depthBuffer: true,
-    generateMipmaps: false,
-  });
-  // The post pass reads linear samples and writes sRGB palette colors itself.
-  target.texture.colorSpace = LinearSRGBColorSpace;
-  const material = new ShaderMaterial({
-    vertexShader: postVertexShader,
-    fragmentShader: postFragmentShader,
-    uniforms: {
-      tScene: { value: target.texture },
-      uLow: { value: lowResolutionSize },
-      uPalette: { value: paletteVectors },
-    },
-    depthTest: false,
-    depthWrite: false,
-    transparent: true,
-  });
-  const postScene = new Scene();
-  postScene.add(new Mesh(new PlaneGeometry(2, 2), material));
-  const postCamera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  return { target, scene: postScene, camera: postCamera, lowResolutionSize };
+// Procedural detail is sized to the part, so skin on a small animal is not as
+// coarse as skin on a whale. The median side ignores how long a body is.
+function detailScaleForGeometry(geometry: BufferGeometry): number {
+  geometry.computeBoundingBox();
+  const bounds = geometry.boundingBox;
+  if (bounds === null) {
+    return 1;
+  }
+  const size = bounds.getSize(new Vector3());
+  const sortedSides = [size.x, size.y, size.z].sort((left, right) => left - right);
+  return 2 / Math.max(sortedSides[1], 0.01);
 }
 
 function ensureRenderer(): void {
@@ -238,18 +228,24 @@ function ensureRenderer(): void {
   const glRenderer = new WebGLRenderer({
     canvas: elements.canvas,
     alpha: true,
-    antialias: false,
+    antialias: true,
     premultipliedAlpha: true,
   });
-  // Virtual pixels are counted in CSS pixels, matching the dither pipeline's dpr 1.
-  glRenderer.setPixelRatio(1);
+  glRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maximumPixelRatio));
   glRenderer.setClearColor(0x000000, 0);
-  // The post shader already writes palette sRGB. A second encoding would crush it.
-  glRenderer.outputColorSpace = LinearSRGBColorSpace;
-  glRenderer.toneMapping = NoToneMapping;
-  glRenderer.autoClear = true;
+  glRenderer.toneMapping = ACESFilmicToneMapping;
+  glRenderer.toneMappingExposure = 0.8;
+  glRenderer.shadowMap.enabled = true;
+  glRenderer.shadowMap.type = PCFSoftShadowMap;
+  // The scene never moves, only the camera, so one shadow pass per play is enough.
+  glRenderer.shadowMap.autoUpdate = false;
   renderer = glRenderer;
-  ditherPass = createDitherPass();
+
+  const environmentGenerator = new PMREMGenerator(glRenderer);
+  scene.environment = environmentGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.42;
+  environmentGenerator.dispose();
+
   resizeObserver = new ResizeObserver(() => {
     // The camera move already renders every frame. A second render here would
     // only matter while the picture is sitting still.
@@ -265,36 +261,63 @@ function ensureLights(): void {
   if (lightsInstalled) {
     return;
   }
-  scene.add(new AmbientLight(0xffffff, 0.46));
-  const keyLight = new DirectionalLight(0xffffff, 0.72);
-  keyLight.position.set(6, 8, 10);
+  // Open-water light: bright from above, cool and dim from below.
+  scene.add(new HemisphereLight(0xdcebff, 0x1d3147, 0.72));
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+  keyLight.shadow.bias = -0.0004;
+  keyLight.shadow.normalBias = 0.012;
+  keyLight.shadow.radius = 6;
   scene.add(keyLight);
-  const fillLight = new DirectionalLight(0xffffff, 0.22);
-  fillLight.position.set(-8, -3, -6);
+  scene.add(keyLight.target);
+  const fillLight = new DirectionalLight(0xbcd6f2, 0.42);
+  fillLight.position.set(-8, -2, 9);
   scene.add(fillLight);
   lightsInstalled = true;
 }
 
-function syncViewSize(cssWidth: number, cssHeight: number): void {
-  if (renderer === null || ditherPass === null) {
-    return;
+function fitKeyLightToScene(): void {
+  const sceneBounds = new Box3();
+  for (const scenePart of sceneParts) {
+    sceneBounds.expandByObject(scenePart.root);
   }
-  const lowWidth = Math.max(2, Math.floor(cssWidth / virtualPixelCssSize));
-  const lowHeight = Math.max(2, Math.floor(cssHeight / virtualPixelCssSize));
-  renderer.setSize(cssWidth, cssHeight, false);
-  camera.aspect = cssWidth / cssHeight;
-  camera.updateProjectionMatrix();
-  if (
-    ditherPass.target.width !== lowWidth ||
-    ditherPass.target.height !== lowHeight
-  ) {
-    ditherPass.target.setSize(lowWidth, lowHeight);
-    ditherPass.lowResolutionSize.set(lowWidth, lowHeight);
+  const sceneCenter = sceneBounds.getCenter(new Vector3());
+  const sceneRadius = sceneBounds.getSize(new Vector3()).length() / 2;
+  keyLight.target.position.copy(sceneCenter);
+  keyLight.position.copy(sceneCenter).add(
+    new Vector3(-0.22, 0.92, 0.3).multiplyScalar(sceneRadius * 2),
+  );
+  const shadowCamera = keyLight.shadow.camera;
+  shadowCamera.left = -sceneRadius;
+  shadowCamera.right = sceneRadius;
+  shadowCamera.top = sceneRadius;
+  shadowCamera.bottom = -sceneRadius;
+  shadowCamera.near = 0.1;
+  shadowCamera.far = sceneRadius * 4;
+  shadowCamera.updateProjectionMatrix();
+  if (renderer !== null) {
+    renderer.shadowMap.needsUpdate = true;
+  }
+}
+
+function setShellFade(shellFade: number): void {
+  shellFadeUniform.value = shellFade;
+  const isFading = shellFade > 0;
+  for (const scenePart of sceneParts) {
+    if (scenePart.isInner) {
+      scenePart.root.visible = isFading;
+      continue;
+    }
+    for (const surface of scenePart.surfaces) {
+      // A solid shell must write depth so nothing behind it shows. A fading one
+      // must not, or it would hide the far wall drawn after it.
+      surface.material.depthWrite = !isFading;
+    }
   }
 }
 
 function renderSceneOnce(): void {
-  if (renderer === null || ditherPass === null) {
+  if (renderer === null) {
     return;
   }
   const elements = pageElements();
@@ -303,11 +326,10 @@ function renderSceneOnce(): void {
   if (cssWidth < 2 || cssHeight < 2) {
     return;
   }
-  syncViewSize(cssWidth, cssHeight);
-  renderer.setRenderTarget(ditherPass.target);
+  renderer.setSize(cssWidth, cssHeight, false);
+  camera.aspect = cssWidth / cssHeight;
+  camera.updateProjectionMatrix();
   renderer.render(scene, camera);
-  renderer.setRenderTarget(null);
-  renderer.render(ditherPass.scene, ditherPass.camera);
   updatePartLabelPositions();
 }
 
@@ -325,11 +347,13 @@ function cancelCameraTour(): void {
 
 function disposeParts(): void {
   for (const scenePart of sceneParts) {
-    scene.remove(scenePart.mesh);
-    scenePart.geometry.dispose();
-    scenePart.material.dispose();
-    scenePart.labelElement.remove();
-    scenePart.leaderLine.remove();
+    scene.remove(scenePart.root);
+    for (const surface of scenePart.surfaces) {
+      surface.geometry.dispose();
+      surface.material.dispose();
+    }
+    scenePart.label?.element.remove();
+    scenePart.label?.leaderLine.remove();
   }
   sceneParts = [];
 }
@@ -348,17 +372,6 @@ function setQuizLabelShowsQuestionMark(showsQuestionMark: boolean): void {
 
 function clampNumber(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
-}
-
-function labelOffsetPixels(
-  partIndex: number,
-  partCount: number,
-): { x: number; y: number } {
-  const spread = partCount <= 1 ? 0 : (partIndex / (partCount - 1)) * 2 - 1;
-  return {
-    x: spread * 96,
-    y: -58 - Math.abs(spread) * 28,
-  };
 }
 
 function leaderEndAtLabelEdge(
@@ -387,6 +400,63 @@ function leaderEndAtLabelEdge(
   };
 }
 
+type PlacedLabel = {
+  scenePart: ScenePart;
+  label: PartLabel;
+  anchorX: number;
+  anchorY: number;
+  labelX: number;
+  labelY: number;
+  width: number;
+  height: number;
+};
+
+function labelsOverlap(first: PlacedLabel, second: PlacedLabel): boolean {
+  return (
+    Math.abs(first.labelX - second.labelX) < (first.width + second.width) / 2 + labelGapPixels &&
+    Math.abs(first.labelY - second.labelY) < (first.height + second.height) / 2 + labelGapPixels
+  );
+}
+
+// Labels sit outside the crowd of anchors: each one is pushed away from their
+// shared center, then labels that still touch are stepped apart vertically.
+function placeLabels(
+  visibleLabels: PlacedLabel[],
+  cssWidth: number,
+  cssHeight: number,
+): void {
+  const centerX =
+    visibleLabels.reduce((total, placed) => total + placed.anchorX, 0) / visibleLabels.length;
+  const centerY =
+    visibleLabels.reduce((total, placed) => total + placed.anchorY, 0) / visibleLabels.length;
+  for (const placed of visibleLabels) {
+    const awayX = placed.anchorX - centerX;
+    const awayY = placed.anchorY - centerY;
+    const awayLength = Math.max(1, Math.hypot(awayX, awayY));
+    placed.labelX = placed.anchorX + (awayX / awayLength) * labelDistancePixels;
+    placed.labelY =
+      placed.anchorY + (awayY / awayLength) * labelDistancePixels - labelLiftPixels;
+  }
+  const ordered = [...visibleLabels].sort((first, second) => first.labelY - second.labelY);
+  for (let pass = 0; pass < 8; pass += 1) {
+    for (let firstIndex = 0; firstIndex < ordered.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < ordered.length; secondIndex += 1) {
+        const upper = ordered[firstIndex];
+        const lower = ordered[secondIndex];
+        if (labelsOverlap(upper, lower)) {
+          lower.labelY = upper.labelY + (upper.height + lower.height) / 2 + labelGapPixels + 1;
+        }
+      }
+    }
+  }
+  for (const placed of visibleLabels) {
+    const edgeX = placed.width / 2 + labelEdgeMarginPixels;
+    const edgeY = placed.height / 2 + labelEdgeMarginPixels;
+    placed.labelX = clampNumber(placed.labelX, edgeX, cssWidth - edgeX);
+    placed.labelY = clampNumber(placed.labelY, edgeY, cssHeight - edgeY);
+  }
+}
+
 function updatePartLabelPositions(): void {
   const elements = pageElements();
   const cssWidth = elements.canvas.clientWidth;
@@ -395,82 +465,182 @@ function updatePartLabelPositions(): void {
     return;
   }
   camera.updateMatrixWorld(true);
-  sceneParts.forEach((scenePart, partIndex) => {
-    scenePart.labelElement.textContent = labelTextForPart(scenePart);
-    cameraSpaceAnchor.copy(scenePart.mesh.position);
-    cameraSpaceAnchor.applyMatrix4(camera.matrixWorldInverse);
-    // Three.js cameras look down negative Z. A positive Z is behind the lens.
-    const anchorIsInFrontOfCamera = cameraSpaceAnchor.z < 0;
-    scenePart.labelElement.style.display = anchorIsInFrontOfCamera ? "block" : "none";
-    scenePart.leaderLine.style.display = anchorIsInFrontOfCamera ? "block" : "none";
-    if (!anchorIsInFrontOfCamera) {
-      return;
+  const shellHasFaded = shellFadeUniform.value >= labelSwapFade;
+  const visibleLabels: PlacedLabel[] = [];
+  for (const scenePart of sceneParts) {
+    const label = scenePart.label;
+    if (label === null) {
+      continue;
     }
-
-    projectedAnchor.copy(scenePart.mesh.position).project(camera);
-    const anchorX = (projectedAnchor.x * 0.5 + 0.5) * cssWidth;
-    const anchorY = (-projectedAnchor.y * 0.5 + 0.5) * cssHeight;
-    const offset = labelOffsetPixels(partIndex, sceneParts.length);
-    const labelCenterX = clampNumber(anchorX + offset.x, 16, cssWidth - 16);
-    const labelCenterY = clampNumber(anchorY + offset.y, 16, cssHeight - 16);
-    scenePart.labelElement.style.left = `${labelCenterX}px`;
-    scenePart.labelElement.style.top = `${labelCenterY}px`;
-
+    label.element.textContent = labelTextForPart(scenePart);
+    cameraSpaceAnchor.copy(label.anchor).applyMatrix4(camera.matrixWorldInverse);
+    projectedAnchor.copy(label.anchor).project(camera);
+    // Three.js cameras look down negative Z. A positive Z is behind the lens.
+    const anchorIsOnScreen =
+      cameraSpaceAnchor.z < 0 &&
+      Math.abs(projectedAnchor.x) < 0.98 &&
+      Math.abs(projectedAnchor.y) < 0.98;
+    const belongsToThisStage = scenePart.isInner === shellHasFaded;
+    const isVisible = anchorIsOnScreen && belongsToThisStage;
+    label.element.classList.toggle("is-hidden", !isVisible);
+    label.leaderLine.classList.toggle("is-hidden", !isVisible);
+    if (isVisible) {
+      visibleLabels.push({
+        scenePart,
+        label,
+        anchorX: (projectedAnchor.x * 0.5 + 0.5) * cssWidth,
+        anchorY: (-projectedAnchor.y * 0.5 + 0.5) * cssHeight,
+        labelX: 0,
+        labelY: 0,
+        width: label.element.offsetWidth,
+        height: label.element.offsetHeight,
+      });
+    }
+  }
+  if (visibleLabels.length === 0) {
+    return;
+  }
+  placeLabels(visibleLabels, cssWidth, cssHeight);
+  for (const placed of visibleLabels) {
+    placed.label.element.style.left = `${placed.labelX}px`;
+    placed.label.element.style.top = `${placed.labelY}px`;
     const leaderEnd = leaderEndAtLabelEdge(
-      anchorX,
-      anchorY,
-      labelCenterX,
-      labelCenterY,
-      scenePart.labelElement.offsetWidth,
-      scenePart.labelElement.offsetHeight,
+      placed.anchorX,
+      placed.anchorY,
+      placed.labelX,
+      placed.labelY,
+      placed.width,
+      placed.height,
     );
-    scenePart.leaderLine.setAttribute("x1", anchorX.toFixed(2));
-    scenePart.leaderLine.setAttribute("y1", anchorY.toFixed(2));
-    scenePart.leaderLine.setAttribute("x2", leaderEnd.x.toFixed(2));
-    scenePart.leaderLine.setAttribute("y2", leaderEnd.y.toFixed(2));
-  });
+    placed.label.leaderLine.setAttribute("x1", placed.anchorX.toFixed(2));
+    placed.label.leaderLine.setAttribute("y1", placed.anchorY.toFixed(2));
+    placed.label.leaderLine.setAttribute("x2", leaderEnd.x.toFixed(2));
+    placed.label.leaderLine.setAttribute("y2", leaderEnd.y.toFixed(2));
+  }
+}
+
+function createPartMeshes(part: Part, surfaces: PartSurface[]): Group {
+  const root = new Group();
+  const copyCount = part.repeat?.count ?? 1;
+  const copyOffset = part.repeat?.offset ?? [0, 0, 0];
+  const endScale = part.repeat?.endScale ?? 1;
+  const rotation = part.rotation ?? [0, 0, 0];
+  const placeCopies = (parent: Group) => {
+    for (let copyIndex = 0; copyIndex < copyCount; copyIndex += 1) {
+      const copyScale =
+        copyCount === 1 ? 1 : 1 + ((endScale - 1) * copyIndex) / (copyCount - 1);
+      for (const { geometry, material } of surfaces) {
+        const mesh = new Mesh(geometry, material);
+        mesh.position.set(
+          part.position[0] + copyOffset[0] * copyIndex,
+          part.position[1] + copyOffset[1] * copyIndex,
+          part.position[2] + copyOffset[2] * copyIndex,
+        );
+        mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
+        mesh.scale.setScalar(copyScale);
+        const isInteriorWall = material.side === BackSide;
+        // Inner parts sit under a shell that would otherwise leave them black.
+        mesh.castShadow = !part.inner && !isInteriorWall;
+        mesh.receiveShadow = !part.inner && !isInteriorWall;
+        // Solid organs draw first, then the far wall, then fins, then the near skin.
+        mesh.renderOrder = isInteriorWall ? 1 : part.opacity < 1 ? 3 : part.inner ? 0 : 2;
+        parent.add(mesh);
+      }
+    }
+  };
+  placeCopies(root);
+  if (part.mirror) {
+    const reflectedCopies = new Group();
+    // A negative scale reflects across z = 0. three.js flips the winding for it.
+    reflectedCopies.scale.z = -1;
+    placeCopies(reflectedCopies);
+    root.add(reflectedCopies);
+  }
+  return root;
+}
+
+function createPartLabel(part: Part, root: Group, elements: PageElements): PartLabel | null {
+  if (part.label === "") {
+    return null;
+  }
+  const element = document.createElement("div");
+  element.className = "field-trip-label is-hidden";
+  element.dataset.partId = part.id;
+  element.textContent = part.label;
+  elements.labelLayer.appendChild(element);
+
+  const leaderLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  leaderLine.setAttribute("class", "field-trip-leader is-hidden");
+  elements.leaderLayer.appendChild(leaderLine);
+
+  const firstCopy = root.children[0];
+  const anchor =
+    part.labelAt !== undefined
+      ? new Vector3(part.labelAt[0], part.labelAt[1], part.labelAt[2])
+      : new Box3().setFromObject(firstCopy ?? root).getCenter(new Vector3());
+  return { element, leaderLine, anchor };
+}
+
+// The mouth and eye are skin features. Left on the far wall they would show up
+// as marks on the inside of the body, so a lofted wall is built without them.
+function createInteriorWallGeometry(part: Part, skinGeometry: BufferGeometry): BufferGeometry {
+  if (part.shape !== "loft") {
+    return skinGeometry.clone();
+  }
+  return createLoftGeometry({ ...part, creases: [], bumps: [] }, interiorWallResolution);
+}
+
+function surfaceFadeForPart(part: Part): SurfaceFadeUniforms {
+  if (part.inner) {
+    return solidSurfaceUniforms;
+  }
+  return part.opacity < 1 ? shellSurfaceUniforms : vanishingSurfaceUniforms;
 }
 
 function buildParts(parts: Part[]): void {
   const elements = pageElements();
+  const shellPart = parts.find((part) => part.opacity < 1);
+  fadedOpacityUniform.value = shellPart?.opacity ?? 1;
   for (const part of parts) {
     const geometry = createPartGeometry(part);
-    const material = new MeshLambertMaterial({
-      color: part.color,
-      transparent: part.opacity < 1,
-      opacity: part.opacity,
-      depthWrite: part.opacity >= 1,
-      side: part.opacity < 1 ? DoubleSide : FrontSide,
-      premultipliedAlpha: false,
-    });
-    const mesh = new Mesh(geometry, material);
-    mesh.position.set(part.position[0], part.position[1], part.position[2]);
-    const rotation = part.rotation ?? [0, 0, 0];
-    mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
-    // Draw the shell after the solid organs so the glass blends over them.
-    if (part.opacity < 1) {
-      mesh.renderOrder = 2;
+    if (part.shape !== "loft") {
+      const rotation = part.rotation ?? [0, 0, 0];
+      applyWorldSpaceBellyAmount(geometry, new Euler(rotation[0], rotation[1], rotation[2]));
     }
-    scene.add(mesh);
-
-    const labelElement = document.createElement("div");
-    labelElement.className = "field-trip-label";
-    labelElement.dataset.partId = part.id;
-    labelElement.textContent = part.label;
-    elements.labelLayer.appendChild(labelElement);
-
-    const leaderLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    leaderLine.setAttribute("class", "field-trip-leader");
-    elements.leaderLayer.appendChild(leaderLine);
-
+    const detailScale = detailScaleForGeometry(geometry);
+    const surfaces: PartSurface[] = [
+      {
+        geometry,
+        material: createSurfaceMaterial({
+          color: part.color,
+          skin: part.skin,
+          tissue: part.tissue,
+          detailScale,
+          fadesWithShell: !part.inner,
+          fade: surfaceFadeForPart(part),
+        }),
+      },
+    ];
+    if (part.opacity < 1 && part.skin?.interiorColor !== undefined) {
+      surfaces.push({
+        geometry: createInteriorWallGeometry(part, geometry),
+        material: createInteriorMaterial(
+          part.skin.interiorColor,
+          detailScale,
+          shellSurfaceUniforms,
+        ),
+      });
+    }
+    const root = createPartMeshes(part, surfaces);
+    scene.add(root);
+    root.updateMatrixWorld(true);
     sceneParts.push({
       id: part.id,
       labelText: part.label,
-      mesh,
-      geometry,
-      material,
-      labelElement,
-      leaderLine,
+      isInner: part.inner,
+      root,
+      surfaces,
+      label: createPartLabel(part, root, elements),
     });
   }
 }
@@ -518,6 +688,7 @@ function moveCamera(
   tourId: number,
   fromStop: CameraStop,
   toStop: CameraStop,
+  onProgress: (progress: number) => void,
   onArrived: () => void,
 ): void {
   const moveStartedAtMilliseconds = performance.now();
@@ -530,6 +701,7 @@ function moveCamera(
       (nowMilliseconds - moveStartedAtMilliseconds) / cameraMoveDurationMilliseconds,
     );
     placeCameraBetweenStops(fromStop, toStop, easeInOutCubic(progress));
+    onProgress(progress);
     renderSceneOnce();
     if (progress < 1) {
       cameraMoveFrameId = window.requestAnimationFrame(step);
@@ -547,16 +719,33 @@ function startCameraTour(sceneSpec: SceneSpec): void {
   const tourId = activeTourId;
   const [firstStop, secondStop, thirdStop] = sceneSpec.cameraStops;
   placeCameraAtStop(firstStop);
+  setShellFade(0);
+  fitKeyLightToScene();
   renderSceneOnce();
+  const doNothing = () => {};
   scheduleAfterHold(tourId, () => {
-    moveCamera(tourId, firstStop, secondStop, () => {
+    moveCamera(tourId, firstStop, secondStop, doNothing, () => {
       scheduleAfterHold(tourId, () => {
-        moveCamera(tourId, secondStop, thirdStop, () => {
-          if (tourId !== activeTourId) {
-            return;
-          }
-          setQuizLabelShowsQuestionMark(true);
-        });
+        moveCamera(
+          tourId,
+          secondStop,
+          thirdStop,
+          (progress) => {
+            const fadeProgress = clampNumber(
+              (progress - shellFadeStartProgress) /
+                (shellFadeEndProgress - shellFadeStartProgress),
+              0,
+              1,
+            );
+            setShellFade(easeInOutCubic(fadeProgress));
+          },
+          () => {
+            if (tourId !== activeTourId) {
+              return;
+            }
+            setQuizLabelShowsQuestionMark(true);
+          },
+        );
       });
     });
   });

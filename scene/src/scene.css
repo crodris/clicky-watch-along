@@ -44,11 +44,18 @@ html, body {
   border-radius: 999px;
   padding: 3px 8px;
   white-space: nowrap;
+  transition: opacity 240ms ease-out;
 }
 
 .field-trip-leader {
   stroke: #1c1915;
   stroke-width: 1;
   fill: none;
-  shape-rendering: crispEdges;
+  filter: drop-shadow(0 0 1px rgba(255, 252, 245, 0.9));
+  transition: opacity 240ms ease-out;
+}
+
+.field-trip-label.is-hidden,
+.field-trip-leader.is-hidden {
+  opacity: 0;
 }
