@@ -520,7 +520,9 @@ export async function handleScene(request: Request, anthropicAPIKey: string): Pr
   const buildResult = await callAnthropic(anthropicAPIKey, {
     model: "claude-sonnet-5-5",
     max_tokens: 6000,
-    system: buildSceneSystemPrompt,
+    system: `${buildSceneSystemPrompt}\n\nCall build_scene exactly once. Do not write any other text.`,
+    // Low effort because the learner is waiting on this scene.
+    output_config: { effort: "low" },
     tools: [
       {
         name: "build_scene",
@@ -528,7 +530,9 @@ export async function handleScene(request: Request, anthropicAPIKey: string): Pr
         input_schema: buildSceneInputSchema,
       },
     ],
-    tool_choice: { type: "tool", name: "build_scene", disable_parallel_tool_use: true },
+    // Sonnet 5.5 rejects forced tool use, so the prompt asks for the call and
+    // sceneSpecSchema still rejects a reply that skips it.
+    tool_choice: { type: "auto", disable_parallel_tool_use: true },
     messages: [learnerTurn(sceneRequest)],
   });
   if (!buildResult.ok) {
