@@ -1,0 +1,98 @@
+{
+  "title": "Blue whale",
+  "parts": [
+    {
+      "id": "body",
+      "label": "Body",
+      "shape": "capsule",
+      "position": [0, 0, 0],
+      "size": [2.6, 4, 3],
+      "rotation": [0, 0, 1.5707963267948966],
+      "color": "#5f9fdf",
+      "opacity": 0.25
+    },
+    {
+      "id": "heart",
+      "label": "Heart",
+      "shape": "sphere",
+      "position": [1.05, 0, 0.32],
+      "size": [0.62, 0.56, 0.52],
+      "color": "#d1521f"
+    },
+    {
+      "id": "left-lung",
+      "label": "Left lung",
+      "shape": "sphere",
+      "position": [0.35, 0.38, -0.42],
+      "size": [0.9, 0.62, 0.7],
+      "color": "#f0a071"
+    },
+    {
+      "id": "right-lung",
+      "label": "Right lung",
+      "shape": "sphere",
+      "position": [0.2, 0.36, 0.48],
+      "size": [0.85, 0.58, 0.66],
+      "color": "#ffcf99"
+    },
+    {
+      "id": "stomach",
+      "label": "Stomach",
+      "shape": "sphere",
+      "position": [-1.35, -0.18, 0.08],
+      "size": [1.2, 0.85, 0.8],
+      "color": "#e0aa4e"
+    },
+    {
+      "id": "spine",
+      "label": "Spine",
+      "shape": "cylinder",
+      "position": [0, 0.92, 0],
+      "size": [0.2, 6.4, 0.2],
+      "rotation": [0, 0, 1.5707963267948966],
+      "color": "#f0ece1"
+    },
+    {
+      "id": "blowhole",
+      "label": "Blowhole",
+      "shape": "torus",
+      "position": [2.7, 1.12, 0],
+      "size": [0.34, 0.22, 0.34],
+      "color": "#101f47"
+    },
+    {
+      "id": "dorsal-fin",
+      "label": "Dorsal fin",
+      "shape": "box",
+      "position": [-0.3, 1.35, 0],
+      "size": [1, 0.7, 0.14],
+      "color": "#1b3d7a"
+    },
+    {
+      "id": "tail",
+      "label": "Tail",
+      "shape": "box",
+      "position": [-4.2, 0.02, 0],
+      "size": [1, 0.28, 2.15],
+      "color": "#2f66b8"
+    }
+  ],
+  "cameraStops": [
+    {
+      "position": [3, 2.4, 11],
+      "lookAt": [0, 0.2, 0]
+    },
+    {
+      "position": [1.8, 1.1, 4.6],
+      "lookAt": [1, 0.1, 0]
+    },
+    {
+      "position": [1.05, 0.12, -0.62],
+      "lookAt": [1.05, 0, 0.32]
+    }
+  ],
+  "quiz": {
+    "partId": "heart",
+    "question": "Which organ pumps the whale's blood?"
+  }
+}

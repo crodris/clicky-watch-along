@@ -34,9 +34,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Throwaway overlay check. Skip menu bar, analytics, and login item setup.
-        if ProcessInfo.processInfo.arguments.contains("--cube-spike") {
-            CubeSpike.showSpinningCubeInOverlayWindow()
+        // Field-trip preview. Skip menu bar, analytics, and login item setup.
+        if ProcessInfo.processInfo.arguments.contains("--field-trip-spec") {
+            playFieldTripSpecFromLaunchArguments()
             return
         }
 
@@ -57,6 +57,31 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
         registerAsLoginItemIfNeeded()
         // startSparkleUpdater()
+    }
+
+    /// `--field-trip-spec <path>` reads that JSON file and plays it in the overlay.
+    /// A missing path still returns early so the menu bar app does not start.
+    private func playFieldTripSpecFromLaunchArguments() {
+        let launchArguments = ProcessInfo.processInfo.arguments
+        guard let flagIndex = launchArguments.firstIndex(of: "--field-trip-spec") else {
+            return
+        }
+        let specPathIndex = launchArguments.index(after: flagIndex)
+        guard specPathIndex < launchArguments.endIndex else {
+            print("Field trip: --field-trip-spec needs a JSON file path")
+            return
+        }
+        let specFilePath = launchArguments[specPathIndex]
+        let specFileURL = URL(fileURLWithPath: specFilePath)
+        do {
+            var specJSONText = try String(contentsOf: specFileURL, encoding: .utf8)
+            if specJSONText.hasPrefix("\u{feff}") {
+                specJSONText.removeFirst()
+            }
+            FieldTripOverlay.shared.play(specJSONText: specJSONText)
+        } catch {
+            print("Field trip: could not read spec at \(specFilePath): \(error.localizedDescription)")
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

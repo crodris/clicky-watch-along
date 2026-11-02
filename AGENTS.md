@@ -48,11 +48,17 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 
 **Transient Cursor Mode**: When "Show Clicky" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
+**Field Trip Scene**: `--field-trip-spec <path>` reads a JSON spec and plays it in the cursor overlay, then returns before the menu bar app starts. The `scene/` package validates that spec with Zod and renders it with three.js into `leanring-buddy/FieldTripScene.html`. The page is self-contained: no voice pipeline, API keys, or Worker. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
+
 ## Key Files
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `leanring_buddyApp.swift` | ~89 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which creates `MenuBarPanelManager` and starts `CompanionManager`. No main window — the app lives entirely in the status bar. |
+| `leanring_buddyApp.swift` | ~119 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which creates `MenuBarPanelManager` and starts `CompanionManager`. No main window. The app lives entirely in the status bar. `--field-trip-spec` plays a scene and returns early. |
+| `FieldTripOverlay.swift` | ~73 | Loads the bundled field-trip page into `OverlayWindow` and calls `window.fieldTrip.play` after navigation finishes. |
+| `scene/src/spec.ts` | ~58 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
+| `scene/src/main.ts` | ~611 | three.js renderer. Dithered meshes, a three-stop camera tour, and DOM labels. |
+| `scene/fixtures/whale.json` | ~98 | Hand-written blue whale. Translucent shell, inner organs, last camera stop beside the heart. |
 | `CompanionManager.swift` | ~1026 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the full push-to-talk → screenshot → Claude → TTS → pointing pipeline. |
 | `MenuBarPanelManager.swift` | ~243 | NSStatusItem + custom NSPanel lifecycle. Creates the menu bar icon, manages the floating companion panel (show/hide/position), installs click-outside-to-dismiss monitor. |
 | `CompanionPanelView.swift` | ~761 | SwiftUI panel content for the menu bar dropdown. Shows companion status, push-to-talk instructions, model picker (Sonnet/Opus), permissions UI, DM feedback button, and quit button. Dark aesthetic using `DS` design system. |
