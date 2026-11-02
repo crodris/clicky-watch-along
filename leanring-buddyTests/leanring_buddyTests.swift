@@ -128,6 +128,14 @@ struct leanring_buddyTests {
         #expect(nameWithNoFunctionWordsGrade == .nameAndFunctionWord)
     }
 
+    @Test func spokenPartsSplitOnPartTags() async throws {
+        let spokenParts = fieldTripSpokenParts(from: "[PART:Aorta] It carries blood. [PART:Heart] It pumps.")
+
+        #expect(spokenParts.map(\.partLabel) == ["Aorta", "Heart"])
+        #expect(spokenParts.map(\.spokenText) == ["It carries blood.", "It pumps."])
+        #expect(fieldTripSpokenParts(from: "No tags here.").first?.partLabel == nil)
+    }
+
     @Test func onlyAnExplicitQuizRequestStartsTheQuiz() async throws {
         #expect(fieldTripSceneKind(for: "What does this look like inside?") == .explore)
         #expect(fieldTripSceneKind(for: "Can I see that in 3D?") == .explore)

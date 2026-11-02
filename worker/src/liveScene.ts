@@ -87,7 +87,7 @@ const liveSceneInstructions = [
   "Follow this contract exactly, because the app depends on it:",
   "1. Define window.fieldTrip at the top of the module script, before any await.",
   '2. window.fieldTrip.reveal() changes the answer part\'s label from "?" to its real name.',
-  "3. window.fieldTrip.focusPart(labelText) moves the camera to the part with that label over about 1.5 seconds and returns true. It returns false when no part has that label. Return the boolean immediately, and let the move run.",
+  "3. window.fieldTrip.focusPart(labelText) moves the camera to the part with that label over about 1.5 seconds, makes that part glow, fades every other part to about 35 percent, and returns true. Calling it again moves the highlight. Calling it with an empty string restores every part. It returns false when no part has that label. Return the boolean immediately, and let the move run.",
   '4. When the tour ends, set window.__tourFinished = true and call window.webkit?.messageHandlers?.fieldTripEvent?.postMessage("tourFinished").',
   "5. After the tour ends only, dragging with the mouse orbits the camera around the answer part, and window.fieldTrip.zoomBy(amount) with a positive amount moves the camera closer. Clamp both so the camera stays useful. Before the tour ends both do nothing.",
   "6. Set window.__ready = true after the first frame renders.",

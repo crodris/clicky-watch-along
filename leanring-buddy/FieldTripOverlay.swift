@@ -267,6 +267,24 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         evaluateOnThePage("window.fieldTrip.reveal()")
     }
 
+    /// Generated pages can move to and highlight a part. Templates cannot, so
+    /// the optional call does nothing on them.
+    func highlightPart(labelText: String) {
+        evaluateOnThePage("window.fieldTrip.focusPart?.(labelText)", arguments: ["labelText": labelText])
+    }
+
+    func partLabels() async -> [String] {
+        guard let fieldTripWebView, pageHasFinishedLoading else { return [] }
+        let pageResult = try? await fieldTripWebView.callAsyncJavaScript(
+            "return [...document.querySelectorAll('.scene-label')].map((label) => label.textContent.trim())",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        // The page returns a list of strings, and WebKit types it as Any.
+        return (pageResult as? [String]) ?? []
+    }
+
     func clear() {
         queuedPageLoad = nil
         fieldTripOverlayWindow?.ignoresMouseEvents = true

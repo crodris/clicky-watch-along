@@ -128,6 +128,8 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    private var shortcutPressedDate: Date?
+    private static let longestTapSeconds: TimeInterval = 0.35
     private var pinchCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
@@ -544,7 +546,7 @@ final class CompanionManager: ObservableObject {
 
             // The scene sits above every window, so a quick tap of the shortcut
             // is how the learner gets back to the page under it.
-            clearFinishedFieldTripScene()
+            shortcutPressedDate = Date()
             FieldTripStatusLabel.shared.hide()
 
             // Cancel any pending transient hide so the overlay stays visible
@@ -596,6 +598,12 @@ final class CompanionManager: ObservableObject {
                 )
             }
         case .released:
+            // A quick tap closes a finished scene. Holding to talk keeps it up,
+            // so the learner can ask about what they are looking at.
+            if let shortcutPressedDate, Date().timeIntervalSince(shortcutPressedDate) < Self.longestTapSeconds {
+                clearFinishedFieldTripScene()
+            }
+            shortcutPressedDate = nil
             // Cancel the pending start task in case the user released the shortcut
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
@@ -730,13 +738,20 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        clearFinishedFieldTripScene()
 
         if case .buildingScene = fieldTripPhase {
             fieldTripPhase = .idle
         }
 
+        if case .allLabelsShowing = fieldTripPhase, fieldTripSceneKind(for: transcript) == nil {
+            currentResponseTask = Task {
+                await self.answerAboutTheFieldTripSceneOnScreen(transcript: transcript)
+            }
+            return
+        }
+
         if let requestedSceneKind = fieldTripSceneKind(for: transcript) {
+            clearFinishedFieldTripScene(resumesTheVideo: false)
             fieldTripPhase = .buildingScene(requestedSceneKind)
             currentResponseTask = Task {
                 await self.buildFieldTripSceneWithStatusLabel(
@@ -944,31 +959,70 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
+    private func answerAboutTheFieldTripSceneOnScreen(transcript: String) async {
+        voiceState = .processing
+        do {
+            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            await speakAboutTheFieldTripSceneOnScreen(
+                transcript: transcript,
+                labeledImages: screenCaptures.map { capture in
+                    (data: capture.imageData, label: capture.label)
+                }
+            )
+        } catch {
+            print("Field trip follow-up failed: \(error)")
+        }
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+    }
+
+    /// Speaks one sentence per part and highlights that part as it is spoken, so
+    /// the learner can follow along on a busy model.
     private func speakAboutTheFieldTripSceneOnScreen(
         transcript: String,
         labeledImages: [(data: Data, label: String)]
     ) async {
         do {
+            let partLabels = await FieldTripOverlay.shared.partLabels()
+            let highlightInstructions = partLabels.isEmpty ? "" : """
+
+
+            the model has these exact part names: \(partLabels.joined(separator: ", ")). start each sentence with [PART:name] using one of those exact names. use two to four short sentences.
+            """
             let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                 images: labeledImages,
-                systemPrompt: Self.companionVoiceResponseSystemPrompt + Self.fieldTripExploreVoiceResponseInstructions,
+                systemPrompt: Self.companionVoiceResponseSystemPrompt
+                    + Self.fieldTripExploreVoiceResponseInstructions
+                    + highlightInstructions,
                 userPrompt: transcript,
                 onTextChunk: { _ in }
             )
-            guard !Task.isCancelled else { return }
-            await speakFieldTripLine(Self.parsePointingCoordinates(from: fullResponseText).spokenText)
+            while case .touring = fieldTripPhase, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            let spokenText = Self.parsePointingCoordinates(from: fullResponseText).spokenText
+            for spokenPart in fieldTripSpokenParts(from: spokenText) {
+                guard !Task.isCancelled else { return }
+                if let partLabel = spokenPart.partLabel {
+                    FieldTripOverlay.shared.highlightPart(labelText: partLabel)
+                }
+                await speakFieldTripLine(spokenPart.spokenText)
+                await waitForClickyToFinishSpeaking()
+            }
+            FieldTripOverlay.shared.highlightPart(labelText: "")
         } catch {
             print("Field trip explore reply failed: \(error)")
         }
     }
 
-    private func clearFinishedFieldTripScene() {
+    private func clearFinishedFieldTripScene(resumesTheVideo: Bool = true) {
         guard case .allLabelsShowing = fieldTripPhase else { return }
         FieldTripOverlay.shared.clear()
         fieldTripPhase = .idle
-        guard videoQuizSession.videoIsPausedForRequestedScene else { return }
+        guard resumesTheVideo, videoQuizSession.videoIsPausedForRequestedScene else { return }
         Task {
-            await self.speakFieldTripLine("Okay, let's keep watching!")
+            await self.speakFieldTripLine("Okay, back to the video.")
             await self.waitForClickyToFinishSpeaking()
             try? await Task.sleep(nanoseconds: 500_000_000)
             self.videoQuizSession.resumeVideoAfterRequestedScene()
@@ -1272,7 +1326,7 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
         // The learner needs a moment with the explanation before the video moves on.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
-        await speakFieldTripLine("Okay, let's keep watching!")
+        await speakFieldTripLine("Okay, back to the video.")
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
         videoQuizSession.resumeVideoAfterQuestion()

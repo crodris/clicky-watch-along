@@ -184,3 +184,36 @@ nonisolated func fieldTripSceneKind(for transcript: String) -> FieldTripSceneKin
         || lowercaseTranscript.contains("three d ")
     return asksToLookInside ? .explore : nil
 }
+
+/// Splits "[PART:Aorta] It carries blood. [PART:Heart] It pumps." into one entry
+/// per tagged sentence. Text with no tags comes back as a single entry.
+nonisolated func fieldTripSpokenParts(from responseText: String) -> [(partLabel: String?, spokenText: String)] {
+    let tagPattern = #"\[PART:([^\]]+)\]"#
+    guard let tagExpression = try? NSRegularExpression(pattern: tagPattern) else {
+        return [(nil, responseText)]
+    }
+    let fullRange = NSRange(responseText.startIndex..., in: responseText)
+    let tagMatches = tagExpression.matches(in: responseText, range: fullRange)
+    guard let firstTagRange = tagMatches.first.flatMap({ Range($0.range, in: responseText) }) else {
+        return [(nil, responseText)]
+    }
+
+    var spokenParts: [(partLabel: String?, spokenText: String)] = []
+    let textBeforeFirstTag = responseText[..<firstTagRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+    if !textBeforeFirstTag.isEmpty {
+        spokenParts.append((nil, textBeforeFirstTag))
+    }
+    for (matchIndex, tagMatch) in tagMatches.enumerated() {
+        guard let wholeTagRange = Range(tagMatch.range, in: responseText),
+              let labelRange = Range(tagMatch.range(at: 1), in: responseText) else { continue }
+        let nextTagStart = matchIndex + 1 < tagMatches.count
+            ? Range(tagMatches[matchIndex + 1].range, in: responseText)?.lowerBound ?? responseText.endIndex
+            : responseText.endIndex
+        let spokenText = responseText[wholeTagRange.upperBound..<nextTagStart]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !spokenText.isEmpty {
+            spokenParts.append((String(responseText[labelRange]), spokenText))
+        }
+    }
+    return spokenParts
+}
