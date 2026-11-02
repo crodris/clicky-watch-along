@@ -180,11 +180,50 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         startQueuedPageLoad()
     }
 
-    func playLiveScene(html: String, hidesQuizLabel: Bool) {
+    /// False means the page was refused and the caller should use a template.
+    /// Generated code must never run without both network blocks in place.
+    func playLiveScene(html: String, hidesQuizLabel: Bool) -> Bool {
+        let networkBlockFailedToCompile = networkBlockRuleListHasFinishedCompiling && networkBlockRuleList == nil
+        guard !networkBlockFailedToCompile,
+              let htmlWithPolicy = Self.htmlWithContentSecurityPolicy(html) else {
+            print("Field trip: refused a live page because its network block is missing")
+            return false
+        }
         placeOverlayOnTheScreenUnderTheMouse()
         fieldTripOverlayWindow?.ignoresMouseEvents = true
-        queuedPageLoad = .live(html: html, hidesQuizLabel: hidesQuizLabel)
+        queuedPageLoad = .live(html: htmlWithPolicy, hidesQuizLabel: hidesQuizLabel)
         startQueuedPageLoad()
+        return true
+    }
+
+    /// The rule list only stops http and https, so this policy is what stops
+    /// WebSockets. It has to come first, because it only covers what follows it.
+    private static func htmlWithContentSecurityPolicy(_ html: String) -> String? {
+        guard let headTagRange = html.range(of: "<head[^>]*>", options: [.regularExpression, .caseInsensitive]) else {
+            return nil
+        }
+        let htmlBeforeHead = html[..<headTagRange.lowerBound].lowercased()
+        let tagsThatCouldRunFirst = ["<script", "<link", "<base", "<meta", "<iframe"]
+        if tagsThatCouldRunFirst.contains(where: { htmlBeforeHead.contains($0) }) {
+            return nil
+        }
+        let policy = "default-src 'none'; script-src 'unsafe-inline' clicky-asset:; style-src 'unsafe-inline'; img-src data: blob:; connect-src clicky-asset:; base-uri 'none'; form-action 'none'"
+        var htmlWithPolicy = html
+        htmlWithPolicy.insert(
+            contentsOf: "<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\">",
+            at: headTagRange.upperBound
+        )
+        return htmlWithPolicy
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        let navigationScheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
+        let schemesThisPageMayOpen = ["about", "file", "clicky-asset"]
+        decisionHandler(schemesThisPageMayOpen.contains(navigationScheme) ? .allow : .cancel)
     }
 
     /// A window that catches the mouse blocks every click on the screen, so

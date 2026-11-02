@@ -968,11 +968,12 @@ final class CompanionManager: ObservableObject {
             guard requestGeneration == fieldTripSceneRequestGeneration else { return true }
             let quizToAskAfterTour = sceneKind == .quiz ? liveScene.quiz : nil
             guard requestGeneration == fieldTripSceneRequestGeneration else { return true }
-            print("Field trip scene path: live")
-            FieldTripOverlay.shared.playLiveScene(
+            let liveSceneWasAccepted = FieldTripOverlay.shared.playLiveScene(
                 html: liveScene.html,
                 hidesQuizLabel: quizToAskAfterTour != nil
             )
+            guard liveSceneWasAccepted else { return false }
+            print("Field trip scene path: live")
             fieldTripPhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
             return true
         } catch is CancellationError {
