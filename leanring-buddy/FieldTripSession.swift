@@ -30,6 +30,7 @@ enum FieldTripQuizGrade: Equatable {
     case nameAndFunctionWord
     case nameOnly
     case wrong
+    case askedForHelp
 }
 
 struct FieldTripQuiz {
@@ -112,6 +113,13 @@ enum FieldTripAnswerJudge {
     /// A quiz with no function words is complete once the learner names the part.
     /// Older specs have nothing else to grade.
     nonisolated static func gradeSpokenAnswer(transcript: String, quiz: FieldTripQuiz) -> FieldTripQuizGrade {
+        let lowercaseTranscript = transcript.lowercased()
+        let learnerAskedForHelp = ["no idea", "don't know", "dont know", "tell me", "not sure"].contains { helpPhrase in
+            lowercaseTranscript.contains(helpPhrase)
+        }
+        if learnerAskedForHelp {
+            return .askedForHelp
+        }
         let transcriptNamesThePart = isCorrect(transcript: transcript, answerLabel: quiz.answerLabel)
         if !transcriptNamesThePart {
             return .wrong

@@ -172,6 +172,8 @@ final class FieldTripSceneClient {
         switch verdictName {
         case "correct":
             grade = .nameAndFunctionWord
+        case "asked_for_help":
+            grade = .askedForHelp
         case "named_only":
             grade = .nameOnly
         case "wrong":

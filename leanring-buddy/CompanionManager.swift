@@ -1055,6 +1055,7 @@ final class CompanionManager: ObservableObject {
                     wrongAnswerCount: wrongAnswerCount
                 )
                 await speakFieldTripLine(spokenLine)
+                await resumeVideoQuizAfterExplanation()
                 guard !Task.isCancelled else { return }
                 voiceState = .idle
                 scheduleTransientHideIfNeeded()
@@ -1081,6 +1082,10 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
             FieldTripOverlay.shared.reveal()
             fieldTripPhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+        case .askedForHelp:
+            spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .allLabelsShowing
         case .wrong:
             if wrongAnswerCount == 0 {
                 spokenLine = "Ooh, not quite! Take another look."
@@ -1113,6 +1118,10 @@ final class CompanionManager: ObservableObject {
         case .nameOnly:
             FieldTripOverlay.shared.reveal()
             fieldTripPhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+            return judgedAnswer.spokenReply
+        case .askedForHelp:
+            FieldTripOverlay.shared.reveal()
+            fieldTripPhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .wrong:
             if wrongAnswerCount == 0 {
@@ -1147,6 +1156,7 @@ final class CompanionManager: ObservableObject {
                 }
                 fieldTripPhase = .allLabelsShowing
                 await speakFieldTripLine(spokenLine)
+                await resumeVideoQuizAfterExplanation()
                 guard !Task.isCancelled else { return }
                 voiceState = .idle
                 scheduleTransientHideIfNeeded()

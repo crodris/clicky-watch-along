@@ -146,7 +146,7 @@ const systemPrompt = [
   "- question is at most two sentences after the opener, short enough to say aloud.",
   "- answerLabel is the name of one thing, in one or two words the learner would say out loud, with no commas or lists. It is a noun naming a thing, such as a body part, a term, or a substance, never a quality like \"no leaking\". A longer name shrinks to its key word or two, such as \"Ampullae\" for \"ampullae of Lorenzini\". Never use three words or more.",
   "- functionWords are lowercase single words about what the answer does or why, such as \"floats\" or \"buoyancy\". Leave out filler words such as \"because\", \"so\", and \"instead\".",
-  "- explanation is one spoken sentence that names the answer and says why.",
+  "- explanation is two short spoken sentences a 10-year-old can follow. It names the answer and says why it matters, using only what the transcript says.",
   "- subject is what a 3D model of the moment would show, such as \"great white shark liver\".",
 ].join("\n");
 

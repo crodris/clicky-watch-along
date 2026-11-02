@@ -28,7 +28,7 @@ const judgeAnswerRequestSchema = z.object({
 });
 
 const judgeAnswerToolInputSchema = z.object({
-  verdict: z.enum(["correct", "named_only", "wrong"]),
+  verdict: z.enum(["correct", "named_only", "wrong", "asked_for_help"]),
   spokenReply: z.string().min(1),
 });
 
@@ -97,7 +97,7 @@ const liveSceneInstructions = [
   "question opens with one cheerful sentence saying you have arrived inside the subject, then asks what the part is and what it does. It does not contain the answer.",
   "answerLabel is the answer part's real label, the words the learner would say out loud.",
   "functionWords is a list of lowercase words that count as saying what the part does.",
-  "explanation is one spoken sentence that names the part and says what it does.",
+  "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
 ].join("\n");
 
 const judgeAnswerSystemPrompt = [
@@ -108,10 +108,12 @@ const judgeAnswerSystemPrompt = [
   '- "correct" when the transcript names the part and says what it does, or says what it does even without repeating the name. A follow-up often only says the function.',
   '- "named_only" when the transcript names the part and does not say what it does.',
   '- "wrong" when the transcript does neither.',
+  '- "asked_for_help" when the learner says they do not know, gives up, or asks to be told.',
   "",
   "spokenReply is one short cheerful sentence.",
   "- correct: agree, and say what the part does in that same sentence.",
   "- named_only: agree they named it, and ask what it does. Do not explain what it does.",
+  "- asked_for_help: be kind and teach it in two short sentences a 10-year-old can follow. Name the part, say what it does, and say why that matters. Do not ask them to try again.",
   "- wrong: explain the mistake. Do not name the part and do not say what it does. The learner gets another try, so this sentence must not give the answer away.",
   "",
   "The answer label is the name of the part. The explanation says what it does. The question is what Clicky asked.",
@@ -290,7 +292,7 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
             properties: {
               verdict: {
                 type: "string",
-                enum: ["correct", "named_only", "wrong"],
+                enum: ["correct", "named_only", "wrong", "asked_for_help"],
                 description:
                   "correct when they name the part and say what it does, or say what it does without repeating the name. named_only when they name the part and do not say what it does. wrong when they do neither.",
               },
