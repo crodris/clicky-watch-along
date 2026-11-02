@@ -31965,10 +31965,6 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     }
     return scenePart.labelText;
   }
-  function setQuizLabelShowsQuestionMark(showsQuestionMark) {
-    quizLabelShowsQuestionMark = showsQuestionMark;
-    updatePartLabelPositions();
-  }
   function clampNumber(value, minimum, maximum) {
     return Math.min(maximum, Math.max(minimum, value));
   }
@@ -32268,7 +32264,6 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
               if (tourId !== activeTourId) {
                 return;
               }
-              setQuizLabelShowsQuestionMark(true);
               window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
                 "tourFinished"
               );
@@ -32278,12 +32273,12 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
       });
     });
   }
-  function playScene(spec) {
+  function playScene(spec, hidesQuizLabel) {
     const sceneSpec = sceneSpecSchema.parse(spec);
     cancelCameraTour();
     disposeParts();
     quizPartId = sceneSpec.quiz.partId;
-    quizLabelShowsQuestionMark = false;
+    quizLabelShowsQuestionMark = hidesQuizLabel;
     document.title = sceneSpec.title;
     ensureRenderer();
     ensureLights();
@@ -32291,7 +32286,8 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     startCameraTour(sceneSpec);
   }
   function revealQuizLabel() {
-    setQuizLabelShowsQuestionMark(false);
+    quizLabelShowsQuestionMark = false;
+    updatePartLabelPositions();
   }
   function clearScene() {
     cancelCameraTour();
@@ -32302,8 +32298,8 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     renderSceneOnce();
   }
   window.fieldTrip = {
-    play(spec) {
-      playScene(spec);
+    play(spec, hidesQuizLabel) {
+      playScene(spec, hidesQuizLabel);
     },
     reveal() {
       revealQuizLabel();

@@ -365,11 +365,6 @@ function labelTextForPart(scenePart: ScenePart): string {
   return scenePart.labelText;
 }
 
-function setQuizLabelShowsQuestionMark(showsQuestionMark: boolean): void {
-  quizLabelShowsQuestionMark = showsQuestionMark;
-  updatePartLabelPositions();
-}
-
 function clampNumber(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -743,9 +738,8 @@ function startCameraTour(sceneSpec: SceneSpec): void {
             if (tourId !== activeTourId) {
               return;
             }
-            setQuizLabelShowsQuestionMark(true);
-            // The Mac app speaks the quiz after this. A normal browser has no
-            // handler, so the optional chain does nothing there.
+            // The Mac app decides what follows the tour. A normal browser has
+            // no handler, so the optional chain does nothing there.
             window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
               "tourFinished",
             );
@@ -756,12 +750,14 @@ function startCameraTour(sceneSpec: SceneSpec): void {
   });
 }
 
-function playScene(spec: unknown): void {
+function playScene(spec: unknown, hidesQuizLabel: boolean): void {
   const sceneSpec = sceneSpecSchema.parse(spec);
   cancelCameraTour();
   disposeParts();
   quizPartId = sceneSpec.quiz.partId;
-  quizLabelShowsQuestionMark = false;
+  // Set before the tour, because inner labels appear during the last move and
+  // would show the answer before the question is asked.
+  quizLabelShowsQuestionMark = hidesQuizLabel;
   document.title = sceneSpec.title;
   ensureRenderer();
   ensureLights();
@@ -770,7 +766,8 @@ function playScene(spec: unknown): void {
 }
 
 function revealQuizLabel(): void {
-  setQuizLabelShowsQuestionMark(false);
+  quizLabelShowsQuestionMark = false;
+  updatePartLabelPositions();
 }
 
 function clearScene(): void {
@@ -785,7 +782,7 @@ function clearScene(): void {
 declare global {
   interface Window {
     fieldTrip: {
-      play(spec: unknown): void;
+      play(spec: unknown, hidesQuizLabel: boolean): void;
       reveal(): void;
       clear(): void;
     };
@@ -800,8 +797,8 @@ declare global {
 }
 
 window.fieldTrip = {
-  play(spec: unknown) {
-    playScene(spec);
+  play(spec: unknown, hidesQuizLabel: boolean) {
+    playScene(spec, hidesQuizLabel);
   },
   reveal() {
     revealQuizLabel();

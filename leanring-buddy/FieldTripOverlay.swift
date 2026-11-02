@@ -4,7 +4,7 @@
 //
 //  One transparent window and one page, reused for every field trip. The
 //  window is created on the screen under the mouse, and later plays move it
-//  there again. The page reports tourFinished when the quiz label becomes "?".
+//  there again. The page reports tourFinished when the camera tour ends.
 //
 
 import AppKit
@@ -31,7 +31,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     private var fieldTripOverlayWindow: OverlayWindow?
     private var fieldTripWebView: WKWebView?
     private var pageHasFinishedLoading = false
-    private var queuedSpecJSONData: Data?
+    private var queuedPlay: (specJSONData: Data, hidesQuizLabel: Bool)?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "fieldTripLog" {
@@ -41,23 +41,23 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         guard message.name == "fieldTripEvent" else {
             return
         }
-        // The page posts this string when the quiz label becomes "?".
+        // The page posts this string when the camera tour ends.
         guard let eventName = message.body as? String, eventName == "tourFinished" else {
             return
         }
         onTourFinished?()
     }
 
-    func play(specJSONData: Data) {
+    func play(specJSONData: Data, hidesQuizLabel: Bool) {
         placeOverlayOnTheScreenUnderTheMouse()
         guard fieldTripWebView != nil else {
             return
         }
         if pageHasFinishedLoading {
-            queuedSpecJSONData = nil
-            sendSpecToPage(specJSONData)
+            queuedPlay = nil
+            sendSpecToPage(specJSONData, hidesQuizLabel: hidesQuizLabel)
         } else {
-            queuedSpecJSONData = specJSONData
+            queuedPlay = (specJSONData, hidesQuizLabel)
         }
     }
 
@@ -66,18 +66,18 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 
     func clear() {
-        queuedSpecJSONData = nil
+        queuedPlay = nil
         evaluateOnThePage("window.fieldTrip.clear()")
         fieldTripOverlayWindow?.orderOut(nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         pageHasFinishedLoading = true
-        guard let queuedSpecJSONData else {
+        guard let queuedPlay else {
             return
         }
-        self.queuedSpecJSONData = nil
-        sendSpecToPage(queuedSpecJSONData)
+        self.queuedPlay = nil
+        sendSpecToPage(queuedPlay.specJSONData, hidesQuizLabel: queuedPlay.hidesQuizLabel)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -155,7 +155,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         return webView
     }
 
-    private func sendSpecToPage(_ specJSONData: Data) {
+    private func sendSpecToPage(_ specJSONData: Data, hidesQuizLabel: Bool) {
         do {
             let specJSONValue = try JSONSerialization.jsonObject(with: specJSONData)
             // JSONSerialization returns Any. callAsyncJavaScript takes a dictionary,
@@ -164,7 +164,10 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
                 print("Field trip: spec JSON was not an object")
                 return
             }
-            evaluateOnThePage("window.fieldTrip.play(spec)", arguments: ["spec": specDictionary])
+            evaluateOnThePage(
+                "window.fieldTrip.play(spec, hidesQuizLabel)",
+                arguments: ["spec": specDictionary, "hidesQuizLabel": hidesQuizLabel]
+            )
         } catch {
             print("Field trip: spec JSON could not be parsed: \(error.localizedDescription)")
         }

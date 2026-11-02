@@ -89,7 +89,7 @@ async function runCameraMove() {
   await page.clock.fastForward(cameraMoveMilliseconds + 20);
 }
 
-await page.evaluate((spec) => window.fieldTrip.play(spec), whaleSpec);
+await page.evaluate((spec) => window.fieldTrip.play(spec, true), whaleSpec);
 await page.clock.fastForward(20);
 await waitForLabelFade();
 await page.screenshot({ path: resolve(sceneDirectory, "shots/1-outside.png") });

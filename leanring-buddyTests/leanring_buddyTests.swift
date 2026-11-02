@@ -51,4 +51,11 @@ struct leanring_buddyTests {
         #expect(lungsAnswerIsCorrect == false)
     }
 
+    @Test func onlyAnExplicitQuizRequestStartsTheQuiz() async throws {
+        #expect(fieldTripSceneKind(for: "What does this look like inside?") == .explore)
+        #expect(fieldTripSceneKind(for: "Can you quiz me on it?") == .quiz)
+        #expect(fieldTripSceneKind(for: "show me inside and test me on it") == .quiz)
+        #expect(fieldTripSceneKind(for: "what's on the latest menu") == nil)
+    }
+
 }

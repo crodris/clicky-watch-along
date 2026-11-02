@@ -8,12 +8,20 @@
 
 import Foundation
 
+enum FieldTripSceneKind {
+    /// Every label stays visible, and nothing is asked after the tour.
+    case explore
+    /// One label shows "?" and Clicky asks the learner to name that part after the tour.
+    case quiz
+}
+
 enum FieldTripPhase {
     case idle
-    case buildingScene
-    case touring(FieldTripQuiz)
+    case buildingScene(FieldTripSceneKind)
+    case touring(quizToAskAfterTour: FieldTripQuiz?)
     case awaitingAnswer(FieldTripQuiz, wrongAnswerCount: Int)
-    case revealed
+    /// The scene stays on screen until the next question clears it.
+    case allLabelsShowing
 }
 
 struct FieldTripQuiz {
@@ -100,10 +108,19 @@ enum FieldTripAnswerJudge {
     }
 }
 
-/// True when the learner is asking to look inside the thing on screen.
-nonisolated func shouldBuildScene(for transcript: String) -> Bool {
+/// The scene this transcript asks for, or nil when it asks for none. A quiz
+/// request wins, because "show me inside and quiz me" wants the quiz.
+nonisolated func fieldTripSceneKind(for transcript: String) -> FieldTripSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
-    return lowercaseTranscript.contains("inside")
+    let asksToBeQuizzed = lowercaseTranscript.range(
+        of: #"\b(quiz\w*|test me)\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksToBeQuizzed {
+        return .quiz
+    }
+    let asksToLookInside = lowercaseTranscript.contains("inside")
         || lowercaseTranscript.contains("look like")
         || lowercaseTranscript.contains("show me")
+    return asksToLookInside ? .explore : nil
 }

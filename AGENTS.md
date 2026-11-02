@@ -49,7 +49,7 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 
 **Transient Cursor Mode**: When "Show Clicky" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
-**Field Trip Scene**: A transcript that contains "inside", "look like", or "show me" calls `POST /scene` while the normal voice answer plays. Haiku picks a template. `blue_whale` is a hand-tuned template (`scene/fixtures/whale.json`). Other subjects are generated live by Sonnet and checked with `sceneSpecSchema`. The overlay plays the spec on the screen under the mouse cursor. When the camera tour ends, one label becomes "?" and Clicky asks the learner to name that part. The learner answers by voice. `--field-trip-spec <path>` reads a JSON spec, plays it through the same overlay, and returns before the menu bar app starts. The `scene/` package validates specs with Zod and renders them with three.js into `leanring-buddy/FieldTripScene.html`. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
+**Field Trip Scene**: A transcript that contains "inside", "look like", or "show me" calls `POST /scene` while the normal voice answer plays, and every label stays visible. A transcript that says "quiz" or "test me" plays the same scene with one label shown as "?". Haiku picks a template. `blue_whale` is a hand-tuned template (`scene/fixtures/whale.json`). Other subjects are generated live by Sonnet and checked with `sceneSpecSchema`. The overlay plays the spec on the screen under the mouse cursor. In a quiz, Clicky asks the learner to name that part when the camera tour ends. The learner answers by voice. `--field-trip-spec <path>` reads a JSON spec, plays it through the same overlay, and returns before the menu bar app starts. The `scene/` package validates specs with Zod and renders them with three.js into `leanring-buddy/FieldTripScene.html`. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
 
 ## Key Files
 
@@ -57,10 +57,10 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 |------|-------|---------|
 | `leanring_buddyApp.swift` | ~119 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which creates `MenuBarPanelManager` and starts `CompanionManager`. No main window. The app lives entirely in the status bar. `--field-trip-spec` plays a scene and returns early. |
 | `FieldTripOverlay.swift` | ~189 | Reusable transparent window and page on the screen under the mouse. Plays a spec, reveals the quiz label, and clears the scene. |
-| `FieldTripSession.swift` | ~109 | Field-trip phase, quiz, spoken-answer judge, and the inside / look like / show me trigger. |
+| `FieldTripSession.swift` | ~109 | Field-trip phase, scene kind, quiz, spoken-answer judge, and the transcript trigger that picks explore or quiz. |
 | `FieldTripSceneClient.swift` | ~64 | Posts the cursor screen JPEG to `POST /scene` and returns the spec data. |
 | `scene/src/spec.ts` | ~158 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
-| `scene/src/main.ts` | ~812 | three.js renderer. Translucent shells, a three-stop camera tour, DOM labels, and a tour-finished message when the quiz label becomes "?". |
+| `scene/src/main.ts` | ~812 | three.js renderer. Translucent shells, a three-stop camera tour, DOM labels, an optional "?" quiz label, and a tour-finished message. |
 | `scene/fixtures/whale.json` | ~98 | Hand-written blue whale. Translucent shell, inner organs, last camera stop beside the heart. |
 | `CompanionManager.swift` | ~1202 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the push-to-talk pipeline and the field-trip scene quiz. |
 | `MenuBarPanelManager.swift` | ~243 | NSStatusItem + custom NSPanel lifecycle. Creates the menu bar icon, manages the floating companion panel (show/hide/position), installs click-outside-to-dismiss monitor. |

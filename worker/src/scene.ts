@@ -367,14 +367,14 @@ const buildSceneInputSchema: JsonSchema = {
 };
 
 const pickSceneSystemPrompt = [
-  "You choose a field-trip template for the subject in the screenshot.",
+  "You choose a field-trip template. The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
   "Call pick_scene.",
-  'Return template "blue_whale" when the subject is a blue whale.',
+  'Return template "blue_whale" when the subject is a blue whale, or a whale with no species named.',
   'Return template "none" for every other subject.',
 ].join("\n");
 
 const buildSceneSystemPrompt = [
-  "You build a labeled 3D field-trip scene of the subject in the learner's screenshot.",
+  "You build a labeled 3D field-trip scene. The subject is what the learner names. When they name nothing, it is the subject in their screenshot.",
   "Call build_scene with the scene spec.",
   "",
   "Requirements:",
@@ -495,7 +495,7 @@ export async function handleScene(request: Request, anthropicAPIKey: string): Pr
             template: {
               type: "string",
               enum: ["blue_whale", "none"],
-              description: "blue_whale when the subject is a blue whale. none for every other subject.",
+              description: "blue_whale when the subject is a blue whale, or a whale with no species named. none for every other subject.",
             },
           },
           required: ["template"],

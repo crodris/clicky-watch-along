@@ -191,7 +191,7 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         FieldTripOverlay.shared.onTourFinished = { [weak self] in
-            self?.speakFieldTripQuizAfterTheVoiceAnswerFinishes()
+            self?.handleFieldTripTourFinished()
         }
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
@@ -600,6 +600,15 @@ final class CompanionManager: ObservableObject {
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
 
+    /// Added to the system prompt for a quiz request. Without it Claude asks its
+    /// own question over the tour, and the learner hears two quizzes.
+    private static let fieldTripQuizVoiceResponseInstructions = """
+
+
+    field trip:
+    a 3d model of what they asked about is opening on their screen, and you will ask one quiz question about it when the tour ends. reply with one short sentence saying you're taking them inside for a quiz. do not ask a question yourself, and do not say you can't remember earlier conversations. end with [POINT:none].
+    """
+
     // MARK: - AI Response Pipeline
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
@@ -649,7 +658,7 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        if case .revealed = fieldTripPhase {
+        if case .allLabelsShowing = fieldTripPhase {
             FieldTripOverlay.shared.clear()
             fieldTripPhase = .idle
         }
@@ -658,9 +667,13 @@ final class CompanionManager: ObservableObject {
             fieldTripPhase = .idle
         }
 
-        if shouldBuildScene(for: transcript) {
-            fieldTripPhase = .buildingScene
+        let requestedSceneKind = fieldTripSceneKind(for: transcript)
+        if let requestedSceneKind {
+            fieldTripPhase = .buildingScene(requestedSceneKind)
         }
+        let voiceResponseSystemPrompt = requestedSceneKind == .quiz
+            ? Self.companionVoiceResponseSystemPrompt + Self.fieldTripQuizVoiceResponseInstructions
+            : Self.companionVoiceResponseSystemPrompt
 
         currentResponseTask = Task {
             // Stay in processing (spinner) state — no streaming text displayed
@@ -674,7 +687,7 @@ final class CompanionManager: ObservableObject {
 
                 // The scene request uses this same capture, then runs beside Claude
                 // so the spoken answer is not waiting on the scene.
-                if case .buildingScene = self.fieldTripPhase,
+                if case .buildingScene(let sceneKind) = self.fieldTripPhase,
                    requestGeneration == self.fieldTripSceneRequestGeneration {
                     if let cursorScreenCapture = screenCaptures.first(where: { screenCapture in
                         screenCapture.isCursorScreen
@@ -683,6 +696,7 @@ final class CompanionManager: ObservableObject {
                         self.fieldTripSceneRequestTask = Task {
                             await self.requestFieldTripScene(
                                 question: transcript,
+                                sceneKind: sceneKind,
                                 cursorScreenJPEGData: cursorScreenJPEGData,
                                 requestGeneration: requestGeneration
                             )
@@ -708,7 +722,7 @@ final class CompanionManager: ObservableObject {
 
                 let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                     images: labeledImages,
-                    systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                    systemPrompt: voiceResponseSystemPrompt,
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
                     onTextChunk: { _ in
@@ -827,6 +841,7 @@ final class CompanionManager: ObservableObject {
 
     private func requestFieldTripScene(
         question: String,
+        sceneKind: FieldTripSceneKind,
         cursorScreenJPEGData: Data,
         requestGeneration: Int
     ) async {
@@ -837,10 +852,15 @@ final class CompanionManager: ObservableObject {
                 cursorScreenJPEGData: cursorScreenJPEGData
             )
             guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            let quiz = try FieldTripQuiz(specJSONData: specJSONData)
+            let quizToAskAfterTour = sceneKind == .quiz
+                ? try FieldTripQuiz(specJSONData: specJSONData)
+                : nil
             guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            FieldTripOverlay.shared.play(specJSONData: specJSONData)
-            fieldTripPhase = .touring(quiz)
+            FieldTripOverlay.shared.play(
+                specJSONData: specJSONData,
+                hidesQuizLabel: quizToAskAfterTour != nil
+            )
+            fieldTripPhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
         } catch is CancellationError {
             return
         } catch {
@@ -866,14 +886,14 @@ final class CompanionManager: ObservableObject {
         if answerIsCorrect {
             spokenLine = "That's right, it's the \(quiz.answerLabel)."
             FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .revealed
+            fieldTripPhase = .allLabelsShowing
         } else if wrongAnswerCount == 0 {
             spokenLine = "Not quite. Take another look."
             fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
         } else {
             spokenLine = "That's the \(quiz.answerLabel)."
             FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .revealed
+            fieldTripPhase = .allLabelsShowing
         }
         await speakFieldTripLine(spokenLine)
         guard !Task.isCancelled else { return }
@@ -881,8 +901,12 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
-    private func speakFieldTripQuizAfterTheVoiceAnswerFinishes() {
-        guard case .touring(let quiz) = fieldTripPhase else { return }
+    private func handleFieldTripTourFinished() {
+        guard case .touring(let quizToAskAfterTour) = fieldTripPhase else { return }
+        guard let quiz = quizToAskAfterTour else {
+            fieldTripPhase = .allLabelsShowing
+            return
+        }
         fieldTripTourFinishedTask?.cancel()
         fieldTripTourFinishedTask = Task {
             await self.waitUntilTheVoiceAnswerIsQuiet()
