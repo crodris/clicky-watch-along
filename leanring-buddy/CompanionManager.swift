@@ -609,7 +609,7 @@ final class CompanionManager: ObservableObject {
     private static let fieldTripQuizVoiceResponseInstructions = """
 
 
-    for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask them a question as soon as the camera stops moving. reply with one short spoken sentence telling them to look closely as you go inside. do not say the words quiz, question, test, or tour, do not ask anything yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
+    for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask them a question as soon as the camera stops moving. reply with one or two short, cheerful spoken sentences, like an excited tour guide, saying you're heading inside what they asked about and telling them to look closely. use exclamation marks and at most 18 words. never name any part or ingredient of the thing, because that could give away the answer. do not say the words quiz, question, test, or tour, do not ask anything yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
     """
 
     // MARK: - AI Response Pipeline
@@ -890,14 +890,14 @@ final class CompanionManager: ObservableObject {
             answerLabel: quiz.answerLabel
         )
         if answerIsCorrect {
-            spokenLine = "That's right, it's the \(quiz.answerLabel)."
+            spokenLine = "Yes! The answer is \(quiz.answerLabel.lowercased()). Nice work!"
             FieldTripOverlay.shared.reveal()
             fieldTripPhase = .allLabelsShowing
         } else if wrongAnswerCount == 0 {
-            spokenLine = "Not quite. Take another look."
+            spokenLine = "Ooh, not quite! Take another look."
             fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
         } else {
-            spokenLine = "That's the \(quiz.answerLabel)."
+            spokenLine = "Good try! The answer is \(quiz.answerLabel.lowercased())."
             FieldTripOverlay.shared.reveal()
             fieldTripPhase = .allLabelsShowing
         }

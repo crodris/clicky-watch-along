@@ -388,7 +388,7 @@ const buildSceneSystemPrompt = [
   "- When the subject has an inside, the outer part is a translucent shell.",
   "- Center the subject at the origin, inside a box 6 units on each side.",
   "- Use three camera stops. The last stop ends beside the most interesting part, with neighboring parts still in view.",
-  "- The quiz hides that part. quiz.partId is that part. quiz.question asks the learner to name it and does not contain the answer. That part's label is one word the learner would say out loud, such as Oxygen, not Oxygen atom.",
+  "- The quiz hides that part. quiz.partId is that part. quiz.question opens with one cheerful sentence saying you have arrived inside the subject, points at the spot marked with a question mark, then asks the learner to name it. It does not contain the answer. That part's label is one word the learner would say out loud, such as Oxygen, not Oxygen atom.",
   "",
   "Worked example of this schema. The blue whale below is a hand-tuned template, so its coordinates extend past the 6 unit box. A new subject still has to fit inside that box.",
   JSON.stringify(whaleScene),
