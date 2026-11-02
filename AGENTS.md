@@ -59,6 +59,8 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `leanring_buddyApp.swift` | ~119 | Menu bar app entry point. Uses `@NSApplicationDelegateAdaptor` with `CompanionAppDelegate` which creates `MenuBarPanelManager` and starts `CompanionManager`. No main window. The app lives entirely in the status bar. `--field-trip-spec` plays a scene and returns early. |
 | `FieldTripOverlay.swift` | ~189 | Reusable transparent window and page on the screen under the mouse. Plays a spec, reveals the quiz label, and clears the scene. |
 | `FieldTripSession.swift` | ~109 | Field-trip phase, scene kind, quiz, spoken-answer judge, and the transcript trigger that picks explore or quiz. |
+| `VideoWatchAlongSession.swift` | ~420 | Listens to system audio with ScreenCaptureKit, keeps a rolling on-device transcript, asks `/watch-moment` when to pause, and presses YouTube's k key. |
+| `WatchMomentClient.swift` | ~100 | Posts the transcript and screenshot to `POST /watch-moment`. |
 | `FieldTripSceneClient.swift` | ~64 | Posts the cursor screen JPEG to `POST /scene` and returns the spec data. |
 | `scene/src/spec.ts` | ~159 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
 | `scene/src/main.ts` | ~812 | three.js renderer. Translucent shells, a three-stop camera tour, DOM labels, an optional "?" quiz label, and a tour-finished message. |
