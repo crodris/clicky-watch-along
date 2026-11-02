@@ -23,12 +23,22 @@ private final class FieldTripWebView: WKWebView {
 /// Generated pages import three.js from clicky-asset://three/..., because that
 /// page is not allowed to reach a CDN. The two files ship in the app bundle.
 private final class FieldTripThreeAssetSchemeHandler: NSObject, WKURLSchemeHandler {
+    /// The generated page is served from here so its policy is a response header.
+    /// Text in the page cannot displace a header the way it could a meta tag.
+    static let livePageURLString = "clicky-asset://live/page.html"
+    private static let livePageContentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline' clicky-asset:; style-src 'unsafe-inline'; img-src data: blob:; connect-src clicky-asset:; base-uri 'none'; form-action 'none'; webrtc 'block'"
+
+    var livePageHTMLData: Data?
     private let stoppedTaskLock = NSLock()
     private let stoppedTasks = NSHashTable<AnyObject>.weakObjects()
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let requestURL = urlSchemeTask.request.url else {
             fail(urlSchemeTask, message: "Three.js request had no URL")
+            return
+        }
+        if requestURL.absoluteString == Self.livePageURLString {
+            serveLivePage(for: urlSchemeTask, requestURL: requestURL)
             return
         }
         let fileName = requestURL.lastPathComponent
@@ -58,6 +68,27 @@ private final class FieldTripThreeAssetSchemeHandler: NSObject, WKURLSchemeHandl
         urlSchemeTask.didReceive(scriptResponse)
         guard !taskWasStopped(urlSchemeTask) else { return }
         urlSchemeTask.didReceive(scriptData)
+        guard !taskWasStopped(urlSchemeTask) else { return }
+        urlSchemeTask.didFinish()
+    }
+
+    private func serveLivePage(for urlSchemeTask: WKURLSchemeTask, requestURL: URL) {
+        guard let livePageHTMLData, let pageResponse = HTTPURLResponse(
+            url: requestURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": "text/html; charset=utf-8",
+                "Content-Security-Policy": Self.livePageContentSecurityPolicy,
+            ]
+        ) else {
+            fail(urlSchemeTask, message: "No live page to serve")
+            return
+        }
+        guard !taskWasStopped(urlSchemeTask) else { return }
+        urlSchemeTask.didReceive(pageResponse)
+        guard !taskWasStopped(urlSchemeTask) else { return }
+        urlSchemeTask.didReceive(livePageHTMLData)
         guard !taskWasStopped(urlSchemeTask) else { return }
         urlSchemeTask.didFinish()
     }
@@ -106,6 +137,8 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     private static let pageErrorForwardingScript = """
     (() => {
+      delete window.RTCPeerConnection;
+      delete window.webkitRTCPeerConnection;
       const send = (text) => window.webkit.messageHandlers.fieldTripLog.postMessage(String(text));
       for (const level of ["error", "warn"]) {
         const original = console[level].bind(console);
@@ -189,39 +222,17 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 
     /// False means the page was refused and the caller should use a template.
-    /// Generated code must never run without both network blocks in place.
+    /// Generated code must never run without the network block in place.
     func playLiveScene(html: String, hidesQuizLabel: Bool) -> Bool {
-        let networkBlockFailedToCompile = networkBlockRuleListHasFinishedCompiling && networkBlockRuleList == nil
-        guard !networkBlockFailedToCompile,
-              let htmlWithPolicy = Self.htmlWithContentSecurityPolicy(html) else {
+        guard networkBlockRuleList != nil else {
             print("Field trip: refused a live page because its network block is missing")
             return false
         }
         placeOverlayOnTheScreenUnderTheMouse()
         fieldTripOverlayWindow?.ignoresMouseEvents = true
-        queuedPageLoad = .live(html: htmlWithPolicy, hidesQuizLabel: hidesQuizLabel)
+        queuedPageLoad = .live(html: html, hidesQuizLabel: hidesQuizLabel)
         startQueuedPageLoad()
         return true
-    }
-
-    /// The rule list only stops http and https, so this policy is what stops
-    /// WebSockets. It has to come first, because it only covers what follows it.
-    private static func htmlWithContentSecurityPolicy(_ html: String) -> String? {
-        // Anchored, so a <head> inside a comment or string cannot take the policy.
-        let documentStartThroughHead = #"^\s*(<!doctype[^>]*>\s*)?(<html[^>]*>\s*)?<head(\s[^>]*)?>"#
-        guard let headTagRange = html.range(
-            of: documentStartThroughHead,
-            options: [.regularExpression, .caseInsensitive]
-        ) else {
-            return nil
-        }
-        let policy = "default-src 'none'; script-src 'unsafe-inline' clicky-asset:; style-src 'unsafe-inline'; img-src data: blob:; connect-src clicky-asset:; base-uri 'none'; form-action 'none'"
-        var htmlWithPolicy = html
-        htmlWithPolicy.insert(
-            contentsOf: "<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\">",
-            at: headTagRange.upperBound
-        )
-        return htmlWithPolicy
     }
 
     func webView(
@@ -373,7 +384,9 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         case .live(let html, _):
             beginReplacingTheDocument()
             loadedPageKind = .live
-            fieldTripWebView?.loadHTMLString(html, baseURL: nil)
+            guard let livePageURL = URL(string: FieldTripThreeAssetSchemeHandler.livePageURLString) else { return }
+            threeAssetSchemeHandler.livePageHTMLData = Data(html.utf8)
+            fieldTripWebView?.load(URLRequest(url: livePageURL))
         }
     }
 
