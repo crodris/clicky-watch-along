@@ -607,6 +607,29 @@ final class CompanionManager: ObservableObject {
     /// the spinner/processing state until TTS audio begins playing.
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
+    #if DEBUG
+    /// Feeds transcripts through the real pipeline with no microphone, so the
+    /// whole voice and quiz loop can be tested unattended.
+    func runFieldTripRehearsal(transcripts: [String]) async {
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        for transcript in transcripts {
+            print("Field trip rehearsal: saying \"\(transcript)\" in phase \(fieldTripPhase)")
+            sendTranscriptToClaudeWithScreenshot(transcript: transcript)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            while true {
+                let sceneIsStillBuilding: Bool
+                if case .touring = fieldTripPhase { sceneIsStillBuilding = true } else { sceneIsStillBuilding = false }
+                let clickyIsBusy = voiceState == .processing || elevenLabsTTSClient.isPlaying
+                if !sceneIsStillBuilding && !clickyIsBusy { break }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            print("Field trip rehearsal: finished, phase \(fieldTripPhase)")
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        print("Field trip rehearsal: done")
+    }
+    #endif
+
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
         currentResponseTask?.cancel()
         fieldTripSceneRequestTask?.cancel()

@@ -57,6 +57,15 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
         registerAsLoginItemIfNeeded()
         // startSparkleUpdater()
+        #if DEBUG
+        let launchArguments = ProcessInfo.processInfo.arguments
+        if let flagIndex = launchArguments.firstIndex(of: "--field-trip-rehearsal"),
+           flagIndex + 1 < launchArguments.count {
+            let transcripts = launchArguments[flagIndex + 1].components(separatedBy: "|")
+            let companionManager = companionManager
+            Task { await companionManager.runFieldTripRehearsal(transcripts: transcripts) }
+        }
+        #endif
     }
 
     /// `--field-trip-spec <path>` reads that JSON file and plays it in the overlay.
