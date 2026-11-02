@@ -218,6 +218,17 @@ describe("live scene reply", () => {
     expect(checkedReply.accepted).toBe(false);
   });
 
+  it("rejects a page that uses WebRTC in any letter case", () => {
+    const pageUsingWebRTC = liveScenePage.replace(
+      "</body>",
+      "<script>new RTCPeerConnection();</script></body>",
+    );
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageUsingWebRTC));
+
+    expect(checkedReply.accepted).toBe(false);
+  });
+
   it("rejects a page missing focusPart", () => {
     const pageMissingFocusPart = liveScenePage.replace(
       "focusPart(labelText) { return false; }",
