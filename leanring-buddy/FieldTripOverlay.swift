@@ -98,6 +98,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         print("Field trip: web content process terminated")
+        fieldTripOverlayWindow?.ignoresMouseEvents = true
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

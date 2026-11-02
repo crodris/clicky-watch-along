@@ -909,9 +909,9 @@ final class CompanionManager: ObservableObject {
 
     private func handleFieldTripTourFinished() {
         guard case .touring(let quizToAskAfterTour) = fieldTripPhase else { return }
-        FieldTripOverlay.shared.letLearnerDragTheModel()
         guard let quiz = quizToAskAfterTour else {
             fieldTripPhase = .allLabelsShowing
+            FieldTripOverlay.shared.letLearnerDragTheModel()
             return
         }
         fieldTripTourFinishedTask?.cancel()
@@ -920,6 +920,9 @@ final class CompanionManager: ObservableObject {
             guard !Task.isCancelled else { return }
             guard case .touring = fieldTripPhase else { return }
             fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
+            // Only after the phase changes, because a new question cancels this
+            // task and .touring has no way to release the mouse.
+            FieldTripOverlay.shared.letLearnerDragTheModel()
             await self.speakFieldTripLine(quiz.question)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle

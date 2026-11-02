@@ -4,12 +4,14 @@
  * A full scene is too slow to generate before Clicky can speak, so this route
  * takes two steps. Haiku only picks a template. The blue whale is a hand-tuned
  * file. Every other subject is generated once by Sonnet and checked against
- * the scene schema. An invalid spec is returned as 422. Nothing is retried.
+ * the scene schema. An invalid spec is retried once, then returned as 422.
  */
 
 import { z } from "zod";
 import { sceneSpecSchema } from "../../scene/src/spec";
 import whaleScene from "../../scene/fixtures/whale.json";
+
+const maximumBuildAttempts = 2;
 
 const sceneRequestSchema = z.object({
   question: z.string(),
@@ -384,7 +386,7 @@ const buildSceneSystemPrompt = [
   "- When the subject has an inside, the outer part is a translucent shell.",
   "- Center the subject at the origin, inside a box 6 units on each side.",
   "- Use three camera stops. The last stop ends beside the most interesting part, with neighboring parts still in view.",
-  "- The quiz hides that part. quiz.partId is that part. quiz.question asks the learner to name it and does not contain the answer.",
+  "- The quiz hides that part. quiz.partId is that part. quiz.question asks the learner to name it and does not contain the answer. That part's label is one word the learner would say out loud, such as Oxygen, not Oxygen atom.",
   "",
   "Worked example of this schema. The blue whale below is a hand-tuned template, so its coordinates extend past the 6 unit box. A new subject still has to fit inside that box.",
   JSON.stringify(whaleScene),
@@ -518,31 +520,37 @@ export async function handleScene(request: Request, anthropicAPIKey: string): Pr
     return jsonResponse(whaleScene, 200);
   }
 
-  const buildResult = await callAnthropic(anthropicAPIKey, {
-    model: "claude-sonnet-5-5",
-    max_tokens: 6000,
-    system: `${buildSceneSystemPrompt}\n\nCall build_scene exactly once. Do not write any other text.`,
-    // Low effort because the learner is waiting on this scene.
-    output_config: { effort: "low" },
-    tools: [
-      {
-        name: "build_scene",
-        description: "Build the labeled 3D field-trip scene for this subject.",
-        input_schema: buildSceneInputSchema,
-      },
-    ],
-    // Sonnet 5.5 rejects forced tool use, so the prompt asks for the call and
-    // sceneSpecSchema still rejects a reply that skips it.
-    tool_choice: { type: "auto", disable_parallel_tool_use: true },
-    messages: [learnerTurn(sceneRequest)],
-  });
-  if (!buildResult.ok) {
-    return buildResult.response;
-  }
+  // One retry, because low effort sometimes breaks the schema in a new way and a
+  // failed scene leaves the learner with a voice and nothing on screen.
+  let lastValidationError = "";
+  for (let attempt = 1; attempt <= maximumBuildAttempts; attempt += 1) {
+    const buildResult = await callAnthropic(anthropicAPIKey, {
+      model: "claude-sonnet-5-5",
+      max_tokens: 6000,
+      system: `${buildSceneSystemPrompt}\n\nCall build_scene exactly once. Do not write any other text.`,
+      // Low effort because the learner is waiting on this scene.
+      output_config: { effort: "low" },
+      tools: [
+        {
+          name: "build_scene",
+          description: "Build the labeled 3D field-trip scene for this subject.",
+          input_schema: buildSceneInputSchema,
+        },
+      ],
+      // Sonnet 5.5 rejects forced tool use, so the prompt asks for the call and
+      // sceneSpecSchema still rejects a reply that skips it.
+      tool_choice: { type: "auto", disable_parallel_tool_use: true },
+      messages: [learnerTurn(sceneRequest)],
+    });
+    if (!buildResult.ok) {
+      return buildResult.response;
+    }
 
-  const parsedScene = sceneSpecSchema.safeParse(toolInputNamed(buildResult.message, "build_scene"));
-  if (!parsedScene.success) {
-    return jsonResponse({ error: parsedScene.error.message }, 422);
+    const parsedScene = sceneSpecSchema.safeParse(toolInputNamed(buildResult.message, "build_scene"));
+    if (parsedScene.success) {
+      return jsonResponse(parsedScene.data, 200);
+    }
+    lastValidationError = parsedScene.error.message;
   }
-  return jsonResponse(parsedScene.data, 200);
+  return jsonResponse({ error: lastValidationError }, 422);
 }
