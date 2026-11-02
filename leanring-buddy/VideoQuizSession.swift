@@ -253,7 +253,19 @@ final class VideoQuizSession {
                 transcriptLines: transcriptLines
             )
             guard isRunning, !Task.isCancelled else { return }
-            moments = plannedMoments
+            moments = plannedMoments.map { plannedMoment in
+                var quizWithWhatWasHeard = plannedMoment.quiz
+                quizWithWhatWasHeard.heardTranscript = transcriptLines
+                    .filter { $0.seconds < plannedMoment.pauseAtSeconds }
+                    .suffix(40)
+                    .map(\.text)
+                    .joined(separator: " ")
+                return VideoQuizMoment(
+                    pauseAtSeconds: plannedMoment.pauseAtSeconds,
+                    quiz: quizWithWhatWasHeard,
+                    subject: plannedMoment.subject
+                )
+            }
             let planningSeconds = Date().timeIntervalSince(planningStartDate)
             for (momentIndex, moment) in plannedMoments.enumerated() {
                 print("Video quiz: moment \(momentIndex + 1) at \(moment.pauseAtSeconds)s, answer \"\(moment.quiz.answerLabel)\": \(moment.quiz.question)")

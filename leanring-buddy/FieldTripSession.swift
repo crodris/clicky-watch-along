@@ -37,6 +37,8 @@ struct FieldTripQuiz {
     let question: String
     let functionWords: [String]
     let explanation: String
+    /// What the learner has heard of a video so far, so an answer is graded on that.
+    var heardTranscript = ""
 
     init(
         answerLabel: String,

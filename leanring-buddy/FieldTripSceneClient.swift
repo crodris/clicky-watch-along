@@ -69,13 +69,15 @@ final class FieldTripSceneClient {
         question: String,
         answerLabel: String,
         explanation: String,
-        transcript: String
+        transcript: String,
+        heardTranscript: String
     ) async throws -> FieldTripJudgedAnswer {
         let body = [
             "question": question,
             "answerLabel": answerLabel,
             "explanation": explanation,
             "transcript": transcript,
+            "heardTranscript": heardTranscript,
         ]
         let requestBody = try JSONSerialization.data(withJSONObject: body)
         let responseData = try await postJSON(

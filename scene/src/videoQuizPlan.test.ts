@@ -16,6 +16,7 @@ const transcriptLines = [
 
 const liverMoment = {
   pauseAtSeconds: 60,
+  sourceLineSeconds: 0,
   question: "Let's pause here! What does this big oily organ do for the shark?",
   answerLabel: "liver",
   functionWords: ["floats", "oil", "buoyancy"],
@@ -25,6 +26,7 @@ const liverMoment = {
 
 const denticleMoment = {
   pauseAtSeconds: 120,
+  sourceLineSeconds: 100,
   question: "Let's pause here! What are the tiny teeth on shark skin?",
   answerLabel: "denticles",
   functionWords: ["drag", "smooth", "faster"],
@@ -34,6 +36,7 @@ const denticleMoment = {
 
 const poreMoment = {
   pauseAtSeconds: 190,
+  sourceLineSeconds: 170,
   question: "Let's pause here! What do the small pores on a shark's snout sense?",
   answerLabel: "electricity",
   functionWords: ["hunt", "prey", "sense"],
@@ -89,6 +92,15 @@ describe("parseVideoQuizPlan", () => {
   it("rejects a plan whose first pause is past the first minute", () => {
     const checkedPlan = parseVideoQuizPlan(
       { moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok).toBe(false);
+  });
+
+  it("rejects a moment built from a line the learner has not heard yet", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      { moments: [{ ...liverMoment, sourceLineSeconds: 100 }, denticleMoment, poreMoment] },
       transcriptLines,
     );
 

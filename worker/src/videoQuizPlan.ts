@@ -32,6 +32,7 @@ const videoQuizMomentSchema = z
       }),
     functionWords: z.array(z.string().regex(/^[a-z]+$/)).min(1),
     explanation: z.string().trim().min(1),
+    sourceLineSeconds: z.number(),
     subject: z.string().trim().min(1),
   })
   .refine((moment) => !containsWholeWords(moment.question, moment.answerLabel), {
@@ -89,6 +90,11 @@ const planToolInputSchema = {
             description:
               "The seconds value, copied exactly, of the transcript line that comes right after a concrete idea finishes. The video pauses when that line would start.",
           },
+          sourceLineSeconds: {
+            type: "number",
+            description:
+              "The seconds value of the transcript line that states the answer. It must be earlier than pauseAtSeconds.",
+          },
           question: {
             type: "string",
             description:
@@ -114,7 +120,7 @@ const planToolInputSchema = {
               "What a 3D model of this moment would show, such as \"great white shark liver\".",
           },
         },
-        required: ["pauseAtSeconds", "question", "answerLabel", "functionWords", "explanation", "subject"],
+        required: ["pauseAtSeconds", "sourceLineSeconds", "question", "answerLabel", "functionWords", "explanation", "subject"],
       },
     },
   },
@@ -135,6 +141,7 @@ const systemPrompt = [
   "- None during or after a sponsor read, an ad, a plug for a product or channel, or a request to like and subscribe.",
   "- Each fact must be stated in the transcript. Never ask about anything the transcript does not say, and never use outside knowledge.",
   "- Pause only after the speaker has finished the thought, never mid-explanation.",
+  "- The learner has only heard lines before pauseAtSeconds. The line at pauseAtSeconds and every later line have not played yet, so the question, answer, and explanation must come only from earlier lines. sourceLineSeconds names the earlier line that states the answer.",
   "- Each moment covers a different fact.",
   "",
   "For each moment:",
@@ -183,6 +190,12 @@ export function parseVideoQuizPlan(
       return {
         ok: false,
         error: `pauseAtSeconds ${moment.pauseAtSeconds} is not the seconds value of any transcript line`,
+      };
+    }
+    if (!lineStartSeconds.has(moment.sourceLineSeconds) || moment.sourceLineSeconds >= moment.pauseAtSeconds) {
+      return {
+        ok: false,
+        error: `sourceLineSeconds ${moment.sourceLineSeconds} must be a transcript line before pauseAtSeconds ${moment.pauseAtSeconds}, because the learner has not heard later lines`,
       };
     }
     if (moment.pauseAtSeconds < minimumPauseAtSeconds) {

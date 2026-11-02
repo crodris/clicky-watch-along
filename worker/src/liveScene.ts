@@ -24,6 +24,7 @@ const judgeAnswerRequestSchema = z.object({
   answerLabel: z.string(),
   explanation: z.string(),
   transcript: z.string(),
+  heardTranscript: z.string().optional(),
 });
 
 const judgeAnswerToolInputSchema = z.object({
@@ -114,6 +115,7 @@ const judgeAnswerSystemPrompt = [
   "- wrong: explain the mistake. Do not name the part and do not say what it does. The learner gets another try, so this sentence must not give the answer away.",
   "",
   "The answer label is the name of the part. The explanation says what it does. The question is what Clicky asked.",
+  "When a video transcript is given, the learner is being quizzed on what they just heard. Any answer that matches something said there is correct, even if it differs from the explanation. Never mention anything that is not in that transcript.",
 ].join("\n");
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -311,6 +313,9 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
             { type: "text", text: `Answer label: ${judgeRequest.answerLabel}` },
             { type: "text", text: `Explanation: ${judgeRequest.explanation}` },
             { type: "text", text: `Transcript: ${judgeRequest.transcript}` },
+            ...(judgeRequest.heardTranscript === undefined || judgeRequest.heardTranscript === ""
+              ? []
+              : [{ type: "text", text: `Video transcript the learner just heard: ${judgeRequest.heardTranscript}` }]),
           ],
         },
       ],

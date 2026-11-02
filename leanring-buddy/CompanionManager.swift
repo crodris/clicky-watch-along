@@ -1046,7 +1046,8 @@ final class CompanionManager: ObservableObject {
                     question: quiz.question,
                     answerLabel: quiz.answerLabel,
                     explanation: quiz.explanation,
-                    transcript: transcript
+                    transcript: transcript,
+                    heardTranscript: quiz.heardTranscript
                 )
                 let spokenLine = applyJudgedFieldTripAnswer(
                     judgedAnswer: judgedAnswer,
@@ -1135,7 +1136,8 @@ final class CompanionManager: ObservableObject {
                     question: quiz.question,
                     answerLabel: quiz.answerLabel,
                     explanation: quiz.explanation,
-                    transcript: transcript
+                    transcript: transcript,
+                    heardTranscript: quiz.heardTranscript
                 )
                 let spokenLine: String
                 if judgedAnswer.grade == .nameAndFunctionWord {
