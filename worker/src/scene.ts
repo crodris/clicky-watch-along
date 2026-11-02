@@ -2,13 +2,14 @@
  * POST /scene
  *
  * A full scene is too slow to generate before Clicky can speak, so this route
- * takes two steps. Haiku only picks a template. The blue whale is a hand-tuned
- * file. Every other subject is generated once by Sonnet and checked against
- * the scene schema. An invalid spec is retried once, then returned as 422.
+ * takes two steps. Haiku only picks a template. The blue whale and the water
+ * molecule are hand-tuned files. Every other subject is generated once by Sonnet
+ * and checked against the scene schema. An invalid spec is retried once, then returned as 422.
  */
 
 import { z } from "zod";
 import { sceneSpecSchema } from "../../scene/src/spec";
+import waterScene from "../../scene/fixtures/water.json";
 import whaleScene from "../../scene/fixtures/whale.json";
 
 const maximumBuildAttempts = 2;
@@ -20,7 +21,7 @@ const sceneRequestSchema = z.object({
 });
 
 const pickSceneInputSchema = z.object({
-  template: z.enum(["blue_whale", "none"]),
+  template: z.enum(["blue_whale", "water_molecule", "none"]),
 });
 
 const anthropicMessageSchema = z.object({
@@ -372,6 +373,7 @@ const pickSceneSystemPrompt = [
   "You choose a field-trip template. The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
   "Call pick_scene.",
   'Return template "blue_whale" when the subject is a blue whale, or a whale with no species named.',
+  'Return template "water_molecule" when the subject is water, a water molecule, or H2O.',
   'Return template "none" for every other subject.',
 ].join("\n");
 
@@ -497,8 +499,8 @@ export async function handleScene(request: Request, anthropicAPIKey: string): Pr
           properties: {
             template: {
               type: "string",
-              enum: ["blue_whale", "none"],
-              description: "blue_whale when the subject is a blue whale, or a whale with no species named. none for every other subject.",
+              enum: ["blue_whale", "water_molecule", "none"],
+              description: "blue_whale when the subject is a blue whale, or a whale with no species named. water_molecule when the subject is water, a water molecule, or H2O. none for every other subject.",
             },
           },
           required: ["template"],
@@ -518,6 +520,9 @@ export async function handleScene(request: Request, anthropicAPIKey: string): Pr
   }
   if (parsedPick.data.template === "blue_whale") {
     return jsonResponse(whaleScene, 200);
+  }
+  if (parsedPick.data.template === "water_molecule") {
+    return jsonResponse(waterScene, 200);
   }
 
   // One retry, because low effort sometimes breaks the schema in a new way and a

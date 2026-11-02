@@ -32,7 +32,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /chat` | `api.anthropic.com/v1/messages` | Claude vision + streaming chat |
 | `POST /tts` | `api.elevenlabs.io/v1/text-to-speech/{voiceId}` | ElevenLabs TTS audio |
 | `POST /transcribe-token` | `streaming.assemblyai.com/v3/token` | Fetches a short-lived (480s) AssemblyAI websocket token |
-| `POST /scene` | `api.anthropic.com/v1/messages` | Picks the hand-tuned blue whale template, or generates a scene spec from the screenshot |
+| `POST /scene` | `api.anthropic.com/v1/messages` | Picks a hand-tuned template (blue whale or water molecule), or generates a scene spec from the screenshot |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`
 Worker vars: `ELEVENLABS_VOICE_ID`
@@ -49,7 +49,7 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 
 **Transient Cursor Mode**: When "Show Clicky" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
-**Field Trip Scene**: A transcript that contains "inside", "look like", or "show me" calls `POST /scene` while the normal voice answer plays, and every label stays visible. A transcript that says "quiz" or "test me" plays the same scene with one label shown as "?". Haiku picks a template. `blue_whale` is a hand-tuned template (`scene/fixtures/whale.json`). Other subjects are generated live by Sonnet and checked with `sceneSpecSchema`. The overlay plays the spec on the screen under the mouse cursor. In a quiz, Clicky asks the learner to name that part when the camera tour ends. The learner answers by voice. A finished scene stays above every window until the next push-to-talk press clears it. During a quiz that press is an answer, so the quiz has to finish first. When the tour ends the overlay catches the mouse, and a drag orbits the camera around the last stop, within limits, and a trackpad pinch zooms it between set limits. Gestures draw at pixel ratio 1 and one sharp frame follows about 150 ms after the input stops. The overlay is a nonactivating panel, so the page under it keeps the keyboard. `cd scene && node scripts/check-drag.mjs` checks the drag, the zoom, and the gesture frame time on the built page. `--field-trip-spec <path>` reads a JSON spec, plays it through the same overlay, and returns before the menu bar app starts. The `scene/` package validates specs with Zod and renders them with three.js into `leanring-buddy/FieldTripScene.html`. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
+**Field Trip Scene**: A transcript that contains "inside", "look like", or "show me" calls `POST /scene` while the normal voice answer plays, and every label stays visible. A transcript that says "quiz" or "test me" plays the same scene with one label shown as "?". Haiku picks a template. `blue_whale` (`scene/fixtures/whale.json`) and `water_molecule` (`scene/fixtures/water.json`) are hand-tuned templates. The water drop uses `tissue.pattern: "liquid"`, which paints water with per-pixel alpha because the transparent overlay cannot refract the page behind it. Other subjects are generated live by Sonnet and checked with `sceneSpecSchema`. The overlay plays the spec on the screen under the mouse cursor. In a quiz, Clicky asks the learner to name that part when the camera tour ends. The learner answers by voice. A finished scene stays above every window until the next push-to-talk press clears it. During a quiz that press is an answer, so the quiz has to finish first. When the tour ends the overlay catches the mouse, and a drag orbits the camera around the last stop, within limits, and a trackpad pinch zooms it between set limits. Gestures draw at pixel ratio 1 and one sharp frame follows about 150 ms after the input stops. The overlay is a nonactivating panel, so the page under it keeps the keyboard. `cd scene && node scripts/check-drag.mjs` checks the drag, the zoom, and the gesture frame time on the built page. `cd scene && node scripts/capture-whale.mjs [fixture]` saves one shot per camera stop to `scene/shots/<fixture>-*.png`, and the fixture defaults to `whale`. `--field-trip-spec <path>` reads a JSON spec, plays it through the same overlay, and returns before the menu bar app starts. The `scene/` package validates specs with Zod and renders them with three.js into `leanring-buddy/FieldTripScene.html`. Rebuild the HTML with `cd scene && pnpm install && node build.mjs`.
 
 ## Key Files
 
@@ -59,9 +59,10 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `FieldTripOverlay.swift` | ~189 | Reusable transparent window and page on the screen under the mouse. Plays a spec, reveals the quiz label, and clears the scene. |
 | `FieldTripSession.swift` | ~109 | Field-trip phase, scene kind, quiz, spoken-answer judge, and the transcript trigger that picks explore or quiz. |
 | `FieldTripSceneClient.swift` | ~64 | Posts the cursor screen JPEG to `POST /scene` and returns the spec data. |
-| `scene/src/spec.ts` | ~158 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
+| `scene/src/spec.ts` | ~159 | Zod schema for a field-trip scene: parts, exactly three camera stops, and a quiz part id. |
 | `scene/src/main.ts` | ~812 | three.js renderer. Translucent shells, a three-stop camera tour, DOM labels, an optional "?" quiz label, and a tour-finished message. |
 | `scene/fixtures/whale.json` | ~98 | Hand-written blue whale. Translucent shell, inner organs, last camera stop beside the heart. |
+| `scene/fixtures/water.json` | ~328 | Hand-tuned water drop. Liquid teardrop shell, labeled H2O molecule at 104.5 degrees, last camera stop inside the drop. |
 | `CompanionManager.swift` | ~1202 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the push-to-talk pipeline and the field-trip scene quiz. |
 | `MenuBarPanelManager.swift` | ~243 | NSStatusItem + custom NSPanel lifecycle. Creates the menu bar icon, manages the floating companion panel (show/hide/position), installs click-outside-to-dismiss monitor. |
 | `CompanionPanelView.swift` | ~761 | SwiftUI panel content for the menu bar dropdown. Shows companion status, push-to-talk instructions, model picker (Sonnet/Opus), permissions UI, DM feedback button, and quit button. Dark aesthetic using `DS` design system. |
@@ -84,7 +85,7 @@ Worker vars: `ELEVENLABS_VOICE_ID`
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
 | `worker/src/index.ts` | ~148 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/scene` (field-trip spec). |
-| `worker/src/scene.ts` | ~543 | `POST /scene`. Haiku picks `blue_whale` or `none`. The whale template is returned as-is. Other subjects are generated live and validated. |
+| `worker/src/scene.ts` | ~561 | `POST /scene`. Haiku picks `blue_whale`, `water_molecule`, or `none`. A template is returned as-is. Other subjects are generated live and validated. |
 
 ## Build & Run
 

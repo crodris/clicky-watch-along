@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import waterFixture from "../fixtures/water.json";
 import whaleFixture from "../fixtures/whale.json";
 import { sceneSpecSchema } from "./spec";
 
@@ -31,6 +32,45 @@ describe("scene spec", () => {
     const body = parsedWhale.parts.find((part) => part.id === "body");
     expect(body?.opacity).toBeLessThan(1);
     expect(body?.skin?.grooves).toBe(true);
+  });
+
+  it("parses the water fixture with a true 104.5 degree molecule", () => {
+    const parsedWater = sceneSpecSchema.parse(waterFixture);
+
+    expect(parsedWater.title).toBe("Water molecule");
+    expect(parsedWater.quiz.partId).toBe("oxygen");
+    expect(parsedWater.parts.map((part) => [part.id, part.label])).toEqual([
+      ["droplet", "Water droplet"],
+      ["oxygen", "Oxygen"],
+      ["hydrogen-left", "Hydrogen"],
+      ["hydrogen-right", "Hydrogen"],
+      ["bond-left", "Bond"],
+      ["bond-right", "Bond"],
+    ]);
+
+    const droplet = parsedWater.parts.find((part) => part.id === "droplet");
+    expect(droplet?.opacity).toBeLessThan(1);
+    expect(droplet?.tissue?.pattern).toBe("liquid");
+
+    const positionOfPart = (partId: string): number[] => {
+      const part = parsedWater.parts.find((candidatePart) => candidatePart.id === partId);
+      if (part === undefined) {
+        throw new Error(`Water fixture is missing ${partId}`);
+      }
+      return part.position;
+    };
+    const oxygenPosition = positionOfPart("oxygen");
+    const armToHydrogen = (partId: string): number[] =>
+      positionOfPart(partId).map((coordinate, axisIndex) => coordinate - oxygenPosition[axisIndex]);
+    const leftArm = armToHydrogen("hydrogen-left");
+    const rightArm = armToHydrogen("hydrogen-right");
+    const armDotProduct = leftArm.reduce(
+      (total, coordinate, axisIndex) => total + coordinate * rightArm[axisIndex],
+      0,
+    );
+    const bondAngleDegrees =
+      (Math.acos(armDotProduct / (Math.hypot(...leftArm) * Math.hypot(...rightArm))) * 180) / Math.PI;
+    expect(bondAngleDegrees).toBeCloseTo(104.5, 1);
   });
 
   it("rejects a loft part with 3 stations", () => {
