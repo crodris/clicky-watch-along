@@ -31,7 +31,7 @@ nonisolated func watchAlongVoiceCommand(for transcript: String) -> WatchAlongVoi
     if normalizedTranscript.contains("stop watching") {
         return .stop
     }
-    let startPhrases = ["watch this with me", "watch with me", "watch along"]
+    let startPhrases = ["watch this with me", "watch this video with me", "watch the video with me", "watch with me", "watch along"]
     let transcriptStartsWatchAlong = startPhrases.contains { startPhrase in
         normalizedTranscript.contains(startPhrase)
     }
