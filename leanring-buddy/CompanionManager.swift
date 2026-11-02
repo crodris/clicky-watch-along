@@ -73,8 +73,9 @@ final class CompanionManager: ObservableObject {
     #if DEBUG
     private static let workerBaseURL = "http://127.0.0.1:8787"
     #else
-    // A release build must never send screenshots to a plain HTTP local port.
-    private static let workerBaseURL = "https://your-worker-name.your-subdomain.workers.dev"
+    // The upstream placeholder is an unowned host, so a release build must not
+    // compile until it has a real https Worker URL for screenshots to go to.
+    #error("Set workerBaseURL to your own https Worker before building Release.")
     #endif
 
     private lazy var claudeAPI: ClaudeAPI = {
