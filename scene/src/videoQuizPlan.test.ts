@@ -147,19 +147,19 @@ describe("parseVideoQuizPlan", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("rejects a question that contains the answer", () => {
-    const result = parseVideoQuizPlan(
+  it("drops only the stop whose question contains its answer", () => {
+    const checkedPlan = parseVideoQuizPlan(
       {
         moments: [
-          { ...liverMoment, question: "Let's pause here! What does the liver do for the shark?" },
+          liverMoment,
           denticleMoment,
-          poreMoment,
+          { ...poreMoment, question: "Let's pause here! Do pores sense electricity?" },
         ],
       },
       transcriptLines,
     );
 
-    expect(result.ok).toBe(false);
+    expect(checkedPlan.ok && checkedPlan.moments.length).toBe(2);
   });
 
   it("allows an answer label that is only part of a longer word in the question", () => {
@@ -264,7 +264,7 @@ describe("handleVideoQuizPlan", () => {
     expect(retryBody).toContain("pauseAtSeconds 61 is not the seconds value of any transcript line");
   });
 
-  it("returns 502 after two replies that break the contract", async () => {
+  it("returns 502 after three replies that break the contract", async () => {
     const fetchMock = vi.fn(async () => {
       return toolReply({ moments: [liverMoment] });
     });
@@ -273,6 +273,6 @@ describe("handleVideoQuizPlan", () => {
     const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
 
     expect(response.status).toBe(502);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

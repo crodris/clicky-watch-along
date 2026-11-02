@@ -34,10 +34,6 @@ const videoQuizMomentSchema = z
     explanation: z.string().trim().min(1),
     sourceLineSeconds: z.number(),
     subject: z.string().trim().min(1),
-  })
-  .refine((moment) => !containsWholeWords(moment.question, moment.answerLabel), {
-    message: "question must not contain the answer",
-    path: ["question"],
   });
 
 const momentsPerPlan = 3;
@@ -180,9 +176,15 @@ export function parseVideoQuizPlan(
     return { ok: false, error: issueMessages.join("; ") };
   }
 
-  const moments = [...parsedPlan.data.moments].sort((earlierMoment, laterMoment) => {
-    return earlierMoment.pauseAtSeconds - laterMoment.pauseAtSeconds;
-  });
+  // One give-away question should cost that stop, not the whole plan.
+  const moments = parsedPlan.data.moments
+    .filter((moment) => !containsWholeWords(moment.question, moment.answerLabel))
+    .sort((earlierMoment, laterMoment) => {
+      return earlierMoment.pauseAtSeconds - laterMoment.pauseAtSeconds;
+    });
+  if (moments.length === 0) {
+    return { ok: false, error: "every question contains its own answer" };
+  }
 
   const lineStartSeconds = new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   // The app sends only what is left to watch, so timing rules count from the first line.
