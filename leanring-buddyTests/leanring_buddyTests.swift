@@ -37,6 +37,13 @@ struct leanring_buddyTests {
         #expect(shouldTreatPermissionAsGranted)
     }
 
+    @Test func watchAlongVoiceCommandStartsOnItsPhrasesAndStopsOnStopWatching() async throws {
+        #expect(watchAlongVoiceCommand(for: "Hey Clicky, watch this with me.") == .start)
+        #expect(watchAlongVoiceCommand(for: "can we watch along?") == .start)
+        #expect(watchAlongVoiceCommand(for: "Okay, stop watching.") == .stop)
+        #expect(watchAlongVoiceCommand(for: "what does the heart do") == nil)
+    }
+
     @Test func fieldTripAnswerJudgeAcceptsTheHeartAndRejectsTheLungs() async throws {
         let heartAnswerIsCorrect = FieldTripAnswerJudge.isCorrect(
             transcript: "it's the heart",
