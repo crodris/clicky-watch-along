@@ -1240,13 +1240,22 @@ final class CompanionManager: ObservableObject {
 
     /// A video quiz question is over once the quiz reaches .allLabelsShowing. The
     /// explanation is already playing, so press play only after it ends.
+    private func waitForClickyToFinishSpeaking() async {
+        while elevenLabsTTSClient.isPlaying && !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
     private func resumeVideoQuizAfterExplanation() async {
         guard videoQuizQuestionIsActive, case .allLabelsShowing = fieldTripPhase else { return }
         videoQuizQuestionIsActive = false
         fieldTripPhase = .idle
-        while elevenLabsTTSClient.isPlaying && !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 200_000_000)
-        }
+        await waitForClickyToFinishSpeaking()
+        // The learner needs a moment with the explanation before the video moves on.
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        await speakFieldTripLine("Okay, let's keep watching!")
+        await waitForClickyToFinishSpeaking()
+        try? await Task.sleep(nanoseconds: 500_000_000)
         videoQuizSession.resumeVideoAfterQuestion()
     }
 
