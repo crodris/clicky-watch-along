@@ -17,7 +17,9 @@ import {
   PMREMGenerator,
   Scene,
   SphereGeometry,
+  Spherical,
   TorusGeometry,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -57,6 +59,17 @@ const labelDistancePixels = 74;
 const labelLiftPixels = 18;
 const labelGapPixels = 6;
 const labelEdgeMarginPixels = 12;
+const dragRadiansPerPixel = 0.005;
+// The last stop sits close to the organs, so a wider orbit puts the lens inside one.
+const maximumDragAzimuthRadians = 1;
+const maximumDragPolarRadians = 0.6;
+
+type ModelOrbit = {
+  target: Vector3;
+  restingOffset: Spherical;
+  azimuthOffset: number;
+  polarOffset: number;
+};
 
 type PageElements = {
   canvas: HTMLCanvasElement;
@@ -91,6 +104,7 @@ const camera = new PerspectiveCamera(
   cameraNearPlane,
   cameraFarPlane,
 );
+const renderedSize = new Vector2();
 const projectedAnchor = new Vector3();
 const cameraSpaceAnchor = new Vector3();
 const keyLight = new DirectionalLight(0xfff4e6, 2.3);
@@ -123,6 +137,10 @@ let quizPartId: string | null = null;
 let quizLabelShowsQuestionMark = false;
 let activeTourId = 0;
 let cameraMoveFrameId: number | null = null;
+// Null until the tour finishes, so a drag cannot fight the camera move.
+let modelOrbit: ModelOrbit | null = null;
+let lastDragPoint: { x: number; y: number } | null = null;
+let dragRenderFrameId: number | null = null;
 const scheduledTimeoutIds: number[] = [];
 
 function requiredCanvas(): HTMLCanvasElement {
@@ -232,6 +250,9 @@ function ensureRenderer(): void {
     premultipliedAlpha: true,
   });
   glRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maximumPixelRatio));
+  elements.canvas.addEventListener("webglcontextlost", () => {
+    console.warn("WebGL context lost");
+  });
   glRenderer.setClearColor(0x000000, 0);
   glRenderer.toneMapping = ACESFilmicToneMapping;
   glRenderer.toneMappingExposure = 0.8;
@@ -326,15 +347,26 @@ function renderSceneOnce(): void {
   if (cssWidth < 2 || cssHeight < 2) {
     return;
   }
-  renderer.setSize(cssWidth, cssHeight, false);
-  camera.aspect = cssWidth / cssHeight;
-  camera.updateProjectionMatrix();
+  renderer.getSize(renderedSize);
+  // setSize reallocates the drawing buffer even when the size is unchanged,
+  // which is too slow to do per frame on a Retina screen.
+  if (renderedSize.x !== cssWidth || renderedSize.y !== cssHeight) {
+    renderer.setSize(cssWidth, cssHeight, false);
+    camera.aspect = cssWidth / cssHeight;
+    camera.updateProjectionMatrix();
+  }
   renderer.render(scene, camera);
   updatePartLabelPositions();
 }
 
 function cancelCameraTour(): void {
   activeTourId += 1;
+  modelOrbit = null;
+  lastDragPoint = null;
+  if (dragRenderFrameId !== null) {
+    window.cancelAnimationFrame(dragRenderFrameId);
+    dragRenderFrameId = null;
+  }
   if (cameraMoveFrameId !== null) {
     window.cancelAnimationFrame(cameraMoveFrameId);
     cameraMoveFrameId = null;
@@ -738,6 +770,16 @@ function startCameraTour(sceneSpec: SceneSpec): void {
             if (tourId !== activeTourId) {
               return;
             }
+            const lookAt = thirdStop.lookAt;
+            const target = new Vector3(lookAt[0], lookAt[1], lookAt[2]);
+            modelOrbit = {
+              target,
+              restingOffset: new Spherical().setFromVector3(
+                camera.position.clone().sub(target),
+              ),
+              azimuthOffset: 0,
+              polarOffset: 0,
+            };
             // The Mac app decides what follows the tour. A normal browser has
             // no handler, so the optional chain does nothing there.
             window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
@@ -763,6 +805,55 @@ function playScene(spec: unknown, hidesQuizLabel: boolean): void {
   ensureLights();
   buildParts(sceneSpec.parts);
   startCameraTour(sceneSpec);
+}
+
+function orbitCameraByDrag(deltaX: number, deltaY: number): void {
+  if (modelOrbit === null) {
+    return;
+  }
+  const orbit = modelOrbit;
+  orbit.azimuthOffset = clampNumber(
+    orbit.azimuthOffset - deltaX * dragRadiansPerPixel,
+    -maximumDragAzimuthRadians,
+    maximumDragAzimuthRadians,
+  );
+  orbit.polarOffset = clampNumber(
+    orbit.polarOffset - deltaY * dragRadiansPerPixel,
+    -maximumDragPolarRadians,
+    maximumDragPolarRadians,
+  );
+  const offset = new Spherical(
+    orbit.restingOffset.radius,
+    orbit.restingOffset.phi + orbit.polarOffset,
+    orbit.restingOffset.theta + orbit.azimuthOffset,
+  ).makeSafe();
+  camera.position.setFromSpherical(offset).add(orbit.target);
+  camera.lookAt(orbit.target);
+  // Mouse events arrive faster than the screen draws, so renders are merged.
+  if (dragRenderFrameId === null) {
+    dragRenderFrameId = window.requestAnimationFrame(() => {
+      dragRenderFrameId = null;
+      renderSceneOnce();
+    });
+  }
+}
+
+window.addEventListener("pointerdown", (event) => {
+  lastDragPoint = { x: event.clientX, y: event.clientY };
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (lastDragPoint === null) {
+    return;
+  }
+  orbitCameraByDrag(event.clientX - lastDragPoint.x, event.clientY - lastDragPoint.y);
+  lastDragPoint = { x: event.clientX, y: event.clientY };
+});
+
+for (const dragEndEventName of ["pointerup", "pointercancel"]) {
+  window.addEventListener(dragEndEventName, () => {
+    lastDragPoint = null;
+  });
 }
 
 function revealQuizLabel(): void {

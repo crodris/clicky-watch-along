@@ -10,6 +10,14 @@
 import AppKit
 import WebKit
 
+/// The overlay window never becomes key, so AppKit would otherwise drop the
+/// click that starts a drag.
+private final class FieldTripWebView: WKWebView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+}
+
 // A class, not an enum: WKNavigationDelegate has to be an NSObject.
 final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     static let shared = FieldTripOverlay()
@@ -50,6 +58,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     func play(specJSONData: Data, hidesQuizLabel: Bool) {
         placeOverlayOnTheScreenUnderTheMouse()
+        fieldTripOverlayWindow?.ignoresMouseEvents = true
         guard fieldTripWebView != nil else {
             return
         }
@@ -61,12 +70,19 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         }
     }
 
+    /// A window that catches the mouse blocks every click on the screen, so
+    /// this stays off until the scene is finished and clear() turns it off.
+    func letLearnerDragTheModel() {
+        fieldTripOverlayWindow?.ignoresMouseEvents = false
+    }
+
     func reveal() {
         evaluateOnThePage("window.fieldTrip.reveal()")
     }
 
     func clear() {
         queuedPlay = nil
+        fieldTripOverlayWindow?.ignoresMouseEvents = true
         evaluateOnThePage("window.fieldTrip.clear()")
         fieldTripOverlayWindow?.orderOut(nil)
     }
@@ -141,7 +157,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             forMainFrameOnly: true
         ))
 
-        let webView = WKWebView(frame: frame, configuration: webViewConfiguration)
+        let webView = FieldTripWebView(frame: frame, configuration: webViewConfiguration)
         webView.autoresizingMask = [.width, .height]
         #if DEBUG
         webView.isInspectable = true

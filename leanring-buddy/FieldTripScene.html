@@ -16361,6 +16361,94 @@ html, body {
     ]
   ];
   var _controlInterpolantsResultBuffer = new Float32Array(1);
+  var Spherical = class {
+    /**
+     * Constructs a new spherical.
+     *
+     * @param {number} [radius=1] - The radius, or the Euclidean distance (straight-line distance) from the point to the origin.
+     * @param {number} [phi=0] - The polar angle in radians from the y (up) axis.
+     * @param {number} [theta=0] - The equator/azimuthal angle in radians around the y (up) axis.
+     */
+    constructor(radius = 1, phi = 0, theta = 0) {
+      this.radius = radius;
+      this.phi = phi;
+      this.theta = theta;
+    }
+    /**
+     * Sets the spherical components by copying the given values.
+     *
+     * @param {number} radius - The radius.
+     * @param {number} phi - The polar angle.
+     * @param {number} theta - The azimuthal angle.
+     * @return {Spherical} A reference to this spherical.
+     */
+    set(radius, phi, theta) {
+      this.radius = radius;
+      this.phi = phi;
+      this.theta = theta;
+      return this;
+    }
+    /**
+     * Copies the values of the given spherical to this instance.
+     *
+     * @param {Spherical} other - The spherical to copy.
+     * @return {Spherical} A reference to this spherical.
+     */
+    copy(other) {
+      this.radius = other.radius;
+      this.phi = other.phi;
+      this.theta = other.theta;
+      return this;
+    }
+    /**
+     * Restricts the polar angle [page:.phi phi] to be between `0.000001` and pi -
+     * `0.000001`.
+     *
+     * @return {Spherical} A reference to this spherical.
+     */
+    makeSafe() {
+      const EPS = 1e-6;
+      this.phi = clamp(this.phi, EPS, Math.PI - EPS);
+      return this;
+    }
+    /**
+     * Sets the spherical components from the given vector which is assumed to hold
+     * Cartesian coordinates.
+     *
+     * @param {Vector3} v - The vector to set.
+     * @return {Spherical} A reference to this spherical.
+     */
+    setFromVector3(v) {
+      return this.setFromCartesianCoords(v.x, v.y, v.z);
+    }
+    /**
+     * Sets the spherical components from the given Cartesian coordinates.
+     *
+     * @param {number} x - The x value.
+     * @param {number} y - The y value.
+     * @param {number} z - The z value.
+     * @return {Spherical} A reference to this spherical.
+     */
+    setFromCartesianCoords(x, y, z) {
+      this.radius = Math.sqrt(x * x + y * y + z * z);
+      if (this.radius === 0) {
+        this.theta = 0;
+        this.phi = 0;
+      } else {
+        this.theta = Math.atan2(x, z);
+        this.phi = Math.acos(clamp(y / this.radius, -1, 1));
+      }
+      return this;
+    }
+    /**
+     * Returns a new spherical with copied values from this instance.
+     *
+     * @return {Spherical} A clone of this instance.
+     */
+    clone() {
+      return new this.constructor().copy(this);
+    }
+  };
   function getByteLength(width, height, format, type) {
     const typeByteLength = getTextureTypeByteLength(type);
     switch (format) {
@@ -31715,6 +31803,9 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
   var labelLiftPixels = 18;
   var labelGapPixels = 6;
   var labelEdgeMarginPixels = 12;
+  var dragRadiansPerPixel = 5e-3;
+  var maximumDragAzimuthRadians = 1;
+  var maximumDragPolarRadians = 0.6;
   var scene = new Scene();
   var camera = new PerspectiveCamera(
     cameraFieldOfViewDegrees,
@@ -31722,6 +31813,7 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     cameraNearPlane,
     cameraFarPlane
   );
+  var renderedSize = new Vector2();
   var projectedAnchor = new Vector3();
   var cameraSpaceAnchor = new Vector3();
   var keyLight = new DirectionalLight(16774374, 2.3);
@@ -31751,6 +31843,9 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
   var quizLabelShowsQuestionMark = false;
   var activeTourId = 0;
   var cameraMoveFrameId = null;
+  var modelOrbit = null;
+  var lastDragPoint = null;
+  var dragRenderFrameId = null;
   var scheduledTimeoutIds = [];
   function requiredCanvas() {
     const element = document.getElementById("field-trip-canvas");
@@ -31848,6 +31943,9 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
       premultipliedAlpha: true
     });
     glRenderer.setPixelRatio(Math.min(window.devicePixelRatio, maximumPixelRatio));
+    elements.canvas.addEventListener("webglcontextlost", () => {
+      console.warn("WebGL context lost");
+    });
     glRenderer.setClearColor(0, 0);
     glRenderer.toneMapping = ACESFilmicToneMapping;
     glRenderer.toneMappingExposure = 0.8;
@@ -31930,14 +32028,23 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     if (cssWidth < 2 || cssHeight < 2) {
       return;
     }
-    renderer.setSize(cssWidth, cssHeight, false);
-    camera.aspect = cssWidth / cssHeight;
-    camera.updateProjectionMatrix();
+    renderer.getSize(renderedSize);
+    if (renderedSize.x !== cssWidth || renderedSize.y !== cssHeight) {
+      renderer.setSize(cssWidth, cssHeight, false);
+      camera.aspect = cssWidth / cssHeight;
+      camera.updateProjectionMatrix();
+    }
     renderer.render(scene, camera);
     updatePartLabelPositions();
   }
   function cancelCameraTour() {
     activeTourId += 1;
+    modelOrbit = null;
+    lastDragPoint = null;
+    if (dragRenderFrameId !== null) {
+      window.cancelAnimationFrame(dragRenderFrameId);
+      dragRenderFrameId = null;
+    }
     if (cameraMoveFrameId !== null) {
       window.cancelAnimationFrame(cameraMoveFrameId);
       cameraMoveFrameId = null;
@@ -32264,6 +32371,16 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
               if (tourId !== activeTourId) {
                 return;
               }
+              const lookAt = thirdStop.lookAt;
+              const target = new Vector3(lookAt[0], lookAt[1], lookAt[2]);
+              modelOrbit = {
+                target,
+                restingOffset: new Spherical().setFromVector3(
+                  camera.position.clone().sub(target)
+                ),
+                azimuthOffset: 0,
+                polarOffset: 0
+              };
               window.webkit?.messageHandlers?.fieldTripEvent?.postMessage(
                 "tourFinished"
               );
@@ -32284,6 +32401,50 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
     ensureLights();
     buildParts(sceneSpec.parts);
     startCameraTour(sceneSpec);
+  }
+  function orbitCameraByDrag(deltaX, deltaY) {
+    if (modelOrbit === null) {
+      return;
+    }
+    const orbit = modelOrbit;
+    orbit.azimuthOffset = clampNumber(
+      orbit.azimuthOffset - deltaX * dragRadiansPerPixel,
+      -maximumDragAzimuthRadians,
+      maximumDragAzimuthRadians
+    );
+    orbit.polarOffset = clampNumber(
+      orbit.polarOffset - deltaY * dragRadiansPerPixel,
+      -maximumDragPolarRadians,
+      maximumDragPolarRadians
+    );
+    const offset = new Spherical(
+      orbit.restingOffset.radius,
+      orbit.restingOffset.phi + orbit.polarOffset,
+      orbit.restingOffset.theta + orbit.azimuthOffset
+    ).makeSafe();
+    camera.position.setFromSpherical(offset).add(orbit.target);
+    camera.lookAt(orbit.target);
+    if (dragRenderFrameId === null) {
+      dragRenderFrameId = window.requestAnimationFrame(() => {
+        dragRenderFrameId = null;
+        renderSceneOnce();
+      });
+    }
+  }
+  window.addEventListener("pointerdown", (event) => {
+    lastDragPoint = { x: event.clientX, y: event.clientY };
+  });
+  window.addEventListener("pointermove", (event) => {
+    if (lastDragPoint === null) {
+      return;
+    }
+    orbitCameraByDrag(event.clientX - lastDragPoint.x, event.clientY - lastDragPoint.y);
+    lastDragPoint = { x: event.clientX, y: event.clientY };
+  });
+  for (const dragEndEventName of ["pointerup", "pointercancel"]) {
+    window.addEventListener(dragEndEventName, () => {
+      lastDragPoint = null;
+    });
   }
   function revealQuizLabel() {
     quizLabelShowsQuestionMark = false;

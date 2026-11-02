@@ -11,12 +11,14 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-class OverlayWindow: NSWindow {
+// A nonactivating panel, because a drag on the field-trip scene would otherwise
+// make Clicky the frontmost app and take the keyboard from the page under it.
+class OverlayWindow: NSPanel {
     init(screen: NSScreen) {
         // Create window covering entire screen
         super.init(
             contentRect: screen.frame,
-            styleMask: .borderless,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )

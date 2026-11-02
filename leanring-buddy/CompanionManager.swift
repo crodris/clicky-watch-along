@@ -609,7 +609,7 @@ final class CompanionManager: ObservableObject {
     private static let fieldTripQuizVoiceResponseInstructions = """
 
 
-    for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask one quiz question about it when the tour ends. reply with one short spoken sentence saying you're taking them inside for a quiz. do not ask a question yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
+    for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask them a question as soon as the camera stops moving. reply with one short spoken sentence telling them to look closely as you go inside. do not say the words quiz, question, test, or tour, do not ask anything yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
     """
 
     // MARK: - AI Response Pipeline
@@ -909,6 +909,7 @@ final class CompanionManager: ObservableObject {
 
     private func handleFieldTripTourFinished() {
         guard case .touring(let quizToAskAfterTour) = fieldTripPhase else { return }
+        FieldTripOverlay.shared.letLearnerDragTheModel()
         guard let quiz = quizToAskAfterTour else {
             fieldTripPhase = .allLabelsShowing
             return
