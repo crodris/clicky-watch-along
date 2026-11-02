@@ -17,9 +17,10 @@ const skinSchema = z.object({
   interiorColor: hexColorSchema.optional(),
 });
 
-// Wet inner surface for organs and bones.
+// Wet inner surface for organs and bones. "liquid" is the exception: it is for
+// a shell of clear water, seen from outside and then from within.
 const tissueSchema = z.object({
-  pattern: z.enum(["muscle", "spongy", "folded", "bone", "wall", "smooth"]),
+  pattern: z.enum(["muscle", "spongy", "folded", "bone", "wall", "smooth", "liquid"]),
   veinColor: hexColorSchema.optional(),
 });
 

@@ -1,5 +1,6 @@
-// Plays the built page over the real side-view diagram and saves one frame per
-// camera stop to scene/shots. Run after build.mjs with: node scripts/capture-whale.mjs
+// Plays a fixture on the built page and saves one frame per camera stop to
+// scene/shots, named after the fixture. The whale plays over its real side-view
+// diagram. Run after build.mjs with: node scripts/capture-whale.mjs [fixture name]
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -9,7 +10,8 @@ import { chromium } from "playwright";
 const sceneDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pageFile = resolve(sceneDirectory, "../leanring-buddy/FieldTripScene.html");
 const diagramFile = resolve(sceneDirectory, "fixtures/blue-whale-size.png");
-const whaleSpec = JSON.parse(readFileSync(resolve(sceneDirectory, "fixtures/whale.json"), "utf8"));
+const fixtureName = process.argv[2] ?? "whale";
+const sceneSpec = JSON.parse(readFileSync(resolve(sceneDirectory, `fixtures/${fixtureName}.json`), "utf8"));
 const serverPort = 8802;
 const cameraHoldMilliseconds = 1000;
 const cameraMoveMilliseconds = 1800;
@@ -45,11 +47,16 @@ page.on("console", (message) => {
 
 await page.clock.install();
 await page.goto(`http://127.0.0.1:${serverPort}/`);
-await page.addStyleTag({
-  content:
-    "html:not(.without-page), html:not(.without-page) body { background: #ffffff url(/diagram.png) center / 100% auto no-repeat !important; }",
-});
+if (fixtureName === "whale") {
+  await page.addStyleTag({
+    content:
+      "html:not(.without-page), html:not(.without-page) body { background: #ffffff url(/diagram.png) center / 100% auto no-repeat !important; }",
+  });
+}
 await page.waitForLoadState("networkidle");
+// install leaves the clock running in real time, so a slow screenshot could let
+// the next hold expire and catch the camera past its stop.
+await page.clock.pauseAt(Date.now() + 1000);
 
 // A screenshot with no page behind the canvas must have alpha 0 in the corners,
 // or the macOS overlay would draw a box over the app beneath it.
@@ -89,19 +96,19 @@ async function runCameraMove() {
   await page.clock.fastForward(cameraMoveMilliseconds + 20);
 }
 
-await page.evaluate((spec) => window.fieldTrip.play(spec, true), whaleSpec);
+await page.evaluate((spec) => window.fieldTrip.play(spec, true), sceneSpec);
 await page.clock.fastForward(20);
 await waitForLabelFade();
-await page.screenshot({ path: resolve(sceneDirectory, "shots/1-outside.png") });
+await page.screenshot({ path: resolve(sceneDirectory, `shots/${fixtureName}-1-outside.png`) });
 await assertCanvasCornersAreTransparent();
 
 await runCameraMove();
 await waitForLabelFade();
-await page.screenshot({ path: resolve(sceneDirectory, "shots/2-closer.png") });
+await page.screenshot({ path: resolve(sceneDirectory, `shots/${fixtureName}-2-closer.png`) });
 
 await runCameraMove();
 await waitForLabelFade();
-await page.screenshot({ path: resolve(sceneDirectory, "shots/3-inside.png") });
+await page.screenshot({ path: resolve(sceneDirectory, `shots/${fixtureName}-3-inside.png`) });
 
 const quizLabels = await page.evaluate(() =>
   [...document.querySelectorAll(".field-trip-label:not(.is-hidden)")].map((label) => label.textContent),

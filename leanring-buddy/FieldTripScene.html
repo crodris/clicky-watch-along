@@ -31279,7 +31279,7 @@ void main() {
     interiorColor: hexColorSchema.optional()
   });
   var tissueSchema = external_exports.object({
-    pattern: external_exports.enum(["muscle", "spongy", "folded", "bone", "wall", "smooth"]),
+    pattern: external_exports.enum(["muscle", "spongy", "folded", "bone", "wall", "smooth", "liquid"]),
     veinColor: hexColorSchema.optional()
   });
   var repeatSchema = external_exports.object({
@@ -31395,7 +31395,8 @@ void main() {
     folded: "TISSUE_FOLDED",
     bone: "TISSUE_BONE",
     wall: "TISSUE_WALL",
-    smooth: "TISSUE_SMOOTH"
+    smooth: "TISSUE_SMOOTH",
+    liquid: "TISSUE_LIQUID"
   };
   var surfaceVertexDeclarations = (
     /* glsl */
@@ -31606,6 +31607,49 @@ vec3 skinColor() {
 }
 #endif
 
+#if defined(TISSUE_LIQUID)
+float softBand(float value, float bandStart, float bandEnd, float softness) {
+  return smoothstep(bandStart - softness, bandStart + softness, value)
+    * (1.0 - smoothstep(bandEnd - softness, bandEnd + softness, value));
+}
+
+// The overlay cannot refract the page behind it, so water is painted from the
+// surface's angle to the camera, the way a matcap is. Alpha is per pixel, so the
+// page shows through the middle of the drop and the rim stays dense.
+vec4 liquidSurface(vec3 waterColor, vec3 viewNormal, float facing, float alongShell) {
+  float edge = 1.0 - facing;
+  vec3 deepColor = waterColor * vec3(0.3, 0.2, 0.46);
+  vec3 midColor = mix(waterColor, vec3(0.08, 0.5, 0.95), 0.55);
+  vec3 shallowColor = mix(waterColor, vec3(0.55, 0.92, 1.0), 0.8);
+
+  // A drop is a lens, so it shows the sky upside down, bright at the bottom.
+  float lensLight = smoothstep(0.55, -0.8, viewNormal.y);
+  vec3 color = mix(midColor, shallowColor, lensLight);
+  color = mix(color, deepColor, smoothstep(0.36, 0.84, edge));
+  float alpha = mix(0.6, 0.98, smoothstep(0.05, 0.55, edge));
+
+  vec2 surfaceDirection = normalize(viewNormal.xy + vec2(1e-5));
+  float rimDistance = length(viewNormal.xy);
+
+  // Light focuses into a bright crescent on the side of a drop away from the sun.
+  float causticSweep = smoothstep(0.2, 0.95, dot(surfaceDirection, normalize(vec2(0.42, -0.9))));
+  float caustic = softBand(rimDistance, 0.68, 0.84, 0.05) * causticSweep;
+  color = mix(color, vec3(0.8, 0.97, 1.0), caustic * 0.9);
+  alpha = max(alpha, caustic * 0.92);
+
+  // The sky's reflection, an arc that follows the shoulder of the drop.
+  float windowSweep = smoothstep(0.93, 0.99, dot(surfaceDirection, normalize(vec2(-0.9, 0.44))));
+  float windowArc = softBand(rimDistance, 0.6, 0.74, 0.012) * windowSweep;
+  float windowSpot = 1.0 - smoothstep(0.024, 0.036, distance(viewNormal.xy, vec2(-0.48, 0.3)));
+  // The tapering tip repeats these normals, which would print a second highlight.
+  float highlight = max(windowArc, windowSpot) * (1.0 - smoothstep(0.42, 0.5, alongShell));
+  color = mix(color, vec3(1.0), highlight);
+  alpha = max(alpha, highlight);
+
+  return vec4(color, alpha);
+}
+#endif
+
 #if defined(SURFACE_TISSUE)
 vec3 tissueColor(vec3 baseColor) {
   vec3 detailPosition = vObjectPosition * detailScale;
@@ -31706,12 +31750,25 @@ vec3 tissueColor(vec3 baseColor) {
 #if defined(SURFACE_INTERIOR)
   // The wall turns solid before the skin thins, so the page never shows through the body.
   diffuseColor.a = smoothstep(0.0, 0.3, shellFade);
+#elif defined(TISSUE_LIQUID) && defined(FLIP_SIDED)
+  // The far wall of the drop is the water around the camera once it is inside.
+  outgoingLight = diffuse * mix(vec3(0.3, 0.42, 0.6), vec3(0.6, 0.8, 0.95), smoothstep(0.4, -0.4, nonPerturbedNormal.y));
+  diffuseColor.a = 0.94 * smoothstep(0.0, 0.5, shellFade);
+#elif defined(TISSUE_LIQUID)
+  vec4 liquidColor = liquidSurface(
+    diffuse,
+    nonPerturbedNormal,
+    clamp(dot(normalize(vViewPosition), nonPerturbedNormal), 0.0, 1.0),
+    vSurfaceCoordinate.x
+  );
+  outgoingLight = liquidColor.rgb;
+  diffuseColor.a = liquidColor.a;
 #elif defined(SURFACE_TISSUE)
   // A wet organ glows at its rim, because light scatters through the edge of soft tissue.
   float rimAmount = pow(1.0 - abs(dot(normalize(vViewPosition), nonPerturbedNormal)), 3.0);
   outgoingLight += diffuseColor.rgb * rimAmount * 0.32;
 #endif
-#if !defined(SURFACE_INTERIOR)
+#if !defined(SURFACE_INTERIOR) && !(defined(TISSUE_LIQUID) && defined(FLIP_SIDED))
   float edgeAmount = pow(1.0 - abs(dot(normalize(vViewPosition), nonPerturbedNormal)), 3.0);
   diffuseColor.a *= mix(1.0, mix(fadedOpacity, 1.0, edgeAmount * fadedRim), shellFade);
 #endif
@@ -31746,10 +31803,15 @@ ${surfaceFragmentFunctions}`).replace("#include <color_fragment>", applyFragment
   }
   function createSurfaceMaterial(input) {
     const { color, skin, tissue, detailScale, fadesWithShell, side, fade } = input;
+    const isLiquid = tissue?.pattern === "liquid";
     const material = new MeshPhysicalMaterial({
       color,
       transparent: fadesWithShell,
-      side: side ?? FrontSide,
+      // three.js draws a transparent double-sided surface back faces first, so the
+      // far wall of a drop can stay in view once the camera is inside it.
+      side: side ?? (isLiquid ? DoubleSide : FrontSide),
+      // Tone mapping would turn painted white highlights grey.
+      toneMapped: !isLiquid,
       roughness: skin !== void 0 ? 0.5 : tissue?.pattern === "bone" ? 0.62 : 0.4,
       metalness: 0,
       clearcoat: skin !== void 0 ? 0.8 : tissue?.pattern === "bone" ? 0.05 : 0.7,
