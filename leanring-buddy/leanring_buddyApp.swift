@@ -34,6 +34,12 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Throwaway overlay check. Skip menu bar, analytics, and login item setup.
+        if ProcessInfo.processInfo.arguments.contains("--cube-spike") {
+            CubeSpike.showSpinningCubeInOverlayWindow()
+            return
+        }
+
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
