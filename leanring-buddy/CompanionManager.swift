@@ -697,6 +697,18 @@ final class CompanionManager: ObservableObject {
         fieldTripSceneRequestGeneration += 1
         let requestGeneration = fieldTripSceneRequestGeneration
 
+        // A 3D model only appears when the learner asks. During a video quiz that
+        // pauses the video, and a pending question is set aside for the model.
+        var sceneQuestion = transcript
+        if videoQuizSession.isRunning, fieldTripSceneKind(for: transcript) == .explore {
+            let heardText = videoQuizSession.pauseVideoForRequestedScene()
+            videoQuizQuestionIsActive = false
+            fieldTripPhase = .idle
+            if !heardText.isEmpty {
+                sceneQuestion = "\(transcript) The video just said: \(heardText)"
+            }
+        }
+
         if case .awaitingAnswer(let quiz, let wrongAnswerCount) = fieldTripPhase {
             currentResponseTask = Task {
                 await self.respondToFieldTripAnswer(
@@ -728,7 +740,7 @@ final class CompanionManager: ObservableObject {
             fieldTripPhase = .buildingScene(requestedSceneKind)
             currentResponseTask = Task {
                 await self.buildFieldTripSceneWithStatusLabel(
-                    transcript: transcript,
+                    transcript: sceneQuestion,
                     sceneKind: requestedSceneKind,
                     requestGeneration: requestGeneration
                 )
@@ -954,6 +966,13 @@ final class CompanionManager: ObservableObject {
         guard case .allLabelsShowing = fieldTripPhase else { return }
         FieldTripOverlay.shared.clear()
         fieldTripPhase = .idle
+        guard videoQuizSession.videoIsPausedForRequestedScene else { return }
+        Task {
+            await self.speakFieldTripLine("Okay, let's keep watching!")
+            await self.waitForClickyToFinishSpeaking()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            self.videoQuizSession.resumeVideoAfterRequestedScene()
+        }
     }
 
     private func requestFieldTripScene(

@@ -179,5 +179,6 @@ nonisolated func fieldTripSceneKind(for transcript: String) -> FieldTripSceneKin
     let asksToLookInside = lowercaseTranscript.contains("inside")
         || lowercaseTranscript.contains("look like")
         || lowercaseTranscript.contains("show me")
+        || lowercaseTranscript.contains("in 3d")
     return asksToLookInside ? .explore : nil
 }

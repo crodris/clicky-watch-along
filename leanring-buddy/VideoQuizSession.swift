@@ -178,6 +178,8 @@ final class VideoQuizSession {
     private var moments: [VideoQuizMoment] = []
     private var askedMomentIndices: Set<Int> = []
     private var isWaitingForQuestionToFinish = false
+    private(set) var videoIsPausedForRequestedScene = false
+    private var allTranscriptLines: [VideoQuizTranscriptLine] = []
     private var consecutiveFailedPlaybackReadCount = 0
 
     init(
@@ -217,6 +219,33 @@ final class VideoQuizSession {
 
     /// Called once the explanation has been spoken. Presses play again, and ends
     /// the session after the last moment.
+    /// Pauses for a 3D model the learner asked for, and returns what the video
+    /// just said, so "show me that" can be built from it.
+    func pauseVideoForRequestedScene() -> String {
+        guard isRunning, let currentVideoTab else { return "" }
+        isWaitingForQuestionToFinish = true
+        videoIsPausedForRequestedScene = true
+        var heardText = ""
+        do {
+            let playbackState = try readPlaybackState(of: currentVideoTab)
+            try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: currentVideoTab)
+            heardText = allTranscriptLines
+                .filter { $0.seconds < playbackState.currentSeconds }
+                .suffix(12)
+                .map(\.text)
+                .joined(separator: " ")
+            print("Video quiz: paused for a requested 3D model")
+        } catch {
+            print("Video quiz: could not pause for a 3D model: \(error)")
+        }
+        return heardText
+    }
+
+    func resumeVideoAfterRequestedScene() {
+        videoIsPausedForRequestedScene = false
+        resumeVideoAfterQuestion()
+    }
+
     func resumeVideoAfterQuestion() {
         guard isRunning, isWaitingForQuestionToFinish, let currentVideoTab else { return }
         isWaitingForQuestionToFinish = false
@@ -248,6 +277,7 @@ final class VideoQuizSession {
             let transcriptLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: videoTab.url)
             guard isRunning, !Task.isCancelled else { return }
             print("Video quiz: read \(transcriptLines.count) caption lines")
+            allTranscriptLines = transcriptLines
 
             let plannedMoments = try await VideoQuizPlanClient(workerBaseURL: workerBaseURL).requestPlan(
                 title: videoTab.title,
