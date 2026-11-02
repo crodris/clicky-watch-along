@@ -48,8 +48,9 @@ export function checkLiveSceneModelReply(modelReply: string): CheckedLiveSceneRe
     new RegExp(`https?:\\/\\/${svgNamespacePrefix}\\/?(?=$|[^a-z0-9._~-])`, "g"),
     "",
   );
-  const htmlHasADisallowedURL = htmlWithoutTheSvgNamespace.includes("http://")
-    || htmlWithoutTheSvgNamespace.includes("https://");
+  const htmlHasADisallowedURL = ["http://", "https://", "ws://", "wss://"].some((urlPrefix) =>
+    htmlWithoutTheSvgNamespace.includes(urlPrefix),
+  );
   if (htmlHasADisallowedURL) {
     return { accepted: false, reason: "The page contains a URL other than the SVG namespace" };
   }
