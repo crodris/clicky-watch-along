@@ -1,15 +1,18 @@
 /**
  * Clicky Proxy Worker
  *
- * Proxies requests to Claude and ElevenLabs APIs so the app never
+ * Proxies requests to Claude, OpenAI, and ElevenLabs so the app never
  * ships with raw API keys. Keys are stored as Cloudflare secrets.
  *
  * Routes:
- *   POST /chat  → Anthropic Messages API (streaming)
- *   POST /tts   → ElevenLabs TTS API
- *   POST /scene → Anthropic Messages API (field-trip spec)
+ *   POST /chat         → Anthropic Messages API (streaming)
+ *   POST /tts          → ElevenLabs TTS API
+ *   POST /scene        → Anthropic Messages API (field-trip spec)
+ *   POST /live-scene   → OpenAI Responses API (generated field-trip page)
+ *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  */
 
+import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleScene } from "./scene";
 
 interface Env {
@@ -17,6 +20,7 @@ interface Env {
   ELEVENLABS_API_KEY: string;
   ELEVENLABS_VOICE_ID: string;
   ASSEMBLYAI_API_KEY: string;
+  OPENAI_API_KEY: string;
 }
 
 export default {
@@ -42,6 +46,14 @@ export default {
 
       if (url.pathname === "/scene") {
         return await handleScene(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/live-scene") {
+        return await handleLiveScene(request, env.OPENAI_API_KEY);
+      }
+
+      if (url.pathname === "/judge-answer") {
+        return await handleJudgeAnswer(request, env.ANTHROPIC_API_KEY);
       }
     } catch (error) {
       console.error(`[${url.pathname}] Unhandled error:`, error);
