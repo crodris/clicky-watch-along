@@ -605,8 +605,7 @@ final class CompanionManager: ObservableObject {
     private static let fieldTripQuizVoiceResponseInstructions = """
 
 
-    field trip:
-    a 3d model of what they asked about is opening on their screen, and you will ask one quiz question about it when the tour ends. reply with one short sentence saying you're taking them inside for a quiz. do not ask a question yourself, and do not say you can't remember earlier conversations. end with [POINT:none].
+    for this reply only: a 3d model of what they asked about is already opening on their screen, and the app will ask one quiz question about it when the tour ends. reply with one short spoken sentence saying you're taking them inside for a quiz. do not ask a question yourself, and do not say you can't remember earlier conversations. the only tag you may write is [POINT:none], at the very end. never invent any other bracketed tag, because everything else you write is read aloud.
     """
 
     // MARK: - AI Response Pipeline
