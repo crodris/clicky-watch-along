@@ -250,7 +250,9 @@ final class VideoQuizSession {
 
             let plannedMoments = try await VideoQuizPlanClient(workerBaseURL: workerBaseURL).requestPlan(
                 title: videoTab.title,
-                transcriptLines: transcriptLines
+                transcriptLines: transcriptLines.filter { transcriptLine in
+                    transcriptLine.seconds >= playbackState.currentSeconds
+                }
             )
             guard isRunning, !Task.isCancelled else { return }
             moments = plannedMoments.map { plannedMoment in

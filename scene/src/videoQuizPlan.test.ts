@@ -107,6 +107,17 @@ describe("parseVideoQuizPlan", () => {
     expect(checkedPlan.ok).toBe(false);
   });
 
+  it("counts timing rules from where the transcript starts", () => {
+    const linesFromTheMiddle = transcriptLines.filter((transcriptLine) => transcriptLine.seconds >= 100);
+
+    const checkedPlan = parseVideoQuizPlan(
+      { moments: [denticleMoment, poreMoment, { ...poreMoment, pauseAtSeconds: 200, question: "Let's pause here! What came last?", answerLabel: "pores" }] },
+      linesFromTheMiddle,
+    );
+
+    expect(checkedPlan.ok).toBe(true);
+  });
+
   it("rejects a pause inside the first 20 seconds", () => {
     const result = parseVideoQuizPlan(
       { moments: [{ ...liverMoment, pauseAtSeconds: 12 }, denticleMoment, poreMoment] },

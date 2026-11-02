@@ -135,7 +135,7 @@ const systemPrompt = [
   "Pick each pauseAtSeconds by finding a concrete, teachable fact or explanation that finishes, then copying the seconds value of the line right after it, exactly as written.",
   "",
   "Rules for the three moments:",
-  "- The first moment comes as early as a real fact allows, between 20 and 45 seconds when the video has one there. Viewers should not wait long for the first question.",
+  "- The transcript starts where the learner is. The first moment comes as early as a real fact allows, 20 to 45 seconds after the first line when the video has one there. Viewers should not wait long for the first question.",
   "- Spread the other two across the rest of the video. Keep them far apart.",
   `- None in the first ${minimumPauseAtSeconds} seconds, which are usually an intro or a hook.`,
   "- None during or after a sponsor read, an ad, a plug for a product or channel, or a request to like and subscribe.",
@@ -185,6 +185,8 @@ export function parseVideoQuizPlan(
   });
 
   const lineStartSeconds = new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds));
+  // The app sends only what is left to watch, so timing rules count from the first line.
+  const watchStartSeconds = Math.min(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   for (const moment of moments) {
     if (!lineStartSeconds.has(moment.pauseAtSeconds)) {
       return {
@@ -198,24 +200,25 @@ export function parseVideoQuizPlan(
         error: `sourceLineSeconds ${moment.sourceLineSeconds} must be a transcript line before pauseAtSeconds ${moment.pauseAtSeconds}, because the learner has not heard later lines`,
       };
     }
-    if (moment.pauseAtSeconds < minimumPauseAtSeconds) {
+    if (moment.pauseAtSeconds - watchStartSeconds < minimumPauseAtSeconds) {
       return {
         ok: false,
-        error: `pauseAtSeconds ${moment.pauseAtSeconds} is inside the first ${minimumPauseAtSeconds} seconds`,
+        error: `pauseAtSeconds ${moment.pauseAtSeconds} is inside the first ${minimumPauseAtSeconds} seconds after the first transcript line`,
       };
     }
   }
 
   const firstPauseAtSeconds = Math.min(...moments.map((moment) => moment.pauseAtSeconds));
-  if (firstPauseAtSeconds > maximumFirstPauseAtSeconds) {
+  if (firstPauseAtSeconds - watchStartSeconds > maximumFirstPauseAtSeconds) {
     return {
       ok: false,
-      error: `The first pause at ${firstPauseAtSeconds} is later than ${maximumFirstPauseAtSeconds} seconds`,
+      error: `The first pause at ${firstPauseAtSeconds} is more than ${maximumFirstPauseAtSeconds} seconds after the first transcript line`,
     };
   }
 
   const videoLengthSeconds = Math.max(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
-  const minimumGapSeconds = videoLengthSeconds * minimumGapBetweenMomentsAsFractionOfVideo;
+  const minimumGapSeconds =
+    (videoLengthSeconds - watchStartSeconds) * minimumGapBetweenMomentsAsFractionOfVideo;
   for (let momentIndex = 1; momentIndex < moments.length; momentIndex += 1) {
     const gapSeconds = moments[momentIndex].pauseAtSeconds - moments[momentIndex - 1].pauseAtSeconds;
     if (gapSeconds < minimumGapSeconds) {
