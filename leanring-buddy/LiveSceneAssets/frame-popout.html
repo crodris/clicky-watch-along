@@ -338,18 +338,26 @@ const render = (now) => {
   const centerOnPage = subjectCenter().project(camera);
   const centerX = (centerOnPage.x + 1) / 2 * pageWidth, centerY = (1 - centerOnPage.y) / 2 * pageHeight;
   const reach = Math.min(pageWidth, pageHeight) * 0.14;
-  const placements = labelEntries.map((entry) => {
+  // Labels go out to the left or right of the subject, so a tall narrow subject
+  // gets two columns instead of one stack. Points near the middle alternate sides.
+  const projectedPoints = labelEntries.map((entry) => {
     const projected = partPoint(entry).project(camera);
-    const pointX = (projected.x + 1) / 2 * pageWidth, pointY = (1 - projected.y) / 2 * pageHeight;
-    let directionX = pointX - centerX, directionY = pointY - centerY;
-    const length = Math.hypot(directionX, directionY) || 1;
-    directionX /= length; directionY /= length;
-    return {
-      entry, pointX, pointY,
-      labelX: pointX + directionX * reach, labelY: pointY + directionY * reach * 0.7,
-      halfWidth: entry.element.offsetWidth / 2 + 4, halfHeight: entry.element.offsetHeight / 2 + 3,
-    };
+    return { entry, pointX: (projected.x + 1) / 2 * pageWidth, pointY: (1 - projected.y) / 2 * pageHeight };
   });
+  const middleBand = Math.max(24, reach * 0.35);
+  let nextMiddleSide = -1;
+  const placements = projectedPoints
+    .sort((first, second) => first.pointY - second.pointY)
+    .map(({ entry, pointX, pointY }) => {
+      let side = Math.sign(pointX - centerX);
+      if (Math.abs(pointX - centerX) < middleBand) { side = nextMiddleSide; nextMiddleSide = -nextMiddleSide; }
+      const halfWidth = entry.element.offsetWidth / 2 + 4;
+      return {
+        entry, pointX, pointY,
+        labelX: pointX + side * (reach + halfWidth), labelY: pointY + (pointY - centerY) * 0.15,
+        halfWidth, halfHeight: entry.element.offsetHeight / 2 + 3,
+      };
+    });
   // Labels that land on each other are pushed apart, so none hides another.
   for (let pass = 0; pass < 12; pass++) {
     for (let first = 0; first < placements.length; first++) for (let second = first + 1; second < placements.length; second++) {
