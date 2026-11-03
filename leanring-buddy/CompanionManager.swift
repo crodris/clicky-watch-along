@@ -230,12 +230,6 @@ final class CompanionManager: ObservableObject {
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
 
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--video-quiz-rehearsal") {
-            handleVideoQuizVoiceCommand(.start)
-        }
-        #endif
-
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
         // were revoked (e.g. signing change), don't show the cursor — the
@@ -668,11 +662,6 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - AI Response Pipeline
 
-    /// Captures a screenshot, sends it along with the transcript to Claude,
-    /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
-    /// the spinner/processing state until TTS audio begins playing.
-    /// Claude's response may include a [POINT:x,y:label] tag which triggers
-    /// the buddy to fly to that element on screen.
     #if DEBUG
     /// Feeds transcripts through the real pipeline with no microphone, so the
     /// whole voice and quiz loop can be tested unattended.
@@ -683,10 +672,10 @@ final class CompanionManager: ObservableObject {
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             while true {
-                let sceneIsStillBuilding: Bool
-                if case .touring = liveScenePhase { sceneIsStillBuilding = true } else { sceneIsStillBuilding = false }
+                let tourIsStillPlaying: Bool
+                if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
                 let clickyIsBusy = voiceState == .processing || elevenLabsTTSClient.isPlaying
-                if !sceneIsStillBuilding && !clickyIsBusy { break }
+                if !tourIsStillPlaying && !clickyIsBusy { break }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
             print("Live scene rehearsal: finished, phase \(liveScenePhase)")
@@ -696,6 +685,11 @@ final class CompanionManager: ObservableObject {
     }
     #endif
 
+    /// Captures a screenshot, sends it along with the transcript to Claude,
+    /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
+    /// the spinner/processing state until TTS audio begins playing.
+    /// Claude's response may include a [POINT:x,y:label] tag which triggers
+    /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
         if let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
             handleVideoQuizVoiceCommand(videoQuizCommand)
@@ -732,7 +726,7 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        if case .awaitingFollowUpOnWhatThePartDoes(let quiz, _) = liveScenePhase {
+        if case .awaitingFollowUpOnWhatThePartDoes(let quiz) = liveScenePhase {
             currentResponseTask = Task {
                 await self.respondToLiveSceneFollowUpOnWhatThePartDoes(
                     transcript: transcript,
@@ -756,7 +750,7 @@ final class CompanionManager: ObservableObject {
 
         if let requestedSceneKind = liveSceneKind(for: transcript) {
             clearFinishedLiveScene(resumesTheVideo: false)
-            liveScenePhase = .buildingScene(requestedSceneKind)
+            liveScenePhase = .buildingScene
             currentResponseTask = Task {
                 await self.buildLiveSceneWithStatusLabel(
                     transcript: sceneQuestion,
@@ -925,7 +919,7 @@ final class CompanionManager: ObservableObject {
                 (data: capture.imageData, label: capture.label)
             }
         } catch {
-            print("Live scene scene failed: \(error)")
+            print("Live scene screen capture failed: \(error)")
         }
         guard !Task.isCancelled else { return }
 
@@ -1064,7 +1058,7 @@ final class CompanionManager: ObservableObject {
         } catch let urlError as URLError where urlError.code == .cancelled {
             return
         } catch {
-            print("Live scene live scene failed: \(error.localizedDescription)")
+            print("Live scene request failed: \(error.localizedDescription)")
         }
     }
 
@@ -1074,62 +1068,54 @@ final class CompanionManager: ObservableObject {
         wrongAnswerCount: Int
     ) async {
         voiceState = .processing
-        if !quiz.explanation.isEmpty {
-            do {
-                let judgedAnswer = try await liveSceneClient.judgeSpokenAnswer(
-                    question: quiz.question,
-                    answerLabel: quiz.answerLabel,
-                    explanation: quiz.explanation,
-                    transcript: transcript,
-                    heardTranscript: quiz.heardTranscript
+        let judgedAnswer: LiveSceneJudgedAnswer
+        do {
+            judgedAnswer = try await liveSceneClient.judgeSpokenAnswer(
+                question: quiz.question,
+                answerLabel: quiz.answerLabel,
+                explanation: quiz.explanation,
+                transcript: transcript,
+                heardTranscript: quiz.heardTranscript
+            )
+        } catch is CancellationError {
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return
+        } catch {
+            print("Live scene answer judge failed, using the word match: \(error.localizedDescription)")
+            // The word match grades the answer, and these lines stand in for the model's spoken reply.
+            let wordMatchGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
+                transcript: transcript,
+                quiz: quiz
+            )
+            switch wordMatchGrade {
+            case .nameAndFunctionWord:
+                judgedAnswer = LiveSceneJudgedAnswer(
+                    grade: wordMatchGrade,
+                    spokenReply: spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: true)
                 )
-                let spokenLine = applyJudgedLiveSceneAnswer(
-                    judgedAnswer: judgedAnswer,
-                    quiz: quiz,
-                    wrongAnswerCount: wrongAnswerCount
+            case .nameOnly:
+                judgedAnswer = LiveSceneJudgedAnswer(
+                    grade: wordMatchGrade,
+                    spokenReply: "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
                 )
-                await speakLiveSceneLine(spokenLine)
-                await resumeVideoQuizAfterExplanation()
-                guard !Task.isCancelled else { return }
-                voiceState = .idle
-                scheduleTransientHideIfNeeded()
-                return
-            } catch is CancellationError {
-                return
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                return
-            } catch {
-                print("Live scene answer judge failed, using the word match: \(error.localizedDescription)")
+            case .askedForHelp:
+                judgedAnswer = LiveSceneJudgedAnswer(
+                    grade: wordMatchGrade,
+                    spokenReply: spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
+                )
+            case .wrong:
+                judgedAnswer = LiveSceneJudgedAnswer(
+                    grade: wordMatchGrade,
+                    spokenReply: "Ooh, not quite! Take another look."
+                )
             }
         }
-        let spokenLine: String
-        let spokenAnswerGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
-            transcript: transcript,
-            quiz: quiz
+        let spokenLine = applyJudgedLiveSceneAnswer(
+            judgedAnswer: judgedAnswer,
+            quiz: quiz,
+            wrongAnswerCount: wrongAnswerCount
         )
-        switch spokenAnswerGrade {
-        case .nameAndFunctionWord:
-            spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: true)
-            LiveSceneOverlay.shared.reveal()
-            liveScenePhase = .allLabelsShowing
-        case .nameOnly:
-            spokenLine = "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
-            LiveSceneOverlay.shared.reveal()
-            liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
-        case .askedForHelp:
-            spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
-            LiveSceneOverlay.shared.reveal()
-            liveScenePhase = .allLabelsShowing
-        case .wrong:
-            if wrongAnswerCount == 0 {
-                spokenLine = "Ooh, not quite! Take another look."
-                liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-            } else {
-                spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
-                LiveSceneOverlay.shared.reveal()
-                liveScenePhase = .allLabelsShowing
-            }
-        }
         await speakLiveSceneLine(spokenLine)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
@@ -1151,7 +1137,7 @@ final class CompanionManager: ObservableObject {
             return judgedAnswer.spokenReply
         case .nameOnly:
             LiveSceneOverlay.shared.reveal()
-            liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+            liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz)
             return judgedAnswer.spokenReply
         case .askedForHelp:
             LiveSceneOverlay.shared.reveal()
@@ -1173,44 +1159,35 @@ final class CompanionManager: ObservableObject {
         quiz: LiveSceneQuiz
     ) async {
         voiceState = .processing
-        if !quiz.explanation.isEmpty {
-            do {
-                let judgedAnswer = try await liveSceneClient.judgeSpokenAnswer(
-                    question: quiz.question,
-                    answerLabel: quiz.answerLabel,
-                    explanation: quiz.explanation,
-                    transcript: transcript,
-                    heardTranscript: quiz.heardTranscript
-                )
-                let spokenLine: String
-                if judgedAnswer.grade == .nameAndFunctionWord {
-                    spokenLine = judgedAnswer.spokenReply
-                } else {
-                    spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
-                }
-                liveScenePhase = .allLabelsShowing
-                await speakLiveSceneLine(spokenLine)
-                await resumeVideoQuizAfterExplanation()
-                guard !Task.isCancelled else { return }
-                voiceState = .idle
-                scheduleTransientHideIfNeeded()
-                return
-            } catch is CancellationError {
-                return
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                return
-            } catch {
-                print("Live scene answer judge failed, using the word match: \(error.localizedDescription)")
+        let spokenLine: String
+        do {
+            let judgedAnswer = try await liveSceneClient.judgeSpokenAnswer(
+                question: quiz.question,
+                answerLabel: quiz.answerLabel,
+                explanation: quiz.explanation,
+                transcript: transcript,
+                heardTranscript: quiz.heardTranscript
+            )
+            if judgedAnswer.grade == .nameAndFunctionWord {
+                spokenLine = judgedAnswer.spokenReply
+            } else {
+                spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
             }
+        } catch is CancellationError {
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return
+        } catch {
+            print("Live scene answer judge failed, using the word match: \(error.localizedDescription)")
+            let transcriptSaysWhatThePartDoes = LiveSceneAnswerJudge.transcriptIncludesFunctionWord(
+                transcript: transcript,
+                functionWords: quiz.functionWords
+            )
+            spokenLine = spokenLineAfterTheQuizEnds(
+                quiz: quiz,
+                learnerSaidWhatThePartDoes: transcriptSaysWhatThePartDoes
+            )
         }
-        let transcriptSaysWhatThePartDoes = LiveSceneAnswerJudge.transcriptIncludesFunctionWord(
-            transcript: transcript,
-            functionWords: quiz.functionWords
-        )
-        let spokenLine = spokenLineAfterTheQuizEnds(
-            quiz: quiz,
-            learnerSaidWhatThePartDoes: transcriptSaysWhatThePartDoes
-        )
         liveScenePhase = .allLabelsShowing
         await speakLiveSceneLine(spokenLine)
         await resumeVideoQuizAfterExplanation()
@@ -1293,14 +1270,7 @@ final class CompanionManager: ObservableObject {
         videoQuizSession.resumeVideoAfterQuestion()
     }
 
-    /// Quizzes written before explanations keep the original spoken lines.
     private func spokenLineAfterTheQuizEnds(quiz: LiveSceneQuiz, learnerSaidWhatThePartDoes: Bool) -> String {
-        if quiz.explanation.isEmpty {
-            if learnerSaidWhatThePartDoes {
-                return "Yes! The answer is \(quiz.answerLabel.lowercased()). Nice work!"
-            }
-            return "Good try! The answer is \(quiz.answerLabel.lowercased())."
-        }
         if learnerSaidWhatThePartDoes {
             return "Yes! \(quiz.explanation) Nice work!"
         }

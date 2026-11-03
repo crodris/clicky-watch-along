@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON } from "./anthropic";
 
 const transcriptLineSchema = z.object({
   seconds: z.number().nonnegative(),
@@ -41,20 +42,10 @@ const videoQuizPlanSchema = z.object({
   moments: z.array(videoQuizMomentSchema).min(1),
 });
 
-const anthropicMessageSchema = z.object({
-  content: z.array(
-    z.object({
-      type: z.string(),
-      text: z.string().optional(),
-    }),
-  ),
-});
-
 export type TranscriptLine = z.infer<typeof transcriptLineSchema>;
 export type VideoQuizMoment = z.infer<typeof videoQuizMomentSchema>;
 export type VideoQuizPlan = z.infer<typeof videoQuizPlanSchema>;
 type VideoQuizPlanRequest = z.infer<typeof videoQuizPlanRequestSchema>;
-type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
 
 export type VideoQuizPlanParseResult =
   | { ok: true; plan: VideoQuizPlan }
@@ -231,13 +222,6 @@ export function parseVideoQuizPlan(
   return { ok: true, plan: { moments } };
 }
 
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
 function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError: string) {
   const transcriptText = videoQuizPlanRequest.transcriptLines
     .map((transcriptLine) => `[${transcriptLine.seconds}] ${transcriptLine.text}`)
@@ -262,80 +246,32 @@ function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError
   };
 }
 
-/** Thinking blocks come first, so the plan is the first text block. Text that is not JSON counts as no plan. */
-function planJSONFromReply(message: AnthropicMessage): unknown {
-  const textBlock = message.content.find((contentBlock) => contentBlock.type === "text");
-  if (textBlock?.text === undefined) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(textBlock.text);
-  } catch {
-    return undefined;
-  }
-}
-
 export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: string): Promise<Response> {
-  let requestJSON: unknown;
-  try {
-    requestJSON = await request.json();
-  } catch {
-    return jsonResponse({ error: "Request body must be JSON" }, 400);
+  const parsedRequest = await parseJSONRequest(request, videoQuizPlanRequestSchema);
+  if (!parsedRequest.ok) {
+    return parsedRequest.response;
   }
-
-  const parsedRequest = videoQuizPlanRequestSchema.safeParse(requestJSON);
-  if (!parsedRequest.success) {
-    return jsonResponse({ error: parsedRequest.error.message }, 400);
-  }
+  const videoQuizPlanRequest = parsedRequest.requestBody;
 
   // Retries that name the broken rule, because a schema-valid plan still
   // sometimes breaks one the schema cannot enforce, such as a pause that is not
   // on a line boundary, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
   for (let attempt = 1; attempt <= maximumPlanAttempts; attempt += 1) {
-    const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicAPIKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5-5",
-        // Sonnet 5.5 thinks before it answers, and that thinking counts toward this limit.
-        max_tokens: 16000,
-        system: systemPrompt,
-        // Sonnet 5.5 rejects a forced tool call, so the plan comes back as schema-checked JSON text.
-        output_config: { format: { type: "json_schema", schema: planOutputSchema } },
-        messages: [userTurn(parsedRequest.data, lastValidationError)],
-      }),
+    const anthropicReply = await requestAnthropicReplyJSON(anthropicAPIKey, "/video-quiz-plan", {
+      model: "claude-sonnet-5-5",
+      // Sonnet 5.5 thinks before it answers, and that thinking counts toward this limit.
+      max_tokens: 16000,
+      system: systemPrompt,
+      // Sonnet 5.5 rejects a forced tool call, so the plan comes back as schema-checked JSON text.
+      output_config: { format: { type: "json_schema", schema: planOutputSchema } },
+      messages: [userTurn(videoQuizPlanRequest, lastValidationError)],
     });
-
-    if (!anthropicResponse.ok) {
-      const errorText = await anthropicResponse.text();
-      console.error(`[/video-quiz-plan] Anthropic API error ${anthropicResponse.status}: ${errorText}`);
-      return jsonResponse(
-        { error: errorText.length > 0 ? errorText : "Anthropic request failed" },
-        anthropicResponse.status,
-      );
+    if (!anthropicReply.ok) {
+      return anthropicReply.response;
     }
 
-    let anthropicJSON: unknown;
-    try {
-      anthropicJSON = await anthropicResponse.json();
-    } catch {
-      return jsonResponse({ error: "Anthropic returned a body that was not JSON" }, 502);
-    }
-
-    const parsedMessage = anthropicMessageSchema.safeParse(anthropicJSON);
-    if (!parsedMessage.success) {
-      return jsonResponse({ error: "Anthropic response had no content list" }, 502);
-    }
-
-    const parsedPlan = parseVideoQuizPlan(
-      planJSONFromReply(parsedMessage.data),
-      parsedRequest.data.transcriptLines,
-    );
+    const parsedPlan = parseVideoQuizPlan(anthropicReply.replyJSON, videoQuizPlanRequest.transcriptLines);
     if (parsedPlan.ok) {
       return jsonResponse(parsedPlan.plan, 200);
     }

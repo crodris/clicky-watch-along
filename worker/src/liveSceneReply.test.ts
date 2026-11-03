@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkLiveSceneModelReply } from "./liveSceneReply";
 
 const liveSceneQuiz = {
-  question: "Here we are, inside the whale! What is this, and what does it do?",
+  question: "Here we are, inside the heart! What is this, and what does it do?",
   answerLabel: "Heart",
   functionWords: ["pump", "blood"],
   explanation: "That's the heart, and it pumps blood through the body.",

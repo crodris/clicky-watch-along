@@ -17,11 +17,11 @@ enum LiveSceneKind {
 
 enum LiveScenePhase {
     case idle
-    case buildingScene(LiveSceneKind)
+    case buildingScene
     case touring(quizToAskAfterTour: LiveSceneQuiz?)
     case awaitingAnswer(LiveSceneQuiz, wrongAnswerCount: Int)
     /// The learner named the part. Clicky is waiting to hear what it does.
-    case awaitingFollowUpOnWhatThePartDoes(LiveSceneQuiz, missedFunctionAnswerCount: Int)
+    case awaitingFollowUpOnWhatThePartDoes(LiveSceneQuiz)
     /// The scene stays on screen until the next question clears it.
     case allLabelsShowing
 }
@@ -45,7 +45,7 @@ struct LiveSceneQuiz {
         answerLabel: String,
         question: String,
         functionWords: [String] = [],
-        explanation: String = ""
+        explanation: String
     ) {
         self.answerLabel = answerLabel
         self.question = question
@@ -66,7 +66,6 @@ enum LiveSceneAnswerJudge {
     }
 
     /// A quiz with no function words is complete once the learner names the part.
-    /// Older specs have nothing else to grade.
     nonisolated static func gradeSpokenAnswer(transcript: String, quiz: LiveSceneQuiz) -> LiveSceneQuizGrade {
         let lowercaseTranscript = transcript.lowercased()
         let learnerAskedForHelp = ["no idea", "don't know", "dont know", "tell me", "not sure"].contains { helpPhrase in

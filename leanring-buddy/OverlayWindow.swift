@@ -11,7 +11,7 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-// A nonactivating panel, because a drag on the live-scene scene would otherwise
+// A nonactivating panel, because a drag on the live scene would otherwise
 // make Clicky the frontmost app and take the keyboard from the page under it.
 class OverlayWindow: NSPanel {
     init(screen: NSScreen) {

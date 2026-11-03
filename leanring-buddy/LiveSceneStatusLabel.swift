@@ -76,13 +76,6 @@ final class LiveSceneStatusLabel {
         ))
     }
 
-    private func screenUnderTheMouseCursor() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        return NSScreen.screens.first { screen in
-            screen.frame.contains(mouseLocation)
-        } ?? NSScreen.screens.first
-    }
-
     private func makeStatusLabelPanel() -> NSPanel {
         let panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: Self.panelSize),

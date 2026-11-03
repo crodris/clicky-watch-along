@@ -342,16 +342,6 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         startQueuedPageLoad()
     }
 
-    private func screenUnderTheMouseCursor() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        if let screenContainingTheMouse = NSScreen.screens.first(where: { screen in
-            screen.frame.contains(mouseLocation)
-        }) {
-            return screenContainingTheMouse
-        }
-        return NSScreen.screens.first
-    }
-
     private func placeOverlayOnTheScreenUnderTheMouse() {
         guard let screen = screenUnderTheMouseCursor() else {
             print("Live scene: no screen is available")
@@ -458,4 +448,15 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             }
         }
     }
+}
+
+/// The scene overlay and the status label both follow the mouse, so they share this screen lookup.
+func screenUnderTheMouseCursor() -> NSScreen? {
+    let mouseLocation = NSEvent.mouseLocation
+    if let screenContainingTheMouse = NSScreen.screens.first(where: { screen in
+        screen.frame.contains(mouseLocation)
+    }) {
+        return screenContainingTheMouse
+    }
+    return NSScreen.screens.first
 }

@@ -2,7 +2,7 @@
 //  LiveSceneClient.swift
 //  leanring-buddy
 //
-//  Asks the Worker for a live-scene scene. The cursor screen goes up as a
+//  Asks the Worker for a live scene. The cursor screen goes up as a
 //  JPEG. /live-scene returns generated HTML and a quiz. /judge-answer grades
 //  a spoken answer. Anything other than 200 throws.
 //
@@ -46,8 +46,7 @@ final class LiveSceneClient {
         let responseData = try await postJSON(
             url: liveSceneURL,
             body: body,
-            session: liveSceneSession,
-            timeoutInterval: 30
+            session: liveSceneSession
         )
         return try liveScene(from: responseData)
     }
@@ -70,8 +69,7 @@ final class LiveSceneClient {
         let responseData = try await postJSON(
             url: judgeAnswerURL,
             body: requestBody,
-            session: judgeAnswerSession,
-            timeoutInterval: 8
+            session: judgeAnswerSession
         )
         return try judgedAnswer(from: responseData)
     }
@@ -95,15 +93,11 @@ final class LiveSceneClient {
     private func postJSON(
         url: URL,
         body: Data,
-        session: URLSession,
-        timeoutInterval: TimeInterval?
+        session: URLSession
     ) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let timeoutInterval {
-            request.timeoutInterval = timeoutInterval
-        }
         request.httpBody = body
 
         let (data, response) = try await session.data(for: request)
@@ -125,38 +119,48 @@ final class LiveSceneClient {
         return data
     }
 
-    private func liveScene(from responseData: Data) throws -> LiveScenePage {
-        let responseJSON = try JSONSerialization.jsonObject(with: responseData)
-        // JSONSerialization returns Any. The live scene response is one JSON object.
-        guard let responseDictionary = responseJSON as? [String: Any] else {
-            throw liveSceneAPIError(statusCode: -1, message: "Live scene response was not a JSON object")
+    private struct LiveSceneResponse: Decodable {
+        struct Quiz: Decodable {
+            let question: String
+            let answerLabel: String
+            let functionWords: [String]
+            let explanation: String
         }
-        guard let html = responseDictionary["html"] as? String,
-              let quizDictionary = responseDictionary["quiz"] as? [String: Any],
-              let question = quizDictionary["question"] as? String,
-              let answerLabel = quizDictionary["answerLabel"] as? String,
-              let explanation = quizDictionary["explanation"] as? String,
-              let functionWords = quizDictionary["functionWords"] as? [String] else {
+
+        let html: String
+        let quiz: Quiz
+    }
+
+    private struct JudgeAnswerResponse: Decodable {
+        let verdict: String
+        let spokenReply: String
+    }
+
+    private func liveScene(from responseData: Data) throws -> LiveScenePage {
+        let response: LiveSceneResponse
+        do {
+            response = try JSONDecoder().decode(LiveSceneResponse.self, from: responseData)
+        } catch {
             throw liveSceneAPIError(statusCode: -1, message: "Live scene response was missing html or quiz")
         }
         let quiz = LiveSceneQuiz(
-            answerLabel: answerLabel,
-            question: question,
-            functionWords: functionWords,
-            explanation: explanation
+            answerLabel: response.quiz.answerLabel,
+            question: response.quiz.question,
+            functionWords: response.quiz.functionWords,
+            explanation: response.quiz.explanation
         )
-        return LiveScenePage(html: html, quiz: quiz)
+        return LiveScenePage(html: response.html, quiz: quiz)
     }
 
     private func judgedAnswer(from responseData: Data) throws -> LiveSceneJudgedAnswer {
-        let responseJSON = try JSONSerialization.jsonObject(with: responseData)
-        guard let responseDictionary = responseJSON as? [String: Any],
-              let verdictName = responseDictionary["verdict"] as? String,
-              let spokenReply = responseDictionary["spokenReply"] as? String else {
+        let response: JudgeAnswerResponse
+        do {
+            response = try JSONDecoder().decode(JudgeAnswerResponse.self, from: responseData)
+        } catch {
             throw liveSceneAPIError(statusCode: -1, message: "Judge response was missing a verdict")
         }
         let grade: LiveSceneQuizGrade
-        switch verdictName {
+        switch response.verdict {
         case "correct":
             grade = .nameAndFunctionWord
         case "asked_for_help":
@@ -166,9 +170,9 @@ final class LiveSceneClient {
         case "wrong":
             grade = .wrong
         default:
-            throw liveSceneAPIError(statusCode: -1, message: "Judge verdict was \(verdictName)")
+            throw liveSceneAPIError(statusCode: -1, message: "Judge verdict was \(response.verdict)")
         }
-        return LiveSceneJudgedAnswer(grade: grade, spokenReply: spokenReply)
+        return LiveSceneJudgedAnswer(grade: grade, spokenReply: response.spokenReply)
     }
 
     private func liveSceneAPIError(statusCode: Int, message: String) -> NSError {

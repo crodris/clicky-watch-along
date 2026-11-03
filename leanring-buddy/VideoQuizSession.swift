@@ -92,7 +92,6 @@ nonisolated func videoQuizTranscriptLines(fromCaptionsJSON3Data captionsJSON3Dat
 struct VideoQuizMoment {
     let pauseAtSeconds: Double
     let quiz: LiveSceneQuiz
-    let subject: String
 }
 
 /// A moment stays askable for this long after its pause time, so a learner who
@@ -164,11 +163,11 @@ final class VideoQuizSession {
     /// A stuck conversation must not leave the video paused forever.
     private static let secondsToWaitForClickyToBeFreeBeforeResuming: TimeInterval = 60
     private static let failedPlaybackReadsBeforeGivingUp = 6
+    private static let secondsForTheReadyLineToFinish: Double = 3.5
 
     private let workerBaseURL: String
     private let canAskQuestionNow: @MainActor () -> Bool
     private let askQuestion: @MainActor (LiveSceneQuiz) -> Void
-    private static let secondsForTheReadyLineToFinish: Double = 3.5
     private let speakLine: @MainActor (String) -> Void
 
     private(set) var isRunning = false
@@ -217,8 +216,6 @@ final class VideoQuizSession {
         print("Video quiz: stopped")
     }
 
-    /// Called once the explanation has been spoken. Presses play again, and ends
-    /// the session after the last moment.
     /// Pauses for a 3D model the learner asked for, and returns what the video
     /// just said, so "show me that" can be built from it.
     func pauseVideoForRequestedScene() -> String {
@@ -246,6 +243,8 @@ final class VideoQuizSession {
         resumeVideoAfterQuestion()
     }
 
+    /// Called once the explanation has been spoken. Presses play again, and ends
+    /// the session after the last moment.
     func resumeVideoAfterQuestion() {
         guard isRunning, isWaitingForQuestionToFinish, let currentVideoTab else { return }
         isWaitingForQuestionToFinish = false
@@ -295,8 +294,7 @@ final class VideoQuizSession {
                     .joined(separator: " ")
                 return VideoQuizMoment(
                     pauseAtSeconds: plannedMoment.pauseAtSeconds,
-                    quiz: quizWithWhatWasHeard,
-                    subject: plannedMoment.subject
+                    quiz: quizWithWhatWasHeard
                 )
             }
             let planningSeconds = Date().timeIntervalSince(planningStartDate)
@@ -632,7 +630,6 @@ private struct VideoQuizPlanClient {
             let answerLabel: String
             let functionWords: [String]
             let explanation: String
-            let subject: String
         }
 
         let moments: [PlannedMoment]
@@ -669,8 +666,7 @@ private struct VideoQuizPlanClient {
                     question: plannedMoment.question,
                     functionWords: plannedMoment.functionWords,
                     explanation: plannedMoment.explanation
-                ),
-                subject: plannedMoment.subject
+                )
             )
         }
     }

@@ -9,7 +9,7 @@
  *   POST /tts          → ElevenLabs TTS API
  *   POST /live-scene   → OpenAI Responses API (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
- *   POST /video-quiz-plan → Anthropic Messages API (three quiz pause moments for a video transcript)
+ *   POST /video-quiz-plan → Anthropic Messages API (quiz pause moments for a video transcript)
  */
 
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
