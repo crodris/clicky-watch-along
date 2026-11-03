@@ -88,7 +88,7 @@ const framePointToWorld = (frameX, frameY, z) => new THREE.Vector3(
 );
 
 const full = document.createElement("canvas"); full.width = W; full.height = H;
-const fullContext = full.getContext("2d"); fullContext.drawImage(image, 0, 0);
+const fullContext = full.getContext("2d", { willReadFrequently: true }); fullContext.drawImage(image, 0, 0);
 const pixels = fullContext.getImageData(0, 0, W, H).data;
 
 const pad = 12;
@@ -105,7 +105,7 @@ const maskImage = await new Promise((resolve, reject) => {
   loadedMask.src = popout.maskDataURL;
 });
 const maskCanvas = document.createElement("canvas"); maskCanvas.width = W; maskCanvas.height = H;
-const maskContext = maskCanvas.getContext("2d"); maskContext.drawImage(maskImage, 0, 0, W, H);
+const maskContext = maskCanvas.getContext("2d", { willReadFrequently: true }); maskContext.drawImage(maskImage, 0, 0, W, H);
 const maskPixels = maskContext.getImageData(x0, y0, boxW, boxH).data;
 const subjectMask = new Uint8Array(boxW * boxH);
 for (let i = 0; i < subjectMask.length; i++) subjectMask[i] = maskPixels[i * 4] > 127 ? 1 : 0;
@@ -134,7 +134,7 @@ for (let i = 0; i < subjectMask.length; i++) subjectMask[i] = maskPixels[i * 4] 
   }
 }
 
-// The spot the subject leaves is painted with the colour around it.
+// The colour around the subject, for any part of the hole the blur fill cannot reach.
 const surroundingColors = [];
 for (let x = 0; x < boxW; x++) for (const y of [0, boxH - 1]) if (!subjectMask[y * boxW + x]) surroundingColors.push((y + y0) * W + (x + x0));
 for (let y = 0; y < boxH; y++) for (const x of [0, boxW - 1]) if (!subjectMask[y * boxW + x]) surroundingColors.push((y + y0) * W + (x + x0));
@@ -170,27 +170,50 @@ const thicknessInFramePixels = (d) => {
 const frameWithoutSubject = document.createElement("canvas"); frameWithoutSubject.width = W; frameWithoutSubject.height = H;
 const cutout = document.createElement("canvas"); cutout.width = boxW; cutout.height = boxH;
 {
-  const backgroundContext = frameWithoutSubject.getContext("2d"); backgroundContext.drawImage(image, 0, 0);
-  const backgroundData = backgroundContext.getImageData(0, 0, W, H);
-  const cutoutContext = cutout.getContext("2d");
+  const cutoutContext = cutout.getContext("2d", { willReadFrequently: true });
   const cutoutData = cutoutContext.createImageData(boxW, boxH);
+  const holeyFrame = document.createElement("canvas"); holeyFrame.width = W; holeyFrame.height = H;
+  const holeyContext = holeyFrame.getContext("2d", { willReadFrequently: true }); holeyContext.drawImage(image, 0, 0);
+  const holeyData = holeyContext.getImageData(0, 0, W, H);
   for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
     const inside = subjectMask[y * boxW + x], frameIndex = ((y + y0) * W + (x + x0)) * 4, cutoutIndex = (y * boxW + x) * 4;
     cutoutData.data[cutoutIndex] = pixels[frameIndex];
     cutoutData.data[cutoutIndex + 1] = pixels[frameIndex + 1];
     cutoutData.data[cutoutIndex + 2] = pixels[frameIndex + 2];
     cutoutData.data[cutoutIndex + 3] = inside ? 255 : 0;
-    if (inside) {
-      backgroundData.data[frameIndex] = backgroundColor[0];
-      backgroundData.data[frameIndex + 1] = backgroundColor[1];
-      backgroundData.data[frameIndex + 2] = backgroundColor[2];
+    if (inside) holeyData.data[frameIndex + 3] = 0;
+  }
+  cutoutContext.putImageData(cutoutData, 0, 0);
+  holeyContext.putImageData(holeyData, 0, 0);
+
+  // Filmed footage has no flat background colour, so the hole is filled from blurred
+  // copies of the footage around it, widening the blur until every pixel has a colour.
+  const filled = holeyContext.getImageData(0, 0, W, H);
+  const blurred = document.createElement("canvas"); blurred.width = W; blurred.height = H;
+  const blurredContext = blurred.getContext("2d", { willReadFrequently: true });
+  for (const blurRadius of [6, 18, 48, 120]) {
+    blurredContext.clearRect(0, 0, W, H);
+    blurredContext.filter = `blur(${blurRadius}px)`;
+    blurredContext.drawImage(holeyFrame, 0, 0);
+    blurredContext.filter = "none";
+    const blurredData = blurredContext.getImageData(x0, y0, boxW, boxH).data;
+    for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
+      const frameIndex = ((y + y0) * W + (x + x0)) * 4, blurredIndex = (y * boxW + x) * 4;
+      if (filled.data[frameIndex + 3] === 255 || blurredData[blurredIndex + 3] < 8) continue;
+      filled.data[frameIndex] = blurredData[blurredIndex];
+      filled.data[frameIndex + 1] = blurredData[blurredIndex + 1];
+      filled.data[frameIndex + 2] = blurredData[blurredIndex + 2];
+      filled.data[frameIndex + 3] = 255;
     }
   }
-  backgroundContext.putImageData(backgroundData, 0, 0);
-  cutoutContext.putImageData(cutoutData, 0, 0);
+  for (let i = 0; i < W * H; i++) {
+    if (filled.data[i * 4 + 3] === 255) continue;
+    filled.data[i * 4] = backgroundColor[0]; filled.data[i * 4 + 1] = backgroundColor[1]; filled.data[i * 4 + 2] = backgroundColor[2]; filled.data[i * 4 + 3] = 255;
+  }
+  frameWithoutSubject.getContext("2d", { willReadFrequently: true }).putImageData(filled, 0, 0);
 }
 const shadowSource = document.createElement("canvas"); shadowSource.width = W; shadowSource.height = H;
-shadowSource.getContext("2d").drawImage(cutout, x0, y0);
+shadowSource.getContext("2d", { willReadFrequently: true }).drawImage(cutout, x0, y0);
 const backgroundWithShadow = document.createElement("canvas"); backgroundWithShadow.width = W; backgroundWithShadow.height = H;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -211,7 +234,7 @@ const backgroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(shownWidth, shownH
 backgroundMesh.position.copy(frameCenterWorld);
 scene.add(backgroundMesh);
 const drawShadow = (lift) => {
-  const context = backgroundWithShadow.getContext("2d");
+  const context = backgroundWithShadow.getContext("2d", { willReadFrequently: true });
   context.clearRect(0, 0, W, H);
   context.drawImage(frameWithoutSubject, 0, 0);
   context.globalAlpha = 0.3 * lift;
