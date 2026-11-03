@@ -286,7 +286,6 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     func clear() {
         queuedPageLoad = nil
         liveSceneOverlayWindow?.ignoresMouseEvents = true
-        evaluateOnThePage("window.liveScene.clear()")
         liveSceneOverlayWindow?.orderOut(nil)
     }
 

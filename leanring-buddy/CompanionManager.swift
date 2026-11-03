@@ -549,8 +549,7 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
-            // The scene sits above every window, so a quick tap of the shortcut
-            // is how the learner gets back to the page under it.
+            // A new press starts a new request, so the label from the last build is out of date.
             LiveSceneStatusLabel.shared.hide()
 
             // Cancel any pending transient hide so the overlay stays visible
@@ -735,7 +734,6 @@ final class CompanionManager: ObservableObject {
             }
             return
         }
-
 
         if case .buildingScene = liveScenePhase {
             liveScenePhase = .idle
@@ -1249,14 +1247,14 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// A video quiz question is over once the quiz reaches .allLabelsShowing. The
-    /// explanation is already playing, so press play only after it ends.
     private func waitForClickyToFinishSpeaking() async {
         while elevenLabsTTSClient.isPlaying && !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
     }
 
+    /// A video quiz question is over once the quiz reaches .allLabelsShowing. The
+    /// explanation is already playing, so press play only after it ends.
     private func resumeVideoQuizAfterExplanation() async {
         guard videoQuizQuestionIsActive, case .allLabelsShowing = liveScenePhase else { return }
         videoQuizQuestionIsActive = false

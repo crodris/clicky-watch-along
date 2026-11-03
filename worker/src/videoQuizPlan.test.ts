@@ -44,7 +44,7 @@ const poreMoment = {
   subject: "shark snout pores",
 };
 
-const validToolInput = { moments: [liverMoment, denticleMoment, poreMoment] };
+const validPlan = { moments: [liverMoment, denticleMoment, poreMoment] };
 
 function requestWithBody(body: unknown): Request {
   return new Request("https://worker.test/video-quiz-plan", {
@@ -71,7 +71,7 @@ describe("parseVideoQuizPlan", () => {
       transcriptLines,
     );
 
-    expect(result).toEqual({ ok: true, plan: validToolInput });
+    expect(result).toEqual({ ok: true, plan: validPlan });
   });
 
   it("accepts however many moments the model picks", () => {
@@ -238,13 +238,13 @@ describe("handleVideoQuizPlan", () => {
   });
 
   it("asks Sonnet for the plan as JSON and returns the validated plan", async () => {
-    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => planReply(validToolInput));
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(validToolInput);
+    expect(await response.json()).toEqual(validPlan);
     const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
     expect(sentBody).toMatchObject({
       model: "claude-sonnet-5-5",
@@ -257,7 +257,7 @@ describe("handleVideoQuizPlan", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ content: [{ type: "text", text: "Sure! Here is the plan" }] })))
-      .mockResolvedValueOnce(planReply(validToolInput));
+      .mockResolvedValueOnce(planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
@@ -272,13 +272,13 @@ describe("handleVideoQuizPlan", () => {
       .mockResolvedValueOnce(
         planReply({ moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] }),
       )
-      .mockResolvedValueOnce(planReply(validToolInput));
+      .mockResolvedValueOnce(planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(validToolInput);
+    expect(await response.json()).toEqual(validPlan);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const retryBody = String(fetchMock.mock.calls[1]?.[1].body);
     expect(retryBody).toContain("pauseAtSeconds 61 is not the seconds value of any transcript line");

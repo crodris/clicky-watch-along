@@ -103,8 +103,8 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
 | `worker/src/index.ts` | ~160 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/live-scene` (generated page), `/judge-answer` (spoken grade), `/video-quiz-plan` (video quiz moments). |
-| `worker/src/videoQuizPlan.ts` | ~347 | `POST /video-quiz-plan`. Sonnet returns the plan as schema-checked JSON and decides how many moments to pick. `parseVideoQuizPlan` checks them (tested in `worker/src/videoQuizPlan.test.ts`), and up to 2 retries name the broken rule. |
-| `worker/src/liveScene.ts` | ~354 | `POST /live-scene` asks GPT-6.1 Sol Ultrafast for a page and a quiz, checks the reply, and retries once. `POST /judge-answer` asks Sonnet for a verdict and one spoken sentence as schema-checked JSON. |
+| `worker/src/videoQuizPlan.ts` | ~281 | `POST /video-quiz-plan`. Sonnet returns the plan as schema-checked JSON and decides how many moments to pick. `parseVideoQuizPlan` checks them (tested in `worker/src/videoQuizPlan.test.ts`), and up to 2 retries name the broken rule. |
+| `worker/src/liveScene.ts` | ~289 | `POST /live-scene` asks GPT-6.1 Sol Ultrafast for a page and a quiz, checks the reply, and retries once. `POST /judge-answer` asks Sonnet for a verdict and one spoken sentence as schema-checked JSON. |
 | `worker/src/liveSceneReply.ts` | ~71 | Zod and plain checks for a live scene model reply: required page markers, no external URL, and a quiz JSON block. Tested in `worker/src/liveSceneReply.test.ts`. |
 | `worker/src/anthropic.ts` | ~95 | Shared Worker helpers: JSON responses, request body parsing, and one Anthropic Messages call that returns the first text block parsed as JSON. |
 

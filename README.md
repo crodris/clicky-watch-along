@@ -4,7 +4,7 @@ This is my fork of [Clicky](https://github.com/farzaa/clicky), the open source v
 
 ## What I added
 
-**A watch-along quiz.** Open a YouTube video in Chrome, hold Control + Option, and say "watch this video with me and quiz me." Clicky reads the video's transcript, picks 3 spots to quiz you on, and pauses and plays the video by itself. It only asks about parts you've already heard, and when you ask for help, it explains the answer before the video keeps going.
+**A watch-along quiz.** Open a YouTube video in Chrome, hold Control + Option, and say "watch this video with me and quiz me." Clicky reads the video's transcript, picks a few spots to quiz you on, and pauses and plays the video by itself. It only asks about parts you've already heard, and when you ask for help, it explains the answer before the video keeps going.
 
 **3D models on request.** While the video is paused, ask Clicky to show you something in 3D. It sends a screenshot and what the video just said to GPT-6.1 Sol, which writes a labeled three.js scene, usually in about 8 to 14 seconds. The scene opens in Clicky's overlay, Clicky highlights each part as it talks, and you can drag to rotate and pinch to zoom. Press Escape to close it, and the video picks back up. HeyClicky's real-time graphics demo inspired this part.
 

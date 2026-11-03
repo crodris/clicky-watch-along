@@ -40,18 +40,6 @@ struct LiveSceneQuiz {
     let explanation: String
     /// What the learner has heard of a video so far, so an answer is graded on that.
     var heardTranscript = ""
-
-    init(
-        answerLabel: String,
-        question: String,
-        functionWords: [String] = [],
-        explanation: String
-    ) {
-        self.answerLabel = answerLabel
-        self.question = question
-        self.functionWords = functionWords
-        self.explanation = explanation
-    }
 }
 
 enum LiveSceneAnswerJudge {

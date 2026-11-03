@@ -42,19 +42,18 @@ const videoQuizPlanSchema = z.object({
   moments: z.array(videoQuizMomentSchema).min(1),
 });
 
-export type TranscriptLine = z.infer<typeof transcriptLineSchema>;
-export type VideoQuizMoment = z.infer<typeof videoQuizMomentSchema>;
-export type VideoQuizPlan = z.infer<typeof videoQuizPlanSchema>;
+type TranscriptLine = z.infer<typeof transcriptLineSchema>;
+type VideoQuizPlan = z.infer<typeof videoQuizPlanSchema>;
 type VideoQuizPlanRequest = z.infer<typeof videoQuizPlanRequestSchema>;
 
-export type VideoQuizPlanParseResult =
+type VideoQuizPlanParseResult =
   | { ok: true; plan: VideoQuizPlan }
   | { ok: false; error: string };
 
-export const minimumPauseAtSeconds = 20;
-export const maximumFirstPauseAtSeconds = 60;
+const minimumPauseAtSeconds = 20;
+const maximumFirstPauseAtSeconds = 60;
 /** A fraction of the video's length, so moments stay spread out and a plan holds at most about 10. */
-export const minimumGapBetweenMomentsAsFractionOfVideo = 0.1;
+const minimumGapBetweenMomentsAsFractionOfVideo = 0.1;
 
 const maximumPlanAttempts = 3;
 
@@ -153,10 +152,10 @@ function containsWholeWords(text: string, phrase: string): boolean {
 }
 
 export function parseVideoQuizPlan(
-  toolInput: unknown,
+  planJSON: unknown,
   transcriptLines: TranscriptLine[],
 ): VideoQuizPlanParseResult {
-  const parsedPlan = videoQuizPlanSchema.safeParse(toolInput);
+  const parsedPlan = videoQuizPlanSchema.safeParse(planJSON);
   if (!parsedPlan.success) {
     const issueMessages = parsedPlan.error.issues.map((issue) => {
       return issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message;
