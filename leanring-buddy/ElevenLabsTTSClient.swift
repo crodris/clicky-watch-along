@@ -48,7 +48,15 @@ final class ElevenLabsTTSClient {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // A newer line or answer cancelled this one. Callers stay quiet on CancellationError,
+            // so this must not reach them as a failure that plays the lost-voice line.
+            throw CancellationError()
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "ElevenLabsTTS", code: -1,

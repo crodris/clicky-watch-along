@@ -893,6 +893,8 @@ final class CompanionManager: ObservableObject {
                         try await elevenLabsTTSClient.speakText(spokenText)
                         // speakText returns after player.play() — audio is now playing
                         voiceState = .responding
+                    } catch is CancellationError {
+                        // The learner spoke again, so this reply was interrupted on purpose.
                     } catch {
                         ClickyAnalytics.trackTTSError(error: error.localizedDescription)
                         print("⚠️ ElevenLabs TTS error: \(error)")
