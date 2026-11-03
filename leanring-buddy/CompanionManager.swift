@@ -663,12 +663,20 @@ final class CompanionManager: ObservableObject {
 
     #if DEBUG
     /// Feeds transcripts through the real pipeline with no microphone, so the
-    /// whole voice and quiz loop can be tested unattended.
+    /// whole voice and quiz loop can be tested unattended. A transcript that
+    /// starts with "~" does not wait for Clicky: the next one follows 6 seconds
+    /// later, while a scene is still building.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
-        for transcript in transcripts {
+        for rehearsalStep in transcripts {
+            let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
+            let transcript = nextStepInterruptsThisOne ? String(rehearsalStep.dropFirst()) : rehearsalStep
             print("Live scene rehearsal: saying \"\(transcript)\" in phase \(liveScenePhase)")
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
+            if nextStepInterruptsThisOne {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                continue
+            }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             while true {
                 let tourIsStillPlaying: Bool
@@ -680,7 +688,16 @@ final class CompanionManager: ObservableObject {
             print("Live scene rehearsal: finished, phase \(liveScenePhase)")
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
-        print("Live scene rehearsal: done")
+        // A scene that should have been cancelled would still be building or touring here, for up to 40 seconds.
+        for _ in 0..<160 {
+            var sceneIsStillInProgress = false
+            if case .buildingScene = liveScenePhase { sceneIsStillInProgress = true }
+            if case .touring = liveScenePhase { sceneIsStillInProgress = true }
+            let clickyIsBusy = voiceState == .processing || elevenLabsTTSClient.isPlaying
+            if !sceneIsStillInProgress && !clickyIsBusy { break }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        print("Live scene rehearsal: done, phase \(liveScenePhase)")
     }
     #endif
 
@@ -1205,6 +1222,15 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Sure! Let me read through this video."
         case .stop:
             videoQuizSession.stop()
+            // The scene request runs in its own task, so cancelling the response task above
+            // does not reach it. A new generation also keeps a reply already in flight from playing.
+            if case .buildingScene = liveScenePhase {
+                liveSceneRequestTask?.cancel()
+                liveSceneRequestTask = nil
+                liveSceneRequestGeneration += 1
+                LiveSceneStatusLabel.shared.hide()
+                liveScenePhase = .idle
+            }
             if videoQuizQuestionIsActive {
                 videoQuizQuestionIsActive = false
                 liveScenePhase = .idle
