@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
+canvas { display: block; position: absolute; inset: 0; }
+#backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
+svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.scene-label { position: absolute; transform: translate(-50%, -50%); padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, opacity 0.3s; }
+.scene-label.focused { background: #ffe066; }
+</style>
+<script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
+</head>
+<body>
+<div id="backdrop"></div>
+<svg id="leaders"></svg>
+<script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
+<script type="module">
+const popout = window.__framePopout;
+const labelEntries = [];
+let focusedEntry = null;
+let tourDone = false;
+let cameraDistance = 0;
+let minimumDistance = 0;
+let maximumDistance = 0;
+let yaw = 0;
+let pitch = 0;
+let focusMove = null;
+
+window.liveScene = {
+  reveal() {
+    for (const entry of labelEntries) {
+      if (entry.part.isQuizAnswer) entry.element.textContent = entry.part.label;
+    }
+  },
+  focusPart(labelText) {
+    const wanted = String(labelText).trim().toLowerCase();
+    if (wanted === "") {
+      focusedEntry = null;
+      for (const entry of labelEntries) { entry.element.classList.remove("focused"); entry.element.style.opacity = ""; }
+      return true;
+    }
+    const entry = labelEntries.find((candidate) => candidate.part.label.toLowerCase() === wanted);
+    if (!entry) return false;
+    focusedEntry = entry;
+    for (const other of labelEntries) {
+      other.element.classList.toggle("focused", other === entry);
+      other.element.style.opacity = other === entry ? "1" : "0.35";
+    }
+    focusMove = { startedAt: performance.now(), from: null };
+    return true;
+  },
+  zoomBy(amount) {
+    if (!tourDone) return;
+    cameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, cameraDistance * (1 - amount)));
+  },
+};
+
+import * as THREE from "three";
+
+const image = await new Promise((resolve, reject) => {
+  const frameImage = new Image();
+  frameImage.onload = () => resolve(frameImage);
+  frameImage.onerror = () => reject(new Error("frame image failed to load"));
+  frameImage.src = popout.frameDataURL;
+});
+const W = image.naturalWidth, H = image.naturalHeight;
+
+const pageWidth = innerWidth, pageHeight = innerHeight;
+let frameRect = popout.videoRect;
+const rectIsOnThisPage = frameRect && frameRect.width > 50 && frameRect.x > -frameRect.width / 2 && frameRect.y > -frameRect.height / 2
+  && frameRect.x + frameRect.width / 2 < pageWidth && frameRect.y + frameRect.height / 2 < pageHeight;
+if (!rectIsOnThisPage) {
+  const width = pageWidth * 0.6;
+  frameRect = { x: (pageWidth - width) / 2, y: (pageHeight - width * H / W) / 2, width, height: width * H / W };
+}
+// The video element can letterbox, so fit the frame inside its rect.
+const fitScale = Math.min(frameRect.width / W, frameRect.height / H);
+const shownWidth = W * fitScale, shownHeight = H * fitScale;
+const shownLeft = frameRect.x + (frameRect.width - shownWidth) / 2, shownTop = frameRect.y + (frameRect.height - shownHeight) / 2;
+const frameToWorld = fitScale;
+const frameCenterWorld = new THREE.Vector3(shownLeft + shownWidth / 2 - pageWidth / 2, pageHeight / 2 - (shownTop + shownHeight / 2), 0);
+const framePointToWorld = (frameX, frameY, z) => new THREE.Vector3(
+  frameCenterWorld.x + (frameX - W / 2) * frameToWorld,
+  frameCenterWorld.y + (H / 2 - frameY) * frameToWorld,
+  z,
+);
+
+const full = document.createElement("canvas"); full.width = W; full.height = H;
+const fullContext = full.getContext("2d"); fullContext.drawImage(image, 0, 0);
+const pixels = fullContext.getImageData(0, 0, W, H).data;
+
+const pad = 12;
+const box = popout.subjectBox;
+const x0 = Math.max(0, box.left - pad), y0 = Math.max(0, box.top - pad);
+const x1 = Math.min(W - 1, box.right + pad), y1 = Math.min(H - 1, box.bottom + pad);
+const boxW = x1 - x0 + 1, boxH = y1 - y0 + 1;
+
+// The app's subject mask, from Apple's subject lifting, is white where the subject is.
+const maskImage = await new Promise((resolve, reject) => {
+  const loadedMask = new Image();
+  loadedMask.onload = () => resolve(loadedMask);
+  loadedMask.onerror = () => reject(new Error("subject mask failed to load"));
+  loadedMask.src = popout.maskDataURL;
+});
+const maskCanvas = document.createElement("canvas"); maskCanvas.width = W; maskCanvas.height = H;
+const maskContext = maskCanvas.getContext("2d"); maskContext.drawImage(maskImage, 0, 0, W, H);
+const maskPixels = maskContext.getImageData(x0, y0, boxW, boxH).data;
+const subjectMask = new Uint8Array(boxW * boxH);
+for (let i = 0; i < subjectMask.length; i++) subjectMask[i] = maskPixels[i * 4] > 127 ? 1 : 0;
+
+// Pinholes in the mask become dents in the model, so small enclosed gaps are filled.
+// Large ones, like the inside of a loop, are real background and stay open.
+{
+  const visited = new Uint8Array(boxW * boxH);
+  const largestHoleToFill = boxW * boxH * 0.02;
+  for (let seed = 0; seed < subjectMask.length; seed++) {
+    if (subjectMask[seed] || visited[seed]) continue;
+    const region = [];
+    let touchesTheEdge = false;
+    const stack = [seed];
+    visited[seed] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      region.push(i);
+      const x = i % boxW, y = (i / boxW) | 0;
+      if (x === 0 || y === 0 || x === boxW - 1 || y === boxH - 1) touchesTheEdge = true;
+      for (const neighbor of [x > 0 ? i - 1 : -1, x < boxW - 1 ? i + 1 : -1, y > 0 ? i - boxW : -1, y < boxH - 1 ? i + boxW : -1]) {
+        if (neighbor >= 0 && !visited[neighbor] && !subjectMask[neighbor]) { visited[neighbor] = 1; stack.push(neighbor); }
+      }
+    }
+    if (!touchesTheEdge && region.length < largestHoleToFill) for (const i of region) subjectMask[i] = 1;
+  }
+}
+
+// The spot the subject leaves is painted with the colour around it.
+const surroundingColors = [];
+for (let x = 0; x < boxW; x++) for (const y of [0, boxH - 1]) if (!subjectMask[y * boxW + x]) surroundingColors.push((y + y0) * W + (x + x0));
+for (let y = 0; y < boxH; y++) for (const x of [0, boxW - 1]) if (!subjectMask[y * boxW + x]) surroundingColors.push((y + y0) * W + (x + x0));
+const medianChannel = (channel) => {
+  const values = surroundingColors.map((i) => pixels[i * 4 + channel]).sort((a, b) => a - b);
+  return values.length ? values[values.length >> 1] : 255;
+};
+const backgroundColor = [medianChannel(0), medianChannel(1), medianChannel(2)];
+
+const distance = new Float32Array(boxW * boxH);
+for (let i = 0; i < distance.length; i++) distance[i] = subjectMask[i] ? 1e6 : 0;
+const relax = (i, j, cost) => { if (distance[j] + cost < distance[i]) distance[i] = distance[j] + cost; };
+const onBoxEdge = (x, y) => x === 0 || y === 0 || x === boxW - 1 || y === boxH - 1;
+for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
+  const i = y * boxW + x; if (!subjectMask[i]) continue;
+  if (onBoxEdge(x, y)) { distance[i] = 1; continue; }
+  relax(i, i - 1, 1); relax(i, i - boxW, 1); relax(i, i - boxW - 1, 1.414); relax(i, i - boxW + 1, 1.414);
+}
+for (let y = boxH - 1; y >= 0; y--) for (let x = boxW - 1; x >= 0; x--) {
+  const i = y * boxW + x; if (!subjectMask[i] || onBoxEdge(x, y)) continue;
+  relax(i, i + 1, 1); relax(i, i + boxW, 1); relax(i, i + boxW + 1, 1.414); relax(i, i + boxW - 1, 1.414);
+}
+let maximumInsideDistance = 1;
+for (const value of distance) if (value > maximumInsideDistance) maximumInsideDistance = value;
+
+const rimRadius = 22;
+const thicknessInFramePixels = (d) => {
+  if (d <= 0) return 0;
+  const rim = Math.sqrt(1 - Math.pow(1 - Math.min(d, rimRadius) / rimRadius, 2));
+  return rim * 9 + Math.sqrt(d / maximumInsideDistance) * 55;
+};
+
+const frameWithoutSubject = document.createElement("canvas"); frameWithoutSubject.width = W; frameWithoutSubject.height = H;
+const cutout = document.createElement("canvas"); cutout.width = boxW; cutout.height = boxH;
+{
+  const backgroundContext = frameWithoutSubject.getContext("2d"); backgroundContext.drawImage(image, 0, 0);
+  const backgroundData = backgroundContext.getImageData(0, 0, W, H);
+  const cutoutContext = cutout.getContext("2d");
+  const cutoutData = cutoutContext.createImageData(boxW, boxH);
+  for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
+    const inside = subjectMask[y * boxW + x], frameIndex = ((y + y0) * W + (x + x0)) * 4, cutoutIndex = (y * boxW + x) * 4;
+    cutoutData.data[cutoutIndex] = pixels[frameIndex];
+    cutoutData.data[cutoutIndex + 1] = pixels[frameIndex + 1];
+    cutoutData.data[cutoutIndex + 2] = pixels[frameIndex + 2];
+    cutoutData.data[cutoutIndex + 3] = inside ? 255 : 0;
+    if (inside) {
+      backgroundData.data[frameIndex] = backgroundColor[0];
+      backgroundData.data[frameIndex + 1] = backgroundColor[1];
+      backgroundData.data[frameIndex + 2] = backgroundColor[2];
+    }
+  }
+  backgroundContext.putImageData(backgroundData, 0, 0);
+  cutoutContext.putImageData(cutoutData, 0, 0);
+}
+const shadowSource = document.createElement("canvas"); shadowSource.width = W; shadowSource.height = H;
+shadowSource.getContext("2d").drawImage(cutout, x0, y0);
+const backgroundWithShadow = document.createElement("canvas"); backgroundWithShadow.width = W; backgroundWithShadow.height = H;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(pageWidth, pageHeight);
+document.body.insertBefore(renderer.domElement, document.getElementById("leaders"));
+const scene = new THREE.Scene();
+const fieldOfView = 35;
+const camera = new THREE.PerspectiveCamera(fieldOfView, pageWidth / pageHeight, 1, 100000);
+const halfFieldTangent = Math.tan(THREE.MathUtils.degToRad(fieldOfView / 2));
+// At this distance one world unit is one page pixel on the z = 0 plane, so the frame starts exactly over the video.
+const pageDistance = (pageHeight / 2) / halfFieldTangent;
+const asTexture = (canvas) => { const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; };
+
+const originalTexture = asTexture(full);
+const shadowTexture = asTexture(backgroundWithShadow);
+const backgroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(shownWidth, shownHeight), new THREE.MeshBasicMaterial({ map: originalTexture }));
+backgroundMesh.position.copy(frameCenterWorld);
+scene.add(backgroundMesh);
+const drawShadow = (lift) => {
+  const context = backgroundWithShadow.getContext("2d");
+  context.clearRect(0, 0, W, H);
+  context.drawImage(frameWithoutSubject, 0, 0);
+  context.globalAlpha = 0.3 * lift;
+  context.filter = `blur(${8 + 26 * lift}px) brightness(0)`;
+  context.drawImage(shadowSource, 40 * lift, 50 * lift);
+  context.globalAlpha = 1;
+  context.filter = "none";
+  shadowTexture.needsUpdate = true;
+};
+
+const columns = 220, rows = Math.round(columns * boxH / boxW);
+const vertexCount = columns * rows;
+const positions = new Float32Array(vertexCount * 2 * 3), uvs = new Float32Array(vertexCount * 2 * 2);
+const baseThickness = new Float32Array(vertexCount);
+for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
+  const vertex = row * columns + column;
+  const boxX = column / (columns - 1) * (boxW - 1), boxY = row / (rows - 1) * (boxH - 1);
+  baseThickness[vertex] = thicknessInFramePixels(distance[Math.round(boxY) * boxW + Math.round(boxX)]) * frameToWorld;
+  const worldPoint = framePointToWorld(x0 + boxX, y0 + boxY, 0);
+  for (const side of [0, 1]) {
+    const positionIndex = (side * vertexCount + vertex) * 3;
+    positions[positionIndex] = worldPoint.x; positions[positionIndex + 1] = worldPoint.y;
+    const uvIndex = (side * vertexCount + vertex) * 2;
+    uvs[uvIndex] = boxX / (boxW - 1); uvs[uvIndex + 1] = 1 - boxY / (boxH - 1);
+  }
+}
+const indices = [];
+for (let row = 0; row < rows - 1; row++) for (let column = 0; column < columns - 1; column++) {
+  const a = row * columns + column, b = a + 1, d = a + columns, e = d + 1;
+  indices.push(a, d, b, b, d, e);
+  indices.push(a + vertexCount, b + vertexCount, d + vertexCount, b + vertexCount, e + vertexCount, d + vertexCount);
+}
+const subjectGeometry = new THREE.BufferGeometry();
+subjectGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+subjectGeometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+subjectGeometry.setIndex(indices);
+const subjectMesh = new THREE.Mesh(subjectGeometry, new THREE.MeshStandardMaterial({ map: asTexture(cutout), alphaTest: 0.5, roughness: 0.75, side: THREE.DoubleSide }));
+scene.add(subjectMesh);
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.6); keyLight.position.set(-2, 3, 4); scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0xffffff, 0.9); rimLight.position.set(2, -1, -4); scene.add(rimLight);
+
+const maximumLift = 0.375 * shownHeight;
+let liftNow = -1;
+const applyLift = (amount) => {
+  const position = subjectGeometry.attributes.position;
+  for (let vertex = 0; vertex < vertexCount; vertex++) {
+    const thickness = baseThickness[vertex] * amount;
+    position.array[vertex * 3 + 2] = thickness;
+    position.array[(vertex + vertexCount) * 3 + 2] = -thickness;
+  }
+  position.needsUpdate = true;
+  subjectGeometry.computeVertexNormals();
+  subjectMesh.position.z = maximumLift * amount;
+  if (amount > 0 && backgroundMesh.material.map !== shadowTexture) { backgroundMesh.material.map = shadowTexture; backgroundMesh.material.needsUpdate = true; }
+  drawShadow(amount);
+  document.getElementById("backdrop").style.opacity = String(0.55 * amount);
+  liftNow = amount;
+};
+applyLift(0);
+
+const subjectCenter = () => framePointToWorld((x0 + x1) / 2, (y0 + y1) / 2, maximumLift * liftNow);
+const leaders = document.getElementById("leaders");
+for (const part of popout.parts) {
+  const element = document.createElement("div");
+  element.className = "scene-label";
+  element.textContent = part.isQuizAnswer ? "?" : part.label;
+  element.style.opacity = "0";
+  document.body.appendChild(element);
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("stroke", "rgba(255, 255, 255, 0.85)");
+  line.setAttribute("stroke-width", "1.5");
+  leaders.appendChild(line);
+  const boxX = Math.min(boxW - 1, Math.max(0, Math.round(part.x - x0))), boxY = Math.min(boxH - 1, Math.max(0, Math.round(part.y - y0)));
+  labelEntries.push({ part, element, line, surface: thicknessInFramePixels(distance[boxY * boxW + boxX]) * frameToWorld });
+}
+const partPoint = (entry) => framePointToWorld(entry.part.x, entry.part.y, (maximumLift + entry.surface) * liftNow);
+
+const subjectHeightWorld = boxH * frameToWorld;
+const endDistance = (subjectHeightWorld / 0.62 / 2) / halfFieldTangent;
+minimumDistance = endDistance * 0.4;
+maximumDistance = endDistance * 1.8;
+cameraDistance = pageDistance;
+const target = new THREE.Vector3();
+const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const tourStartedAt = performance.now();
+
+let dragging = false, lastX = 0, lastY = 0;
+addEventListener("pointerdown", (event) => { dragging = true; lastX = event.clientX; lastY = event.clientY; });
+addEventListener("pointerup", () => { dragging = false; });
+addEventListener("pointermove", (event) => {
+  if (!dragging || !tourDone) return;
+  yaw -= (event.clientX - lastX) * 0.008;
+  pitch = Math.min(1.1, Math.max(-1.1, pitch + (event.clientY - lastY) * 0.005));
+  lastX = event.clientX; lastY = event.clientY;
+});
+
+const finishTour = () => {
+  tourDone = true;
+  window.__tourFinished = true;
+  window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished");
+};
+
+const render = (now) => {
+  const seconds = (now - tourStartedAt) / 1000;
+  if (!tourDone) {
+    const lift = ease(Math.min(1, Math.max(0, (seconds - 1) / 2)));
+    const move = ease(Math.min(1, Math.max(0, (seconds - 1.5) / 3)));
+    if (lift !== liftNow) applyLift(lift);
+    yaw = 0.6 * move;
+    pitch = 0.18 * move;
+    cameraDistance = pageDistance + (endDistance - pageDistance) * move;
+    target.lerpVectors(new THREE.Vector3(0, 0, 0), subjectCenter(), move);
+    if (seconds > 4.5) finishTour();
+  } else {
+    if (liftNow !== 1) applyLift(1);
+    const restingTarget = focusedEntry ? partPoint(focusedEntry) : subjectCenter();
+    if (focusMove) {
+      const progress = Math.min(1, (now - focusMove.startedAt) / 1500);
+      if (!focusMove.from) focusMove.from = target.clone();
+      target.lerpVectors(focusMove.from, restingTarget, ease(progress));
+      if (progress === 1) focusMove = null;
+    } else {
+      target.copy(restingTarget);
+    }
+  }
+  camera.position.set(
+    target.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
+    target.y + cameraDistance * Math.sin(pitch),
+    target.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch),
+  );
+  camera.lookAt(target);
+
+  const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6));
+  const centerOnPage = subjectCenter().project(camera);
+  const centerX = (centerOnPage.x + 1) / 2 * pageWidth, centerY = (1 - centerOnPage.y) / 2 * pageHeight;
+  const reach = Math.min(pageWidth, pageHeight) * 0.14;
+  for (const entry of labelEntries) {
+    const projected = partPoint(entry).project(camera);
+    const pointX = (projected.x + 1) / 2 * pageWidth, pointY = (1 - projected.y) / 2 * pageHeight;
+    let directionX = pointX - centerX, directionY = pointY - centerY;
+    const length = Math.hypot(directionX, directionY) || 1;
+    directionX /= length; directionY /= length;
+    const labelX = pointX + directionX * reach, labelY = pointY + directionY * reach * 0.7;
+    entry.element.style.left = `${labelX}px`;
+    entry.element.style.top = `${labelY}px`;
+    if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
+    entry.line.setAttribute("x1", pointX); entry.line.setAttribute("y1", pointY);
+    entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
+    entry.line.setAttribute("opacity", labelOpacity);
+  }
+  renderer.render(scene, camera);
+  window.__ready = true;
+  requestAnimationFrame(render);
+};
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

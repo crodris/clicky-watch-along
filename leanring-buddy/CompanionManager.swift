@@ -108,8 +108,8 @@ final class CompanionManager: ObservableObject {
                 return false
             }
         },
-        askQuestion: { [weak self] quiz in
-            self?.askVideoQuizQuestion(quiz)
+        askQuestion: { [weak self] quiz, framePopout in
+            self?.askVideoQuizQuestion(quiz, framePopout: framePopout)
         },
         speakLine: { [weak self] line in
             self?.speakVideoQuizLine(line)
@@ -670,7 +670,20 @@ final class CompanionManager: ObservableObject {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStep in transcripts {
             let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
-            let transcript = nextStepInterruptsThisOne ? String(rehearsalStep.dropFirst()) : rehearsalStep
+            // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
+            let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
+            let transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion ? String(rehearsalStep.dropFirst()) : rehearsalStep
+            if stepWaitsForAQuestion {
+                // A learner answers after hearing the question, so wait for it to start and end.
+                var questionAudioHasStarted = false
+                for _ in 0..<960 {
+                    var questionIsWaiting = false
+                    if case .awaitingAnswer = liveScenePhase { questionIsWaiting = true }
+                    if questionIsWaiting && elevenLabsTTSClient.isPlaying { questionAudioHasStarted = true }
+                    if questionIsWaiting && questionAudioHasStarted && !elevenLabsTTSClient.isPlaying { break }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
             print("Live scene rehearsal: saying \"\(transcript)\" in phase \(liveScenePhase)")
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
             if nextStepInterruptsThisOne {
@@ -1240,6 +1253,7 @@ final class CompanionManager: ObservableObject {
             if videoQuizQuestionIsActive {
                 videoQuizQuestionIsActive = false
                 liveScenePhase = .idle
+                LiveSceneOverlay.shared.clear()
             }
             spokenLine = "Okay, I'll stop quizzing. That was fun!"
         }
@@ -1267,9 +1281,19 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func askVideoQuizQuestion(_ quiz: LiveSceneQuiz) {
+    /// With a frame pop-out, the subject lifts out of the paused video and the question
+    /// comes when its tour ends. Without one, Clicky asks by voice right away.
+    private func askVideoQuizQuestion(_ quiz: LiveSceneQuiz, framePopout: VideoFramePopout?) {
         clearFinishedLiveScene()
         videoQuizQuestionIsActive = true
+        if let framePopout,
+           let overlayScreen = screenUnderTheMouseCursor(),
+           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
+           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true) {
+            print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels")
+            liveScenePhase = .touring(quizToAskAfterTour: quiz)
+            return
+        }
         liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
         currentResponseTask = Task {
             await self.speakLiveSceneLine(quiz.question)
@@ -1297,6 +1321,8 @@ final class CompanionManager: ObservableObject {
         await speakLiveSceneLine("Okay, back to the video.")
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
+        // A frame pop-out sits over the video, so it goes away before play.
+        LiveSceneOverlay.shared.clear()
         videoQuizSession.resumeVideoAfterQuestion()
     }
 

@@ -91,6 +91,8 @@ nonisolated func videoQuizTranscriptLines(fromCaptionsJSON3Data captionsJSON3Dat
 
 struct VideoQuizMoment {
     let pauseAtSeconds: Double
+    /// What the moment is about, in the planner's words. The frame parts call looks for it in the frame.
+    let subject: String
     let quiz: LiveSceneQuiz
 }
 
@@ -99,11 +101,13 @@ struct VideoQuizMoment {
 extension VideoQuizMoment: Decodable {
     private enum CodingKeys: String, CodingKey {
         case pauseAtSeconds
+        case subject
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         pauseAtSeconds = try container.decode(Double.self, forKey: .pauseAtSeconds)
+        subject = try container.decodeIfPresent(String.self, forKey: .subject) ?? ""
         quiz = try LiveSceneQuiz(from: decoder)
     }
 }
@@ -178,10 +182,14 @@ final class VideoQuizSession {
     private static let secondsToWaitForClickyToBeFreeBeforeResuming: TimeInterval = 60
     private static let failedPlaybackReadsBeforeGivingUp = 6
     private static let secondsForTheReadyLineToFinish: Double = 3.5
+    /// The frame parts call takes about 4 seconds, so the frame is grabbed this early
+    /// and the 3D scene is ready when the video pauses.
+    private static let secondsBeforeThePauseToGrabTheFrame: Double = 6
+    private static let secondsToWaitForThePopoutAtThePause: TimeInterval = 8
 
     private let workerBaseURL: String
     private let canAskQuestionNow: @MainActor () -> Bool
-    private let askQuestion: @MainActor (LiveSceneQuiz) -> Void
+    private let askQuestion: @MainActor (LiveSceneQuiz, VideoFramePopout?) -> Void
     private let speakLine: @MainActor (String) -> Void
 
     private(set) var isRunning = false
@@ -194,11 +202,12 @@ final class VideoQuizSession {
     private(set) var videoIsPausedForRequestedScene = false
     private var allTranscriptLines: [VideoQuizTranscriptLine] = []
     private var consecutiveFailedPlaybackReadCount = 0
+    private var framePopoutTasksByMomentIndex: [Int: Task<VideoFramePopout?, Never>] = [:]
 
     init(
         workerBaseURL: String,
         canAskQuestionNow: @escaping @MainActor () -> Bool,
-        askQuestion: @escaping @MainActor (LiveSceneQuiz) -> Void,
+        askQuestion: @escaping @MainActor (LiveSceneQuiz, VideoFramePopout?) -> Void,
         speakLine: @escaping @MainActor (String) -> Void
     ) {
         self.workerBaseURL = workerBaseURL
@@ -216,6 +225,7 @@ final class VideoQuizSession {
         askedMomentIndices = []
         isWaitingForQuestionToFinish = false
         consecutiveFailedPlaybackReadCount = 0
+        framePopoutTasksByMomentIndex = [:]
         runningTask = Task {
             await self.planAndRunQuiz()
         }
@@ -227,6 +237,10 @@ final class VideoQuizSession {
         isWaitingForQuestionToFinish = false
         runningTask?.cancel()
         runningTask = nil
+        for framePopoutTask in framePopoutTasksByMomentIndex.values {
+            framePopoutTask.cancel()
+        }
+        framePopoutTasksByMomentIndex = [:]
         print("Video quiz: stopped")
     }
 
@@ -308,6 +322,7 @@ final class VideoQuizSession {
                     .joined(separator: " ")
                 return VideoQuizMoment(
                     pauseAtSeconds: plannedMoment.pauseAtSeconds,
+                    subject: plannedMoment.subject,
                     quiz: quizWithWhatWasHeard
                 )
             }
@@ -361,6 +376,8 @@ final class VideoQuizSession {
                 continue
             }
 
+            startFramePopoutIfItIsTime(currentSeconds: playbackState.currentSeconds, videoTab: videoTab)
+
             guard let momentIndexToAsk = videoQuizMomentIndexToAsk(
                 currentSeconds: playbackState.currentSeconds,
                 pauseAtSecondsPerMoment: moments.map { moment in moment.pauseAtSeconds },
@@ -392,6 +409,8 @@ final class VideoQuizSession {
         isWaitingForQuestionToFinish = true
         let moment = moments[momentIndex]
         print("Video quiz: paused at \(videoSecondsWhenReached)s for moment \(momentIndex + 1), planned for \(moment.pauseAtSeconds)s")
+        let framePopout = await framePopoutForThePausedFrame(momentIndex: momentIndex, videoTab: videoTab)
+        guard isRunning, !Task.isCancelled else { return }
 
         var secondsWaitedForClickyToBeFree: TimeInterval = 0
         while !canAskQuestionNow() {
@@ -405,7 +424,83 @@ final class VideoQuizSession {
             secondsWaitedForClickyToBeFree += Self.secondsBetweenBusyChecks
         }
         guard isRunning, !Task.isCancelled else { return }
-        askQuestion(moment.quiz)
+        askQuestion(moment.quiz, framePopout)
+    }
+
+    // MARK: Lifting the subject out of the frame
+
+    /// Grabs the frame while the video plays, a few seconds before the next pause.
+    private func startFramePopoutIfItIsTime(currentSeconds: Double, videoTab: ChromeVideoTab) {
+        guard let momentIndex = moments.indices.first(where: { momentIndex in
+            !askedMomentIndices.contains(momentIndex)
+                && framePopoutTasksByMomentIndex[momentIndex] == nil
+                && currentSeconds >= moments[momentIndex].pauseAtSeconds - Self.secondsBeforeThePauseToGrabTheFrame
+                && currentSeconds < moments[momentIndex].pauseAtSeconds
+        }) else {
+            return
+        }
+        framePopoutTasksByMomentIndex[momentIndex] = startFramePopoutTask(momentIndex: momentIndex, videoTab: videoTab)
+    }
+
+    private func startFramePopoutTask(momentIndex: Int, videoTab: ChromeVideoTab) -> Task<VideoFramePopout?, Never>? {
+        let moment = moments[momentIndex]
+        let frameGrab: VideoFrameGrab
+        do {
+            frameGrab = try grabFrame(of: videoTab)
+        } catch {
+            print("Video quiz: could not grab a frame for moment \(momentIndex + 1): \(error)")
+            return nil
+        }
+        print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds)s for moment \(momentIndex + 1)")
+        let workerBaseURL = workerBaseURL
+        return Task {
+            let requestStartDate = Date()
+            do {
+                let framePopout = try await VideoFramePopoutClient.requestPopout(
+                    workerBaseURL: workerBaseURL,
+                    frameGrab: frameGrab,
+                    subject: moment.subject,
+                    quiz: moment.quiz
+                )
+                let requestSeconds = String(format: "%.1f", Date().timeIntervalSince(requestStartDate))
+                if let framePopout {
+                    print("Video quiz: found the subject and \(framePopout.parts.count) parts for moment \(momentIndex + 1) in \(requestSeconds)s")
+                } else {
+                    print("Video quiz: no subject to lift out for moment \(momentIndex + 1) (\(requestSeconds)s)")
+                }
+                return framePopout
+            } catch {
+                print("Video quiz: frame parts failed for moment \(momentIndex + 1): \(error.localizedDescription)")
+                return nil
+            }
+        }
+    }
+
+    /// Uses the early grab when it found a subject. The pop-out covers the video with
+    /// its own frame, so a frame from a few seconds earlier still lines up. The paused
+    /// frame is grabbed only when the early grab found nothing or never ran.
+    private func framePopoutForThePausedFrame(momentIndex: Int, videoTab: ChromeVideoTab) async -> VideoFramePopout? {
+        if let earlyFramePopoutTask = framePopoutTasksByMomentIndex[momentIndex],
+           let earlyFramePopout = await waitForFramePopout(earlyFramePopoutTask) {
+            return earlyFramePopout
+        }
+        guard isRunning, !Task.isCancelled else { return nil }
+        print("Video quiz: grabbing the paused frame for moment \(momentIndex + 1)")
+        guard let pausedFramePopoutTask = startFramePopoutTask(momentIndex: momentIndex, videoTab: videoTab) else { return nil }
+        framePopoutTasksByMomentIndex[momentIndex] = pausedFramePopoutTask
+        return await waitForFramePopout(pausedFramePopoutTask)
+    }
+
+    private func waitForFramePopout(_ framePopoutTask: Task<VideoFramePopout?, Never>) async -> VideoFramePopout? {
+        let waitStartDate = Date()
+        let timeoutTask = Task {
+            try? await Task.sleep(for: .seconds(Self.secondsToWaitForThePopoutAtThePause))
+            framePopoutTask.cancel()
+        }
+        let framePopout = await framePopoutTask.value
+        timeoutTask.cancel()
+        print("Video quiz: waited \(String(format: "%.1f", Date().timeIntervalSince(waitStartDate)))s at the pause for the 3D frame")
+        return framePopout
     }
 
     // MARK: Talking to the page
@@ -418,6 +513,17 @@ final class VideoQuizSession {
     private static let readPlaybackStateJavaScript = "(function () { var video = document.querySelector('video'); if (!video) { return 'no-video'; } return video.currentTime + '|' + video.paused; })()"
     private static let pauseVideoJavaScript = "(function () { var video = document.querySelector('video'); if (video) { video.pause(); } return 'ok'; })()"
     private static let playVideoJavaScript = "(function () { var video = document.querySelector('video'); if (video) { video.play(); } return 'ok'; })()"
+    /// Draws the playing video into a canvas and returns the JPEG and the video's place on screen.
+    /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
+    private static let grabFrameJavaScript = "(function () { var video = document.querySelector('video'); if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
+
+    private func grabFrame(of videoTab: ChromeVideoTab) throws -> VideoFrameGrab {
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.grabFrameJavaScript, in: videoTab)
+        if javaScriptResult == "no-video" {
+            throw VideoQuizFailure.noVideoOnThePage
+        }
+        return try JSONDecoder().decode(VideoFrameGrab.self, from: Data(javaScriptResult.utf8))
+    }
 
     private func readPlaybackState(of videoTab: ChromeVideoTab) throws -> VideoPlaybackState {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab)

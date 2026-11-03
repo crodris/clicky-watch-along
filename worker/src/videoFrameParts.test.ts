@@ -1,0 +1,80 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { checkFrameParts, handleVideoFrameParts } from "./videoFrameParts";
+
+const frameRequest = {
+  frameBase64: "AAAA",
+  frameWidth: 1280,
+  frameHeight: 720,
+  subject: "sheep heart with atria trimmed off",
+  question: "Which two parts do you cut off?",
+  answerLabel: "Atria",
+};
+
+const modelReply = {
+  subjectFound: true,
+  subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+  parts: [
+    { label: "Aorta (big artery)", x: 640, y: 125 },
+    { label: "Left atrium", x: 1200, y: 30 },
+  ],
+  answerPartIndex: 1,
+};
+
+function sonnetReply(text: string): Response {
+  return new Response(JSON.stringify({ content: [{ type: "thinking", thinking: "" }, { type: "text", text }] }));
+}
+
+function requestWithBody(body: unknown): Request {
+  return new Request("https://worker.test/video-frame-parts", { method: "POST", body: JSON.stringify(body) });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("checkFrameParts", () => {
+  it("keeps points inside the subject box, drops parentheses, and marks the answer", () => {
+    const frameParts = checkFrameParts(modelReply, 1280, 720);
+
+    expect(frameParts).toEqual({
+      subjectFound: true,
+      subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      parts: [
+        { label: "Aorta", x: 640, y: 125, isQuizAnswer: false },
+        { label: "Left atrium", x: 812, y: 91, isQuizAnswer: true },
+      ],
+    });
+  });
+
+  it("treats a box too small to lift out as no subject", () => {
+    const tinyBox = { ...modelReply, subjectBox: { left: 100, top: 100, right: 120, bottom: 300 } };
+
+    expect(checkFrameParts(tinyBox, 1280, 720)).toEqual({ subjectFound: false });
+  });
+});
+
+describe("handleVideoFrameParts", () => {
+  it("asks Sonnet for schema-checked JSON with the frame and returns the checked parts", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => sonnetReply(JSON.stringify(modelReply)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleVideoFrameParts(requestWithBody(frameRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ subjectFound: true, parts: [{ label: "Aorta" }, { isQuizAnswer: true }] });
+    const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    expect(sentBody).toMatchObject({
+      model: "claude-sonnet-5-5",
+      output_config: { format: { type: "json_schema" } },
+      messages: [{ content: [{ type: "image", source: { data: "AAAA" } }, { type: "text" }] }],
+    });
+  });
+
+  it("returns 502 when the reply is not the parts JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sonnetReply("The heart is in the middle.")));
+
+    const response = await handleVideoFrameParts(requestWithBody(frameRequest), "key");
+
+    expect(response.status).toBe(502);
+  });
+});
