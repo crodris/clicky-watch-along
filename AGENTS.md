@@ -34,7 +34,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /transcribe-token` | `streaming.assemblyai.com/v3/token` | Fetches a short-lived (480s) AssemblyAI websocket token |
 | `POST /live-scene` | `api.openai.com/v1/responses` | GPT-6.1 Sol Ultrafast writes a three.js page and a quiz from the question and screenshot |
 | `POST /judge-answer` | `api.anthropic.com/v1/messages` | Sonnet grades a spoken answer as correct, named only, wrong, or a request for help |
-| `POST /video-quiz-plan` | `api.anthropic.com/v1/messages` | Sonnet reads a video's timestamped transcript once, decides how many moments are worth a question, and picks them. Returns `{ moments: [{ pauseAtSeconds, question, answerLabel, functionWords, explanation, subject }] }`. Each moment lands on a transcript line boundary, at least 20 seconds in, and the moments are spread across the video |
+| `POST /video-quiz-plan` | `api.anthropic.com/v1/messages` | Sonnet reads a video's timestamped transcript once, decides how many moments are worth a question, and picks them. Returns `{ moments: [{ pauseAtSeconds, sourceLineSeconds, question, answerLabel, functionWords, explanation, subject }] }`. Each moment lands on a transcript line boundary, at least 20 seconds in, and the moments are spread across the video |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`
 Worker vars: `ELEVENLABS_VOICE_ID`
@@ -60,7 +60,7 @@ A transcript that says "quiz" or "test me" plays the same scene with one label s
 The overlay plays the page on the screen under the mouse cursor.
 In a quiz, Clicky asks what that part is and what it does when the camera tour ends, and a correct name that misses what it does gets one follow-up.
 The learner answers by voice.
-`POST /judge-answer` asks Sonnet to grade that answer as correct, named only, or wrong, and returns one spoken sentence.
+`POST /judge-answer` asks Sonnet to grade that answer as correct, named only, wrong, or a request for help, and returns one spoken sentence.
 If the judge call fails, the app falls back to the word match in `LiveSceneAnswerJudge`.
 A finished scene stays above every window until Escape clears it.
 During a quiz that press is an answer, so the quiz has to finish first.
