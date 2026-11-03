@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  A small label at the bottom of the screen while a scene builds, so the wait
-//  has something on screen and Clicky does not talk over nothing.
+//  has something on screen. Clicky also says the build lines out loud.
 //
 
 import AppKit

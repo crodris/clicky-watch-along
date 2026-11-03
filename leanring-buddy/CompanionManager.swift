@@ -914,8 +914,9 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Clicky stays quiet until the scene exists, because a voice over an empty
-    /// screen felt broken during the 8 to 14 second wait.
+    /// Clicky says each build status out loud as the label shows it, so the
+    /// 20 second wait does not feel like the app froze. The screen read ends
+    /// while the first line is still playing, so only the build lines are spoken.
     private func buildLiveSceneWithStatusLabel(
         transcript: String,
         sceneKind: LiveSceneKind,
@@ -944,6 +945,7 @@ final class CompanionManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !Task.isCancelled else { return }
                 LiveSceneStatusLabel.shared.show("Almost there")
+                await self.speakLiveSceneStatus("Almost there")
             }
             let sceneRequestTask = Task {
                 await self.requestAndPlayLiveScene(
@@ -954,8 +956,10 @@ final class CompanionManager: ObservableObject {
                 )
             }
             liveSceneRequestTask = sceneRequestTask
+            let buildingLineTask = Task { await self.speakLiveSceneStatus("Building your 3D scene") }
             await sceneRequestTask.value
             almostThereTask.cancel()
+            buildingLineTask.cancel()
         }
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
         LiveSceneStatusLabel.shared.hide()
@@ -1336,6 +1340,23 @@ final class CompanionManager: ObservableObject {
                 return
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
+    /// Waits for the line in progress, because a new line would cut it off.
+    /// Leaves voiceState alone so the cursor keeps showing that the build is running.
+    private func speakLiveSceneStatus(_ status: String) async {
+        await waitForClickyToFinishSpeaking()
+        guard !Task.isCancelled else { return }
+        do {
+            try await elevenLabsTTSClient.speakText(status)
+            print("Live scene status spoken: \(status)")
+        } catch is CancellationError {
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return
+        } catch {
+            print("Live scene status line failed: \(error.localizedDescription)")
         }
     }
 
