@@ -26,12 +26,15 @@ describe("handleLandmark", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleLandmark(
-      new Request("https://worker.test/landmark", { method: "POST", body: JSON.stringify({ frameBase64: "AAAA", videoTitle: "Building an Icon" }) }),
+      new Request("https://worker.test/landmark", { method: "POST", body: JSON.stringify({ frameBase64: "AAAA", videoTitle: "Building an Icon", learnerRequest: "render this in 3D" }) }),
       "key",
     );
 
     expect(await response.json()).toEqual(statue);
     const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
-    expect(sentBody).toMatchObject({ model: "claude-sonnet-5-5", messages: [{ content: [{ type: "image" }, { type: "text" }] }] });
+    expect(sentBody).toMatchObject({
+      model: "claude-sonnet-5-5",
+      messages: [{ content: [{ type: "image" }, { type: "text" }, { type: "text", text: "<learner_request>render this in 3D</learner_request>" }] }],
+    });
   });
 });

@@ -436,13 +436,14 @@ final class VideoQuizSession {
 
     /// The famous place in the frame the YouTube tab shows right now, if there is one.
     /// Nil when no YouTube tab is open or the frame shows no famous place.
-    static func famousPlaceInTheVisibleFrame(workerBaseURL: String) async throws -> (frameGrab: VideoFrameGrab, famousPlace: FamousPlace)? {
+    static func famousPlaceInTheVisibleFrame(workerBaseURL: String, learnerRequest: String) async throws -> (frameGrab: VideoFrameGrab, famousPlace: FamousPlace)? {
         guard let videoTab = try? ChromeVideoTab.findYouTubeWatchTab() else { return nil }
         let frameGrab = try grabFrame(of: videoTab)
         guard let famousPlace = try await LandmarkClient.famousPlace(
             workerBaseURL: workerBaseURL,
             frameGrab: frameGrab,
-            videoTitle: videoTab.title
+            videoTitle: videoTab.title,
+            learnerRequest: learnerRequest
         ) else {
             return nil
         }

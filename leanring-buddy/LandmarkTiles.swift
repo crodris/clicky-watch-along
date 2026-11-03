@@ -32,7 +32,8 @@ enum LandmarkClient {
     private static let requestTimeoutSeconds: TimeInterval = 10
 
     /// Nil when the frame does not show one famous real place.
-    static func famousPlace(workerBaseURL: String, frameGrab: VideoFrameGrab, videoTitle: String) async throws -> FamousPlace? {
+    /// Nil also when the learner asked about something other than the place in the frame.
+    static func famousPlace(workerBaseURL: String, frameGrab: VideoFrameGrab, videoTitle: String, learnerRequest: String) async throws -> FamousPlace? {
         guard let landmarkURL = URL(string: "\(workerBaseURL)/landmark") else {
             preconditionFailure("Worker base URL did not form the landmark URL: \(workerBaseURL)")
         }
@@ -42,6 +43,7 @@ enum LandmarkClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "frameBase64": frameGrab.jpeg,
             "videoTitle": videoTitle,
+            "learnerRequest": learnerRequest,
         ])
         let (responseData, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {

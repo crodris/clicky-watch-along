@@ -941,10 +941,13 @@ final class CompanionManager: ObservableObject {
     }
 
     /// True when the YouTube frame on screen shows a famous place and its 3D tiles page is playing.
-    private func playFamousPlaceFromTheVisibleVideo(requestGeneration: Int) async -> Bool {
+    private func playFamousPlaceFromTheVisibleVideo(learnerRequest: String, requestGeneration: Int) async -> Bool {
         let placeInFrame: (frameGrab: VideoFrameGrab, famousPlace: FamousPlace)?
         do {
-            placeInFrame = try await VideoQuizSession.famousPlaceInTheVisibleFrame(workerBaseURL: Self.workerBaseURL)
+            placeInFrame = try await VideoQuizSession.famousPlaceInTheVisibleFrame(
+                workerBaseURL: Self.workerBaseURL,
+                learnerRequest: learnerRequest
+            )
         } catch {
             print("Landmark: lookup failed, building the scene instead: \(error.localizedDescription)")
             return false
@@ -1047,7 +1050,10 @@ final class CompanionManager: ObservableObject {
             }
             let sceneRequestTask = Task {
                 // A famous place in a paused video shows Google's real 3D scan instead of a generated model.
-                if sceneKind == .explore, await self.playFamousPlaceFromTheVisibleVideo(requestGeneration: requestGeneration) {
+                if sceneKind == .explore, await self.playFamousPlaceFromTheVisibleVideo(
+                    learnerRequest: transcript,
+                    requestGeneration: requestGeneration
+                ) {
                     return
                 }
                 await self.requestAndPlayLiveScene(
