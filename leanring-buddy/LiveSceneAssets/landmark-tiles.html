@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
+#backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; transition: opacity 0.8s; }
+#stage { position: absolute; inset: 0; }
+#stage canvas { display: block; position: absolute; inset: 0; transition: opacity 1s; }
+#frame { position: absolute; object-fit: cover; transition: opacity 1.2s; pointer-events: none; }
+.scene-label { position: absolute; transform: translate(-50%, -100%); padding: 6px 12px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 15px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; opacity: 0; transition: opacity 0.6s; }
+#attribution { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.9); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
+</style>
+<script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js", "three-tiles": "clicky-asset://three/three-tiles.js" } }</script>
+</head>
+<body>
+<div id="backdrop"></div>
+<div id="stage"><img id="frame" alt=""><div class="scene-label" id="placeName"></div><div id="attribution"></div></div>
+<script>/*CLICKY_LANDMARK_DATA*/</script>
+<script type="module">
+const landmark = window.__landmark;
+let tourDone = false;
+let orbitRadius = 1;
+let minimumRadius = 1;
+let maximumRadius = 1;
+
+window.liveScene = {
+  reveal() {},
+  focusPart() { return false; },
+  zoomBy(amount) {
+    if (!tourDone) return;
+    orbitRadius = Math.min(maximumRadius, Math.max(minimumRadius, orbitRadius * (1 - amount)));
+  },
+};
+
+import * as THREE from "three";
+import { TilesRenderer, GoogleCloudAuthPlugin, GLTFExtensionsPlugin, ReorientationPlugin, TilesFadePlugin, DRACOLoader } from "three-tiles";
+
+const stage = document.getElementById("stage");
+const frameImage = document.getElementById("frame");
+const placeName = document.getElementById("placeName");
+const attribution = document.getElementById("attribution");
+frameImage.src = landmark.frameDataURL;
+placeName.textContent = landmark.name;
+
+// The frame starts exactly over the video. The landmark rises from there, cut out of the
+// scan and floating over the dimmed screen, then drifts to the middle of the screen.
+const pageWidth = innerWidth, pageHeight = innerHeight;
+let videoRect = landmark.videoRect;
+const rectIsOnThisPage = videoRect && videoRect.width > 50 && videoRect.x + videoRect.width / 2 > 0 && videoRect.y + videoRect.height / 2 > 0
+  && videoRect.x + videoRect.width / 2 < pageWidth && videoRect.y + videoRect.height / 2 < pageHeight;
+if (!rectIsOnThisPage) {
+  const width = pageWidth * 0.6;
+  videoRect = { x: (pageWidth - width) / 2, y: (pageHeight - width * 9 / 16) / 2, width, height: width * 9 / 16 };
+}
+Object.assign(frameImage.style, { left: `${videoRect.x}px`, top: `${videoRect.y}px`, width: `${videoRect.width}px`, height: `${videoRect.height}px` });
+const videoCenterShift = { x: videoRect.x + videoRect.width / 2 - pageWidth / 2, y: videoRect.y + videoRect.height / 2 - pageHeight / 2 };
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setClearColor(0x000000, 0);
+renderer.localClippingEnabled = true;
+stage.insertBefore(renderer.domElement, frameImage);
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 1));
+const camera = new THREE.PerspectiveCamera(40, pageWidth / pageHeight, 1, 50000);
+
+// A finer grid around the center finds how far the structure itself reaches. Only what
+// stands above trees and low buildings counts (22 m, or 15% of the structure, capped at 60%),
+// so a statue keeps its pedestal and a tower keeps its legs.
+const measureFootprint = (ground, top) => {
+  const structureHeight = top - ground;
+  const span = Math.max(30, structureHeight * 0.8);
+  const footprintThreshold = ground + Math.min(structureHeight * 0.6, Math.max(22, structureHeight * 0.15));
+  let farthest = 0;
+  for (let row = -12; row <= 12; row++) for (let column = -12; column <= 12; column++) {
+    const x = placeCenter.x + row / 12 * span, z = placeCenter.z + column / 12 * span;
+    raycaster.set(new THREE.Vector3(x, 3000, z), downward);
+    const hit = raycaster.intersectObject(tiles.group, true).find((candidate) => Math.abs(candidate.point.y) < 1500);
+    if (hit && hit.point.y >= footprintThreshold) farthest = Math.max(farthest, Math.hypot(x - placeCenter.x, z - placeCenter.z));
+  }
+  // A margin of ground around the structure reads as a small base it stands on.
+  if (farthest > 0) clipRadius = Math.max(15, farthest * 1.4 + 10, landmark.radiusMeters * 1.2);
+};
+
+// Eight walls and a floor cut the scan down to the landmark and a little ground around it,
+// so the skyline and the rest of the city drop away.
+let clipRadius = Math.min(400, Math.max(30, landmark.radiusMeters));
+const clipPlanes = Array.from({ length: 9 }, () => new THREE.Plane());
+const updateClipPlanes = () => {
+  for (let side = 0; side < 8; side++) {
+    const angle = side / 8 * Math.PI * 2;
+    const inward = new THREE.Vector3(-Math.cos(angle), 0, -Math.sin(angle));
+    clipPlanes[side].set(inward, clipRadius - inward.dot(placeCenter));
+  }
+  // 20 m below the ground keeps dug-out parts such as an arena's underground floor.
+  clipPlanes[8].set(new THREE.Vector3(0, 1, 0), -(groundY - 20));
+};
+
+const tiles = new TilesRenderer(landmark.tilesRootURL);
+// The Worker replaces this with the real key, so the key never reaches this page.
+tiles.registerPlugin(new GoogleCloudAuthPlugin({ apiToken: "added-by-the-worker", autoRefreshToken: true }));
+tiles.registerPlugin(new GLTFExtensionsPlugin({ dracoLoader: new DRACOLoader().setDecoderPath(landmark.dracoDecoderPath) }));
+tiles.registerPlugin(new TilesFadePlugin());
+tiles.registerPlugin(new ReorientationPlugin({
+  lat: landmark.latitude * THREE.MathUtils.DEG2RAD,
+  lon: landmark.longitude * THREE.MathUtils.DEG2RAD,
+  height: 0,
+  recenter: true,
+}));
+tiles.addEventListener("load-model", ({ scene: tileScene }) => {
+  tileScene.traverse((object) => {
+    if (!object.material) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      material.clippingPlanes = clipPlanes;
+      material.side = THREE.DoubleSide;
+    }
+  });
+});
+scene.add(tiles.group);
+tiles.setCamera(camera);
+
+const height = Math.max(10, landmark.heightMeters);
+orbitRadius = Math.max(120, Math.max(landmark.radiusMeters, height) * 3.2);
+minimumRadius = Math.max(40, height * 0.8);
+maximumRadius = orbitRadius * 3;
+// The model's coordinates can be off by a hundred meters, so the page samples the scan
+// around them and centers on the tall structure. The first tiles are coarse Earth-sized
+// shells, so only hits near the surface count.
+let groundY = 0;
+let measuredHeight = height;
+let framesSinceLocate = 0;
+let locateCount = 0;
+const placeCenter = new THREE.Vector3();
+// The grid can miss a thin top such as a torch or a spire, so framing also trusts the stated height.
+const framingHeight = () => Math.max(measuredHeight, landmark.heightMeters);
+const raycaster = new THREE.Raycaster();
+const downward = new THREE.Vector3(0, -1, 0);
+const locateLandmark = () => {
+  const span = Math.max(150, landmark.radiusMeters * 2);
+  const samples = [];
+  for (let row = -10; row <= 10; row++) for (let column = -10; column <= 10; column++) {
+    raycaster.set(new THREE.Vector3(row / 10 * span, 3000, column / 10 * span), downward);
+    const hit = raycaster.intersectObject(tiles.group, true).find((candidate) => Math.abs(candidate.point.y) < 1500);
+    if (hit) samples.push(hit.point.clone());
+  }
+  if (samples.length < 60) return;
+  const heights = samples.map((point) => point.y).sort((first, second) => first - second);
+  const ground = heights[Math.floor(heights.length * 0.2)];
+  const top = heights[heights.length - 1];
+  groundY = ground;
+  if (top - ground < 8) return;
+  const threshold = ground + (top - ground) * 0.5;
+  // The middle of the tall parts' outline, so a ruin whose high wall stands on one side
+  // still centers on the whole ring.
+  const tallPoints = samples.filter((point) => point.y >= threshold);
+  const tallXs = tallPoints.map((point) => point.x), tallZs = tallPoints.map((point) => point.z);
+  placeCenter.set((Math.min(...tallXs) + Math.max(...tallXs)) / 2, 0, (Math.min(...tallZs) + Math.max(...tallZs)) / 2);
+  measuredHeight = top - ground;
+  locateCount += 1;
+  measureFootprint(ground, top);
+  updateClipPlanes();
+  if (!tourDone) {
+    // Far enough that the whole structure fills about 60% of the screen height.
+    const fieldOfViewHalfTangent = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    orbitRadius = Math.max(framingHeight(), clipRadius * 2) / (2 * fieldOfViewHalfTangent) / 0.6;
+    // A wide, low place like an arena is seen from higher up so its inside shows.
+    pitch = clipRadius * 2 > framingHeight() ? 0.6 : 0.22;
+    minimumRadius = orbitRadius * 0.35;
+    maximumRadius = orbitRadius * 2.5;
+  }
+};
+
+let yaw = 0.3, pitch = 0.22;
+const target = new THREE.Vector3();
+const desiredTarget = new THREE.Vector3();
+let dragging = false, lastX = 0, lastY = 0;
+addEventListener("pointerdown", (event) => { dragging = true; lastX = event.clientX; lastY = event.clientY; });
+addEventListener("pointerup", () => { dragging = false; });
+addEventListener("pointermove", (event) => {
+  if (!dragging || !tourDone) return;
+  yaw -= (event.clientX - lastX) * 0.006;
+  pitch = Math.min(1.3, Math.max(0.08, pitch + (event.clientY - lastY) * 0.004));
+  lastX = event.clientX; lastY = event.clientY;
+});
+
+let attributionText = "";
+const updateAttribution = () => {
+  const attributions = [];
+  tiles.getAttributions(attributions);
+  const text = attributions.filter((entry) => entry.type === "string").map((entry) => entry.value).join(" ");
+  const shown = text ? `Google · ${text}` : "Google";
+  if (shown !== attributionText) { attributionText = shown; attribution.textContent = shown; }
+};
+
+const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const startedAt = performance.now();
+let revealedAt = null;
+const finishTour = () => {
+  tourDone = true;
+  window.__tourFinished = true;
+  window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished");
+};
+
+const render = (now) => {
+  const width = pageWidth, heightPixels = pageHeight;
+  if (renderer.domElement.width !== Math.round(width * devicePixelRatio)) {
+    renderer.setSize(width, heightPixels, false);
+    renderer.domElement.style.width = `${width}px`;
+    renderer.domElement.style.height = `${heightPixels}px`;
+  }
+  // Detail keeps loading, so the center is measured again a few times.
+  framesSinceLocate += 1;
+  if (framesSinceLocate >= 30 && locateCount < 6 && tiles.group.children.length > 0) { framesSinceLocate = 0; locateLandmark(); }
+
+  // Show the 3D place once enough tiles have loaded, or after 6 seconds at most.
+  const secondsSinceStart = (now - startedAt) / 1000;
+  if (revealedAt === null && ((locateCount >= 2 && tiles.visibleTiles.size > 20) || secondsSinceStart > 7)) {
+    revealedAt = now;
+    frameImage.style.opacity = "0";
+    document.getElementById("backdrop").style.opacity = "0.6";
+  }
+  // Before the reveal the clip planes are not placed yet, so nothing is drawn.
+  renderer.domElement.style.opacity = revealedAt === null ? "0" : "1";
+  const tourSeconds = revealedAt === null ? 0 : (now - revealedAt) / 1000;
+  if (!tourDone) {
+    yaw = 0.3 + 1.1 * ease(Math.min(1, tourSeconds / 6));
+    if (tourSeconds > 6) finishTour();
+  }
+  placeName.style.opacity = tourSeconds > 2 ? "1" : "0";
+
+  // The orbit turns around the structure's vertical axis, so it spins on its base.
+  desiredTarget.set(placeCenter.x, groundY + framingHeight() * 0.5, placeCenter.z);
+  target.lerp(desiredTarget, revealedAt === null ? 1 : 0.08);
+  camera.position.set(
+    target.x + orbitRadius * Math.sin(yaw) * Math.cos(pitch),
+    target.y + orbitRadius * Math.sin(pitch),
+    target.z + orbitRadius * Math.cos(yaw) * Math.cos(pitch),
+  );
+  camera.lookAt(target);
+  const drift = 1 - ease(Math.min(1, tourSeconds / 1.6));
+  camera.setViewOffset(width, heightPixels, -videoCenterShift.x * drift, -videoCenterShift.y * drift, width, heightPixels);
+  camera.updateMatrixWorld();
+  tiles.setResolutionFromRenderer(camera, renderer);
+  tiles.update();
+
+  // Halfway between the measured and stated heights lands near the true top for a thin
+  // torch, which the grid misses, and for a tower whose stated height counts its antenna.
+  const top = new THREE.Vector3(placeCenter.x, groundY + (measuredHeight + framingHeight()) / 2 * 1.05, placeCenter.z).project(camera);
+  placeName.style.left = `${(top.x + 1) / 2 * width}px`;
+  placeName.style.top = `${(1 - top.y) / 2 * heightPixels - 8}px`;
+  updateAttribution();
+  renderer.render(scene, camera);
+  window.__ready = true;
+  requestAnimationFrame(render);
+};
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

@@ -11,11 +11,15 @@
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → Anthropic Messages API (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
+ *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
+ *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
 import { handleVideoFrameParts } from "./videoFrameParts";
+import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
+import { handleLandmark } from "./landmark";
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -25,11 +29,17 @@ interface Env {
   OPENAI_API_KEY: string;
   /** "gpt" (the default) or "sonnet". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
   LIVE_SCENE_MODEL?: string;
+  /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
+  GOOGLE_MAPS_API_KEY?: string;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (request.method === "GET" && isMapTilesRequest(url)) {
+      return await handleMapTiles(request, env.GOOGLE_MAPS_API_KEY);
+    }
 
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
@@ -58,6 +68,10 @@ export default {
 
       if (url.pathname === "/video-frame-parts") {
         return await handleVideoFrameParts(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/landmark") {
+        return await handleLandmark(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/judge-answer") {
