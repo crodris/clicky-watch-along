@@ -56,11 +56,13 @@ Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by de
 
 **Live Scene**: A transcript that contains "inside", "look like", "show me", or "3D" calls `POST /live-scene`, and every label stays visible.
 `POST /live-scene` asks GPT-6.1 Sol Ultrafast (`gpt-6.1-sol`, service tier `ultrafast`) for a self-contained three.js page and a quiz.
+The page builds the whole subject from the outside, and adds the parts inside, fading the outer shell, only when the learner asks to see inside.
 The page imports three.js only from `clicky-asset://three/three.module.js`, which the overlay serves from the app bundle.
 The overlay serves the generated page from `clicky-asset://live/page.html` with a Content-Security-Policy header, a content rule blocks http, https, ws, and wss, and navigation is limited to `about` and `clicky-asset`.
 On a timeout, an error, or a 422, Clicky says "Sorry, I couldn't build that one." and resumes a video it paused for the scene.
 A transcript that says "quiz" or "test me" plays the same scene with one label shown as "?".
 The overlay plays the page on the screen under the mouse cursor.
+The page rises out of the video or image it was asked about: Clicky reads the on-screen rect of the largest visible video or image in Chrome's front tab before the request, and `LiveSceneRise.swift` adds the cursor screenshot and that rect to the page for the bundled `scene-rise.js`, which shows the screenshot clipped to the rect and grows the page out of it once the scene is ready.
 In a quiz, Clicky asks what that part is and what it does when the camera tour ends, and a correct name that misses what it does gets one follow-up.
 The learner answers by voice.
 `POST /judge-answer` asks Sonnet to grade that answer as correct, named only, wrong, or a request for help, and returns one spoken sentence.
@@ -84,6 +86,8 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 | `VideoQuizSession.swift` | ~780 | Voice command, Chrome tab finder, yt-dlp caption reader, and the session that pauses a YouTube video at each planned moment. Talks to Chrome through AppleScript, posts the transcript to `POST /video-quiz-plan`, and grabs each moment's frame while the video plays. |
 | `LiveSceneStatusLabel.swift` | ~106 | Small label at the bottom of the screen while a scene builds. Clicky also says "Building your 3D scene" and "Almost there" out loud. |
 | `VideoFramePopout.swift` | ~140 | The grabbed frame, the `POST /video-frame-parts` client, and the pop-out page built from the bundled `LiveSceneAssets/frame-popout.html` template with the video rect moved into the overlay screen's coordinates. |
+| `LiveSceneRise.swift` | ~50 | Loads the bundled `LiveSceneAssets/scene-rise.js` and adds it, with the cursor screenshot and the media rect, before the last `</body>` of a generated page. |
+| `LiveSceneAssets/scene-rise.js` | ~90 | Runs after a generated page's body. Shows the screenshot clipped to the media rect, shrinks the body onto that rect, then lifts it to full screen over 1.6 seconds once `window.__ready` is true or after 1.5 seconds. |
 | `LandmarkTiles.swift` | ~105 | The `POST /landmark` client and the landmark page built from `LiveSceneAssets/landmark-tiles.html`. `three-tiles.js` and the Draco decoder in `LiveSceneAssets` are built by `tools/three-tiles` (`npm install && npm run build`). |
 | `LiveSceneClient.swift` | ~180 | Posts the cursor screen JPEG to `POST /live-scene`, and posts a spoken answer to `POST /judge-answer`. |
 | `CompanionManager.swift` | ~1700 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the push-to-talk pipeline, the live scene, the video quiz, and the spoken-answer judge. |

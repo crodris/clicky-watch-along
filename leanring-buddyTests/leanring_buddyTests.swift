@@ -149,4 +149,46 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "what's on the latest menu") == nil)
     }
 
+    @Test func liveSceneRiseScriptsGoBeforeTheLastBodyClose() async throws {
+        let generatedPage = #"<html><body><script>var earlierClose = "</body>";</script></body></html>"#
+        let risingPage = liveScenePageThatRisesFromTheSource(
+            generatedPageHTML: generatedPage,
+            screenJPEGBase64: "AAAA",
+            sourceRectInOverlayPage: ["x": 200, "y": 150, "width": 640, "height": 360],
+            riseScript: "RISE_SCRIPT_BODY"
+        )
+        #expect(risingPage.hasPrefix(#"<html><body><script>var earlierClose = "</body>";</script><script>window.__sceneRise = "#))
+        #expect(risingPage.hasSuffix("<script>RISE_SCRIPT_BODY</script></body></html>"))
+    }
+
+    @Test func liveSceneRiseScriptsAreAppendedWhenThePageHasNoBodyClose() async throws {
+        let risingPage = liveScenePageThatRisesFromTheSource(
+            generatedPageHTML: "<canvas></canvas>",
+            screenJPEGBase64: "AAAA",
+            sourceRectInOverlayPage: ["x": 0, "y": 0, "width": 100, "height": 100],
+            riseScript: "RISE_SCRIPT_BODY"
+        )
+        #expect(risingPage.hasPrefix("<canvas></canvas><script>window.__sceneRise = "))
+        #expect(risingPage.hasSuffix("<script>RISE_SCRIPT_BODY</script>"))
+    }
+
+    @Test func liveSceneRiseDataKeepsTheRectAndCannotCloseTheScriptTag() async throws {
+        let risingPage = liveScenePageThatRisesFromTheSource(
+            generatedPageHTML: "<body></body>",
+            screenJPEGBase64: "ab/cd+ef==",
+            sourceRectInOverlayPage: ["x": 200.5, "y": -12, "width": 640, "height": 360.25],
+            riseScript: "RISE_SCRIPT_BODY"
+        )
+        let dataStart = try #require(risingPage.range(of: "window.__sceneRise = "))
+        let dataEnd = try #require(risingPage.range(of: ";</script>", range: dataStart.upperBound..<risingPage.endIndex))
+        let dataText = String(risingPage[dataStart.upperBound..<dataEnd.lowerBound])
+        #expect(!dataText.contains("</"))
+        let sceneRiseData = try #require(
+            try JSONSerialization.jsonObject(with: Data(dataText.utf8)) as? [String: Any]
+        )
+        #expect(sceneRiseData["screenDataURL"] as? String == "data:image/jpeg;base64,ab/cd+ef==")
+        let sourceRect = try #require(sceneRiseData["sourceRect"] as? [String: Double])
+        #expect(sourceRect == ["x": 200.5, "y": -12, "width": 640, "height": 360.25])
+    }
+
 }

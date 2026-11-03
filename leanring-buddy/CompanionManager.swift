@@ -219,6 +219,9 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
+        LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
+            self?.handleLiveScenePageError(pageErrorText)
+        }
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
@@ -530,7 +533,7 @@ final class CompanionManager: ObservableObject {
             .escapeKeyPressPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
-                self?.clearFinishedLiveScene()
+                self?.closeLiveSceneOnEscape()
             }
     }
 
@@ -1073,13 +1076,7 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide()
 
         guard case .touring = liveScenePhase else {
-            liveScenePhase = .idle
-            await speakLiveSceneLine("Sorry, I couldn't build that one.")
-            voiceState = .idle
-            // No scene opened, so nothing will clear it and resume the video.
-            if videoQuizSession.videoIsPausedForRequestedScene {
-                videoQuizSession.resumeVideoAfterRequestedScene()
-            }
+            await sayTheSceneCouldNotBeBuilt()
             return
         }
         if sceneKind == .explore {
@@ -1167,6 +1164,8 @@ final class CompanionManager: ObservableObject {
         requestGeneration: Int
     ) async {
         guard requestGeneration == liveSceneRequestGeneration else { return }
+        // Read before the request, so the rect matches the screenshot taken just before it.
+        let mediaRectToRiseFrom = VideoQuizSession.screenRectOfTheMediaToRiseFrom()
         do {
             let liveScene = try await liveSceneClient.requestLiveScene(
                 question: question,
@@ -1174,8 +1173,19 @@ final class CompanionManager: ObservableObject {
             )
             guard requestGeneration == liveSceneRequestGeneration else { return }
             let quizToAskAfterTour = sceneKind == .quiz ? liveScene.quiz : nil
+            var liveScenePageHTML = liveScene.html
+            if let mediaRectToRiseFrom,
+               let overlayScreen = screenUnderTheMouseCursor(),
+               let riseScript = liveSceneRiseScriptFromTheBundle() {
+                liveScenePageHTML = liveScenePageThatRisesFromTheSource(
+                    generatedPageHTML: liveScene.html,
+                    screenJPEGBase64: cursorScreenJPEGData.base64EncodedString(),
+                    sourceRectInOverlayPage: rectInOverlayPage(of: mediaRectToRiseFrom, overlayScreen: overlayScreen),
+                    riseScript: riseScript
+                )
+            }
             let liveSceneWasAccepted = LiveSceneOverlay.shared.playLiveScene(
-                html: liveScene.html,
+                html: liveScenePageHTML,
                 hidesQuizLabel: quizToAskAfterTour != nil
             )
             guard liveSceneWasAccepted else { return }
@@ -1426,11 +1436,50 @@ final class CompanionManager: ObservableObject {
         return "Good try! \(quiz.explanation)"
     }
 
+    /// No scene is on screen, so nothing else will resume a video paused for it.
+    private func sayTheSceneCouldNotBeBuilt() async {
+        liveScenePhase = .idle
+        await speakLiveSceneLine("Sorry, I couldn't build that one.")
+        voiceState = .idle
+        if videoQuizSession.videoIsPausedForRequestedScene {
+            videoQuizSession.resumeVideoAfterRequestedScene()
+        }
+    }
+
+    /// A page that throws before its tour ends never posts tourFinished, so Clicky would wait on it forever.
+    private func handleLiveScenePageError(_ pageErrorText: String) {
+        guard case .touring(let quizToAskAfterTour) = liveScenePhase else { return }
+        print("Live scene: giving up on the page after \(pageErrorText)")
+        LiveSceneOverlay.shared.clear()
+        if quizToAskAfterTour != nil {
+            // The question still works by voice, like a quiz moment with no pop-out.
+            handleLiveSceneTourFinished()
+            return
+        }
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        currentResponseTask = Task {
+            await self.sayTheSceneCouldNotBeBuilt()
+        }
+    }
+
+    /// Escape ends the scene and anything Clicky is still saying about it.
+    private func closeLiveSceneOnEscape() {
+        guard case .allLabelsShowing = liveScenePhase else { return }
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        voiceState = .idle
+        clearFinishedLiveScene()
+        scheduleTransientHideIfNeeded()
+    }
+
     private func handleLiveSceneTourFinished() {
         guard case .touring(let quizToAskAfterTour) = liveScenePhase else { return }
         guard let quiz = quizToAskAfterTour else {
             liveScenePhase = .allLabelsShowing
             LiveSceneOverlay.shared.letLearnerDragTheModel()
+            // The tour ends close on the answer part, which only a quiz needs, so frame the whole subject again.
+            LiveSceneOverlay.shared.highlightPart(labelText: "")
             return
         }
         liveSceneTourFinishedTask?.cancel()

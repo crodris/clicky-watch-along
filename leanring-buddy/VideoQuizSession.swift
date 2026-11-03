@@ -437,7 +437,8 @@ final class VideoQuizSession {
     /// The famous place in the frame the YouTube tab shows right now, if there is one.
     /// Nil when no YouTube tab is open or the frame shows no famous place.
     static func famousPlaceInTheVisibleFrame(workerBaseURL: String, learnerRequest: String) async throws -> (frameGrab: VideoFrameGrab, famousPlace: FamousPlace)? {
-        guard let videoTab = try? ChromeVideoTab.findYouTubeWatchTab() else { return nil }
+        // A YouTube tab behind the page the learner is looking at is not what they asked about.
+        guard let videoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else { return nil }
         let frameGrab = try grabFrame(of: videoTab)
         guard let famousPlace = try await LandmarkClient.famousPlace(
             workerBaseURL: workerBaseURL,
@@ -448,6 +449,11 @@ final class VideoQuizSession {
             return nil
         }
         return (frameGrab, famousPlace)
+    }
+
+    /// Where the largest visible video or image in Chrome's front tab sits on screen, for a scene to rise from.
+    static func screenRectOfTheMediaToRiseFrom() -> ScreenRectInChromeCoordinates? {
+        ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab()
     }
 
     /// The frame the YouTube tab shows right now, for a pop-out the learner asked for.
@@ -588,8 +594,8 @@ private struct ChromeVideoTab {
     let title: String
 
     /// The active tab of the front window if it is a YouTube watch page, else any
-    /// YouTube watch tab in any Chrome window.
-    static func findYouTubeWatchTab() throws -> ChromeVideoTab {
+    /// YouTube watch tab in any Chrome window, unless `onlyTheActiveTabOfTheFrontWindow` is set.
+    static func findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: Bool = false) throws -> ChromeVideoTab {
         guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
             throw VideoQuizFailure.chromeIsNotRunning
         }
@@ -638,11 +644,54 @@ private struct ChromeVideoTab {
             return FoundTab(videoTab: videoTab, isActiveTabOfFrontWindow: isFrontWindow && isActiveTab)
         }
 
-        let preferredTab = foundTabs.first { foundTab in foundTab.isActiveTabOfFrontWindow } ?? foundTabs.first
+        let activeTabOfTheFrontWindow = foundTabs.first { foundTab in foundTab.isActiveTabOfFrontWindow }
+        let preferredTab = onlyTheActiveTabOfTheFrontWindow ? activeTabOfTheFrontWindow : activeTabOfTheFrontWindow ?? foundTabs.first
         guard let preferredTab else {
             throw VideoQuizFailure.noYouTubeTabFound
         }
         return preferredTab.videoTab
+    }
+
+    /// Picks the media in the active tab of Chrome's front window that the learner is most likely looking at:
+    /// the largest visible video or image, with a video counting four times its area. Returns the visible part's
+    /// place on screen, using the same screen math as `grabFrameJavaScript`, or 'none' under 160x90 visible.
+    private static let largestVisibleMediaJavaScript = [
+        "(function () {",
+        "var best = null; var bestScore = 0;",
+        "var candidates = document.querySelectorAll('video, img');",
+        "for (var index = 0; index < candidates.length; index++) {",
+        "var element = candidates[index];",
+        "var isVideo = element.tagName === 'VIDEO';",
+        "if (isVideo && !element.videoWidth) { continue; }",
+        "var rect = element.getBoundingClientRect();",
+        "var left = Math.max(rect.left, 0); var top = Math.max(rect.top, 0);",
+        "var right = Math.min(rect.right, window.innerWidth); var bottom = Math.min(rect.bottom, window.innerHeight);",
+        "if (right <= left || bottom <= top) { continue; }",
+        "var visibleArea = (right - left) * (bottom - top);",
+        "var score = visibleArea * (isVideo ? 4 : 1);",
+        "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea }; }",
+        "}",
+        "if (!best || best.visibleArea < 160 * 90) { return 'none'; }",
+        "return JSON.stringify({ rectX: window.screenX + (window.outerWidth - window.innerWidth) + best.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + best.top, rectWidth: best.width, rectHeight: best.height });",
+        "})()",
+    ].joined(separator: " ")
+
+    /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,
+    /// or no media big enough. The learner may be looking at anything, so this never throws.
+    static func screenRectOfTheLargestVisibleMediaInFrontTab() -> ScreenRectInChromeCoordinates? {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
+            return nil
+        }
+        let javaScriptResult: String
+        do {
+            javaScriptResult = try runAppleScript("""
+            tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
+            """)
+        } catch {
+            print("Live scene: could not read the media rect from Chrome: \(error)")
+            return nil
+        }
+        return try? JSONDecoder().decode(ScreenRectInChromeCoordinates.self, from: Data(javaScriptResult.utf8))
     }
 
     private static func titleWithoutYouTubeSuffix(_ tabTitle: String) -> String {

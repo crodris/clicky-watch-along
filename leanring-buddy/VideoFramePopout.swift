@@ -209,17 +209,39 @@ enum VideoFrameSubjectMask {
     }
 }
 
-/// The video's place on screen in the overlay page's coordinates. Chrome's screen origin
+/// A rectangle in global screen points with the origin at the top left of the main display,
+/// which is how Chrome reports where a page element sits on screen.
+struct ScreenRectInChromeCoordinates: Decodable {
+    let rectX: Double
+    let rectY: Double
+    let rectWidth: Double
+    let rectHeight: Double
+}
+
+/// A screen rectangle in the overlay page's coordinates. Chrome's screen origin
 /// is the top left of the main display, and AppKit's is the bottom left.
-func videoRectInOverlayPage(of frameGrab: VideoFrameGrab, overlayScreen: NSScreen) -> [String: Double] {
+func rectInOverlayPage(of screenRect: ScreenRectInChromeCoordinates, overlayScreen: NSScreen) -> [String: Double] {
     let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? overlayScreen.frame.height
     let overlayTopInChromeCoordinates = mainDisplayHeight - overlayScreen.frame.maxY
     return [
-        "x": frameGrab.rectX - overlayScreen.frame.minX,
-        "y": frameGrab.rectY - overlayTopInChromeCoordinates,
-        "width": frameGrab.rectWidth,
-        "height": frameGrab.rectHeight,
+        "x": screenRect.rectX - overlayScreen.frame.minX,
+        "y": screenRect.rectY - overlayTopInChromeCoordinates,
+        "width": screenRect.rectWidth,
+        "height": screenRect.rectHeight,
     ]
+}
+
+/// The video's place on screen in the overlay page's coordinates.
+func videoRectInOverlayPage(of frameGrab: VideoFrameGrab, overlayScreen: NSScreen) -> [String: Double] {
+    rectInOverlayPage(
+        of: ScreenRectInChromeCoordinates(
+            rectX: frameGrab.rectX,
+            rectY: frameGrab.rectY,
+            rectWidth: frameGrab.rectWidth,
+            rectHeight: frameGrab.rectHeight
+        ),
+        overlayScreen: overlayScreen
+    )
 }
 
 /// The bundled pop-out page with this frame's data in it, or nil when the template is missing.

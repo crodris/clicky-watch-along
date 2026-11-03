@@ -194,6 +194,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     static let shared = LiveSceneOverlay()
 
     var onTourFinished: (() -> Void)?
+    /// An uncaught error or rejection in the page. A page that throws mid-tour never posts tourFinished.
+    var onPageError: ((String) -> Void)?
 
     private static let pageErrorForwardingScript = """
     (() => {
@@ -263,6 +265,11 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "liveSceneLog" {
             print("Live scene page: \(message.body)")
+            // Only uncaught errors count. console.error and console.warn are logged and ignored.
+            if let logText = message.body as? String,
+               logText.hasPrefix("page error:") || logText.hasPrefix("rejection:") {
+                onPageError?(logText)
+            }
             return
         }
         guard message.name == "liveSceneEvent" else {
