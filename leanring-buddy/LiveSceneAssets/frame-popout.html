@@ -6,14 +6,17 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
 canvas { display: block; position: absolute; inset: 0; }
 #backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
+#frameBackground { position: absolute; }
 svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .scene-label { position: absolute; transform: translate(-50%, -50%); padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, opacity 0.3s; }
 .scene-label.focused { background: #ffe066; }
+.scene-label.quiz-answer { z-index: 2; }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
 </head>
 <body>
 <div id="backdrop"></div>
+<canvas id="frameBackground"></canvas>
 <svg id="leaders"></svg>
 <script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
 <script type="module">
@@ -134,15 +137,6 @@ for (let i = 0; i < subjectMask.length; i++) subjectMask[i] = maskPixels[i * 4] 
   }
 }
 
-// The colour around the subject, for any part of the hole the blur fill cannot reach.
-const surroundingColors = [];
-for (let x = 0; x < boxW; x++) for (const y of [0, boxH - 1]) if (!subjectMask[y * boxW + x]) surroundingColors.push((y + y0) * W + (x + x0));
-for (let y = 0; y < boxH; y++) for (const x of [0, boxW - 1]) if (!subjectMask[y * boxW + x]) surroundingColors.push((y + y0) * W + (x + x0));
-const medianChannel = (channel) => {
-  const values = surroundingColors.map((i) => pixels[i * 4 + channel]).sort((a, b) => a - b);
-  return values.length ? values[values.length >> 1] : 255;
-};
-const backgroundColor = [medianChannel(0), medianChannel(1), medianChannel(2)];
 
 const distance = new Float32Array(boxW * boxH);
 for (let i = 0; i < distance.length; i++) distance[i] = subjectMask[i] ? 1e6 : 0;
@@ -167,50 +161,18 @@ const thicknessInFramePixels = (d) => {
   return rim * 9 + Math.sqrt(d / maximumInsideDistance) * 55;
 };
 
-const frameWithoutSubject = document.createElement("canvas"); frameWithoutSubject.width = W; frameWithoutSubject.height = H;
 const cutout = document.createElement("canvas"); cutout.width = boxW; cutout.height = boxH;
 {
   const cutoutContext = cutout.getContext("2d", { willReadFrequently: true });
   const cutoutData = cutoutContext.createImageData(boxW, boxH);
-  const holeyFrame = document.createElement("canvas"); holeyFrame.width = W; holeyFrame.height = H;
-  const holeyContext = holeyFrame.getContext("2d", { willReadFrequently: true }); holeyContext.drawImage(image, 0, 0);
-  const holeyData = holeyContext.getImageData(0, 0, W, H);
   for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
-    const inside = subjectMask[y * boxW + x], frameIndex = ((y + y0) * W + (x + x0)) * 4, cutoutIndex = (y * boxW + x) * 4;
+    const frameIndex = ((y + y0) * W + (x + x0)) * 4, cutoutIndex = (y * boxW + x) * 4;
     cutoutData.data[cutoutIndex] = pixels[frameIndex];
     cutoutData.data[cutoutIndex + 1] = pixels[frameIndex + 1];
     cutoutData.data[cutoutIndex + 2] = pixels[frameIndex + 2];
-    cutoutData.data[cutoutIndex + 3] = inside ? 255 : 0;
-    if (inside) holeyData.data[frameIndex + 3] = 0;
+    cutoutData.data[cutoutIndex + 3] = subjectMask[y * boxW + x] ? 255 : 0;
   }
   cutoutContext.putImageData(cutoutData, 0, 0);
-  holeyContext.putImageData(holeyData, 0, 0);
-
-  // Filmed footage has no flat background colour, so the hole is filled from blurred
-  // copies of the footage around it, widening the blur until every pixel has a colour.
-  const filled = holeyContext.getImageData(0, 0, W, H);
-  const blurred = document.createElement("canvas"); blurred.width = W; blurred.height = H;
-  const blurredContext = blurred.getContext("2d", { willReadFrequently: true });
-  for (const blurRadius of [6, 18, 48, 120]) {
-    blurredContext.clearRect(0, 0, W, H);
-    blurredContext.filter = `blur(${blurRadius}px)`;
-    blurredContext.drawImage(holeyFrame, 0, 0);
-    blurredContext.filter = "none";
-    const blurredData = blurredContext.getImageData(x0, y0, boxW, boxH).data;
-    for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
-      const frameIndex = ((y + y0) * W + (x + x0)) * 4, blurredIndex = (y * boxW + x) * 4;
-      if (filled.data[frameIndex + 3] === 255 || blurredData[blurredIndex + 3] < 8) continue;
-      filled.data[frameIndex] = blurredData[blurredIndex];
-      filled.data[frameIndex + 1] = blurredData[blurredIndex + 1];
-      filled.data[frameIndex + 2] = blurredData[blurredIndex + 2];
-      filled.data[frameIndex + 3] = 255;
-    }
-  }
-  for (let i = 0; i < W * H; i++) {
-    if (filled.data[i * 4 + 3] === 255) continue;
-    filled.data[i * 4] = backgroundColor[0]; filled.data[i * 4 + 1] = backgroundColor[1]; filled.data[i * 4 + 2] = backgroundColor[2]; filled.data[i * 4 + 3] = 255;
-  }
-  frameWithoutSubject.getContext("2d", { willReadFrequently: true }).putImageData(filled, 0, 0);
 }
 const shadowSource = document.createElement("canvas"); shadowSource.width = W; shadowSource.height = H;
 shadowSource.getContext("2d", { willReadFrequently: true }).drawImage(cutout, x0, y0);
@@ -228,21 +190,25 @@ const halfFieldTangent = Math.tan(THREE.MathUtils.degToRad(fieldOfView / 2));
 const pageDistance = (pageHeight / 2) / halfFieldTangent;
 const asTexture = (canvas) => { const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; };
 
-const originalTexture = asTexture(full);
-const shadowTexture = asTexture(backgroundWithShadow);
-const backgroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(shownWidth, shownHeight), new THREE.MeshBasicMaterial({ map: originalTexture }));
-backgroundMesh.position.copy(frameCenterWorld);
-scene.add(backgroundMesh);
+// The untouched frame stays flat in its exact place over the video while only the
+// subject moves, so the subject comes up out of the video and the picture never warps.
+const frameBackground = document.getElementById("frameBackground");
+frameBackground.width = W; frameBackground.height = H;
+Object.assign(frameBackground.style, { left: `${shownLeft}px`, top: `${shownTop}px`, width: `${shownWidth}px`, height: `${shownHeight}px` });
+frameBackground.getContext("2d").drawImage(full, 0, 0);
 const drawShadow = (lift) => {
   const context = backgroundWithShadow.getContext("2d", { willReadFrequently: true });
   context.clearRect(0, 0, W, H);
-  context.drawImage(frameWithoutSubject, 0, 0);
+  context.drawImage(full, 0, 0);
   context.globalAlpha = 0.3 * lift;
   context.filter = `blur(${8 + 26 * lift}px) brightness(0)`;
   context.drawImage(shadowSource, 40 * lift, 50 * lift);
   context.globalAlpha = 1;
   context.filter = "none";
-  shadowTexture.needsUpdate = true;
+  const backgroundContext = frameBackground.getContext("2d");
+  backgroundContext.clearRect(0, 0, W, H);
+  backgroundContext.drawImage(backgroundWithShadow, 0, 0);
+  frameBackground.style.filter = `brightness(${1 - 0.25 * lift})`;
 };
 
 const columns = 220, rows = Math.round(columns * boxH / boxW);
@@ -289,8 +255,7 @@ const applyLift = (amount) => {
   position.needsUpdate = true;
   subjectGeometry.computeVertexNormals();
   subjectMesh.position.z = maximumLift * amount;
-  if (amount > 0 && backgroundMesh.material.map !== shadowTexture) { backgroundMesh.material.map = shadowTexture; backgroundMesh.material.needsUpdate = true; }
-  drawShadow(amount);
+  if (amount > 0) drawShadow(amount);
   document.getElementById("backdrop").style.opacity = String(0.55 * amount);
   liftNow = amount;
 };
@@ -302,6 +267,7 @@ for (const part of popout.parts) {
   const element = document.createElement("div");
   element.className = "scene-label";
   element.textContent = part.isQuizAnswer ? "?" : part.label;
+  if (part.isQuizAnswer) element.classList.add("quiz-answer");
   element.style.opacity = "0";
   document.body.appendChild(element);
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -372,13 +338,35 @@ const render = (now) => {
   const centerOnPage = subjectCenter().project(camera);
   const centerX = (centerOnPage.x + 1) / 2 * pageWidth, centerY = (1 - centerOnPage.y) / 2 * pageHeight;
   const reach = Math.min(pageWidth, pageHeight) * 0.14;
-  for (const entry of labelEntries) {
+  const placements = labelEntries.map((entry) => {
     const projected = partPoint(entry).project(camera);
     const pointX = (projected.x + 1) / 2 * pageWidth, pointY = (1 - projected.y) / 2 * pageHeight;
     let directionX = pointX - centerX, directionY = pointY - centerY;
     const length = Math.hypot(directionX, directionY) || 1;
     directionX /= length; directionY /= length;
-    const labelX = pointX + directionX * reach, labelY = pointY + directionY * reach * 0.7;
+    return {
+      entry, pointX, pointY,
+      labelX: pointX + directionX * reach, labelY: pointY + directionY * reach * 0.7,
+      halfWidth: entry.element.offsetWidth / 2 + 4, halfHeight: entry.element.offsetHeight / 2 + 3,
+    };
+  });
+  // Labels that land on each other are pushed apart, so none hides another.
+  for (let pass = 0; pass < 12; pass++) {
+    for (let first = 0; first < placements.length; first++) for (let second = first + 1; second < placements.length; second++) {
+      const a = placements[first], b = placements[second];
+      const overlapX = a.halfWidth + b.halfWidth - Math.abs(a.labelX - b.labelX);
+      const overlapY = a.halfHeight + b.halfHeight - Math.abs(a.labelY - b.labelY);
+      if (overlapX <= 0 || overlapY <= 0) continue;
+      if (overlapY < overlapX) {
+        const push = overlapY / 2 + 0.5, direction = a.labelY <= b.labelY ? -1 : 1;
+        a.labelY += direction * push; b.labelY -= direction * push;
+      } else {
+        const push = overlapX / 2 + 0.5, direction = a.labelX <= b.labelX ? -1 : 1;
+        a.labelX += direction * push; b.labelX -= direction * push;
+      }
+    }
+  }
+  for (const { entry, pointX, pointY, labelX, labelY } of placements) {
     entry.element.style.left = `${labelX}px`;
     entry.element.style.top = `${labelY}px`;
     if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
