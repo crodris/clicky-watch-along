@@ -1,0 +1,14 @@
+{
+  "name": "three-tiles-bundle",
+  "private": true,
+  "description": "Builds leanring-buddy/LiveSceneAssets/three-tiles.js: 3d-tiles-renderer and three's DRACOLoader in one ES module, with bare three left to the page's import map.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs && cp out/three-tiles.js ../../leanring-buddy/LiveSceneAssets/ && cp node_modules/three/examples/jsm/libs/draco/gltf/draco_decoder.wasm node_modules/three/examples/jsm/libs/draco/gltf/draco_wasm_wrapper.js ../../leanring-buddy/LiveSceneAssets/"
+  },
+  "devDependencies": {
+    "3d-tiles-renderer": "0.5.3",
+    "esbuild": "0.25.0",
+    "three": "0.180.0"
+  }
+}

@@ -209,6 +209,19 @@ enum VideoFrameSubjectMask {
     }
 }
 
+/// The video's place on screen in the overlay page's coordinates. Chrome's screen origin
+/// is the top left of the main display, and AppKit's is the bottom left.
+func videoRectInOverlayPage(of frameGrab: VideoFrameGrab, overlayScreen: NSScreen) -> [String: Double] {
+    let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? overlayScreen.frame.height
+    let overlayTopInChromeCoordinates = mainDisplayHeight - overlayScreen.frame.maxY
+    return [
+        "x": frameGrab.rectX - overlayScreen.frame.minX,
+        "y": frameGrab.rectY - overlayTopInChromeCoordinates,
+        "width": frameGrab.rectWidth,
+        "height": frameGrab.rectHeight,
+    ]
+}
+
 /// The bundled pop-out page with this frame's data in it, or nil when the template is missing.
 /// The overlay covers `overlayScreen`, so the video rect is moved into that screen's page coordinates.
 func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScreen) -> String? {
@@ -219,19 +232,11 @@ func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScr
         return nil
     }
 
-    // Chrome's screen origin is the top left of the main display, and AppKit's is the bottom left.
-    let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? overlayScreen.frame.height
-    let overlayTopInChromeCoordinates = mainDisplayHeight - overlayScreen.frame.maxY
     let frameGrab = framePopout.frameGrab
     let popoutData: [String: Any] = [
         "frameDataURL": "data:image/jpeg;base64,\(frameGrab.jpeg)",
         "maskDataURL": "data:image/png;base64,\(framePopout.subjectMaskPNGBase64)",
-        "videoRect": [
-            "x": frameGrab.rectX - overlayScreen.frame.minX,
-            "y": frameGrab.rectY - overlayTopInChromeCoordinates,
-            "width": frameGrab.rectWidth,
-            "height": frameGrab.rectHeight,
-        ],
+        "videoRect": videoRectInOverlayPage(of: frameGrab, overlayScreen: overlayScreen),
         "subjectBox": [
             "left": framePopout.subjectBox.left,
             "top": framePopout.subjectBox.top,

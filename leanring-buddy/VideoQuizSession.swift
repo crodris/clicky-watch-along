@@ -434,6 +434,21 @@ final class VideoQuizSession {
 
     // MARK: Lifting the subject out of the frame
 
+    /// The famous place in the frame the YouTube tab shows right now, if there is one.
+    /// Nil when no YouTube tab is open or the frame shows no famous place.
+    static func famousPlaceInTheVisibleFrame(workerBaseURL: String) async throws -> (frameGrab: VideoFrameGrab, famousPlace: FamousPlace)? {
+        guard let videoTab = try? ChromeVideoTab.findYouTubeWatchTab() else { return nil }
+        let frameGrab = try grabFrame(of: videoTab)
+        guard let famousPlace = try await LandmarkClient.famousPlace(
+            workerBaseURL: workerBaseURL,
+            frameGrab: frameGrab,
+            videoTitle: videoTab.title
+        ) else {
+            return nil
+        }
+        return (frameGrab, famousPlace)
+    }
+
     /// The frame the YouTube tab shows right now, for a pop-out the learner asked for.
     /// Nil when Sonnet or Vision finds no single subject in it.
     static func framePopoutOfTheVisibleFrame(workerBaseURL: String) async throws -> VideoFramePopout? {

@@ -20,14 +20,31 @@ private final class LiveSceneWebView: WKWebView {
 }
 
 /// Generated pages import three.js from clicky-asset://three/..., because that
-/// page is not allowed to reach a CDN. The two files ship in the app bundle.
+/// page is not allowed to reach a CDN. The files ship in the app bundle. The landmark
+/// page also loads Google 3D Tiles from clicky-asset://tiles/..., which this handler
+/// fetches from the Worker, so the page itself still never reaches the network.
 private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The generated page is served from here so its policy is a response header.
     /// Text in the page cannot displace a header the way it could a meta tag.
     static let livePageURLString = "clicky-asset://live/page.html"
     private static let livePageContentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline' clicky-asset:; style-src 'unsafe-inline'; img-src data: blob:; connect-src clicky-asset:; base-uri 'none'; form-action 'none'; webrtc 'block'"
+    /// Only the bundled landmark page gets this. Its Draco decoder runs WebAssembly in a
+    /// blob worker, and its tile textures are read back from blob URLs.
+    private static let mapTilesPageContentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' clicky-asset: blob:; worker-src blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src clicky-asset: blob: data:; base-uri 'none'; form-action 'none'; webrtc 'block'"
+
+    /// The bundled files a page may load, with the content type each is served as.
+    private static let bundledAssetContentTypes = [
+        "three.module.js": "text/javascript",
+        "three.core.js": "text/javascript",
+        "three-tiles.js": "text/javascript",
+        "draco_wasm_wrapper.js": "text/javascript",
+        "draco_decoder.wasm": "application/wasm",
+    ]
 
     var livePageHTMLData: Data?
+    var livePageRendersMapTiles = false
+    /// The Worker's address, which adds the Maps key to every 3D Tiles request.
+    var mapTilesWorkerBaseURL: String?
     private let stoppedTaskLock = NSLock()
     private let stoppedTasks = NSHashTable<AnyObject>.weakObjects()
 
@@ -40,12 +57,16 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
             serveLivePage(for: urlSchemeTask, requestURL: requestURL)
             return
         }
+        if requestURL.host == "tiles" {
+            serveMapTile(for: urlSchemeTask, requestURL: requestURL)
+            return
+        }
         let fileName = requestURL.lastPathComponent
-        guard fileName == "three.module.js" || fileName == "three.core.js" else {
+        guard let contentType = Self.bundledAssetContentTypes[fileName] else {
             fail(urlSchemeTask, message: "Refusing to serve \(fileName)")
             return
         }
-        guard let scriptData = bundledScript(named: fileName) else {
+        guard let scriptData = bundledAsset(named: fileName) else {
             print("Live scene: \(fileName) is not in the app bundle")
             fail(urlSchemeTask, message: "\(fileName) is not in the app bundle")
             return
@@ -55,7 +76,7 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
             statusCode: 200,
             httpVersion: "HTTP/1.1",
             headerFields: [
-                "Content-Type": "text/javascript",
+                "Content-Type": contentType,
                 // The page origin is not this scheme, so the module import is cross-origin.
                 "Access-Control-Allow-Origin": "*",
             ]
@@ -78,7 +99,9 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
             httpVersion: "HTTP/1.1",
             headerFields: [
                 "Content-Type": "text/html; charset=utf-8",
-                "Content-Security-Policy": Self.livePageContentSecurityPolicy,
+                "Content-Security-Policy": livePageRendersMapTiles
+                    ? Self.mapTilesPageContentSecurityPolicy
+                    : Self.livePageContentSecurityPolicy,
             ]
         ) else {
             fail(urlSchemeTask, message: "No live page to serve")
@@ -98,13 +121,51 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
         stoppedTaskLock.unlock()
     }
 
-    private func bundledScript(named fileName: String) -> Data? {
+    /// Only 3D Tiles paths go through, to the Worker, which adds the Maps key.
+    private func serveMapTile(for urlSchemeTask: WKURLSchemeTask, requestURL: URL) {
+        guard livePageRendersMapTiles,
+              let mapTilesWorkerBaseURL,
+              let requestComponents = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
+              requestComponents.path.hasPrefix("/v1/3dtiles/"),
+              let workerTileURL = URL(string: mapTilesWorkerBaseURL + requestComponents.percentEncodedPath
+                  + (requestComponents.percentEncodedQuery.map { "?" + $0 } ?? "")) else {
+            fail(urlSchemeTask, message: "Refusing to serve \(requestURL.path)")
+            return
+        }
+        URLSession.shared.dataTask(with: workerTileURL) { [weak self] tileData, response, error in
+            DispatchQueue.main.async {
+                guard let self, !self.taskWasStopped(urlSchemeTask) else { return }
+                guard error == nil, let tileData, let workerResponse = response as? HTTPURLResponse,
+                      let tileResponse = HTTPURLResponse(
+                          url: requestURL,
+                          statusCode: workerResponse.statusCode,
+                          httpVersion: "HTTP/1.1",
+                          headerFields: [
+                              "Content-Type": workerResponse.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream",
+                              // The page is served from clicky-asset://live, so a tile from clicky-asset://tiles is cross-origin.
+                              "Access-Control-Allow-Origin": "*",
+                          ]
+                      ) else {
+                    self.fail(urlSchemeTask, message: "The Worker did not return \(requestURL.path)")
+                    return
+                }
+                urlSchemeTask.didReceive(tileResponse)
+                guard !self.taskWasStopped(urlSchemeTask) else { return }
+                urlSchemeTask.didReceive(tileData)
+                guard !self.taskWasStopped(urlSchemeTask) else { return }
+                urlSchemeTask.didFinish()
+            }
+        }.resume()
+    }
+
+    private func bundledAsset(named fileName: String) -> Data? {
         let resourceName = (fileName as NSString).deletingPathExtension
+        let fileExtension = (fileName as NSString).pathExtension
         let fileURL = Bundle.main.url(
             forResource: resourceName,
-            withExtension: "js",
+            withExtension: fileExtension,
             subdirectory: "LiveSceneAssets"
-        ) ?? Bundle.main.url(forResource: resourceName, withExtension: "js")
+        ) ?? Bundle.main.url(forResource: resourceName, withExtension: fileExtension)
         guard let fileURL else {
             return nil
         }
@@ -174,6 +235,13 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     private struct QueuedLiveScenePage {
         let html: String
         let hidesQuizLabel: Bool
+        let rendersMapTiles: Bool
+    }
+
+    /// Set once at start, so the landmark page's tile requests can reach the Worker.
+    var mapTilesWorkerBaseURL: String? {
+        get { threeAssetSchemeHandler.mapTilesWorkerBaseURL }
+        set { threeAssetSchemeHandler.mapTilesWorkerBaseURL = newValue }
     }
 
     private let threeAssetSchemeHandler = LiveSceneAssetSchemeHandler()
@@ -208,14 +276,15 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 
     /// False means the page was refused. Generated code must never run without the network block in place.
-    func playLiveScene(html: String, hidesQuizLabel: Bool) -> Bool {
+    /// rendersMapTiles is only for the bundled landmark page, never for generated HTML.
+    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false) -> Bool {
         guard networkBlockRuleList != nil else {
             print("Live scene: refused a live page because its network block is missing")
             return false
         }
         placeOverlayOnTheScreenUnderTheMouse()
         liveSceneOverlayWindow?.ignoresMouseEvents = true
-        queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel)
+        queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel, rendersMapTiles: rendersMapTiles)
         startQueuedPageLoad()
         return true
     }
@@ -366,6 +435,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         beginReplacingTheDocument()
         guard let livePageURL = URL(string: LiveSceneAssetSchemeHandler.livePageURLString) else { return }
         threeAssetSchemeHandler.livePageHTMLData = Data(queuedPageLoad.html.utf8)
+        threeAssetSchemeHandler.livePageRendersMapTiles = queuedPageLoad.rendersMapTiles
         liveSceneWebView?.load(URLRequest(url: livePageURL))
     }
 

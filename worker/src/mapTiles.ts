@@ -7,8 +7,11 @@
 
 const googleTilesOrigin = "https://tile.googleapis.com";
 
+/** Only the root tileset and the dataset files it links to, so the key cannot reach other Maps APIs through here. */
+const mapTilesPathPattern = /^\/v1\/3dtiles\/(root\.json|datasets\/[\w-]+\/files\/[\w-]+\.(json|glb))$/;
+
 export function isMapTilesRequest(url: URL): boolean {
-  return url.pathname.startsWith("/v1/3dtiles/");
+  return mapTilesPathPattern.test(url.pathname);
 }
 
 /** Only pages served from this machine may read tiles in a browser, which is how the tile page is tested. */

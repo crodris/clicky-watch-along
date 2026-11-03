@@ -215,6 +215,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func start() {
+        LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
@@ -939,6 +940,31 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// True when the YouTube frame on screen shows a famous place and its 3D tiles page is playing.
+    private func playFamousPlaceFromTheVisibleVideo(requestGeneration: Int) async -> Bool {
+        let placeInFrame: (frameGrab: VideoFrameGrab, famousPlace: FamousPlace)?
+        do {
+            placeInFrame = try await VideoQuizSession.famousPlaceInTheVisibleFrame(workerBaseURL: Self.workerBaseURL)
+        } catch {
+            print("Landmark: lookup failed, building the scene instead: \(error.localizedDescription)")
+            return false
+        }
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled,
+              let placeInFrame,
+              let overlayScreen = screenUnderTheMouseCursor(),
+              let landmarkPageHTML = landmarkTilesPageHTML(
+                  for: placeInFrame.famousPlace,
+                  frameGrab: placeInFrame.frameGrab,
+                  overlayScreen: overlayScreen
+              ),
+              LiveSceneOverlay.shared.playLiveScene(html: landmarkPageHTML, hidesQuizLabel: false, rendersMapTiles: true) else {
+            return false
+        }
+        print("Landmark: showing Google 3D tiles of \(placeInFrame.famousPlace.name)")
+        liveScenePhase = .touring(quizToAskAfterTour: nil)
+        return true
+    }
+
     /// Lifts the subject of the paused YouTube frame out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
@@ -1020,6 +1046,10 @@ final class CompanionManager: ObservableObject {
                 await self.speakLiveSceneStatus("Almost there")
             }
             let sceneRequestTask = Task {
+                // A famous place in a paused video shows Google's real 3D scan instead of a generated model.
+                if sceneKind == .explore, await self.playFamousPlaceFromTheVisibleVideo(requestGeneration: requestGeneration) {
+                    return
+                }
                 await self.requestAndPlayLiveScene(
                     question: transcript,
                     sceneKind: sceneKind,

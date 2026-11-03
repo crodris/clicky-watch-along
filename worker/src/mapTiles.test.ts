@@ -51,5 +51,8 @@ describe("handleMapTiles", () => {
   it("matches only 3D tiles paths", () => {
     expect(isMapTilesRequest(new URL("http://127.0.0.1:8787/v1/3dtiles/root.json"))).toBe(true);
     expect(isMapTilesRequest(new URL("http://127.0.0.1:8787/chat"))).toBe(false);
+    expect(isMapTilesRequest(new URL("http://127.0.0.1:8787/v1/3dtiles/datasets/CgA/files/AJV-x_1.glb?session=s"))).toBe(true);
+    expect(isMapTilesRequest(new URL("http://127.0.0.1:8787/v1/3dtiles/../../maps/api/geocode/json"))).toBe(false);
+    expect(isMapTilesRequest(new URL("http://127.0.0.1:8787/v1/3dtiles/datasets/CgA/files/x.png"))).toBe(false);
   });
 });
