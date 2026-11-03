@@ -34,13 +34,13 @@ final class LiveSceneClient {
         self.liveSceneURL = liveSceneURL
         self.judgeAnswerURL = judgeAnswerURL
 
-        self.liveSceneSession = Self.session(timeoutInterval: 30)
+        // Sol Ultrafast builds a scene in 14 to 20 seconds. Test runs use Sonnet, which takes about 27.
+        self.liveSceneSession = Self.session(timeoutInterval: 60)
         // Sonnet grades in about 3 seconds and sometimes takes 6. Past this the app falls back to a word match.
         self.judgeAnswerSession = Self.session(timeoutInterval: 8)
     }
 
-    /// Sol Ultrafast usually answers in under 30 seconds. Past that, the request
-    /// times out and Clicky says it couldn't build the scene.
+    /// Past 60 seconds the request times out and Clicky says it couldn't build the scene.
     func requestLiveScene(question: String, cursorScreenJPEGData: Data) async throws -> LiveScenePage {
         let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData)
         let responseData = try await postJSON(

@@ -21,6 +21,8 @@ interface Env {
   ELEVENLABS_VOICE_ID: string;
   ASSEMBLYAI_API_KEY: string;
   OPENAI_API_KEY: string;
+  /** "gpt" (the default) or "sonnet". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
+  LIVE_SCENE_MODEL?: string;
 }
 
 export default {
@@ -49,7 +51,7 @@ export default {
       }
 
       if (url.pathname === "/live-scene") {
-        return await handleLiveScene(request, env.OPENAI_API_KEY);
+        return await handleLiveScene(request, env);
       }
 
       if (url.pathname === "/judge-answer") {

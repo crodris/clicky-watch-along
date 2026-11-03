@@ -1,6 +1,6 @@
 /**
  * Helpers the Worker routes share: JSON responses, request body parsing, and
- * one Anthropic Messages call whose answer is the first text block parsed as JSON.
+ * one Anthropic Messages call whose answer is the first text block, as text or parsed as JSON.
  */
 
 import { z } from "zod";
@@ -41,17 +41,9 @@ export async function parseJSONRequest<RequestBody>(
   return { ok: true, requestBody: parsedRequest.data };
 }
 
-/** Thinking blocks come first, so the answer is the first text block. Text that is not JSON counts as no answer. */
-function firstTextBlockJSON(message: AnthropicMessage): unknown {
-  const textBlock = message.content.find((contentBlock) => contentBlock.type === "text");
-  if (textBlock?.text === undefined) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(textBlock.text);
-  } catch {
-    return undefined;
-  }
+/** Thinking blocks come first, so the answer is the first text block. */
+function firstTextBlock(message: AnthropicMessage): string | undefined {
+  return message.content.find((contentBlock) => contentBlock.type === "text")?.text;
 }
 
 /** replyJSON is undefined when the reply had no JSON text, so the caller's schema check names the problem. */
@@ -60,6 +52,26 @@ export async function requestAnthropicReplyJSON(
   routeName: string,
   messagesRequestBody: unknown,
 ): Promise<{ ok: true; replyJSON: unknown } | { ok: false; response: Response }> {
+  const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, routeName, messagesRequestBody);
+  if (!anthropicReply.ok) {
+    return anthropicReply;
+  }
+  if (anthropicReply.replyText === undefined) {
+    return { ok: true, replyJSON: undefined };
+  }
+  try {
+    return { ok: true, replyJSON: JSON.parse(anthropicReply.replyText) };
+  } catch {
+    return { ok: true, replyJSON: undefined };
+  }
+}
+
+/** replyText is undefined when the reply had no text block. */
+export async function requestAnthropicReplyText(
+  anthropicAPIKey: string,
+  routeName: string,
+  messagesRequestBody: unknown,
+): Promise<{ ok: true; replyText: string | undefined } | { ok: false; response: Response }> {
   const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -93,5 +105,5 @@ export async function requestAnthropicReplyJSON(
   if (!parsedMessage.success) {
     return { ok: false, response: jsonResponse({ error: "Anthropic response had no content list" }, 502) };
   }
-  return { ok: true, replyJSON: firstTextBlockJSON(parsedMessage.data) };
+  return { ok: true, replyText: firstTextBlock(parsedMessage.data) };
 }

@@ -2,16 +2,21 @@
  * POST /live-scene and POST /judge-answer.
  *
  * /live-scene asks GPT-6.1 Sol Ultrafast for a self-contained three.js page
- * and a quiz. A reply that fails the check is retried once, then returned as 422,
+ * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet instead,
+ * which test runs use because a GPT scene costs about $0.23 and a Sonnet one about $0.04. A reply that fails the check is retried once, then returned as 422,
  * and the app tells the learner it couldn't build the scene.
  * /judge-answer asks Sonnet whether the learner's spoken answer is right.
  */
 
 import { z } from "zod";
-import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON } from "./anthropic";
+import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON, requestAnthropicReplyText } from "./anthropic";
 import { checkLiveSceneModelReply } from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
+
+const liveSceneModelSettingSchema = z.enum(["gpt", "sonnet"]).default("gpt");
+
+type LiveSceneModel = z.infer<typeof liveSceneModelSettingSchema>;
 
 const sceneRequestSchema = z.object({
   question: z.string(),
@@ -137,14 +142,47 @@ function modelReplyText(responseJSON: unknown): string | undefined {
   return undefined;
 }
 
-async function requestLiveSceneModelReply(
-  openAIAPIKey: string,
-  sceneRequest: SceneRequest,
-): Promise<
+type LiveSceneModelResult =
   | { ok: true; modelReply: string }
   | { ok: false; kind: "upstream"; response: Response }
-  | { ok: false; kind: "unusable"; reason: string }
-> {
+  | { ok: false; kind: "unusable"; reason: string };
+
+async function requestSonnetLiveSceneReply(
+  anthropicAPIKey: string,
+  sceneRequest: SceneRequest,
+): Promise<LiveSceneModelResult> {
+  const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, "/live-scene", {
+    model: "claude-sonnet-5-5",
+    // Thinking counts toward this limit, and a page is about 4,000 tokens.
+    max_tokens: 16000,
+    output_config: { effort: "low" },
+    system: liveSceneInstructions,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: sceneRequest.question },
+          {
+            type: "image",
+            source: { type: "base64", media_type: sceneRequest.screenshotMediaType, data: sceneRequest.screenshotBase64 },
+          },
+        ],
+      },
+    ],
+  });
+  if (!anthropicReply.ok) {
+    return { ok: false, kind: "upstream", response: anthropicReply.response };
+  }
+  if (anthropicReply.replyText === undefined || anthropicReply.replyText.length === 0) {
+    return { ok: false, kind: "unusable", reason: "Sonnet response had no text" };
+  }
+  return { ok: true, modelReply: anthropicReply.replyText };
+}
+
+async function requestGPTLiveSceneReply(
+  openAIAPIKey: string,
+  sceneRequest: SceneRequest,
+): Promise<LiveSceneModelResult> {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -199,7 +237,16 @@ async function requestLiveSceneModelReply(
   return { ok: true, modelReply };
 }
 
-export async function handleLiveScene(request: Request, openAIAPIKey: string): Promise<Response> {
+export async function handleLiveScene(
+  request: Request,
+  env: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; LIVE_SCENE_MODEL?: string },
+): Promise<Response> {
+  const parsedModelSetting = liveSceneModelSettingSchema.safeParse(env.LIVE_SCENE_MODEL || undefined);
+  if (!parsedModelSetting.success) {
+    return jsonResponse({ error: `LIVE_SCENE_MODEL must be gpt or sonnet, not ${env.LIVE_SCENE_MODEL}` }, 500);
+  }
+  const liveSceneModel: LiveSceneModel = parsedModelSetting.data;
+
   const parsedRequest = await parseJSONRequest(request, sceneRequestSchema);
   if (!parsedRequest.ok) {
     return parsedRequest.response;
@@ -209,7 +256,10 @@ export async function handleLiveScene(request: Request, openAIAPIKey: string): P
   // One retry, because a broken page leaves the learner with a voice and nothing on screen.
   let lastValidationReason = "The model reply could not be checked";
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
-    const modelResult = await requestLiveSceneModelReply(openAIAPIKey, sceneRequest);
+    const modelResult =
+      liveSceneModel === "sonnet"
+        ? await requestSonnetLiveSceneReply(env.ANTHROPIC_API_KEY, sceneRequest)
+        : await requestGPTLiveSceneReply(env.OPENAI_API_KEY, sceneRequest);
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {
         return modelResult.response;

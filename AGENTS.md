@@ -37,7 +37,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /video-quiz-plan` | `api.anthropic.com/v1/messages` | Sonnet reads a video's timestamped transcript once, decides how many moments are worth a question, and picks them. Returns `{ moments: [{ pauseAtSeconds, sourceLineSeconds, question, answerLabel, functionWords, explanation, subject }] }`. Each moment lands on a transcript line boundary, at least 20 seconds in, and the moments are spread across the video |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`
-Worker vars: `ELEVENLABS_VOICE_ID`
+Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by default, or `sonnet`)
 
 ### Key Architecture Decisions
 
@@ -138,6 +138,9 @@ npx wrangler deploy
 
 # Local dev (create worker/.dev.vars with your keys)
 npx wrangler dev
+
+# Test runs: build scenes with Sonnet (about $0.04 each) instead of GPT (about $0.23)
+npx wrangler dev --var LIVE_SCENE_MODEL:sonnet
 
 # Tests and typecheck
 npm test
