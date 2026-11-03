@@ -27,8 +27,11 @@ const judgeAnswerRequestSchema = z.object({
   heardTranscript: z.string().max(8000).optional(),
 });
 
+/** The verdicts the model may return. The Zod check and the reply schema both read this list. */
+const judgeVerdicts = ["correct", "named_only", "wrong", "asked_for_help"] as const;
+
 const judgeVerdictSchema = z.object({
-  verdict: z.enum(["correct", "named_only", "wrong", "asked_for_help"]),
+  verdict: z.enum(judgeVerdicts),
   spokenReply: z.string().min(1),
 });
 
@@ -248,7 +251,7 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
           properties: {
             verdict: {
               type: "string",
-              enum: ["correct", "named_only", "wrong", "asked_for_help"],
+              enum: judgeVerdicts,
               description:
                 "correct when they name the part and say what it does, or say what it does without repeating the name. named_only when they name the part and do not say what it does. wrong when they do neither.",
             },

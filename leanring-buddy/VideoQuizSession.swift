@@ -94,6 +94,20 @@ struct VideoQuizMoment {
     let quiz: LiveSceneQuiz
 }
 
+/// The Worker sends each moment as one flat object, so the quiz decodes from the same keys.
+/// The init lives in an extension so the memberwise init stays available.
+extension VideoQuizMoment: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case pauseAtSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pauseAtSeconds = try container.decode(Double.self, forKey: .pauseAtSeconds)
+        quiz = try LiveSceneQuiz(from: decoder)
+    }
+}
+
 /// A moment stays askable for this long after its pause time, so a learner who
 /// seeks a little past it still gets the question. Further behind counts as skipped.
 nonisolated let videoQuizSecondsAMomentStaysAskableAfterItsPause: Double = 5
@@ -624,15 +638,7 @@ private struct VideoQuizPlanClient {
     }
 
     private struct ResponseBody: Decodable {
-        struct PlannedMoment: Decodable {
-            let pauseAtSeconds: Double
-            let question: String
-            let answerLabel: String
-            let functionWords: [String]
-            let explanation: String
-        }
-
-        let moments: [PlannedMoment]
+        let moments: [VideoQuizMoment]
     }
 
     let workerBaseURL: String
@@ -657,17 +663,6 @@ private struct VideoQuizPlanClient {
             throw VideoQuizFailure.planFailed("Video quiz plan API error (\(httpResponse.statusCode)): \(errorBody)")
         }
 
-        let responseBody = try JSONDecoder().decode(ResponseBody.self, from: responseData)
-        return responseBody.moments.map { plannedMoment in
-            VideoQuizMoment(
-                pauseAtSeconds: plannedMoment.pauseAtSeconds,
-                quiz: LiveSceneQuiz(
-                    answerLabel: plannedMoment.answerLabel,
-                    question: plannedMoment.question,
-                    functionWords: plannedMoment.functionWords,
-                    explanation: plannedMoment.explanation
-                )
-            )
-        }
+        return try JSONDecoder().decode(ResponseBody.self, from: responseData).moments
     }
 }

@@ -9,7 +9,7 @@
 
 import Foundation
 
-struct LiveScenePage {
+struct LiveScenePage: Decodable {
     let html: String
     let quiz: LiveSceneQuiz
 }
@@ -119,37 +119,17 @@ final class LiveSceneClient {
         return data
     }
 
-    private struct LiveSceneResponse: Decodable {
-        struct Quiz: Decodable {
-            let question: String
-            let answerLabel: String
-            let functionWords: [String]
-            let explanation: String
-        }
-
-        let html: String
-        let quiz: Quiz
-    }
-
     private struct JudgeAnswerResponse: Decodable {
         let verdict: String
         let spokenReply: String
     }
 
     private func liveScene(from responseData: Data) throws -> LiveScenePage {
-        let response: LiveSceneResponse
         do {
-            response = try JSONDecoder().decode(LiveSceneResponse.self, from: responseData)
+            return try JSONDecoder().decode(LiveScenePage.self, from: responseData)
         } catch {
             throw liveSceneAPIError(statusCode: -1, message: "Live scene response was missing html or quiz")
         }
-        let quiz = LiveSceneQuiz(
-            answerLabel: response.quiz.answerLabel,
-            question: response.quiz.question,
-            functionWords: response.quiz.functionWords,
-            explanation: response.quiz.explanation
-        )
-        return LiveScenePage(html: response.html, quiz: quiz)
     }
 
     private func judgedAnswer(from responseData: Data) throws -> LiveSceneJudgedAnswer {

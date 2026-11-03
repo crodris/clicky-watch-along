@@ -33,13 +33,18 @@ enum LiveSceneQuizGrade: Equatable {
     case askedForHelp
 }
 
-struct LiveSceneQuiz {
+struct LiveSceneQuiz: Decodable {
     let answerLabel: String
     let question: String
     let functionWords: [String]
     let explanation: String
     /// What the learner has heard of a video so far, so an answer is graded on that.
     var heardTranscript = ""
+
+    /// The app fills in heardTranscript, so the Worker's quiz JSON leaves it out.
+    private enum CodingKeys: String, CodingKey {
+        case answerLabel, question, functionWords, explanation
+    }
 }
 
 enum LiveSceneAnswerJudge {
