@@ -1,3 +1,29 @@
+# Clicky watch-along
+
+This is my fork of [Clicky](https://github.com/farzaa/clicky), the open source version of [HeyClicky](https://www.heyclicky.com/). I built it on my Mac to help me remember what I learn from the YouTube videos I watch.
+
+## What I added
+
+**A watch-along quiz.** Open a YouTube video in Chrome, hold Control + Option, and say "watch this video with me and quiz me." Clicky reads the video's transcript, picks 3 spots to quiz you on, and pauses and plays the video by itself. It only asks about parts you've already heard, and when you ask for help, it explains the answer before the video keeps going.
+
+**3D models on request.** While the video is paused, ask Clicky to show you something in 3D. It sends a screenshot and what the video just said to GPT-6.1 Sol, which writes a labeled three.js scene, usually in about 8 to 14 seconds. The scene opens in Clicky's overlay, Clicky highlights each part as it talks, and you can drag to rotate and pinch to zoom. Press Escape to close it, and the video picks back up. HeyClicky's real-time graphics demo inspired this part.
+
+## Running it
+
+I run this locally, with the Worker on `npx wrangler dev`, and Debug builds point at `http://127.0.0.1:8787`. Follow the setup below, then add these:
+
+- `OPENAI_API_KEY` in `worker/.dev.vars`, for the 3D scenes
+- `brew install yt-dlp`, for the video transcripts
+- In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
+
+Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key. Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`. The Worker has no authentication or rate limits yet, so I wouldn't deploy it publicly as is.
+
+The whale's side profile is traced from Kurzon's [Blue whale size.svg](https://commons.wikimedia.org/wiki/File:Blue_whale_size.svg) (CC BY-SA 3.0).
+
+Everything below is the original Clicky README.
+
+---
+
 ## Get HeyClicky for Mac and Windows
 
 The official app is **[HeyClicky](https://www.heyclicky.com/)**, an AI buddy for Mac and Windows, made by me and the team.
@@ -150,14 +176,6 @@ If you want the full technical breakdown, read `CLAUDE.md`. But here's the short
 
 **Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
 
-## Field trip
-
-Hold Control + Option and ask what something looks like inside. Clicky answers aloud and opens a labeled 3D scene on the screen under the cursor. The camera moves in, one label turns into "?", and Clicky asks you to name it. Answer by holding the same keys.
-
-A blue whale uses a hand-tuned template. Other subjects are generated live from the screenshot.
-
-This app is based on [farzaa/clicky](https://github.com/farzaa/clicky) (MIT). The whale's side profile is traced from Kurzon's [Blue whale size.svg](https://commons.wikimedia.org/wiki/File:Blue_whale_size.svg) (CC BY-SA 3.0).
-
 ## Project structure
 
 ```
@@ -169,9 +187,14 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   OverlayWindow.swift       # Blue cursor overlay
   AssemblyAI*.swift         # Real-time transcription
   BuddyDictation*.swift     # Push-to-talk pipeline
+  VideoQuizSession.swift    # Watch-along quiz that pauses YouTube in Chrome
+  FieldTripOverlay.swift    # Transparent window that plays the 3D scene
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /scene
-  src/scene.ts              # Blue whale is a hand-tuned template. Other subjects are generated live.
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /scene, /live-scene, /judge-answer, /video-quiz-plan
+  src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
+  src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
+  src/scene.ts              # Hand-tuned whale and water scenes, used as the fallback
+scene/                   # three.js renderer, scene schema, and tests
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
 
