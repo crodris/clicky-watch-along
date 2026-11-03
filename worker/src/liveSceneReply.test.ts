@@ -41,6 +41,14 @@ describe("live scene reply", () => {
     }
   });
 
+  it("rejects a page whose module script does not parse", () => {
+    const pageWithATypo = liveScenePage.replace("zoomBy(amount) {},", "zoomBy(amount) { orbit(normal alFix) },");
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithATypo));
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: expect.stringContaining("does not parse") });
+  });
+
   it("rejects a page that reaches an external URL", () => {
     const pageWithAnExternalURL = liveScenePage.replace(
       "</body>",
