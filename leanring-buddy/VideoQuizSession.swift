@@ -172,6 +172,11 @@ private enum VideoQuizFailure: Error {
     }
 }
 
+/// A requested pop-out speaks these lines when it fails.
+extension VideoQuizFailure: LocalizedError {
+    var errorDescription: String? { spokenLine }
+}
+
 // MARK: - Session
 
 @MainActor
@@ -429,6 +434,22 @@ final class VideoQuizSession {
 
     // MARK: Lifting the subject out of the frame
 
+    /// The frame the YouTube tab shows right now, for a pop-out the learner asked for.
+    /// Nil when Sonnet or Vision finds no single subject in it.
+    static func framePopoutOfTheVisibleFrame(workerBaseURL: String) async throws -> VideoFramePopout? {
+        let videoTab = try ChromeVideoTab.findYouTubeWatchTab()
+        let frameGrab = try grabFrame(of: videoTab)
+        print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds)s for a requested pop-out")
+        // No question is being asked, so no label gets the quiz mark.
+        return try await VideoFramePopoutClient.requestPopout(
+            workerBaseURL: workerBaseURL,
+            frameGrab: frameGrab,
+            subject: "",
+            question: "",
+            answerLabel: ""
+        )
+    }
+
     /// Grabs the frame while the video plays, a few seconds before the next pause.
     private func startFramePopoutIfItIsTime(currentSeconds: Double, videoTab: ChromeVideoTab) {
         guard let momentIndex = moments.indices.first(where: { momentIndex in
@@ -446,7 +467,7 @@ final class VideoQuizSession {
         let moment = moments[momentIndex]
         let frameGrab: VideoFrameGrab
         do {
-            frameGrab = try grabFrame(of: videoTab)
+            frameGrab = try Self.grabFrame(of: videoTab)
         } catch {
             print("Video quiz: could not grab a frame for moment \(momentIndex + 1): \(error)")
             return nil
@@ -460,7 +481,8 @@ final class VideoQuizSession {
                     workerBaseURL: workerBaseURL,
                     frameGrab: frameGrab,
                     subject: moment.subject,
-                    quiz: moment.quiz
+                    question: moment.quiz.question,
+                    answerLabel: moment.quiz.answerLabel
                 )
                 let requestSeconds = String(format: "%.1f", Date().timeIntervalSince(requestStartDate))
                 if let framePopout {
@@ -517,7 +539,7 @@ final class VideoQuizSession {
     /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
     private static let grabFrameJavaScript = "(function () { var video = document.querySelector('video'); if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
 
-    private func grabFrame(of videoTab: ChromeVideoTab) throws -> VideoFrameGrab {
+    private static func grabFrame(of videoTab: ChromeVideoTab) throws -> VideoFrameGrab {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.grabFrameJavaScript, in: videoTab)
         if javaScriptResult == "no-video" {
             throw VideoQuizFailure.noVideoOnThePage

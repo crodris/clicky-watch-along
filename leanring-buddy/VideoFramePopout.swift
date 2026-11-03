@@ -62,7 +62,8 @@ enum VideoFramePopoutClient {
         workerBaseURL: String,
         frameGrab: VideoFrameGrab,
         subject: String,
-        quiz: LiveSceneQuiz
+        question: String,
+        answerLabel: String
     ) async throws -> VideoFramePopout? {
         guard let framePartsURL = URL(string: "\(workerBaseURL)/video-frame-parts") else {
             preconditionFailure("Worker base URL did not form the frame parts URL: \(workerBaseURL)")
@@ -75,8 +76,8 @@ enum VideoFramePopoutClient {
             "frameWidth": frameGrab.width,
             "frameHeight": frameGrab.height,
             "subject": subject,
-            "question": quiz.question,
-            "answerLabel": quiz.answerLabel,
+            "question": question,
+            "answerLabel": answerLabel,
         ])
         let (responseData, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {

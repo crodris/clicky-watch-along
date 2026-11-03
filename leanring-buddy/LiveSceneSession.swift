@@ -13,6 +13,8 @@ enum LiveSceneKind {
     case explore
     /// One label shows "?" and Clicky asks what that part is and what it does after the tour.
     case quiz
+    /// The subject of the YouTube frame on screen lifts out in 3D with every label, and nothing is asked.
+    case framePopout
 }
 
 enum LiveScenePhase {
@@ -116,6 +118,13 @@ enum LiveSceneAnswerJudge {
 /// request wins, because "show me inside and quiz me" wants the quiz.
 nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
+    let asksForAFramePopout = lowercaseTranscript.range(
+        of: #"\bpop(\s+(it|this|that))?\s*-?\s*out\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksForAFramePopout {
+        return .framePopout
+    }
     let asksToBeQuizzed = lowercaseTranscript.range(
         of: #"\b(quiz\w*|test me|kiss me)\b"#,
         options: .regularExpression

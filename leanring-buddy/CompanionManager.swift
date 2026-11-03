@@ -735,7 +735,8 @@ final class CompanionManager: ObservableObject {
         // A 3D model only appears when the learner asks. During a video quiz that
         // pauses the video, and a pending question is set aside for the model.
         var sceneQuestion = transcript
-        if videoQuizSession.isRunning, liveSceneKind(for: transcript) == .explore {
+        let requestedKind = liveSceneKind(for: transcript)
+        if videoQuizSession.isRunning, requestedKind == .explore || requestedKind == .framePopout {
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
             videoQuizQuestionIsActive = false
             liveScenePhase = .idle
@@ -772,6 +773,15 @@ final class CompanionManager: ObservableObject {
         if case .allLabelsShowing = liveScenePhase, liveSceneKind(for: transcript) == nil {
             currentResponseTask = Task {
                 await self.answerAboutTheLiveSceneOnScreen(transcript: transcript)
+            }
+            return
+        }
+
+        if liveSceneKind(for: transcript) == .framePopout {
+            clearFinishedLiveScene(resumesTheVideo: false)
+            liveScenePhase = .buildingScene
+            currentResponseTask = Task {
+                await self.popOutTheVisibleVideoFrame(requestGeneration: requestGeneration)
             }
             return
         }
@@ -927,6 +937,53 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
             }
         }
+    }
+
+    /// Lifts the subject of the paused YouTube frame out in 3D with every label showing.
+    /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
+    private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
+        LiveSceneStatusLabel.shared.show("Popping it out")
+        await speakLiveSceneLine("Sure, let me pop that out.")
+        guard !Task.isCancelled else {
+            LiveSceneStatusLabel.shared.hide()
+            return
+        }
+        voiceState = .processing
+        var framePopout: VideoFramePopout?
+        var failureLine = "I couldn't find one thing in this frame to pop out."
+        do {
+            framePopout = try await VideoQuizSession.framePopoutOfTheVisibleFrame(workerBaseURL: Self.workerBaseURL)
+        } catch is CancellationError {
+        } catch let urlError as URLError where urlError.code == .cancelled {
+        } catch {
+            print("Frame pop-out failed: \(error)")
+            if let spokenFailure = (error as? LocalizedError)?.errorDescription {
+                failureLine = spokenFailure
+            }
+        }
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else {
+            LiveSceneStatusLabel.shared.hide()
+            return
+        }
+        LiveSceneStatusLabel.shared.hide()
+
+        guard let framePopout,
+              let overlayScreen = screenUnderTheMouseCursor(),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false) else {
+            liveScenePhase = .idle
+            await speakLiveSceneLine(failureLine)
+            voiceState = .idle
+            // No scene opened, so nothing will clear it and resume the video.
+            if videoQuizSession.videoIsPausedForRequestedScene {
+                videoQuizSession.resumeVideoAfterRequestedScene()
+            }
+            return
+        }
+        print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels")
+        liveScenePhase = .touring(quizToAskAfterTour: nil)
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     /// Clicky says each build status out loud as the label shows it, so the

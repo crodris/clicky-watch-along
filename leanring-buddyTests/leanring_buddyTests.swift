@@ -143,6 +143,9 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "Can you quiz me on it?") == .quiz)
         #expect(liveSceneKind(for: "Can you kiss me on it?") == .quiz)
         #expect(liveSceneKind(for: "show me inside and test me on it") == .quiz)
+        #expect(liveSceneKind(for: "Hey Clicky, can you pop this out?") == .framePopout)
+        #expect(liveSceneKind(for: "pop out a render of this") == .framePopout)
+        #expect(liveSceneKind(for: "that popped up on my screen") == nil)
         #expect(liveSceneKind(for: "what's on the latest menu") == nil)
     }
 
