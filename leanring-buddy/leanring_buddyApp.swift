@@ -34,12 +34,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var sparkleUpdaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Field-trip preview. Skip menu bar, analytics, and login item setup.
-        if ProcessInfo.processInfo.arguments.contains("--field-trip-spec") {
-            playFieldTripSpecFromLaunchArguments()
-            return
-        }
-
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
@@ -59,38 +53,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // startSparkleUpdater()
         #if DEBUG
         let launchArguments = ProcessInfo.processInfo.arguments
-        if let flagIndex = launchArguments.firstIndex(of: "--field-trip-rehearsal"),
+        if let flagIndex = launchArguments.firstIndex(of: "--live-scene-rehearsal"),
            flagIndex + 1 < launchArguments.count {
             let transcripts = launchArguments[flagIndex + 1].components(separatedBy: "|")
             let companionManager = companionManager
-            Task { await companionManager.runFieldTripRehearsal(transcripts: transcripts) }
+            Task { await companionManager.runLiveSceneRehearsal(transcripts: transcripts) }
         }
         #endif
-    }
-
-    /// `--field-trip-spec <path>` reads that JSON file and plays it in the overlay.
-    /// A missing path still returns early so the menu bar app does not start.
-    private func playFieldTripSpecFromLaunchArguments() {
-        let launchArguments = ProcessInfo.processInfo.arguments
-        guard let flagIndex = launchArguments.firstIndex(of: "--field-trip-spec") else {
-            return
-        }
-        let specPathIndex = launchArguments.index(after: flagIndex)
-        guard specPathIndex < launchArguments.endIndex else {
-            print("Field trip: --field-trip-spec needs a JSON file path")
-            return
-        }
-        let specFilePath = launchArguments[specPathIndex]
-        let specFileURL = URL(fileURLWithPath: specFilePath)
-        do {
-            var specJSONText = try String(contentsOf: specFileURL, encoding: .utf8)
-            if specJSONText.hasPrefix("\u{feff}") {
-                specJSONText.removeFirst()
-            }
-            FieldTripOverlay.shared.play(specJSONData: Data(specJSONText.utf8), hidesQuizLabel: false)
-        } catch {
-            print("Field trip: could not read spec at \(specFilePath): \(error.localizedDescription)")
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

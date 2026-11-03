@@ -2,14 +2,13 @@
  * POST /live-scene and POST /judge-answer.
  *
  * /live-scene asks GPT-6.1 Sol Ultrafast for a self-contained three.js page
- * and a quiz. A reply that fails the check is retried once, then returned as 422
- * so the app can fall back to the hand-tuned whale and water templates.
- * /judge-answer asks Haiku whether the learner's spoken answer is right.
+ * and a quiz. A reply that fails the check is retried once, then returned as 422,
+ * and the app tells the learner it couldn't build the scene.
+ * /judge-answer asks Sonnet whether the learner's spoken answer is right.
  */
 
 import { z } from "zod";
-// The check lives next to the scene tests. This package has no vitest run.
-import { checkLiveSceneModelReply } from "../../scene/src/liveSceneReply";
+import { checkLiveSceneModelReply } from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
 
@@ -55,8 +54,7 @@ const anthropicMessageSchema = z.object({
   content: z.array(
     z.object({
       type: z.string(),
-      name: z.string().optional(),
-      input: z.unknown().optional(),
+      text: z.string().optional(),
     }),
   ),
 });
@@ -85,11 +83,11 @@ const liveSceneInstructions = [
   "Camera tour: hold outside the whole subject for 1 second, move closer over 2 seconds, then over 3 seconds move in beside the answer part while the outer shell fades. Keep neighboring parts in view at the end.",
   "",
   "Follow this contract exactly, because the app depends on it:",
-  "1. Define window.fieldTrip at the top of the module script, before any await.",
-  '2. window.fieldTrip.reveal() changes the answer part\'s label from "?" to its real name.',
-  "3. window.fieldTrip.focusPart(labelText) moves the camera to the part with that label over about 1.5 seconds, makes that part glow, fades every other part to about 35 percent, and returns true. Calling it again moves the highlight. Calling it with an empty string restores every part. It returns false when no part has that label. Return the boolean immediately, and let the move run.",
-  '4. When the tour ends, set window.__tourFinished = true and call window.webkit?.messageHandlers?.fieldTripEvent?.postMessage("tourFinished").',
-  "5. After the tour ends only, dragging with the mouse orbits the camera around the answer part, and window.fieldTrip.zoomBy(amount) with a positive amount moves the camera closer. Clamp both so the camera stays useful. Before the tour ends both do nothing.",
+  "1. Define window.liveScene at the top of the module script, before any await.",
+  '2. window.liveScene.reveal() changes the answer part\'s label from "?" to its real name.',
+  "3. window.liveScene.focusPart(labelText) moves the camera to the part with that label over about 1.5 seconds, makes that part glow, fades every other part to about 35 percent, and returns true. Calling it again moves the highlight. Calling it with an empty string restores every part. It returns false when no part has that label. Return the boolean immediately, and let the move run.",
+  '4. When the tour ends, set window.__tourFinished = true and call window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished").',
+  "5. After the tour ends only, dragging with the mouse orbits the camera around the answer part, and window.liveScene.zoomBy(amount) with a positive amount moves the camera closer. Clamp both so the camera stays useful. Before the tour ends both do nothing.",
   "6. Set window.__ready = true after the first frame renders.",
   "",
   "The json block is one JSON object and nothing else:",
@@ -101,8 +99,8 @@ const liveSceneInstructions = [
 ].join("\n");
 
 const judgeAnswerSystemPrompt = [
-  "You grade a learner's spoken answer about one part of a 3D field trip.",
-  "Call judge_answer.",
+  "You grade a learner's spoken answer about one part of a 3D live scene.",
+  "Reply with the verdict as JSON.",
   "",
   "verdict:",
   '- "correct" when the transcript names the part and says what it does, or says what it does even without repeating the name. A follow-up often only says the function.',
@@ -152,11 +150,17 @@ function modelReplyText(responseJSON: unknown): string | undefined {
   return undefined;
 }
 
-function toolInputNamed(message: AnthropicMessage, toolName: string): unknown {
-  const toolUseBlock = message.content.find((contentBlock) => {
-    return contentBlock.type === "tool_use" && contentBlock.name === toolName;
-  });
-  return toolUseBlock?.input;
+/** Thinking blocks come first, so the verdict is the first text block. Text that is not JSON counts as no verdict. */
+function judgeVerdictJSONFromReply(message: AnthropicMessage): unknown {
+  const textBlock = message.content.find((contentBlock) => contentBlock.type === "text");
+  if (textBlock?.text === undefined) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(textBlock.text);
+  } catch {
+    return undefined;
+  }
 }
 
 async function requestLiveSceneModelReply(
@@ -280,15 +284,17 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-haiku-5-5",
-      max_tokens: 1024,
+      model: "claude-sonnet-5-5",
+      // Sonnet 5.5 thinks before it answers, and that thinking counts toward this limit.
+      max_tokens: 4096,
       system: judgeAnswerSystemPrompt,
-      tools: [
-        {
-          name: "judge_answer",
-          description: "Grade the learner's spoken answer and write the one sentence Clicky says back.",
-          input_schema: {
+      // Sonnet 5.5 rejects a forced tool call, so the verdict comes back as schema-checked JSON text.
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: {
             type: "object",
+            additionalProperties: false,
             properties: {
               verdict: {
                 type: "string",
@@ -305,8 +311,7 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
             required: ["verdict", "spokenReply"],
           },
         },
-      ],
-      tool_choice: { type: "tool", name: "judge_answer", disable_parallel_tool_use: true },
+      },
       messages: [
         {
           role: "user",
@@ -342,12 +347,10 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
 
   const parsedMessage = anthropicMessageSchema.safeParse(responseJSON);
   if (!parsedMessage.success) {
-    return jsonResponse({ error: "Anthropic response was missing tool content" }, 502);
+    return jsonResponse({ error: "Anthropic response had no content list" }, 502);
   }
 
-  const parsedVerdict = judgeAnswerToolInputSchema.safeParse(
-    toolInputNamed(parsedMessage.data, "judge_answer"),
-  );
+  const parsedVerdict = judgeAnswerToolInputSchema.safeParse(judgeVerdictJSONFromReply(parsedMessage.data));
   if (!parsedVerdict.success) {
     return jsonResponse({ error: parsedVerdict.error.message }, 502);
   }

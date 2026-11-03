@@ -1,5 +1,5 @@
 //
-//  FieldTripStatusLabel.swift
+//  LiveSceneStatusLabel.swift
 //  leanring-buddy
 //
 //  A small label at the bottom of the screen while a scene builds, so the wait
@@ -11,13 +11,13 @@ import Combine
 import SwiftUI
 
 @MainActor
-private final class FieldTripStatusLabelModel: ObservableObject {
+private final class LiveSceneStatusLabelModel: ObservableObject {
     @Published var statusText = ""
     @Published var isVisible = false
 }
 
-private struct FieldTripStatusLabelView: View {
-    @ObservedObject var statusLabelModel: FieldTripStatusLabelModel
+private struct LiveSceneStatusLabelView: View {
+    @ObservedObject var statusLabelModel: LiveSceneStatusLabelModel
 
     var body: some View {
         Text(statusLabelModel.statusText)
@@ -33,14 +33,14 @@ private struct FieldTripStatusLabelView: View {
 }
 
 @MainActor
-final class FieldTripStatusLabel {
-    static let shared = FieldTripStatusLabel()
+final class LiveSceneStatusLabel {
+    static let shared = LiveSceneStatusLabel()
 
     private static let panelSize = CGSize(width: 420, height: 60)
     private static let distanceFromCursor = CGPoint(x: 24, y: -50)
     private static let cursorFollowInterval: TimeInterval = 1.0 / 30.0
 
-    private let statusLabelModel = FieldTripStatusLabelModel()
+    private let statusLabelModel = LiveSceneStatusLabelModel()
     private var statusLabelPanel: NSPanel?
     private var cursorFollowTimer: Timer?
 
@@ -99,7 +99,7 @@ final class FieldTripStatusLabel {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(
-            rootView: FieldTripStatusLabelView(statusLabelModel: statusLabelModel)
+            rootView: LiveSceneStatusLabelView(statusLabelModel: statusLabelModel)
         )
         return panel
     }

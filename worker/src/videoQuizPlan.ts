@@ -1,8 +1,9 @@
 /**
  * POST /video-quiz-plan
  *
- * The app sends a video's timestamped transcript once. Haiku picks three moments
- * to pause the video and writes a quiz question for each. parseVideoQuizPlan is
+ * The app sends a video's timestamped transcript once. Sonnet decides how many
+ * moments the video is worth pausing for, picks them, and writes a quiz question
+ * for each. parseVideoQuizPlan is
  * the only place the model reply is trusted, so every rule that can be checked
  * without a model lives there.
  */
@@ -36,18 +37,15 @@ const videoQuizMomentSchema = z
     subject: z.string().trim().min(1),
   });
 
-const momentsPerPlan = 3;
-
 const videoQuizPlanSchema = z.object({
-  moments: z.array(videoQuizMomentSchema).length(momentsPerPlan),
+  moments: z.array(videoQuizMomentSchema).min(1),
 });
 
 const anthropicMessageSchema = z.object({
   content: z.array(
     z.object({
       type: z.string(),
-      name: z.string().optional(),
-      input: z.unknown().optional(),
+      text: z.string().optional(),
     }),
   ),
 });
@@ -64,21 +62,20 @@ export type VideoQuizPlanParseResult =
 
 export const minimumPauseAtSeconds = 20;
 export const maximumFirstPauseAtSeconds = 60;
-/** A fraction of the video's length, so a short video can still fit three moments. */
+/** A fraction of the video's length, so moments stay spread out and a plan holds at most about 10. */
 export const minimumGapBetweenMomentsAsFractionOfVideo = 0.1;
 
 const maximumPlanAttempts = 3;
 
-const planToolName = "plan_quiz_moments";
-
-const planToolInputSchema = {
+/** Structured output schema. Count and word rules stay in parseVideoQuizPlan, which names the broken rule on a retry. */
+const planOutputSchema = {
   type: "object",
+  additionalProperties: false,
   properties: {
     moments: {
       type: "array",
-      minItems: momentsPerPlan,
-      maxItems: momentsPerPlan,
       items: {
+        additionalProperties: false,
         type: "object",
         properties: {
           pauseAtSeconds: {
@@ -104,7 +101,7 @@ const planToolInputSchema = {
             type: "array",
             description:
               "Lowercase single words that show the learner understood what the answer does or why.",
-            items: { type: "string", pattern: "^[a-z]+$" },
+            items: { type: "string" },
           },
           explanation: {
             type: "string",
@@ -125,14 +122,14 @@ const planToolInputSchema = {
 
 const systemPrompt = [
   "You plan a quiz for a learner who is watching a video. You read the whole timestamped transcript once and pick the moments where the video will pause for a question.",
-  "Call plan_quiz_moments with exactly 3 moments.",
+  "Reply with the plan as JSON. You decide how many moments the video is worth: one for each distinct, teachable idea a learner should remember, usually one every 2 to 4 minutes. A short video may need only 1 or 2, and a long one may need more.",
   "",
   "Each transcript line starts with its time in seconds, like [123.4]. A line's idea ends where the next line begins.",
   "Pick each pauseAtSeconds by finding a concrete, teachable fact or explanation that finishes, then copying the seconds value of the line right after it, exactly as written.",
   "",
-  "Rules for the three moments:",
+  "Rules for the moments:",
   "- The transcript starts where the learner is. The first moment comes as early as a real fact allows, 20 to 45 seconds after the first line when the video has one there. Viewers should not wait long for the first question.",
-  "- Spread the other two across the rest of the video. Keep them far apart.",
+  "- Spread the rest across the video, at least a tenth of the remaining video apart, so the learner gets long stretches of watching between questions.",
   `- None in the first ${minimumPauseAtSeconds} seconds, which are usually an intro or a hook.`,
   "- None during or after a sponsor read, an ad, a plug for a product or channel, or a request to like and subscribe.",
   "- Each fact must be stated in the transcript. Never ask about anything the transcript does not say, and never use outside knowledge.",
@@ -257,7 +254,7 @@ function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError
           "Transcript:",
           transcriptText,
           ...(rejectedReplyError.length > 0
-            ? ["", `Your previous reply was rejected: ${rejectedReplyError}. Call plan_quiz_moments again and fix that.`]
+            ? ["", `Your previous reply was rejected: ${rejectedReplyError}. Reply with the plan again and fix that.`]
             : []),
         ].join("\n"),
       },
@@ -265,11 +262,17 @@ function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError
   };
 }
 
-function toolInputNamed(message: AnthropicMessage, toolName: string): unknown {
-  const toolUseBlock = message.content.find((contentBlock) => {
-    return contentBlock.type === "tool_use" && contentBlock.name === toolName;
-  });
-  return toolUseBlock?.input;
+/** Thinking blocks come first, so the plan is the first text block. Text that is not JSON counts as no plan. */
+function planJSONFromReply(message: AnthropicMessage): unknown {
+  const textBlock = message.content.find((contentBlock) => contentBlock.type === "text");
+  if (textBlock?.text === undefined) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(textBlock.text);
+  } catch {
+    return undefined;
+  }
 }
 
 export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: string): Promise<Response> {
@@ -285,7 +288,7 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
     return jsonResponse({ error: parsedRequest.error.message }, 400);
   }
 
-  // Retries that name the broken rule, because a forced tool call still
+  // Retries that name the broken rule, because a schema-valid plan still
   // sometimes breaks one the schema cannot enforce, such as a pause that is not
   // on a line boundary, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
@@ -298,17 +301,12 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-5-5",
-        max_tokens: 2048,
+        model: "claude-sonnet-5-5",
+        // Sonnet 5.5 thinks before it answers, and that thinking counts toward this limit.
+        max_tokens: 16000,
         system: systemPrompt,
-        tools: [
-          {
-            name: planToolName,
-            description: "Plan the three moments where the video pauses for a quiz question.",
-            input_schema: planToolInputSchema,
-          },
-        ],
-        tool_choice: { type: "tool", name: planToolName, disable_parallel_tool_use: true },
+        // Sonnet 5.5 rejects a forced tool call, so the plan comes back as schema-checked JSON text.
+        output_config: { format: { type: "json_schema", schema: planOutputSchema } },
         messages: [userTurn(parsedRequest.data, lastValidationError)],
       }),
     });
@@ -331,11 +329,11 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
 
     const parsedMessage = anthropicMessageSchema.safeParse(anthropicJSON);
     if (!parsedMessage.success) {
-      return jsonResponse({ error: "Anthropic response was missing tool content" }, 502);
+      return jsonResponse({ error: "Anthropic response had no content list" }, 502);
     }
 
     const parsedPlan = parseVideoQuizPlan(
-      toolInputNamed(parsedMessage.data, planToolName),
+      planJSONFromReply(parsedMessage.data),
       parsedRequest.data.transcriptLines,
     );
     if (parsedPlan.ok) {

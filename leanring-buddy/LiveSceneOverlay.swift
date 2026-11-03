@@ -1,12 +1,11 @@
 //
-//  FieldTripOverlay.swift
+//  LiveSceneOverlay.swift
 //  leanring-buddy
 //
-//  One transparent window and one page, reused for every field trip. The
+//  One transparent window and one page, reused for every live scene. The
 //  window is created on the screen under the mouse, and later plays move it
-//  there again. A template spec plays in FieldTripScene.html. A live scene
-//  loads generated HTML in that same window. The page reports tourFinished
-//  when the camera tour ends.
+//  there again. Each scene is generated HTML loaded in that window. The page
+//  reports tourFinished when the camera tour ends.
 //
 
 import AppKit
@@ -14,7 +13,7 @@ import WebKit
 
 /// The overlay window never becomes key, so AppKit would otherwise drop the
 /// click that starts a drag.
-private final class FieldTripWebView: WKWebView {
+private final class LiveSceneWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
@@ -22,7 +21,7 @@ private final class FieldTripWebView: WKWebView {
 
 /// Generated pages import three.js from clicky-asset://three/..., because that
 /// page is not allowed to reach a CDN. The two files ship in the app bundle.
-private final class FieldTripThreeAssetSchemeHandler: NSObject, WKURLSchemeHandler {
+private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The generated page is served from here so its policy is a response header.
     /// Text in the page cannot displace a header the way it could a meta tag.
     static let livePageURLString = "clicky-asset://live/page.html"
@@ -47,7 +46,7 @@ private final class FieldTripThreeAssetSchemeHandler: NSObject, WKURLSchemeHandl
             return
         }
         guard let scriptData = bundledScript(named: fileName) else {
-            print("Field trip: \(fileName) is not in the app bundle")
+            print("Live scene: \(fileName) is not in the app bundle")
             fail(urlSchemeTask, message: "\(fileName) is not in the app bundle")
             return
         }
@@ -122,7 +121,7 @@ private final class FieldTripThreeAssetSchemeHandler: NSObject, WKURLSchemeHandl
     private func fail(_ urlSchemeTask: WKURLSchemeTask, message: String) {
         guard !taskWasStopped(urlSchemeTask) else { return }
         urlSchemeTask.didFailWithError(NSError(
-            domain: "FieldTripScene",
+            domain: "LiveScene",
             code: -1,
             userInfo: [NSLocalizedDescriptionKey: message]
         ))
@@ -130,8 +129,8 @@ private final class FieldTripThreeAssetSchemeHandler: NSObject, WKURLSchemeHandl
 }
 
 // A class, not an enum: WKNavigationDelegate has to be an NSObject.
-final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-    static let shared = FieldTripOverlay()
+final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    static let shared = LiveSceneOverlay()
 
     var onTourFinished: (() -> Void)?
 
@@ -139,7 +138,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     (() => {
       delete window.RTCPeerConnection;
       delete window.webkitRTCPeerConnection;
-      const send = (text) => window.webkit.messageHandlers.fieldTripLog.postMessage(String(text));
+      const send = (text) => window.webkit.messageHandlers.liveSceneLog.postMessage(String(text));
       for (const level of ["error", "warn"]) {
         const original = console[level].bind(console);
         console[level] = (...values) => { send(level + ": " + values.join(" ")); original(...values); };
@@ -172,26 +171,19 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     ]
     """
 
-    private enum QueuedFieldTripPage {
-        case template(specJSONData: Data, hidesQuizLabel: Bool)
-        case live(html: String, hidesQuizLabel: Bool)
+    private struct QueuedLiveScenePage {
+        let html: String
+        let hidesQuizLabel: Bool
     }
 
-    private enum LoadedFieldTripPage {
-        case none
-        case template
-        case live
-    }
-
-    private let threeAssetSchemeHandler = FieldTripThreeAssetSchemeHandler()
-    private var fieldTripOverlayWindow: OverlayWindow?
-    private var fieldTripWebView: WKWebView?
+    private let threeAssetSchemeHandler = LiveSceneAssetSchemeHandler()
+    private var liveSceneOverlayWindow: OverlayWindow?
+    private var liveSceneWebView: WKWebView?
     private var networkBlockRuleList: WKContentRuleList?
     private var liveSceneShowsEveryLabel = false
     private var networkBlockRuleListHasFinishedCompiling = false
     private var pageHasFinishedLoading = false
-    private var loadedPageKind: LoadedFieldTripPage = .none
-    private var queuedPageLoad: QueuedFieldTripPage?
+    private var queuedPageLoad: QueuedLiveScenePage?
     /// A new load cancels the previous one. Only the navigation that started last may play.
     private var navigationWeAreWaitingFor: WKNavigation?
 
@@ -201,11 +193,11 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == "fieldTripLog" {
-            print("Field trip page: \(message.body)")
+        if message.name == "liveSceneLog" {
+            print("Live scene page: \(message.body)")
             return
         }
-        guard message.name == "fieldTripEvent" else {
+        guard message.name == "liveSceneEvent" else {
             return
         }
         // The page posts this string when the camera tour ends.
@@ -215,23 +207,15 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         onTourFinished?()
     }
 
-    func play(specJSONData: Data, hidesQuizLabel: Bool) {
-        placeOverlayOnTheScreenUnderTheMouse()
-        fieldTripOverlayWindow?.ignoresMouseEvents = true
-        queuedPageLoad = .template(specJSONData: specJSONData, hidesQuizLabel: hidesQuizLabel)
-        startQueuedPageLoad()
-    }
-
-    /// False means the page was refused and the caller should use a template.
-    /// Generated code must never run without the network block in place.
+    /// False means the page was refused. Generated code must never run without the network block in place.
     func playLiveScene(html: String, hidesQuizLabel: Bool) -> Bool {
         guard networkBlockRuleList != nil else {
-            print("Field trip: refused a live page because its network block is missing")
+            print("Live scene: refused a live page because its network block is missing")
             return false
         }
         placeOverlayOnTheScreenUnderTheMouse()
-        fieldTripOverlayWindow?.ignoresMouseEvents = true
-        queuedPageLoad = .live(html: html, hidesQuizLabel: hidesQuizLabel)
+        liveSceneOverlayWindow?.ignoresMouseEvents = true
+        queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel)
         startQueuedPageLoad()
         return true
     }
@@ -242,14 +226,14 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         let navigationScheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
-        let schemesThisPageMayOpen = ["about", "file", "clicky-asset"]
+        let schemesThisPageMayOpen = ["about", "clicky-asset"]
         decisionHandler(schemesThisPageMayOpen.contains(navigationScheme) ? .allow : .cancel)
     }
 
     /// A window that catches the mouse blocks every click on the screen, so
     /// this stays off until the scene is finished and clear() turns it off.
     func letLearnerDragTheModel() {
-        fieldTripOverlayWindow?.ignoresMouseEvents = false
+        liveSceneOverlayWindow?.ignoresMouseEvents = false
         if liveSceneShowsEveryLabel {
             reveal()
         }
@@ -258,39 +242,38 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// The overlay never becomes key, so AppKit does not deliver a pinch to it.
     /// CompanionManager passes in what the push-to-talk event tap sees instead.
     func zoomModelForPinch(magnification: Double) {
-        guard let fieldTripOverlayWindow,
-              !fieldTripOverlayWindow.ignoresMouseEvents,
-              fieldTripOverlayWindow.frame.contains(NSEvent.mouseLocation) else { return }
+        guard let liveSceneOverlayWindow,
+              !liveSceneOverlayWindow.ignoresMouseEvents,
+              liveSceneOverlayWindow.frame.contains(NSEvent.mouseLocation) else { return }
         evaluateOnThePage(
-            "window.fieldTrip.zoomBy(magnification)",
+            "window.liveScene.zoomBy(magnification)",
             arguments: ["magnification": magnification]
         )
     }
 
     func reveal() {
-        evaluateOnThePage("window.fieldTrip.reveal()")
+        evaluateOnThePage("window.liveScene.reveal()")
     }
 
-    /// A generated page imports three.js, so window.fieldTrip can appear after
+    /// A generated page imports three.js, so window.liveScene can appear after
     /// the load event. Revealing then would fail and leave a "?" on the model.
     private func revealOnceTheGeneratedPageIsReady() {
         evaluateOnThePage("""
         for (let attempt = 0; attempt < 100; attempt += 1) {
-          if (window.fieldTrip?.reveal) { window.fieldTrip.reveal(); return; }
+          if (window.liveScene?.reveal) { window.liveScene.reveal(); return; }
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
         """)
     }
 
-    /// Generated pages can move to and highlight a part. Templates cannot, so
-    /// the optional call does nothing on them.
+    /// A generated page may leave out focusPart, so the call is optional.
     func highlightPart(labelText: String) {
-        evaluateOnThePage("window.fieldTrip.focusPart?.(labelText)", arguments: ["labelText": labelText])
+        evaluateOnThePage("window.liveScene.focusPart?.(labelText)", arguments: ["labelText": labelText])
     }
 
     func partLabels() async -> [String] {
-        guard let fieldTripWebView, pageHasFinishedLoading else { return [] }
-        let pageResult = try? await fieldTripWebView.callAsyncJavaScript(
+        guard let liveSceneWebView, pageHasFinishedLoading else { return [] }
+        let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
             "return [...document.querySelectorAll('.scene-label')].map((label) => label.textContent.trim())",
             arguments: [:],
             in: nil,
@@ -302,9 +285,9 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     func clear() {
         queuedPageLoad = nil
-        fieldTripOverlayWindow?.ignoresMouseEvents = true
-        evaluateOnThePage("window.fieldTrip.clear()")
-        fieldTripOverlayWindow?.orderOut(nil)
+        liveSceneOverlayWindow?.ignoresMouseEvents = true
+        evaluateOnThePage("window.liveScene.clear()")
+        liveSceneOverlayWindow?.orderOut(nil)
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -321,10 +304,9 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        print("Field trip: web content process terminated")
+        print("Live scene: web content process terminated")
         pageHasFinishedLoading = false
-        loadedPageKind = .none
-        fieldTripOverlayWindow?.ignoresMouseEvents = true
+        liveSceneOverlayWindow?.ignoresMouseEvents = true
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -337,12 +319,12 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     private func compileHttpAndHttpsBlock() {
         guard let ruleListStore = WKContentRuleListStore.default() else {
-            print("Field trip: content rule list store is unavailable")
+            print("Live scene: content rule list store is unavailable")
             networkBlockRuleListHasFinishedCompiling = true
             return
         }
         ruleListStore.compileContentRuleList(
-            forIdentifier: "FieldTripBlocksHttpAndHttps",
+            forIdentifier: "LiveSceneBlocksHttpAndHttps",
             encodedContentRuleList: Self.httpAndHttpsBlockRuleListJSON
         ) { [weak self] ruleList, error in
             DispatchQueue.main.async {
@@ -353,7 +335,7 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     private func finishCompilingTheHttpBlock(ruleList: WKContentRuleList?, error: Error?) {
         if let error {
-            print("Field trip: http block failed to compile: \(error.localizedDescription)")
+            print("Live scene: http block failed to compile: \(error.localizedDescription)")
         }
         networkBlockRuleList = ruleList
         networkBlockRuleListHasFinishedCompiling = true
@@ -372,55 +354,30 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     private func placeOverlayOnTheScreenUnderTheMouse() {
         guard let screen = screenUnderTheMouseCursor() else {
-            print("Field trip: no screen is available")
+            print("Live scene: no screen is available")
             return
         }
-        if let fieldTripOverlayWindow {
-            fieldTripOverlayWindow.setFrame(screen.frame, display: true)
-            fieldTripOverlayWindow.orderFrontRegardless()
+        if let liveSceneOverlayWindow {
+            liveSceneOverlayWindow.setFrame(screen.frame, display: true)
+            liveSceneOverlayWindow.orderFrontRegardless()
             return
         }
-        let fieldTripOverlayWindow = OverlayWindow(screen: screen)
-        self.fieldTripOverlayWindow = fieldTripOverlayWindow
-        fieldTripOverlayWindow.orderFrontRegardless()
+        let liveSceneOverlayWindow = OverlayWindow(screen: screen)
+        self.liveSceneOverlayWindow = liveSceneOverlayWindow
+        liveSceneOverlayWindow.orderFrontRegardless()
     }
 
     private func startQueuedPageLoad() {
         guard networkBlockRuleListHasFinishedCompiling else { return }
-        guard fieldTripOverlayWindow != nil else { return }
+        guard liveSceneOverlayWindow != nil else { return }
         guard let queuedPageLoad else { return }
-        ensureFieldTripWebView()
-        guard fieldTripWebView != nil else { return }
+        ensureLiveSceneWebView()
+        guard liveSceneWebView != nil else { return }
 
-        switch queuedPageLoad {
-        case .template(let specJSONData, let hidesQuizLabel):
-            if loadedPageKind == .template && pageHasFinishedLoading {
-                self.queuedPageLoad = nil
-                sendSpecToPage(specJSONData, hidesQuizLabel: hidesQuizLabel)
-                return
-            }
-            // The template document is already on its way. didFinish plays the latest spec.
-            if loadedPageKind == .template && !pageHasFinishedLoading {
-                return
-            }
-            guard let scenePageURL = Bundle.main.url(forResource: "FieldTripScene", withExtension: "html") else {
-                print("Field trip: FieldTripScene.html is not in the app bundle")
-                return
-            }
-            // A live page replaced window.fieldTrip.play, so the template file has to load again.
-            beginReplacingTheDocument()
-            loadedPageKind = .template
-            fieldTripWebView?.loadFileURL(
-                scenePageURL,
-                allowingReadAccessTo: scenePageURL.deletingLastPathComponent()
-            )
-        case .live(let html, _):
-            beginReplacingTheDocument()
-            loadedPageKind = .live
-            guard let livePageURL = URL(string: FieldTripThreeAssetSchemeHandler.livePageURLString) else { return }
-            threeAssetSchemeHandler.livePageHTMLData = Data(html.utf8)
-            fieldTripWebView?.load(URLRequest(url: livePageURL))
-        }
+        beginReplacingTheDocument()
+        guard let livePageURL = URL(string: LiveSceneAssetSchemeHandler.livePageURLString) else { return }
+        threeAssetSchemeHandler.livePageHTMLData = Data(queuedPageLoad.html.utf8)
+        liveSceneWebView?.load(URLRequest(url: livePageURL))
     }
 
     private func beginReplacingTheDocument() {
@@ -430,45 +387,37 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     private func deliverQueuedPageLoad() {
         guard let queuedPageLoad else { return }
-        switch queuedPageLoad {
-        case .template(let specJSONData, let hidesQuizLabel):
-            guard loadedPageKind == .template else { return }
-            self.queuedPageLoad = nil
-            sendSpecToPage(specJSONData, hidesQuizLabel: hidesQuizLabel)
-        case .live(_, let hidesQuizLabel):
-            guard loadedPageKind == .live else { return }
-            self.queuedPageLoad = nil
-            liveSceneShowsEveryLabel = !hidesQuizLabel
-            if !hidesQuizLabel {
-                revealOnceTheGeneratedPageIsReady()
-            }
+        self.queuedPageLoad = nil
+        liveSceneShowsEveryLabel = !queuedPageLoad.hidesQuizLabel
+        if !queuedPageLoad.hidesQuizLabel {
+            revealOnceTheGeneratedPageIsReady()
         }
     }
 
-    private func ensureFieldTripWebView() {
-        guard fieldTripWebView == nil, let fieldTripOverlayWindow else { return }
-        let webViewFrame = fieldTripOverlayWindow.contentView?.bounds
-            ?? CGRect(origin: .zero, size: fieldTripOverlayWindow.frame.size)
-        let fieldTripWebView = makeFieldTripWebView(frame: webViewFrame)
-        fieldTripOverlayWindow.contentView = fieldTripWebView
-        self.fieldTripWebView = fieldTripWebView
+    private func ensureLiveSceneWebView() {
+        guard liveSceneWebView == nil, let liveSceneOverlayWindow else { return }
+        let webViewFrame = liveSceneOverlayWindow.contentView?.bounds
+            ?? CGRect(origin: .zero, size: liveSceneOverlayWindow.frame.size)
+        let liveSceneWebView = makeLiveSceneWebView(frame: webViewFrame)
+        liveSceneOverlayWindow.contentView = liveSceneWebView
+        self.liveSceneWebView = liveSceneWebView
     }
 
-    private func makeFieldTripWebView(frame: CGRect) -> WKWebView {
+    private func makeLiveSceneWebView(frame: CGRect) -> WKWebView {
         let webViewConfiguration = WKWebViewConfiguration()
         webViewConfiguration.setURLSchemeHandler(threeAssetSchemeHandler, forURLScheme: "clicky-asset")
         if let networkBlockRuleList {
             webViewConfiguration.userContentController.add(networkBlockRuleList)
         }
-        webViewConfiguration.userContentController.add(self, name: "fieldTripLog")
-        webViewConfiguration.userContentController.add(self, name: "fieldTripEvent")
+        webViewConfiguration.userContentController.add(self, name: "liveSceneLog")
+        webViewConfiguration.userContentController.add(self, name: "liveSceneEvent")
         webViewConfiguration.userContentController.addUserScript(WKUserScript(
             source: Self.pageErrorForwardingScript,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         ))
 
-        let webView = FieldTripWebView(frame: frame, configuration: webViewConfiguration)
+        let webView = LiveSceneWebView(frame: frame, configuration: webViewConfiguration)
         webView.autoresizingMask = [.width, .height]
         #if DEBUG
         webView.isInspectable = true
@@ -477,36 +426,15 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         // WebKit paints an opaque layer over the desktop.
         webView.setValue(false, forKey: "drawsBackground")
         webView.underPageBackgroundColor = .clear
-        // The page script defines window.fieldTrip. Play waits until that has run.
+        // The page script defines window.liveScene. Play waits until that has run.
         webView.navigationDelegate = self
         return webView
     }
 
-    private func sendSpecToPage(_ specJSONData: Data, hidesQuizLabel: Bool) {
-        do {
-            let specJSONValue = try JSONSerialization.jsonObject(with: specJSONData)
-            // JSONSerialization returns Any. callAsyncJavaScript takes a dictionary,
-            // and a scene spec is a JSON object.
-            guard let specDictionary = specJSONValue as? [String: Any] else {
-                print("Field trip: spec JSON was not an object")
-                return
-            }
-            evaluateOnThePage(
-                "window.fieldTrip.play(spec, hidesQuizLabel)",
-                arguments: ["spec": specDictionary, "hidesQuizLabel": hidesQuizLabel]
-            )
-        } catch {
-            print("Field trip: spec JSON could not be parsed: \(error.localizedDescription)")
-        }
-    }
-
     private func notePageLoadFailed(_ error: Error) {
         guard !navigationWasCancelled(error) else { return }
-        print("Field trip: page failed to load: \(error.localizedDescription)")
-        // A failed load must not look like a template page that is still loading,
-        // or the next play would wait for a didFinish that never comes.
+        print("Live scene: page failed to load: \(error.localizedDescription)")
         pageHasFinishedLoading = false
-        loadedPageKind = .none
     }
 
     private func navigationWasCancelled(_ error: Error) -> Bool {
@@ -516,17 +444,17 @@ final class FieldTripOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     // arguments uses WebKit's dictionary type. Callers pass JSON values.
     private func evaluateOnThePage(_ functionBody: String, arguments: [String: Any] = [:]) {
-        guard let fieldTripWebView, pageHasFinishedLoading else {
+        guard let liveSceneWebView, pageHasFinishedLoading else {
             return
         }
-        fieldTripWebView.callAsyncJavaScript(
+        liveSceneWebView.callAsyncJavaScript(
             functionBody,
             arguments: arguments,
             in: nil,
             in: .page
         ) { result in
             if case .failure(let error) = result {
-                print("Field trip: page call failed: \(error.localizedDescription)")
+                print("Live scene: page call failed: \(error.localizedDescription)")
             }
         }
     }

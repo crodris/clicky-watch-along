@@ -86,21 +86,21 @@ final class CompanionManager: ObservableObject {
         return ElevenLabsTTSClient(proxyURL: "\(Self.workerBaseURL)/tts")
     }()
 
-    private lazy var fieldTripSceneClient: FieldTripSceneClient = {
-        FieldTripSceneClient(workerBaseURL: Self.workerBaseURL)
+    private lazy var liveSceneClient: LiveSceneClient = {
+        LiveSceneClient(workerBaseURL: Self.workerBaseURL)
     }()
 
-    private var fieldTripPhase: FieldTripPhase = .idle
+    private var liveScenePhase: LiveScenePhase = .idle
     /// Bumped on every new question so a scene request still in flight cannot play late.
-    private var fieldTripSceneRequestGeneration = 0
-    private var fieldTripSceneRequestTask: Task<Void, Never>?
-    private var fieldTripTourFinishedTask: Task<Void, Never>?
+    private var liveSceneRequestGeneration = 0
+    private var liveSceneRequestTask: Task<Void, Never>?
+    private var liveSceneTourFinishedTask: Task<Void, Never>?
 
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
             guard let self else { return false }
-            switch self.fieldTripPhase {
+            switch self.liveScenePhase {
             case .idle, .allLabelsShowing:
                 // A finished scene stays up until the next press, and the video is already paused.
                 return self.voiceState == .idle && !self.elevenLabsTTSClient.isPlaying
@@ -215,8 +215,8 @@ final class CompanionManager: ObservableObject {
     }
 
     func start() {
-        FieldTripOverlay.shared.onTourFinished = { [weak self] in
-            self?.handleFieldTripTourFinished()
+        LiveSceneOverlay.shared.onTourFinished = { [weak self] in
+            self?.handleLiveSceneTourFinished()
         }
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
@@ -224,8 +224,8 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
-        bindPinchToFieldTripZoom()
-        bindEscapeToCloseFieldTripScene()
+        bindPinchToLiveSceneZoom()
+        bindEscapeToCloseLiveScene()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -348,10 +348,10 @@ final class CompanionManager: ObservableObject {
 
         currentResponseTask?.cancel()
         currentResponseTask = nil
-        fieldTripSceneRequestTask?.cancel()
-        fieldTripSceneRequestTask = nil
-        fieldTripTourFinishedTask?.cancel()
-        fieldTripTourFinishedTask = nil
+        liveSceneRequestTask?.cancel()
+        liveSceneRequestTask = nil
+        liveSceneTourFinishedTask?.cancel()
+        liveSceneTourFinishedTask = nil
         shortcutTransitionCancellable?.cancel()
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
@@ -530,21 +530,21 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape closes a finished scene, so the push-to-talk shortcut always means talk.
-    private func bindEscapeToCloseFieldTripScene() {
+    private func bindEscapeToCloseLiveScene() {
         escapeKeyCancellable = globalPushToTalkShortcutMonitor
             .escapeKeyPressPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
-                self?.clearFinishedFieldTripScene()
+                self?.clearFinishedLiveScene()
             }
     }
 
-    private func bindPinchToFieldTripZoom() {
+    private func bindPinchToLiveSceneZoom() {
         pinchCancellable = globalPushToTalkShortcutMonitor
             .pinchMagnificationPublisher
             .receive(on: DispatchQueue.main)
             .sink { magnification in
-                FieldTripOverlay.shared.zoomModelForPinch(magnification: magnification)
+                LiveSceneOverlay.shared.zoomModelForPinch(magnification: magnification)
             }
     }
 
@@ -557,7 +557,7 @@ final class CompanionManager: ObservableObject {
 
             // The scene sits above every window, so a quick tap of the shortcut
             // is how the learner gets back to the page under it.
-            FieldTripStatusLabel.shared.hide()
+            LiveSceneStatusLabel.shared.hide()
 
             // Cancel any pending transient hide so the overlay stays visible
             transientHideTask?.cancel()
@@ -660,7 +660,7 @@ final class CompanionManager: ObservableObject {
 
     /// Added to the system prompt for a look-inside request. Without it Claude
     /// answers from the page and tells the learner to scroll while the scene opens.
-    private static let fieldTripExploreVoiceResponseInstructions = """
+    private static let liveSceneExploreVoiceResponseInstructions = """
 
 
     for this reply only: a labeled 3d model of what they asked about is already opening on their screen, and the camera is moving through it. reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. talk about the model, not the web page. never tell them to scroll, click, or look anywhere else. the only tag you may write is [POINT:none], at the very end.
@@ -676,23 +676,23 @@ final class CompanionManager: ObservableObject {
     #if DEBUG
     /// Feeds transcripts through the real pipeline with no microphone, so the
     /// whole voice and quiz loop can be tested unattended.
-    func runFieldTripRehearsal(transcripts: [String]) async {
+    func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for transcript in transcripts {
-            print("Field trip rehearsal: saying \"\(transcript)\" in phase \(fieldTripPhase)")
+            print("Live scene rehearsal: saying \"\(transcript)\" in phase \(liveScenePhase)")
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             while true {
                 let sceneIsStillBuilding: Bool
-                if case .touring = fieldTripPhase { sceneIsStillBuilding = true } else { sceneIsStillBuilding = false }
+                if case .touring = liveScenePhase { sceneIsStillBuilding = true } else { sceneIsStillBuilding = false }
                 let clickyIsBusy = voiceState == .processing || elevenLabsTTSClient.isPlaying
                 if !sceneIsStillBuilding && !clickyIsBusy { break }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
-            print("Field trip rehearsal: finished, phase \(fieldTripPhase)")
+            print("Live scene rehearsal: finished, phase \(liveScenePhase)")
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
-        print("Field trip rehearsal: done")
+        print("Live scene rehearsal: done")
     }
     #endif
 
@@ -703,27 +703,27 @@ final class CompanionManager: ObservableObject {
         }
 
         currentResponseTask?.cancel()
-        fieldTripSceneRequestTask?.cancel()
-        fieldTripTourFinishedTask?.cancel()
+        liveSceneRequestTask?.cancel()
+        liveSceneTourFinishedTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
-        fieldTripSceneRequestGeneration += 1
-        let requestGeneration = fieldTripSceneRequestGeneration
+        liveSceneRequestGeneration += 1
+        let requestGeneration = liveSceneRequestGeneration
 
         // A 3D model only appears when the learner asks. During a video quiz that
         // pauses the video, and a pending question is set aside for the model.
         var sceneQuestion = transcript
-        if videoQuizSession.isRunning, fieldTripSceneKind(for: transcript) == .explore {
+        if videoQuizSession.isRunning, liveSceneKind(for: transcript) == .explore {
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
             videoQuizQuestionIsActive = false
-            fieldTripPhase = .idle
+            liveScenePhase = .idle
             if !heardText.isEmpty {
                 sceneQuestion = "\(transcript) The video just said: \(heardText)"
             }
         }
 
-        if case .awaitingAnswer(let quiz, let wrongAnswerCount) = fieldTripPhase {
+        if case .awaitingAnswer(let quiz, let wrongAnswerCount) = liveScenePhase {
             currentResponseTask = Task {
-                await self.respondToFieldTripAnswer(
+                await self.respondToLiveSceneAnswer(
                     transcript: transcript,
                     quiz: quiz,
                     wrongAnswerCount: wrongAnswerCount
@@ -732,9 +732,9 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        if case .awaitingFollowUpOnWhatThePartDoes(let quiz, _) = fieldTripPhase {
+        if case .awaitingFollowUpOnWhatThePartDoes(let quiz, _) = liveScenePhase {
             currentResponseTask = Task {
-                await self.respondToFieldTripFollowUpOnWhatThePartDoes(
+                await self.respondToLiveSceneFollowUpOnWhatThePartDoes(
                     transcript: transcript,
                     quiz: quiz
                 )
@@ -743,22 +743,22 @@ final class CompanionManager: ObservableObject {
         }
 
 
-        if case .buildingScene = fieldTripPhase {
-            fieldTripPhase = .idle
+        if case .buildingScene = liveScenePhase {
+            liveScenePhase = .idle
         }
 
-        if case .allLabelsShowing = fieldTripPhase, fieldTripSceneKind(for: transcript) == nil {
+        if case .allLabelsShowing = liveScenePhase, liveSceneKind(for: transcript) == nil {
             currentResponseTask = Task {
-                await self.answerAboutTheFieldTripSceneOnScreen(transcript: transcript)
+                await self.answerAboutTheLiveSceneOnScreen(transcript: transcript)
             }
             return
         }
 
-        if let requestedSceneKind = fieldTripSceneKind(for: transcript) {
-            clearFinishedFieldTripScene(resumesTheVideo: false)
-            fieldTripPhase = .buildingScene(requestedSceneKind)
+        if let requestedSceneKind = liveSceneKind(for: transcript) {
+            clearFinishedLiveScene(resumesTheVideo: false)
+            liveScenePhase = .buildingScene(requestedSceneKind)
             currentResponseTask = Task {
-                await self.buildFieldTripSceneWithStatusLabel(
+                await self.buildLiveSceneWithStatusLabel(
                     transcript: sceneQuestion,
                     sceneKind: requestedSceneKind,
                     requestGeneration: requestGeneration
@@ -907,13 +907,13 @@ final class CompanionManager: ObservableObject {
 
     /// Clicky stays quiet until the scene exists, because a voice over an empty
     /// screen felt broken during the 8 to 14 second wait.
-    private func buildFieldTripSceneWithStatusLabel(
+    private func buildLiveSceneWithStatusLabel(
         transcript: String,
-        sceneKind: FieldTripSceneKind,
+        sceneKind: LiveSceneKind,
         requestGeneration: Int
     ) async {
-        FieldTripStatusLabel.shared.show("Reading your screen")
-        await speakFieldTripLine("Sure, let me build that for you.")
+        LiveSceneStatusLabel.shared.show("Reading your screen")
+        await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var cursorScreenJPEGData: Data?
@@ -925,58 +925,62 @@ final class CompanionManager: ObservableObject {
                 (data: capture.imageData, label: capture.label)
             }
         } catch {
-            print("Field trip scene failed: \(error)")
+            print("Live scene scene failed: \(error)")
         }
         guard !Task.isCancelled else { return }
 
         if let cursorScreenJPEGData {
-            FieldTripStatusLabel.shared.show("Building your 3D scene")
+            LiveSceneStatusLabel.shared.show("Building your 3D scene")
             let almostThereTask = Task {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !Task.isCancelled else { return }
-                FieldTripStatusLabel.shared.show("Almost there")
+                LiveSceneStatusLabel.shared.show("Almost there")
             }
             let sceneRequestTask = Task {
-                await self.requestFieldTripScene(
+                await self.requestAndPlayLiveScene(
                     question: transcript,
                     sceneKind: sceneKind,
                     cursorScreenJPEGData: cursorScreenJPEGData,
                     requestGeneration: requestGeneration
                 )
             }
-            fieldTripSceneRequestTask = sceneRequestTask
+            liveSceneRequestTask = sceneRequestTask
             await sceneRequestTask.value
             almostThereTask.cancel()
         }
-        guard requestGeneration == fieldTripSceneRequestGeneration, !Task.isCancelled else { return }
-        FieldTripStatusLabel.shared.hide()
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
+        LiveSceneStatusLabel.shared.hide()
 
-        guard case .touring = fieldTripPhase else {
-            fieldTripPhase = .idle
-            await speakFieldTripLine("Sorry, I couldn't build that one.")
+        guard case .touring = liveScenePhase else {
+            liveScenePhase = .idle
+            await speakLiveSceneLine("Sorry, I couldn't build that one.")
             voiceState = .idle
+            // No scene opened, so nothing will clear it and resume the video.
+            if videoQuizSession.videoIsPausedForRequestedScene {
+                videoQuizSession.resumeVideoAfterRequestedScene()
+            }
             return
         }
         if sceneKind == .explore {
-            await speakAboutTheFieldTripSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
+            await speakAboutTheLiveSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
     }
 
-    private func answerAboutTheFieldTripSceneOnScreen(transcript: String) async {
+    private func answerAboutTheLiveSceneOnScreen(transcript: String) async {
         voiceState = .processing
         do {
             let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-            await speakAboutTheFieldTripSceneOnScreen(
+            await speakAboutTheLiveSceneOnScreen(
                 transcript: transcript,
                 labeledImages: screenCaptures.map { capture in
                     (data: capture.imageData, label: capture.label)
                 }
             )
         } catch {
-            print("Field trip follow-up failed: \(error)")
+            print("Live scene follow-up failed: \(error)")
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -985,12 +989,12 @@ final class CompanionManager: ObservableObject {
 
     /// Speaks one sentence per part and highlights that part as it is spoken, so
     /// the learner can follow along on a busy model.
-    private func speakAboutTheFieldTripSceneOnScreen(
+    private func speakAboutTheLiveSceneOnScreen(
         transcript: String,
         labeledImages: [(data: Data, label: String)]
     ) async {
         do {
-            let partLabels = await FieldTripOverlay.shared.partLabels()
+            let partLabels = await LiveSceneOverlay.shared.partLabels()
             let highlightInstructions = partLabels.isEmpty ? "" : """
 
 
@@ -999,141 +1003,92 @@ final class CompanionManager: ObservableObject {
             let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                 images: labeledImages,
                 systemPrompt: Self.companionVoiceResponseSystemPrompt
-                    + Self.fieldTripExploreVoiceResponseInstructions
+                    + Self.liveSceneExploreVoiceResponseInstructions
                     + highlightInstructions,
                 userPrompt: transcript,
                 onTextChunk: { _ in }
             )
-            while case .touring = fieldTripPhase, !Task.isCancelled {
+            while case .touring = liveScenePhase, !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
             let spokenText = Self.parsePointingCoordinates(from: fullResponseText).spokenText
-            for spokenPart in fieldTripSpokenParts(from: spokenText) {
+            for spokenPart in liveSceneSpokenParts(from: spokenText) {
                 guard !Task.isCancelled else { return }
                 if let partLabel = spokenPart.partLabel {
-                    FieldTripOverlay.shared.highlightPart(labelText: partLabel)
+                    LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
                 }
-                await speakFieldTripLine(spokenPart.spokenText)
+                await speakLiveSceneLine(spokenPart.spokenText)
                 await waitForClickyToFinishSpeaking()
             }
-            FieldTripOverlay.shared.highlightPart(labelText: "")
+            LiveSceneOverlay.shared.highlightPart(labelText: "")
         } catch {
-            print("Field trip explore reply failed: \(error)")
+            print("Live scene explore reply failed: \(error)")
         }
     }
 
-    private func clearFinishedFieldTripScene(resumesTheVideo: Bool = true) {
-        guard case .allLabelsShowing = fieldTripPhase else { return }
-        FieldTripOverlay.shared.clear()
-        fieldTripPhase = .idle
+    private func clearFinishedLiveScene(resumesTheVideo: Bool = true) {
+        guard case .allLabelsShowing = liveScenePhase else { return }
+        LiveSceneOverlay.shared.clear()
+        liveScenePhase = .idle
         guard resumesTheVideo, videoQuizSession.videoIsPausedForRequestedScene else { return }
         Task {
-            await self.speakFieldTripLine("Okay, back to the video.")
+            await self.speakLiveSceneLine("Okay, back to the video.")
             await self.waitForClickyToFinishSpeaking()
             try? await Task.sleep(nanoseconds: 500_000_000)
             self.videoQuizSession.resumeVideoAfterRequestedScene()
         }
     }
 
-    private func requestFieldTripScene(
+    private func requestAndPlayLiveScene(
         question: String,
-        sceneKind: FieldTripSceneKind,
+        sceneKind: LiveSceneKind,
         cursorScreenJPEGData: Data,
         requestGeneration: Int
     ) async {
+        guard requestGeneration == liveSceneRequestGeneration else { return }
         do {
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            let liveSceneDidPlay = await playLiveFieldTripScene(
-                question: question,
-                sceneKind: sceneKind,
-                cursorScreenJPEGData: cursorScreenJPEGData,
-                requestGeneration: requestGeneration
-            )
-            if liveSceneDidPlay {
-                return
-            }
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            let specJSONData = try await fieldTripSceneClient.requestScene(
+            let liveScene = try await liveSceneClient.requestLiveScene(
                 question: question,
                 cursorScreenJPEGData: cursorScreenJPEGData
             )
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            let quizToAskAfterTour = sceneKind == .quiz
-                ? try FieldTripQuiz(specJSONData: specJSONData)
-                : nil
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            print("Field trip scene path: template")
-            FieldTripOverlay.shared.play(
-                specJSONData: specJSONData,
-                hidesQuizLabel: quizToAskAfterTour != nil
-            )
-            fieldTripPhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
-        } catch is CancellationError {
-            return
-        } catch {
-            print("Field trip scene failed: \(error)")
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return }
-            if case .buildingScene = fieldTripPhase {
-                fieldTripPhase = .idle
-            }
-        }
-    }
-
-    /// True when the live page is playing, or when this question was cancelled.
-    /// False asks the caller to fall back to the template scene.
-    private func playLiveFieldTripScene(
-        question: String,
-        sceneKind: FieldTripSceneKind,
-        cursorScreenJPEGData: Data,
-        requestGeneration: Int
-    ) async -> Bool {
-        do {
-            let liveScene = try await fieldTripSceneClient.requestLiveScene(
-                question: question,
-                cursorScreenJPEGData: cursorScreenJPEGData
-            )
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return true }
+            guard requestGeneration == liveSceneRequestGeneration else { return }
             let quizToAskAfterTour = sceneKind == .quiz ? liveScene.quiz : nil
-            guard requestGeneration == fieldTripSceneRequestGeneration else { return true }
-            let liveSceneWasAccepted = FieldTripOverlay.shared.playLiveScene(
+            let liveSceneWasAccepted = LiveSceneOverlay.shared.playLiveScene(
                 html: liveScene.html,
                 hidesQuizLabel: quizToAskAfterTour != nil
             )
-            guard liveSceneWasAccepted else { return false }
-            print("Field trip scene path: live")
-            fieldTripPhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
-            return true
+            guard liveSceneWasAccepted else { return }
+            liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
         } catch is CancellationError {
-            return true
+            return
         } catch let urlError as URLError where urlError.code == .cancelled {
-            return true
+            return
         } catch {
-            print("Field trip live scene failed: \(error.localizedDescription)")
-            return false
+            print("Live scene live scene failed: \(error.localizedDescription)")
         }
     }
 
-    private func respondToFieldTripAnswer(
+    private func respondToLiveSceneAnswer(
         transcript: String,
-        quiz: FieldTripQuiz,
+        quiz: LiveSceneQuiz,
         wrongAnswerCount: Int
     ) async {
         voiceState = .processing
         if !quiz.explanation.isEmpty {
             do {
-                let judgedAnswer = try await fieldTripSceneClient.judgeSpokenAnswer(
+                let judgedAnswer = try await liveSceneClient.judgeSpokenAnswer(
                     question: quiz.question,
                     answerLabel: quiz.answerLabel,
                     explanation: quiz.explanation,
                     transcript: transcript,
                     heardTranscript: quiz.heardTranscript
                 )
-                let spokenLine = applyJudgedFieldTripAnswer(
+                let spokenLine = applyJudgedLiveSceneAnswer(
                     judgedAnswer: judgedAnswer,
                     quiz: quiz,
                     wrongAnswerCount: wrongAnswerCount
                 )
-                await speakFieldTripLine(spokenLine)
+                await speakLiveSceneLine(spokenLine)
                 await resumeVideoQuizAfterExplanation()
                 guard !Task.isCancelled else { return }
                 voiceState = .idle
@@ -1144,38 +1099,38 @@ final class CompanionManager: ObservableObject {
             } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
-                print("Field trip answer judge failed, using the word match: \(error.localizedDescription)")
+                print("Live scene answer judge failed, using the word match: \(error.localizedDescription)")
             }
         }
         let spokenLine: String
-        let spokenAnswerGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+        let spokenAnswerGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
             transcript: transcript,
             quiz: quiz
         )
         switch spokenAnswerGrade {
         case .nameAndFunctionWord:
             spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: true)
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .allLabelsShowing
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .allLabelsShowing
         case .nameOnly:
             spokenLine = "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
         case .askedForHelp:
             spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .allLabelsShowing
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .allLabelsShowing
         case .wrong:
             if wrongAnswerCount == 0 {
                 spokenLine = "Ooh, not quite! Take another look."
-                fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
+                liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
             } else {
                 spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
-                FieldTripOverlay.shared.reveal()
-                fieldTripPhase = .allLabelsShowing
+                LiveSceneOverlay.shared.reveal()
+                liveScenePhase = .allLabelsShowing
             }
         }
-        await speakFieldTripLine(spokenLine)
+        await speakLiveSceneLine(spokenLine)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -1184,43 +1139,43 @@ final class CompanionManager: ObservableObject {
 
     /// The first wrong answer keeps the model's sentence, which does not give the answer away.
     /// A second wrong answer uses the closing line, so the learner hears what the part does.
-    private func applyJudgedFieldTripAnswer(
-        judgedAnswer: FieldTripJudgedAnswer,
-        quiz: FieldTripQuiz,
+    private func applyJudgedLiveSceneAnswer(
+        judgedAnswer: LiveSceneJudgedAnswer,
+        quiz: LiveSceneQuiz,
         wrongAnswerCount: Int
     ) -> String {
         switch judgedAnswer.grade {
         case .nameAndFunctionWord:
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .allLabelsShowing
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .nameOnly:
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz, missedFunctionAnswerCount: 0)
             return judgedAnswer.spokenReply
         case .askedForHelp:
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .allLabelsShowing
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .wrong:
             if wrongAnswerCount == 0 {
-                fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
+                liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
                 return judgedAnswer.spokenReply
             }
-            FieldTripOverlay.shared.reveal()
-            fieldTripPhase = .allLabelsShowing
+            LiveSceneOverlay.shared.reveal()
+            liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
         }
     }
 
-    private func respondToFieldTripFollowUpOnWhatThePartDoes(
+    private func respondToLiveSceneFollowUpOnWhatThePartDoes(
         transcript: String,
-        quiz: FieldTripQuiz
+        quiz: LiveSceneQuiz
     ) async {
         voiceState = .processing
         if !quiz.explanation.isEmpty {
             do {
-                let judgedAnswer = try await fieldTripSceneClient.judgeSpokenAnswer(
+                let judgedAnswer = try await liveSceneClient.judgeSpokenAnswer(
                     question: quiz.question,
                     answerLabel: quiz.answerLabel,
                     explanation: quiz.explanation,
@@ -1233,8 +1188,8 @@ final class CompanionManager: ObservableObject {
                 } else {
                     spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
                 }
-                fieldTripPhase = .allLabelsShowing
-                await speakFieldTripLine(spokenLine)
+                liveScenePhase = .allLabelsShowing
+                await speakLiveSceneLine(spokenLine)
                 await resumeVideoQuizAfterExplanation()
                 guard !Task.isCancelled else { return }
                 voiceState = .idle
@@ -1245,10 +1200,10 @@ final class CompanionManager: ObservableObject {
             } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
-                print("Field trip answer judge failed, using the word match: \(error.localizedDescription)")
+                print("Live scene answer judge failed, using the word match: \(error.localizedDescription)")
             }
         }
-        let transcriptSaysWhatThePartDoes = FieldTripAnswerJudge.transcriptIncludesFunctionWord(
+        let transcriptSaysWhatThePartDoes = LiveSceneAnswerJudge.transcriptIncludesFunctionWord(
             transcript: transcript,
             functionWords: quiz.functionWords
         )
@@ -1256,8 +1211,8 @@ final class CompanionManager: ObservableObject {
             quiz: quiz,
             learnerSaidWhatThePartDoes: transcriptSaysWhatThePartDoes
         )
-        fieldTripPhase = .allLabelsShowing
-        await speakFieldTripLine(spokenLine)
+        liveScenePhase = .allLabelsShowing
+        await speakLiveSceneLine(spokenLine)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -1277,13 +1232,13 @@ final class CompanionManager: ObservableObject {
             videoQuizSession.stop()
             if videoQuizQuestionIsActive {
                 videoQuizQuestionIsActive = false
-                fieldTripPhase = .idle
+                liveScenePhase = .idle
             }
             spokenLine = "Okay, I'll stop quizzing. That was fun!"
         }
 
         currentResponseTask = Task {
-            await self.speakFieldTripLine(spokenLine)
+            await self.speakLiveSceneLine(spokenLine)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -1298,19 +1253,19 @@ final class CompanionManager: ObservableObject {
             await previousSpokenLineTask?.value
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            await self.speakFieldTripLine(line)
+            await self.speakLiveSceneLine(line)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
         }
     }
 
-    private func askVideoQuizQuestion(_ quiz: FieldTripQuiz) {
-        clearFinishedFieldTripScene()
+    private func askVideoQuizQuestion(_ quiz: LiveSceneQuiz) {
+        clearFinishedLiveScene()
         videoQuizQuestionIsActive = true
-        fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
+        liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
         currentResponseTask = Task {
-            await self.speakFieldTripLine(quiz.question)
+            await self.speakLiveSceneLine(quiz.question)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -1326,20 +1281,20 @@ final class CompanionManager: ObservableObject {
     }
 
     private func resumeVideoQuizAfterExplanation() async {
-        guard videoQuizQuestionIsActive, case .allLabelsShowing = fieldTripPhase else { return }
+        guard videoQuizQuestionIsActive, case .allLabelsShowing = liveScenePhase else { return }
         videoQuizQuestionIsActive = false
-        fieldTripPhase = .idle
+        liveScenePhase = .idle
         await waitForClickyToFinishSpeaking()
         // The learner needs a moment with the explanation before the video moves on.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
-        await speakFieldTripLine("Okay, back to the video.")
+        await speakLiveSceneLine("Okay, back to the video.")
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
         videoQuizSession.resumeVideoAfterQuestion()
     }
 
     /// Quizzes written before explanations keep the original spoken lines.
-    private func spokenLineAfterTheQuizEnds(quiz: FieldTripQuiz, learnerSaidWhatThePartDoes: Bool) -> String {
+    private func spokenLineAfterTheQuizEnds(quiz: LiveSceneQuiz, learnerSaidWhatThePartDoes: Bool) -> String {
         if quiz.explanation.isEmpty {
             if learnerSaidWhatThePartDoes {
                 return "Yes! The answer is \(quiz.answerLabel.lowercased()). Nice work!"
@@ -1352,23 +1307,23 @@ final class CompanionManager: ObservableObject {
         return "Good try! \(quiz.explanation)"
     }
 
-    private func handleFieldTripTourFinished() {
-        guard case .touring(let quizToAskAfterTour) = fieldTripPhase else { return }
+    private func handleLiveSceneTourFinished() {
+        guard case .touring(let quizToAskAfterTour) = liveScenePhase else { return }
         guard let quiz = quizToAskAfterTour else {
-            fieldTripPhase = .allLabelsShowing
-            FieldTripOverlay.shared.letLearnerDragTheModel()
+            liveScenePhase = .allLabelsShowing
+            LiveSceneOverlay.shared.letLearnerDragTheModel()
             return
         }
-        fieldTripTourFinishedTask?.cancel()
-        fieldTripTourFinishedTask = Task {
+        liveSceneTourFinishedTask?.cancel()
+        liveSceneTourFinishedTask = Task {
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            guard case .touring = fieldTripPhase else { return }
-            fieldTripPhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
+            guard case .touring = liveScenePhase else { return }
+            liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
             // Only after the phase changes, because a new question cancels this
             // task and .touring has no way to release the mouse.
-            FieldTripOverlay.shared.letLearnerDragTheModel()
-            await self.speakFieldTripLine(quiz.question)
+            LiveSceneOverlay.shared.letLearnerDragTheModel()
+            await self.speakLiveSceneLine(quiz.question)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -1390,7 +1345,7 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func speakFieldTripLine(_ line: String) async {
+    private func speakLiveSceneLine(_ line: String) async {
         do {
             try await elevenLabsTTSClient.speakText(line)
             voiceState = .responding

@@ -1,60 +1,47 @@
 //
-//  FieldTripSceneClient.swift
+//  LiveSceneClient.swift
 //  leanring-buddy
 //
-//  Asks the Worker for a field-trip scene. The cursor screen goes up as a
-//  JPEG. /scene returns a template spec. /live-scene returns generated HTML
-//  and a quiz. /judge-answer grades a spoken answer. Anything other than 200 throws.
+//  Asks the Worker for a live-scene scene. The cursor screen goes up as a
+//  JPEG. /live-scene returns generated HTML and a quiz. /judge-answer grades
+//  a spoken answer. Anything other than 200 throws.
 //
 
 import Foundation
 
-struct FieldTripLiveScene {
+struct LiveScenePage {
     let html: String
-    let quiz: FieldTripQuiz
+    let quiz: LiveSceneQuiz
 }
 
-struct FieldTripJudgedAnswer {
-    let grade: FieldTripQuizGrade
+struct LiveSceneJudgedAnswer {
+    let grade: LiveSceneQuizGrade
     let spokenReply: String
 }
 
 @MainActor
-final class FieldTripSceneClient {
-    private let sceneURL: URL
+final class LiveSceneClient {
     private let liveSceneURL: URL
     private let judgeAnswerURL: URL
-    private let session: URLSession
     private let liveSceneSession: URLSession
     private let judgeAnswerSession: URLSession
 
     init(workerBaseURL: String) {
-        guard let sceneURL = URL(string: "\(workerBaseURL)/scene"),
-              let liveSceneURL = URL(string: "\(workerBaseURL)/live-scene"),
+        guard let liveSceneURL = URL(string: "\(workerBaseURL)/live-scene"),
               let judgeAnswerURL = URL(string: "\(workerBaseURL)/judge-answer") else {
-            preconditionFailure("Worker base URL did not form field-trip URLs: \(workerBaseURL)")
+            preconditionFailure("Worker base URL did not form live-scene URLs: \(workerBaseURL)")
         }
-        self.sceneURL = sceneURL
         self.liveSceneURL = liveSceneURL
         self.judgeAnswerURL = judgeAnswerURL
 
-        let configuration = URLSessionConfiguration.default
-        // A template scene is one or two model calls, so this waits longer than a TTS clip.
-        configuration.timeoutIntervalForRequest = 120
-        configuration.timeoutIntervalForResource = 120
-        self.session = URLSession(configuration: configuration)
         self.liveSceneSession = Self.session(timeoutInterval: 30)
-        self.judgeAnswerSession = Self.session(timeoutInterval: 5)
+        // Sonnet grades in about 3 seconds and sometimes takes 6. Past this the app falls back to a word match.
+        self.judgeAnswerSession = Self.session(timeoutInterval: 8)
     }
 
-    func requestScene(question: String, cursorScreenJPEGData: Data) async throws -> Data {
-        let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData)
-        return try await postJSON(url: sceneURL, body: body, session: session, timeoutInterval: nil)
-    }
-
-    /// Sol Ultrafast usually answers in under 30 seconds. Past that, the caller
-    /// falls back to the template scene.
-    func requestLiveScene(question: String, cursorScreenJPEGData: Data) async throws -> FieldTripLiveScene {
+    /// Sol Ultrafast usually answers in under 30 seconds. Past that, the request
+    /// times out and Clicky says it couldn't build the scene.
+    func requestLiveScene(question: String, cursorScreenJPEGData: Data) async throws -> LiveScenePage {
         let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData)
         let responseData = try await postJSON(
             url: liveSceneURL,
@@ -71,7 +58,7 @@ final class FieldTripSceneClient {
         explanation: String,
         transcript: String,
         heardTranscript: String
-    ) async throws -> FieldTripJudgedAnswer {
+    ) async throws -> LiveSceneJudgedAnswer {
         let body = [
             "question": question,
             "answerLabel": answerLabel,
@@ -84,7 +71,7 @@ final class FieldTripSceneClient {
             url: judgeAnswerURL,
             body: requestBody,
             session: judgeAnswerSession,
-            timeoutInterval: 5
+            timeoutInterval: 8
         )
         return try judgedAnswer(from: responseData)
     }
@@ -123,14 +110,14 @@ final class FieldTripSceneClient {
 
         // URLSession returns URLResponse. The Worker answers over HTTP.
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw fieldTripAPIError(statusCode: -1, message: "Invalid response")
+            throw liveSceneAPIError(statusCode: -1, message: "Invalid response")
         }
 
         guard httpResponse.statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw fieldTripAPIError(
+            throw liveSceneAPIError(
                 statusCode: httpResponse.statusCode,
-                message: "Field trip API error (\(httpResponse.statusCode)): \(errorBody)"
+                message: "Live scene API error (\(httpResponse.statusCode)): \(errorBody)"
             )
         }
 
@@ -138,11 +125,11 @@ final class FieldTripSceneClient {
         return data
     }
 
-    private func liveScene(from responseData: Data) throws -> FieldTripLiveScene {
+    private func liveScene(from responseData: Data) throws -> LiveScenePage {
         let responseJSON = try JSONSerialization.jsonObject(with: responseData)
         // JSONSerialization returns Any. The live scene response is one JSON object.
         guard let responseDictionary = responseJSON as? [String: Any] else {
-            throw fieldTripAPIError(statusCode: -1, message: "Live scene response was not a JSON object")
+            throw liveSceneAPIError(statusCode: -1, message: "Live scene response was not a JSON object")
         }
         guard let html = responseDictionary["html"] as? String,
               let quizDictionary = responseDictionary["quiz"] as? [String: Any],
@@ -150,25 +137,25 @@ final class FieldTripSceneClient {
               let answerLabel = quizDictionary["answerLabel"] as? String,
               let explanation = quizDictionary["explanation"] as? String,
               let functionWords = quizDictionary["functionWords"] as? [String] else {
-            throw fieldTripAPIError(statusCode: -1, message: "Live scene response was missing html or quiz")
+            throw liveSceneAPIError(statusCode: -1, message: "Live scene response was missing html or quiz")
         }
-        let quiz = FieldTripQuiz(
+        let quiz = LiveSceneQuiz(
             answerLabel: answerLabel,
             question: question,
             functionWords: functionWords,
             explanation: explanation
         )
-        return FieldTripLiveScene(html: html, quiz: quiz)
+        return LiveScenePage(html: html, quiz: quiz)
     }
 
-    private func judgedAnswer(from responseData: Data) throws -> FieldTripJudgedAnswer {
+    private func judgedAnswer(from responseData: Data) throws -> LiveSceneJudgedAnswer {
         let responseJSON = try JSONSerialization.jsonObject(with: responseData)
         guard let responseDictionary = responseJSON as? [String: Any],
               let verdictName = responseDictionary["verdict"] as? String,
               let spokenReply = responseDictionary["spokenReply"] as? String else {
-            throw fieldTripAPIError(statusCode: -1, message: "Judge response was missing a verdict")
+            throw liveSceneAPIError(statusCode: -1, message: "Judge response was missing a verdict")
         }
-        let grade: FieldTripQuizGrade
+        let grade: LiveSceneQuizGrade
         switch verdictName {
         case "correct":
             grade = .nameAndFunctionWord
@@ -179,14 +166,14 @@ final class FieldTripSceneClient {
         case "wrong":
             grade = .wrong
         default:
-            throw fieldTripAPIError(statusCode: -1, message: "Judge verdict was \(verdictName)")
+            throw liveSceneAPIError(statusCode: -1, message: "Judge verdict was \(verdictName)")
         }
-        return FieldTripJudgedAnswer(grade: grade, spokenReply: spokenReply)
+        return LiveSceneJudgedAnswer(grade: grade, spokenReply: spokenReply)
     }
 
-    private func fieldTripAPIError(statusCode: Int, message: String) -> NSError {
+    private func liveSceneAPIError(statusCode: Int, message: String) -> NSError {
         NSError(
-            domain: "FieldTripScene",
+            domain: "LiveScene",
             code: statusCode,
             userInfo: [NSLocalizedDescriptionKey: message]
         )

@@ -1,39 +1,39 @@
 //
-//  FieldTripSession.swift
+//  LiveSceneSession.swift
 //  leanring-buddy
 //
-//  Phase of a field-trip question, the quiz hidden inside the scene, and the
+//  Phase of a live-scene question, the quiz hidden inside the scene, and the
 //  word match that decides whether a spoken answer is right.
 //
 
 import Foundation
 
-enum FieldTripSceneKind {
+enum LiveSceneKind {
     /// Every label stays visible, and nothing is asked after the tour.
     case explore
     /// One label shows "?" and Clicky asks what that part is and what it does after the tour.
     case quiz
 }
 
-enum FieldTripPhase {
+enum LiveScenePhase {
     case idle
-    case buildingScene(FieldTripSceneKind)
-    case touring(quizToAskAfterTour: FieldTripQuiz?)
-    case awaitingAnswer(FieldTripQuiz, wrongAnswerCount: Int)
+    case buildingScene(LiveSceneKind)
+    case touring(quizToAskAfterTour: LiveSceneQuiz?)
+    case awaitingAnswer(LiveSceneQuiz, wrongAnswerCount: Int)
     /// The learner named the part. Clicky is waiting to hear what it does.
-    case awaitingFollowUpOnWhatThePartDoes(FieldTripQuiz, missedFunctionAnswerCount: Int)
+    case awaitingFollowUpOnWhatThePartDoes(LiveSceneQuiz, missedFunctionAnswerCount: Int)
     /// The scene stays on screen until the next question clears it.
     case allLabelsShowing
 }
 
-enum FieldTripQuizGrade: Equatable {
+enum LiveSceneQuizGrade: Equatable {
     case nameAndFunctionWord
     case nameOnly
     case wrong
     case askedForHelp
 }
 
-struct FieldTripQuiz {
+struct LiveSceneQuiz {
     let answerLabel: String
     let question: String
     let functionWords: [String]
@@ -52,54 +52,9 @@ struct FieldTripQuiz {
         self.functionWords = functionWords
         self.explanation = explanation
     }
-
-    init(specJSONData: Data) throws {
-        let specJSONValue = try JSONSerialization.jsonObject(with: specJSONData)
-        // JSONSerialization returns Any. A scene spec is one JSON object.
-        // quiz is an object, and parts is an array of objects.
-        guard let specDictionary = specJSONValue as? [String: Any] else {
-            throw FieldTripSpecDecodingError.specWasNotAJSONObject
-        }
-        guard let quizDictionary = specDictionary["quiz"] as? [String: Any],
-              let partId = quizDictionary["partId"] as? String,
-              let question = quizDictionary["question"] as? String,
-              let parts = specDictionary["parts"] as? [[String: Any]] else {
-            throw FieldTripSpecDecodingError.quizOrPartsWereMissing
-        }
-        let answerPart = parts.first { part in
-            // Each part is a JSON object. Its id is a string.
-            let partIdInSpec = part["id"] as? String
-            return partIdInSpec == partId
-        }
-        // The matching part's label is the spoken answer.
-        guard let answerPart, let answerLabel = answerPart["label"] as? String else {
-            throw FieldTripSpecDecodingError.answerLabelWasMissing
-        }
-        self.answerLabel = answerLabel
-        self.question = question
-        self.functionWords = quizDictionary["functionWords"] as? [String] ?? []
-        self.explanation = quizDictionary["explanation"] as? String ?? ""
-    }
 }
 
-enum FieldTripSpecDecodingError: Error, CustomStringConvertible {
-    case specWasNotAJSONObject
-    case quizOrPartsWereMissing
-    case answerLabelWasMissing
-
-    var description: String {
-        switch self {
-        case .specWasNotAJSONObject:
-            return "Field trip spec was not a JSON object"
-        case .quizOrPartsWereMissing:
-            return "Field trip spec was missing a quiz or parts"
-        case .answerLabelWasMissing:
-            return "Field trip quiz part had no label"
-        }
-    }
-}
-
-enum FieldTripAnswerJudge {
+enum LiveSceneAnswerJudge {
     /// Lowercases both strings, turns punctuation into spaces, and splits on
     /// words. Right when every word of the label shows up in the transcript.
     nonisolated static func isCorrect(transcript: String, answerLabel: String) -> Bool {
@@ -112,7 +67,7 @@ enum FieldTripAnswerJudge {
 
     /// A quiz with no function words is complete once the learner names the part.
     /// Older specs have nothing else to grade.
-    nonisolated static func gradeSpokenAnswer(transcript: String, quiz: FieldTripQuiz) -> FieldTripQuizGrade {
+    nonisolated static func gradeSpokenAnswer(transcript: String, quiz: LiveSceneQuiz) -> LiveSceneQuizGrade {
         let lowercaseTranscript = transcript.lowercased()
         let learnerAskedForHelp = ["no idea", "don't know", "dont know", "tell me", "not sure"].contains { helpPhrase in
             lowercaseTranscript.contains(helpPhrase)
@@ -167,7 +122,7 @@ enum FieldTripAnswerJudge {
 
 /// The scene this transcript asks for, or nil when it asks for none. A quiz
 /// request wins, because "show me inside and quiz me" wants the quiz.
-nonisolated func fieldTripSceneKind(for transcript: String) -> FieldTripSceneKind? {
+nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
     let asksToBeQuizzed = lowercaseTranscript.range(
         of: #"\b(quiz\w*|test me|kiss me)\b"#,
@@ -187,7 +142,7 @@ nonisolated func fieldTripSceneKind(for transcript: String) -> FieldTripSceneKin
 
 /// Splits "[PART:Aorta] It carries blood. [PART:Heart] It pumps." into one entry
 /// per tagged sentence. Text with no tags comes back as a single entry.
-nonisolated func fieldTripSpokenParts(from responseText: String) -> [(partLabel: String?, spokenText: String)] {
+nonisolated func liveSceneSpokenParts(from responseText: String) -> [(partLabel: String?, spokenText: String)] {
     let tagPattern = #"\[PART:([^\]]+)\]"#
     guard let tagExpression = try? NSRegularExpression(pattern: tagPattern) else {
         return [(nil, responseText)]

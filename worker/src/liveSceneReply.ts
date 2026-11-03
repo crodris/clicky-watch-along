@@ -13,7 +13,7 @@ export type CheckedLiveSceneReply =
   | { accepted: true; html: string; quiz: LiveSceneQuiz }
   | { accepted: false; reason: string };
 
-const pageMarkersTheAppCalls = ["fieldTrip", "tourFinished", "reveal", "zoomBy", "focusPart"] as const;
+const pageMarkersTheAppCalls = ["liveScene", "tourFinished", "reveal", "zoomBy", "focusPart"] as const;
 
 // The SVG namespace is a URL, and a label leader line may use it. Every other
 // http(s) URL is a network request the generated page is not allowed to make.

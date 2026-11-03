@@ -7,14 +7,12 @@
  * Routes:
  *   POST /chat         → Anthropic Messages API (streaming)
  *   POST /tts          → ElevenLabs TTS API
- *   POST /scene        → Anthropic Messages API (field-trip spec)
- *   POST /live-scene   → OpenAI Responses API (generated field-trip page)
+ *   POST /live-scene   → OpenAI Responses API (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → Anthropic Messages API (three quiz pause moments for a video transcript)
  */
 
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
-import { handleScene } from "./scene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
 
 interface Env {
@@ -44,10 +42,6 @@ export default {
 
       if (url.pathname === "/transcribe-token") {
         return await handleTranscribeToken(env);
-      }
-
-      if (url.pathname === "/scene") {
-        return await handleScene(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/video-quiz-plan") {

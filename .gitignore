@@ -1,5 +1,4 @@
 worker/node_modules/
-scene/node_modules/
 worker/.dev.vars
 .DS_Store
 *.xcuserstate
@@ -9,6 +8,4 @@ releases/
 coding-plans/
 xcuserdata/
 worker/.wrangler/
-scene/shots/drag-*.png
-scene/shots/zoom-*.png
 *.profraw

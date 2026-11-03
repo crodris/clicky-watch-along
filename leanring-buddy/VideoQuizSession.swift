@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  Quizzes the learner on a YouTube video playing in Chrome. It reads the
-//  video's captions once, asks the Worker to pick three moments ahead of time,
+//  video's captions once, asks the Worker to pick the moments ahead of time,
 //  then watches the video's clock through AppleScript and pauses it at each
 //  moment so Clicky can ask the question.
 //
@@ -91,7 +91,7 @@ nonisolated func videoQuizTranscriptLines(fromCaptionsJSON3Data captionsJSON3Dat
 
 struct VideoQuizMoment {
     let pauseAtSeconds: Double
-    let quiz: FieldTripQuiz
+    let quiz: LiveSceneQuiz
     let subject: String
 }
 
@@ -167,7 +167,7 @@ final class VideoQuizSession {
 
     private let workerBaseURL: String
     private let canAskQuestionNow: @MainActor () -> Bool
-    private let askQuestion: @MainActor (FieldTripQuiz) -> Void
+    private let askQuestion: @MainActor (LiveSceneQuiz) -> Void
     private static let secondsForTheReadyLineToFinish: Double = 3.5
     private let speakLine: @MainActor (String) -> Void
 
@@ -185,7 +185,7 @@ final class VideoQuizSession {
     init(
         workerBaseURL: String,
         canAskQuestionNow: @escaping @MainActor () -> Bool,
-        askQuestion: @escaping @MainActor (FieldTripQuiz) -> Void,
+        askQuestion: @escaping @MainActor (LiveSceneQuiz) -> Void,
         speakLine: @escaping @MainActor (String) -> Void
     ) {
         self.workerBaseURL = workerBaseURL
@@ -305,7 +305,8 @@ final class VideoQuizSession {
             }
             print("Video quiz: planned \(plannedMoments.count) moments in \(String(format: "%.1f", planningSeconds))s")
 
-            speakLine("Okay, I've got \(plannedMoments.count) spots picked out. Here we go!")
+            let spotCountText = plannedMoments.count == 1 ? "1 spot" : "\(plannedMoments.count) spots"
+            speakLine("Okay, I've got \(spotCountText) picked out. Here we go!")
             // The line takes about this long, and the video should start after it.
             try await Task.sleep(for: .seconds(Self.secondsForTheReadyLineToFinish))
             guard isRunning else { return }
@@ -646,7 +647,8 @@ private struct VideoQuizPlanClient {
         var request = URLRequest(url: planURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60
+        // Sonnet can take 3 tries on a long transcript.
+        request.timeoutInterval = 120
         request.httpBody = try JSONEncoder().encode(RequestBody(title: title, transcriptLines: transcriptLines))
 
         let (responseData, response) = try await URLSession.shared.data(for: request)
@@ -662,7 +664,7 @@ private struct VideoQuizPlanClient {
         return responseBody.moments.map { plannedMoment in
             VideoQuizMoment(
                 pauseAtSeconds: plannedMoment.pauseAtSeconds,
-                quiz: FieldTripQuiz(
+                quiz: LiveSceneQuiz(
                     answerLabel: plannedMoment.answerLabel,
                     question: plannedMoment.question,
                     functionWords: plannedMoment.functionWords,

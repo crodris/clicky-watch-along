@@ -18,8 +18,6 @@ I run this locally, with the Worker on `npx wrangler dev`, and Debug builds poin
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key. Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`. The Worker has no authentication or rate limits yet, so I wouldn't deploy it publicly as is.
 
-The whale's side profile is traced from Kurzon's [Blue whale size.svg](https://commons.wikimedia.org/wiki/File:Blue_whale_size.svg) (CC BY-SA 3.0).
-
 Everything below is the original Clicky README.
 
 ---
@@ -188,13 +186,11 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   AssemblyAI*.swift         # Real-time transcription
   BuddyDictation*.swift     # Push-to-talk pipeline
   VideoQuizSession.swift    # Watch-along quiz that pauses YouTube in Chrome
-  FieldTripOverlay.swift    # Transparent window that plays the 3D scene
+  LiveSceneOverlay.swift    # Transparent window that plays the 3D scene
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /scene, /live-scene, /judge-answer, /video-quiz-plan
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
-  src/scene.ts              # Hand-tuned whale and water scenes, used as the fallback
-scene/                   # three.js renderer, scene schema, and tests
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
 

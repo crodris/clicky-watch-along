@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleVideoQuizPlan, parseVideoQuizPlan } from "../../worker/src/videoQuizPlan";
+import { handleVideoQuizPlan, parseVideoQuizPlan } from "./videoQuizPlan";
 
 const transcriptLines = [
   { seconds: 0, text: "Welcome back to the channel." },
@@ -53,9 +53,9 @@ function requestWithBody(body: unknown): Request {
   });
 }
 
-function toolReply(input: unknown): Response {
+function planReply(plan: unknown): Response {
   return new Response(
-    JSON.stringify({ content: [{ type: "tool_use", name: "plan_quiz_moments", input }] }),
+    JSON.stringify({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: JSON.stringify(plan) }] }),
     { status: 200 },
   );
 }
@@ -65,7 +65,7 @@ afterEach(() => {
 });
 
 describe("parseVideoQuizPlan", () => {
-  it("accepts three spread moments and sorts them by time", () => {
+  it("accepts spread moments and sorts them by time", () => {
     const result = parseVideoQuizPlan(
       { moments: [poreMoment, liverMoment, denticleMoment] },
       transcriptLines,
@@ -74,8 +74,14 @@ describe("parseVideoQuizPlan", () => {
     expect(result).toEqual({ ok: true, plan: validToolInput });
   });
 
-  it("rejects a plan that does not have exactly three moments", () => {
+  it("accepts however many moments the model picks", () => {
     const result = parseVideoQuizPlan({ moments: [liverMoment, denticleMoment] }, transcriptLines);
+
+    expect(result).toEqual({ ok: true, plan: { moments: [liverMoment, denticleMoment] } });
+  });
+
+  it("rejects a plan with no moments", () => {
+    const result = parseVideoQuizPlan({ moments: [] }, transcriptLines);
 
     expect(result.ok).toBe(false);
   });
@@ -208,7 +214,7 @@ describe("parseVideoQuizPlan", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("rejects a reply with no tool input", () => {
+  it("rejects a reply with no plan", () => {
     expect(parseVideoQuizPlan(undefined, transcriptLines).ok).toBe(false);
   });
 });
@@ -231,8 +237,8 @@ describe("handleVideoQuizPlan", () => {
     expect(response.status).toBe(400);
   });
 
-  it("forces the plan_quiz_moments tool and returns the validated plan", async () => {
-    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => toolReply(validToolInput));
+  it("asks Sonnet for the plan as JSON and returns the validated plan", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => planReply(validToolInput));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
@@ -241,18 +247,32 @@ describe("handleVideoQuizPlan", () => {
     expect(await response.json()).toEqual(validToolInput);
     const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
     expect(sentBody).toMatchObject({
-      model: "claude-haiku-5-5",
-      tool_choice: { type: "tool", name: "plan_quiz_moments" },
+      model: "claude-sonnet-5-5",
+      output_config: { format: { type: "json_schema" } },
     });
+    expect(sentBody).not.toHaveProperty("tool_choice");
+  });
+
+  it("retries when the reply text is not JSON", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ content: [{ type: "text", text: "Sure! Here is the plan" }] })))
+      .mockResolvedValueOnce(planReply(validToolInput));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("retries once and tells the model which rule it broke", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        toolReply({ moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] }),
+        planReply({ moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] }),
       )
-      .mockResolvedValueOnce(toolReply(validToolInput));
+      .mockResolvedValueOnce(planReply(validToolInput));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
@@ -266,7 +286,7 @@ describe("handleVideoQuizPlan", () => {
 
   it("returns 502 after three replies that break the contract", async () => {
     const fetchMock = vi.fn(async () => {
-      return toolReply({ moments: [liverMoment] });
+      return planReply({ moments: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
 

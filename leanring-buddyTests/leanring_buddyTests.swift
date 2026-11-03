@@ -77,12 +77,12 @@ struct leanring_buddyTests {
         ])
     }
 
-    @Test func fieldTripAnswerJudgeAcceptsTheHeartAndRejectsTheLungs() async throws {
-        let heartAnswerIsCorrect = FieldTripAnswerJudge.isCorrect(
+    @Test func liveSceneAnswerJudgeAcceptsTheHeartAndRejectsTheLungs() async throws {
+        let heartAnswerIsCorrect = LiveSceneAnswerJudge.isCorrect(
             transcript: "it's the heart",
             answerLabel: "Heart"
         )
-        let lungsAnswerIsCorrect = FieldTripAnswerJudge.isCorrect(
+        let lungsAnswerIsCorrect = LiveSceneAnswerJudge.isCorrect(
             transcript: "the lungs",
             answerLabel: "Heart"
         )
@@ -91,33 +91,33 @@ struct leanring_buddyTests {
         #expect(lungsAnswerIsCorrect == false)
     }
 
-    @Test func fieldTripQuizGradeCoversNameAndFunctionNameOnlyAndWrong() async throws {
-        let heartQuiz = FieldTripQuiz(
+    @Test func liveSceneQuizGradeCoversNameAndFunctionNameOnlyAndWrong() async throws {
+        let heartQuiz = LiveSceneQuiz(
             answerLabel: "Heart",
             question: "What organ is this, and what does it do?",
             functionWords: ["pump", "pumps", "pumping", "blood", "circulate", "circulates", "beats"],
-            explanation: "That's the heart, and it pumps blood through the whale's whole body."
+            explanation: "That's the heart, and it pumps blood through the whole body."
         )
-        let quizWithNoFunctionWords = FieldTripQuiz(
+        let quizWithNoFunctionWords = LiveSceneQuiz(
             answerLabel: "Heart",
             question: "Which organ is this?",
             functionWords: [],
             explanation: ""
         )
 
-        let nameAndFunctionGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+        let nameAndFunctionGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
             transcript: "it's the heart and it pumps",
             quiz: heartQuiz
         )
-        let nameOnlyGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+        let nameOnlyGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
             transcript: "the heart",
             quiz: heartQuiz
         )
-        let wrongGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+        let wrongGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
             transcript: "the lungs",
             quiz: heartQuiz
         )
-        let nameWithNoFunctionWordsGrade = FieldTripAnswerJudge.gradeSpokenAnswer(
+        let nameWithNoFunctionWordsGrade = LiveSceneAnswerJudge.gradeSpokenAnswer(
             transcript: "the heart",
             quiz: quizWithNoFunctionWords
         )
@@ -129,21 +129,21 @@ struct leanring_buddyTests {
     }
 
     @Test func spokenPartsSplitOnPartTags() async throws {
-        let spokenParts = fieldTripSpokenParts(from: "[PART:Aorta] It carries blood. [PART:Heart] It pumps.")
+        let spokenParts = liveSceneSpokenParts(from: "[PART:Aorta] It carries blood. [PART:Heart] It pumps.")
 
         #expect(spokenParts.map(\.partLabel) == ["Aorta", "Heart"])
         #expect(spokenParts.map(\.spokenText) == ["It carries blood.", "It pumps."])
-        #expect(fieldTripSpokenParts(from: "No tags here.").first?.partLabel == nil)
+        #expect(liveSceneSpokenParts(from: "No tags here.").first?.partLabel == nil)
     }
 
     @Test func onlyAnExplicitQuizRequestStartsTheQuiz() async throws {
-        #expect(fieldTripSceneKind(for: "What does this look like inside?") == .explore)
-        #expect(fieldTripSceneKind(for: "Can I see that in 3D?") == .explore)
-        #expect(fieldTripSceneKind(for: "Can you make a 3-D model of it?") == .explore)
-        #expect(fieldTripSceneKind(for: "Can you quiz me on it?") == .quiz)
-        #expect(fieldTripSceneKind(for: "Can you kiss me on it?") == .quiz)
-        #expect(fieldTripSceneKind(for: "show me inside and test me on it") == .quiz)
-        #expect(fieldTripSceneKind(for: "what's on the latest menu") == nil)
+        #expect(liveSceneKind(for: "What does this look like inside?") == .explore)
+        #expect(liveSceneKind(for: "Can I see that in 3D?") == .explore)
+        #expect(liveSceneKind(for: "Can you make a 3-D model of it?") == .explore)
+        #expect(liveSceneKind(for: "Can you quiz me on it?") == .quiz)
+        #expect(liveSceneKind(for: "Can you kiss me on it?") == .quiz)
+        #expect(liveSceneKind(for: "show me inside and test me on it") == .quiz)
+        #expect(liveSceneKind(for: "what's on the latest menu") == nil)
     }
 
 }
