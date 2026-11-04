@@ -315,7 +315,7 @@ addEventListener("pointermove", (event) => {
   lastX = event.clientX; lastY = event.clientY;
 });
 
-let lastLabelFrameTime, lastCameraFrameTime;
+let lastFrameTime;
 
 const finishTour = () => {
   draggedYaw = yaw; draggedPitch = pitch;
@@ -326,6 +326,8 @@ const finishTour = () => {
 
 const render = (now) => {
   const seconds = (now - tourStartedAt) / 1000;
+  const frameMilliseconds = lastFrameTime === undefined ? 0 : now - lastFrameTime;
+  lastFrameTime = now;
   if (!tourDone) {
     const lift = ease(Math.min(1, Math.max(0, (seconds - 1) / 2)));
     const move = ease(Math.min(1, Math.max(0, (seconds - 1.5) / 3)));
@@ -337,7 +339,7 @@ const render = (now) => {
     if (seconds > 4.5) finishTour();
   } else {
     if (liftNow !== 1) applyLift(1);
-    const easeToDrag = lastCameraFrameTime === undefined ? 1 : 1 - Math.exp(-(now - lastCameraFrameTime) / 50);
+    const easeToDrag = 1 - Math.exp(-frameMilliseconds / 50);
     yaw += (draggedYaw - yaw) * easeToDrag;
     pitch += (draggedPitch - pitch) * easeToDrag;
     const restingTarget = focusedEntry ? partPoint(focusedEntry) : subjectCenter();
@@ -350,7 +352,6 @@ const render = (now) => {
       target.copy(restingTarget);
     }
   }
-  lastCameraFrameTime = now;
   camera.position.set(
     target.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
     target.y + cameraDistance * Math.sin(pitch),
@@ -411,8 +412,7 @@ const render = (now) => {
   // Each label follows its part exactly, and its offset from the part glides toward the new layout.
   // While the learner drags, the offsets hold still, so labels move with the model instead of
   // sliding around it. They glide to a freshly solved layout after the drag ends.
-  const glide = lastLabelFrameTime === undefined ? 1 : 1 - Math.exp(-(now - lastLabelFrameTime) / 120);
-  lastLabelFrameTime = now;
+  const glide = 1 - Math.exp(-frameMilliseconds / 120);
   const offsetsHoldStill = dragging && tourDone;
   for (const placement of placements) {
     const { entry, pointX, pointY } = placement;
