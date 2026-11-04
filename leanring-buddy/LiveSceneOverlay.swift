@@ -289,6 +289,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             print("Live scene: refused a live page because its network block is missing")
             return false
         }
+        discardThePreviousWebView()
         placeOverlayOnTheScreenUnderTheMouse()
         liveSceneOverlayWindow?.ignoresMouseEvents = true
         queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel, rendersMapTiles: rendersMapTiles)
@@ -458,6 +459,17 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         if !queuedPageLoad.hidesQuizLabel {
             revealOnceTheGeneratedPageIsReady()
         }
+    }
+
+    /// A reused web view shows the previous page for a few frames when the window
+    /// comes back, before the new page paints. A fresh web view has nothing to show.
+    private func discardThePreviousWebView() {
+        guard let previousWebView = liveSceneWebView else { return }
+        previousWebView.stopLoading()
+        previousWebView.navigationDelegate = nil
+        previousWebView.configuration.userContentController.removeAllScriptMessageHandlers()
+        liveSceneWebView = nil
+        pageHasFinishedLoading = false
     }
 
     private func ensureLiveSceneWebView() {
