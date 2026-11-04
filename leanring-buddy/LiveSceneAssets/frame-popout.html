@@ -113,6 +113,35 @@ const maskPixels = maskContext.getImageData(x0, y0, boxW, boxH).data;
 const subjectMask = new Uint8Array(boxW * boxH);
 for (let i = 0; i < subjectMask.length; i++) subjectMask[i] = maskPixels[i * 4] > 127 ? 1 : 0;
 
+// Vision can leave out a part drawn in a color close to the background, like the pale blue
+// inferior vena cava below the heart, keeping only its outline. A labeled part belongs to the
+// subject, so a label point outside the mask grows into the patch of similar color around it.
+// The size cap keeps a point Sonnet placed on the background from pulling the background in.
+{
+  const largestPatch = boxW * boxH * 0.03;
+  const colorDistanceAt = (i, seedIndex) => {
+    const a = (((i / boxW) | 0) + y0) * W * 4 + ((i % boxW) + x0) * 4;
+    const b = (((seedIndex / boxW) | 0) + y0) * W * 4 + ((seedIndex % boxW) + x0) * 4;
+    return Math.hypot(pixels[a] - pixels[b], pixels[a + 1] - pixels[b + 1], pixels[a + 2] - pixels[b + 2]);
+  };
+  for (const part of popout.parts) {
+    const seedX = Math.round(part.x) - x0, seedY = Math.round(part.y) - y0;
+    if (seedX < 0 || seedY < 0 || seedX >= boxW || seedY >= boxH) continue;
+    const seed = seedY * boxW + seedX;
+    if (subjectMask[seed]) continue;
+    const patch = [seed], inPatch = new Uint8Array(boxW * boxH);
+    inPatch[seed] = 1;
+    for (let next = 0; next < patch.length && patch.length <= largestPatch; next++) {
+      const i = patch[next], x = i % boxW, y = (i / boxW) | 0;
+      for (const neighbor of [x > 0 ? i - 1 : -1, x < boxW - 1 ? i + 1 : -1, y > 0 ? i - boxW : -1, y < boxH - 1 ? i + boxW : -1]) {
+        if (neighbor < 0 || inPatch[neighbor] || subjectMask[neighbor] || colorDistanceAt(neighbor, seed) > 48) continue;
+        inPatch[neighbor] = 1; patch.push(neighbor);
+      }
+    }
+    if (patch.length <= largestPatch) for (const i of patch) subjectMask[i] = 1;
+  }
+}
+
 // Pinholes in the mask become dents in the model, so small enclosed gaps are filled.
 // Large ones, like the inside of a loop, are real background and stay open.
 {
