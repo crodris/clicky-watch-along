@@ -273,18 +273,23 @@ const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const tourStartedAt = performance.now();
 
 let dragging = false, lastX = 0, lastY = 0;
+// A drag sets the angle the camera heads for, and each frame eases the camera toward it.
+// Drag events arrive unevenly (about 51 a second against 60 frames in Clicky's overlay),
+// so snapping to each event left about 1 frame in 6 standing still.
+let draggedYaw = 0, draggedPitch = 0;
 addEventListener("pointerdown", (event) => { dragging = true; lastX = event.clientX; lastY = event.clientY; });
 addEventListener("pointerup", () => { dragging = false; });
 addEventListener("pointermove", (event) => {
   if (!dragging || !tourDone) return;
-  yaw -= (event.clientX - lastX) * 0.008;
-  pitch = Math.min(1.1, Math.max(-1.1, pitch + (event.clientY - lastY) * 0.005));
+  draggedYaw -= (event.clientX - lastX) * 0.008;
+  draggedPitch = Math.min(1.1, Math.max(-1.1, draggedPitch + (event.clientY - lastY) * 0.005));
   lastX = event.clientX; lastY = event.clientY;
 });
 
-let lastLabelFrameTime;
+let lastLabelFrameTime, lastCameraFrameTime;
 
 const finishTour = () => {
+  draggedYaw = yaw; draggedPitch = pitch;
   tourDone = true;
   window.__tourFinished = true;
   window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished");
@@ -303,6 +308,9 @@ const render = (now) => {
     if (seconds > 4.5) finishTour();
   } else {
     if (liftNow !== 1) applyLift(1);
+    const easeToDrag = lastCameraFrameTime === undefined ? 1 : 1 - Math.exp(-(now - lastCameraFrameTime) / 50);
+    yaw += (draggedYaw - yaw) * easeToDrag;
+    pitch += (draggedPitch - pitch) * easeToDrag;
     const restingTarget = focusedEntry ? partPoint(focusedEntry) : subjectCenter();
     if (focusMove) {
       const progress = Math.min(1, (now - focusMove.startedAt) / 1500);
@@ -313,12 +321,16 @@ const render = (now) => {
       target.copy(restingTarget);
     }
   }
+  lastCameraFrameTime = now;
   camera.position.set(
     target.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
     target.y + cameraDistance * Math.sin(pitch),
     target.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch),
   );
   camera.lookAt(target);
+  // lookAt leaves the world matrix with the new position and the old rotation, and the labels
+  // are projected before renderer.render refreshes it. Without this, labels shook while turning.
+  camera.updateMatrixWorld();
 
   const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6));
   const centerOnPage = subjectCenter().project(camera);
