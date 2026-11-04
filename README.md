@@ -4,19 +4,46 @@ This is my fork of [Clicky](https://github.com/farzaa/clicky), the open source v
 
 ## What I added
 
-**A watch-along quiz.** Open a YouTube video in Chrome, hold Control + Option, and say "watch this video with me and quiz me." Clicky reads the video's transcript, picks a few spots to quiz you on, and pauses and plays the video by itself. It only asks about parts you've already heard, and when you ask for help, it explains the answer before the video keeps going.
+**A watch-along quiz.** Open a YouTube video in Chrome, hold Control + Option, and say "watch this video with me and quiz me."
+Clicky reads the video's transcript, and Sonnet picks the spots worth a question, spread across the video.
+While it plans, a label at the bottom of the screen says "Reading the transcript" and then "Picking spots to quiz you on."
+Clicky pauses and plays the video by itself, and it only asks about parts you've already heard.
+You answer out loud, and when you ask for help, it explains the answer before the video keeps going.
+Press Escape to skip a question, or say "stop the quiz" to end it.
 
-**3D models on request.** While the video is paused, ask Clicky to show you something in 3D. It sends a screenshot and what the video just said to GPT-6.1 Sol, which writes a labeled three.js scene, usually in about 8 to 14 seconds. The scene opens in Clicky's overlay, Clicky highlights each part as it talks, and you can drag to rotate and pinch to zoom. Press Escape to close it, and the video picks back up. HeyClicky's real-time graphics demo inspired this part.
+**The paused frame pops out in 3D.** Six seconds before each pause, Clicky grabs the video frame and asks Sonnet to find the subject and its parts.
+When it finds one, the subject lifts out of the video in 3D with its parts labeled, and Clicky asks the question once the tour ends.
+Charts and people talking stay voice only.
+You can also say "pop this out" or "pop this heart out" at any time, and Clicky lifts out whatever the video shows, with every label and no question.
+
+**3D models on request.** Say "show me" or "in 3D" over a video, and Clicky pauses it.
+It sends a screenshot and what the video just said to GPT-6.1 Sol, which writes a labeled three.js scene, usually in about 8 to 14 seconds.
+Clicky says "Building your 3D scene" while it waits, and the scene grows out of the video once it's ready.
+It shows the outside first, and opens it up when you ask to see inside.
+Clicky highlights each part as it talks, and you can drag to rotate and pinch to zoom.
+Add "quiz me" to the request, and one label shows as "?" for you to name.
+Press Escape to close it, and the video picks back up.
+HeyClicky's real-time graphics demo inspired this part.
+
+**Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.
+The scan is cut down to the structure and about 130 meters around it, and it floats over the video.
 
 ## Running it
 
-I run this locally, with the Worker on `npx wrangler dev`, and Debug builds point at `http://127.0.0.1:8787`. Follow the setup below, then add these:
+I run this locally, with the Worker on `npx wrangler dev`, and Debug builds point at `http://127.0.0.1:8787`.
+Follow the setup below, then add these:
 
-- `OPENAI_API_KEY` in `worker/.dev.vars`, for the 3D scenes
+- `OPENAI_API_KEY` in `worker/.dev.vars`, for the 3D models
+- `GOOGLE_MAPS_API_KEY` in `worker/.dev.vars`, for the famous places, with the Map Tiles API turned on and billing linked
 - `brew install yt-dlp`, for the video transcripts
 - In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
 
-Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key. Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`. The Worker has no authentication or rate limits yet, so I wouldn't deploy it publicly as is.
+To test for less money, run `npx wrangler dev --var LIVE_SCENE_MODEL:sonnet`.
+Sonnet then builds the 3D models for about $0.04 each, instead of about $0.23 with GPT.
+
+Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
+Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
+The Worker has no authentication or rate limits yet, and its 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
 Everything below is the original Clicky README.
 
