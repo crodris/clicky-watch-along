@@ -119,7 +119,9 @@ enum LiveSceneAnswerJudge {
 nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
     let asksForAFramePopout = lowercaseTranscript.range(
-        of: #"\bpop(\s+(it|this|that))?\s*-?\s*out\b"#,
+        // Up to 3 words may sit between "pop" and "out", as in "pop this heart out".
+        // "out" must start its own word, so "pop without" does not count.
+        of: #"\bpop\b(\s+[\w']+){0,3}?(\s+|\s*-\s*)out\b"#,
         options: .regularExpression
     ) != nil
     if asksForAFramePopout {
