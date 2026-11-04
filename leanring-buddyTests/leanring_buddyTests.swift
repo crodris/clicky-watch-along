@@ -60,6 +60,9 @@ struct leanring_buddyTests {
         #expect(videoQuizVoiceCommand(for: "I'm done with the quiz") == .stop)
         #expect(videoQuizVoiceCommand(for: "quiz me at the end of the video") == .start)
         #expect(videoQuizVoiceCommand(for: "Quit") == nil)
+        #expect(videoQuizVoiceCommand(for: "Hey Clicky, can we stop the?") == .stop)
+        #expect(videoQuizVoiceCommand(for: "let's stop here") == .stop)
+        #expect(videoQuizVoiceCommand(for: "the valves stop blood from flowing back") == nil)
     }
 
     @Test func videoQuizAsksAMomentOnlyWhenTheVideoIsJustPastItAndItIsNotAnswered() async throws {
@@ -156,6 +159,13 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "pop out a render of this") == .framePopout)
         #expect(liveSceneKind(for: "that popped up on my screen") == nil)
         #expect(liveSceneKind(for: "what's on the latest menu") == nil)
+    }
+
+    @Test func renderAloneStartsA3DScene() async throws {
+        #expect(liveSceneKind(for: "Hey Clicky, I've never been to the Colosseum. Could you render this for me?") == .explore)
+        #expect(liveSceneKind(for: "can you make a rendering of it") == .explore)
+        #expect(liveSceneKind(for: "Could you run this for me?") == nil)
+        #expect(liveSceneKind(for: "the heart surrenders nothing") == nil)
     }
 
     @Test func liveSceneRiseScriptsGoBeforeTheLastBodyClose() async throws {

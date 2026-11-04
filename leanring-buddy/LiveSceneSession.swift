@@ -138,6 +138,8 @@ nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
         || lowercaseTranscript.contains("3d")
         || lowercaseTranscript.contains("3-d")
         || lowercaseTranscript.contains("three d ")
+        // "Render" alone means a 3D model, and speech recognition sometimes drops the "3D" after it.
+        || lowercaseTranscript.range(of: #"\brender"#, options: .regularExpression) != nil
     return asksToLookInside ? .explore : nil
 }
 

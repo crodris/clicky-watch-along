@@ -34,7 +34,12 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
         of: #"\b(stop|end|cancel|quit|exit|done with)( the| this| our| my)?( video)? (quiz|quizzing)\b"#,
         options: .regularExpression
     ) != nil
-    if asksToStopTheQuiz || normalizedTranscript.contains("stop watching") {
+    // A request to stop still counts when speech recognition drops the last word ("can we stop the").
+    let asksToStopWithoutNamingTheQuiz = normalizedTranscript.range(
+        of: #"\b(can we|could we|let s|lets|please) stop\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksToStopTheQuiz || asksToStopWithoutNamingTheQuiz || normalizedTranscript.contains("stop watching") {
         return .stop
     }
 

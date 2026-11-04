@@ -217,6 +217,7 @@ private struct BuddyDictationDraftCallbacks {
 @MainActor
 final class BuddyDictationManager: NSObject, ObservableObject {
     private static let defaultFinalTranscriptFallbackDelaySeconds: TimeInterval = 2.4
+    private static let secondsToKeepListeningAfterTheShortcutIsReleased: TimeInterval = 0.5
     private static let recordedAudioPowerHistoryLength = 44
     private static let recordedAudioPowerHistoryBaselineLevel: CGFloat = 0.02
     private static let recordedAudioPowerHistorySampleIntervalSeconds: TimeInterval = 0.07
@@ -490,24 +491,36 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         let finalTranscriptFallbackDelaySeconds = activeTranscriptionSession?.finalTranscriptFallbackDelaySeconds
             ?? Self.defaultFinalTranscriptFallbackDelaySeconds
-
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        activeTranscriptionSession?.requestFinalTranscript()
-
-        finalizeFallbackWorkItem?.cancel()
         let shouldSubmitFinalDraftWhenFallbackTriggers = shouldAutomaticallySubmitFinalDraft
-        let fallbackWorkItem = DispatchWorkItem { [weak self] in
+
+        // People let go of the shortcut while still saying the last word, and stopping the
+        // microphone right away cut it off ("stop the quiz" arrived as "stop the").
+        finalizeFallbackWorkItem?.cancel()
+        let stopAfterTheLastWordWorkItem = DispatchWorkItem { [weak self] in
             Task { @MainActor in
-                self?.finishCurrentDictationSessionIfNeeded(
-                    shouldSubmitFinalDraft: shouldSubmitFinalDraftWhenFallbackTriggers
+                guard let self else { return }
+                self.audioEngine.stop()
+                self.audioEngine.inputNode.removeTap(onBus: 0)
+                self.activeTranscriptionSession?.requestFinalTranscript()
+
+                let fallbackWorkItem = DispatchWorkItem { [weak self] in
+                    Task { @MainActor in
+                        self?.finishCurrentDictationSessionIfNeeded(
+                            shouldSubmitFinalDraft: shouldSubmitFinalDraftWhenFallbackTriggers
+                        )
+                    }
+                }
+                self.finalizeFallbackWorkItem = fallbackWorkItem
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + finalTranscriptFallbackDelaySeconds,
+                    execute: fallbackWorkItem
                 )
             }
         }
-        finalizeFallbackWorkItem = fallbackWorkItem
+        finalizeFallbackWorkItem = stopAfterTheLastWordWorkItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + finalTranscriptFallbackDelaySeconds,
-            execute: fallbackWorkItem
+            deadline: .now() + Self.secondsToKeepListeningAfterTheShortcutIsReleased,
+            execute: stopAfterTheLastWordWorkItem
         )
     }
 

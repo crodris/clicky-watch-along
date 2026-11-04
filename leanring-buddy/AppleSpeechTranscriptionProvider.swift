@@ -86,7 +86,10 @@ private final class AppleSpeechTranscriptionSession: NSObject, BuddyStreamingTra
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.taskHint = .dictation
         recognitionRequest.addsPunctuation = true
-        recognitionRequest.contextualStrings = ["quiz", "quiz me", "Clicky"]
+        // Clicky's own commands, so the on-device model leans toward them ("render" was heard as "run").
+        recognitionRequest.contextualStrings = [
+            "quiz", "quiz me", "Clicky", "stop the quiz", "render", "render this in 3D", "in 3D", "pop this out", "show me",
+        ]
 
         if speechRecognizer.supportsOnDeviceRecognition {
             recognitionRequest.requiresOnDeviceRecognition = true
