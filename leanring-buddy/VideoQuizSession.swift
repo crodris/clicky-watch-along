@@ -29,7 +29,12 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
         }
     let normalizedTranscript = transcriptWords.joined(separator: " ")
 
-    if normalizedTranscript.contains("stop quizzing") || normalizedTranscript.contains("stop watching") {
+    // The stop word has to sit right before the quiz word, so "quiz me at the end of the video" still starts one.
+    let asksToStopTheQuiz = normalizedTranscript.range(
+        of: #"\b(stop|end|cancel|quit|exit|done with)( the| this| our| my)?( video)? (quiz|quizzing)\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksToStopTheQuiz || normalizedTranscript.contains("stop watching") {
         return .stop
     }
 
@@ -246,6 +251,8 @@ final class VideoQuizSession {
             framePopoutTask.cancel()
         }
         framePopoutTasksByMomentIndex = [:]
+        // A failure or a stop during planning would otherwise leave the planning label up.
+        LiveSceneStatusLabel.shared.hide()
         print("Video quiz: stopped")
     }
 
@@ -278,6 +285,16 @@ final class VideoQuizSession {
 
     /// Called once the explanation has been spoken. Presses play again, and ends
     /// the session after the last moment.
+    /// True when the quiz's YouTube tab is the active tab of Chrome's front window. A scene asked for
+    /// over any other page is not about this video, so it must not pause or resume it.
+    func quizVideoIsTheTabInFront() -> Bool {
+        guard let currentVideoTab,
+              let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else {
+            return false
+        }
+        return frontVideoTab.windowId == currentVideoTab.windowId && frontVideoTab.tabId == currentVideoTab.tabId
+    }
+
     func resumeVideoAfterQuestion() {
         guard isRunning, isWaitingForQuestionToFinish, let currentVideoTab else { return }
         isWaitingForQuestionToFinish = false
@@ -306,11 +323,14 @@ final class VideoQuizSession {
             print("Video quiz: video clock reads \(playbackState.currentSeconds)s, paused \(playbackState.isPaused)")
 
             let planningStartDate = Date()
+            // Reading and planning take 10 to 15 seconds, so the label says what Clicky is doing meanwhile.
+            LiveSceneStatusLabel.shared.show("Reading the transcript")
             let transcriptLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: videoTab.url)
             guard isRunning, !Task.isCancelled else { return }
             print("Video quiz: read \(transcriptLines.count) caption lines")
             allTranscriptLines = transcriptLines
 
+            LiveSceneStatusLabel.shared.show("Picking spots to quiz you on")
             let plannedMoments = try await VideoQuizPlanClient(workerBaseURL: workerBaseURL).requestPlan(
                 title: videoTab.title,
                 transcriptLines: transcriptLines.filter { transcriptLine in
@@ -318,6 +338,7 @@ final class VideoQuizSession {
                 }
             )
             guard isRunning, !Task.isCancelled else { return }
+            LiveSceneStatusLabel.shared.hide()
             moments = plannedMoments.map { plannedMoment in
                 var quizWithWhatWasHeard = plannedMoment.quiz
                 quizWithWhatWasHeard.heardTranscript = transcriptLines
@@ -459,7 +480,8 @@ final class VideoQuizSession {
     /// The frame the YouTube tab shows right now, for a pop-out the learner asked for.
     /// Nil when Sonnet or Vision finds no single subject in it.
     static func framePopoutOfTheVisibleFrame(workerBaseURL: String) async throws -> VideoFramePopout? {
-        let videoTab = try ChromeVideoTab.findYouTubeWatchTab()
+        // Only the video in front is the one the learner pointed at.
+        let videoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
         let frameGrab = try grabFrame(of: videoTab)
         print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds)s for a requested pop-out")
         // No question is being asked, so no label gets the quiz mark.

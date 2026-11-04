@@ -53,6 +53,15 @@ struct leanring_buddyTests {
         #expect(videoQuizVoiceCommand(for: "stop watching the video and quizzing me") == .stop)
     }
 
+    @Test func videoQuizVoiceCommandStopsOnAStopWordRightBeforeQuiz() async throws {
+        #expect(videoQuizVoiceCommand(for: "Hey Clicky, can we stop the quiz?") == .stop)
+        #expect(videoQuizVoiceCommand(for: "end the video quiz") == .stop)
+        #expect(videoQuizVoiceCommand(for: "cancel the quiz please") == .stop)
+        #expect(videoQuizVoiceCommand(for: "I'm done with the quiz") == .stop)
+        #expect(videoQuizVoiceCommand(for: "quiz me at the end of the video") == .start)
+        #expect(videoQuizVoiceCommand(for: "Quit") == nil)
+    }
+
     @Test func videoQuizAsksAMomentOnlyWhenTheVideoIsJustPastItAndItIsNotAnswered() async throws {
         let pauseAtSecondsPerMoment: [Double] = [30, 90, 150]
 

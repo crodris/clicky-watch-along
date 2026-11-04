@@ -740,7 +740,9 @@ final class CompanionManager: ObservableObject {
         // pauses the video, and a pending question is set aside for the model.
         var sceneQuestion = transcript
         let requestedKind = liveSceneKind(for: transcript)
-        if videoQuizSession.isRunning, requestedKind == .explore || requestedKind == .framePopout {
+        if videoQuizSession.isRunning,
+           requestedKind == .explore || requestedKind == .framePopout,
+           videoQuizSession.quizVideoIsTheTabInFront() {
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
             videoQuizQuestionIsActive = false
             liveScenePhase = .idle
@@ -1464,13 +1466,31 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape ends the scene and anything Clicky is still saying about it.
+    /// During a video quiz question it skips that question and plays the video on.
     private func closeLiveSceneOnEscape() {
+        if videoQuizQuestionIsActive {
+            skipTheVideoQuizQuestion()
+            return
+        }
         guard case .allLabelsShowing = liveScenePhase else { return }
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         voiceState = .idle
         clearFinishedLiveScene()
         scheduleTransientHideIfNeeded()
+    }
+
+    private func skipTheVideoQuizQuestion() {
+        currentResponseTask?.cancel()
+        liveSceneTourFinishedTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        videoQuizQuestionIsActive = false
+        liveScenePhase = .idle
+        LiveSceneOverlay.shared.clear()
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+        print("Video quiz: skipped the question on Escape")
+        videoQuizSession.resumeVideoAfterQuestion()
     }
 
     private func handleLiveSceneTourFinished() {
