@@ -282,6 +282,8 @@ addEventListener("pointermove", (event) => {
   lastX = event.clientX; lastY = event.clientY;
 });
 
+let lastLabelFrameTime;
+
 const finishTour = () => {
   tourDone = true;
   window.__tourFinished = true;
@@ -333,12 +335,19 @@ const render = (now) => {
   const placements = projectedPoints
     .sort((first, second) => first.pointY - second.pointY)
     .map(({ entry, pointX, pointY }) => {
-      let side = Math.sign(pointX - centerX);
-      if (Math.abs(pointX - centerX) < middleBand) { side = nextMiddleSide; nextMiddleSide = -nextMiddleSide; }
+      const offsetFromCenter = pointX - centerX;
+      // A label keeps its side until its part is clearly past the middle, so turning
+      // the model does not flip it back and forth across the subject.
+      if (entry.side === undefined) {
+        entry.side = Math.sign(offsetFromCenter);
+        if (Math.abs(offsetFromCenter) < middleBand) { entry.side = nextMiddleSide; nextMiddleSide = -nextMiddleSide; }
+      } else if (Math.sign(offsetFromCenter) === -entry.side && Math.abs(offsetFromCenter) > middleBand) {
+        entry.side = -entry.side;
+      }
       const halfWidth = entry.element.offsetWidth / 2 + 4;
       return {
         entry, pointX, pointY,
-        labelX: pointX + side * (reach + halfWidth), labelY: pointY + (pointY - centerY) * 0.15,
+        labelX: pointX + entry.side * (reach + halfWidth), labelY: pointY + (pointY - centerY) * 0.15,
         halfWidth, halfHeight: entry.element.offsetHeight / 2 + 3,
       };
     });
@@ -358,7 +367,16 @@ const render = (now) => {
       }
     }
   }
-  for (const { entry, pointX, pointY, labelX, labelY } of placements) {
+  // Each label's offset from its part glides toward the new layout instead of jumping,
+  // while the label still follows its part exactly as the model turns.
+  const glide = lastLabelFrameTime === undefined ? 1 : 1 - Math.exp(-(now - lastLabelFrameTime) / 120);
+  lastLabelFrameTime = now;
+  for (const placement of placements) {
+    const { entry, pointX, pointY } = placement;
+    if (entry.offsetX === undefined) { entry.offsetX = placement.labelX - pointX; entry.offsetY = placement.labelY - pointY; }
+    entry.offsetX += (placement.labelX - pointX - entry.offsetX) * glide;
+    entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
+    const labelX = pointX + entry.offsetX, labelY = pointY + entry.offsetY;
     entry.element.style.left = `${labelX}px`;
     entry.element.style.top = `${labelY}px`;
     if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
