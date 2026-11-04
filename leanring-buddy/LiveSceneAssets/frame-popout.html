@@ -8,7 +8,7 @@ canvas { display: block; position: absolute; inset: 0; }
 #backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
 #frameBackground { position: absolute; }
 svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.scene-label { position: absolute; transform: translate(-50%, -50%); padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, opacity 0.3s; }
+.scene-label { position: absolute; left: 0; top: 0; padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, opacity 0.3s; }
 .scene-label.focused { background: #ffe066; }
 .scene-label.quiz-answer { z-index: 2; }
 </style>
@@ -367,18 +367,23 @@ const render = (now) => {
       }
     }
   }
-  // Each label's offset from its part glides toward the new layout instead of jumping,
-  // while the label still follows its part exactly as the model turns.
+  // Each label follows its part exactly, and its offset from the part glides toward the new layout.
+  // While the learner drags, the offsets hold still, so labels move with the model instead of
+  // sliding around it. They glide to a freshly solved layout after the drag ends.
   const glide = lastLabelFrameTime === undefined ? 1 : 1 - Math.exp(-(now - lastLabelFrameTime) / 120);
   lastLabelFrameTime = now;
+  const offsetsHoldStill = dragging && tourDone;
   for (const placement of placements) {
     const { entry, pointX, pointY } = placement;
     if (entry.offsetX === undefined) { entry.offsetX = placement.labelX - pointX; entry.offsetY = placement.labelY - pointY; }
-    entry.offsetX += (placement.labelX - pointX - entry.offsetX) * glide;
-    entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
+    if (!offsetsHoldStill) {
+      entry.offsetX += (placement.labelX - pointX - entry.offsetX) * glide;
+      entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
+    }
     const labelX = pointX + entry.offsetX, labelY = pointY + entry.offsetY;
-    entry.element.style.left = `${labelX}px`;
-    entry.element.style.top = `${labelY}px`;
+    // A transform keeps the label at sub-pixel positions like its SVG line. Left and top snap to
+    // whole pixels in WebKit, which made labels shimmer against their lines.
+    entry.element.style.transform = `translate(${labelX}px, ${labelY}px) translate(-50%, -50%)`;
     if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
     entry.line.setAttribute("x1", pointX); entry.line.setAttribute("y1", pointY);
     entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
