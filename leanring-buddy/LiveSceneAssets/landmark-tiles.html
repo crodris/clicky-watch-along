@@ -80,12 +80,17 @@ const measureFootprint = (ground, top) => {
     if (hit && hit.point.y >= footprintThreshold) farthest = Math.max(farthest, Math.hypot(x - placeCenter.x, z - placeCenter.z));
   }
   // A margin of ground around the structure reads as a small base it stands on.
-  if (farthest > 0) clipRadius = Math.max(15, farthest * 1.4 + 10, landmark.radiusMeters * 1.2);
+  if (farthest > 0) structureRadius = Math.max(15, farthest * 1.4 + 10, landmark.radiusMeters * 1.2);
+  clipRadius = structureRadius + surroundingAreaMeters;
 };
 
-// Eight walls and a floor cut the scan down to the landmark and a little ground around it,
-// so the skyline and the rest of the city drop away.
-let clipRadius = Math.min(400, Math.max(30, landmark.radiusMeters));
+// Eight walls and a floor cut the scan down to the landmark and about 130 m of its surroundings,
+// so nearby streets and landmarks stay while the skyline and the rest of the city drop away.
+// The camera frames only the structure, so the landmark keeps its size and detail on screen
+// and the surroundings fill the edges of the view.
+const surroundingAreaMeters = 130;
+let structureRadius = Math.min(400, Math.max(30, landmark.radiusMeters));
+let clipRadius = structureRadius + surroundingAreaMeters;
 const clipPlanes = Array.from({ length: 9 }, () => new THREE.Plane());
 const updateClipPlanes = () => {
   for (let side = 0; side < 8; side++) {
@@ -163,9 +168,9 @@ const locateLandmark = () => {
   if (!tourDone) {
     // Far enough that the whole structure fills about 60% of the screen height.
     const fieldOfViewHalfTangent = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    orbitRadius = Math.max(framingHeight(), clipRadius * 2) / (2 * fieldOfViewHalfTangent) / 0.6;
+    orbitRadius = Math.max(framingHeight(), structureRadius * 2) / (2 * fieldOfViewHalfTangent) / 0.6;
     // A wide, low place like an arena is seen from higher up so its inside shows.
-    pitch = clipRadius * 2 > framingHeight() ? 0.6 : 0.22;
+    pitch = structureRadius * 2 > framingHeight() ? 0.6 : 0.22;
     minimumRadius = orbitRadius * 0.35;
     maximumRadius = orbitRadius * 2.5;
   }
