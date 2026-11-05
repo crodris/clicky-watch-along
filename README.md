@@ -30,7 +30,7 @@ The scan is cut down to the structure and about 130 meters around it, and it flo
 
 ## Running it
 
-I run this locally, with the Worker on `npx wrangler dev`, and Debug builds point at `http://127.0.0.1:8787`.
+I run this locally, with the Worker on `pnpm wrangler dev`, and Debug builds point at `http://127.0.0.1:8787`.
 Follow the setup below, then add these:
 
 - `OPENAI_API_KEY` in `worker/.dev.vars`, for the 3D models
@@ -38,7 +38,7 @@ Follow the setup below, then add these:
 - `brew install yt-dlp`, for the video transcripts
 - In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
 
-To test for less money, run `npx wrangler dev --var LIVE_SCENE_MODEL:sonnet`.
+To test for less money, run `pnpm wrangler dev --var LIVE_SCENE_MODEL:sonnet`.
 Sonnet then builds the 3D models for about $0.04 each, instead of about $0.23 with GPT.
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
@@ -106,8 +106,8 @@ If you want to do it yourself, here's the deal.
 ### Prerequisites
 
 - macOS 14.2+ (for ScreenCaptureKit)
-- Xcode 15+
-- Node.js 18+ (for the Cloudflare Worker)
+- Xcode 26 (CI builds with Xcode 26.5)
+- Node.js 18+ and pnpm 12 (for the Cloudflare Worker)
 - A [Cloudflare](https://cloudflare.com) account (free tier works)
 - API keys for: [Anthropic](https://console.anthropic.com), [AssemblyAI](https://www.assemblyai.com), [ElevenLabs](https://elevenlabs.io)
 
@@ -117,15 +117,15 @@ The Worker is a tiny proxy that holds your API keys. The app talks to the Worker
 
 ```bash
 cd worker
-npm install
+pnpm install
 ```
 
 Now add your secrets. Wrangler will prompt you to paste each one:
 
 ```bash
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ASSEMBLYAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
+pnpm wrangler secret put ANTHROPIC_API_KEY
+pnpm wrangler secret put ASSEMBLYAI_API_KEY
+pnpm wrangler secret put ELEVENLABS_API_KEY
 ```
 
 For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
@@ -138,7 +138,7 @@ ELEVENLABS_VOICE_ID = "your-voice-id-here"
 Deploy it:
 
 ```bash
-npx wrangler deploy
+pnpm wrangler deploy
 ```
 
 It'll give you a URL like `https://your-worker-name.your-subdomain.workers.dev`. Copy that.
@@ -149,7 +149,7 @@ If you want to test changes to the Worker without deploying:
 
 ```bash
 cd worker
-npx wrangler dev
+pnpm wrangler dev
 ```
 
 This starts a local server (usually `http://localhost:8787`) that behaves exactly like the deployed Worker. You'll need to create a `.dev.vars` file in the `worker/` directory with your keys:
