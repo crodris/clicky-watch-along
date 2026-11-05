@@ -63,6 +63,7 @@ function planReply(plan: unknown): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("parseVideoQuizPlan", () => {
@@ -87,13 +88,96 @@ describe("parseVideoQuizPlan", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("rejects a pause that is not on a transcript line", () => {
+  it("moves a pause between two lines to the next line start", () => {
     const result = parseVideoQuizPlan(
-      { moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] },
+      { moments: [{ ...liverMoment, pauseAtSeconds: 52.5 }, denticleMoment, poreMoment] },
       transcriptLines,
     );
 
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: true, plan: validPlan });
+  });
+
+  it("accepts a pause exactly on the last line start", () => {
+    const result = parseVideoQuizPlan(
+      { moments: [liverMoment, denticleMoment, { ...poreMoment, pauseAtSeconds: 200 }] },
+      transcriptLines,
+    );
+
+    expect(result.ok && result.plan.moments[2]?.pauseAtSeconds).toBe(200);
+  });
+
+  it("drops a question whose accent is a separate combining mark", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      {
+        moments: [
+          liverMoment,
+          denticleMoment,
+          { ...poreMoment, answerLabel: "résumé", question: "Let's pause here! What does the shark's résumé list?" },
+        ],
+      },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(2);
+  });
+
+  it("rejects a pause after the last line start", () => {
+    const result = parseVideoQuizPlan(
+      { moments: [liverMoment, denticleMoment, { ...poreMoment, pauseAtSeconds: 205 }] },
+      transcriptLines,
+    );
+
+    expect(result).toEqual({ ok: false, error: "pauseAtSeconds 205 is after the last transcript line at 200" });
+  });
+
+  it("keeps a question whose answer is only part of a longer accented word", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      {
+        moments: [
+          liverMoment,
+          denticleMoment,
+          { ...poreMoment, answerLabel: "nome", question: "Let's pause here! What does the shark's génome store?" },
+        ],
+      },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(3);
+  });
+
+  it("drops a question that contains its accented answer", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      {
+        moments: [
+          liverMoment,
+          denticleMoment,
+          { ...poreMoment, answerLabel: "Résumé", question: "Let's pause here! What does the shark's résumé list?" },
+        ],
+      },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(2);
+  });
+
+  it("rejects a source time before the first transcript line", () => {
+    const linesFromTheMiddle = transcriptLines.filter((transcriptLine) => transcriptLine.seconds >= 100);
+
+    const result = parseVideoQuizPlan(
+      { moments: [{ ...denticleMoment, sourceLineSeconds: 5 }, { ...poreMoment, pauseAtSeconds: 200, question: "Let's pause here! What came last?", answerLabel: "pores" }] },
+      linesFromTheMiddle,
+    );
+
+    expect(result).toEqual({ ok: false, error: "sourceLineSeconds 5 is before the first transcript line at 100" });
+  });
+
+  it("moves a source time between two lines to the line playing then", () => {
+    const result = parseVideoQuizPlan(
+      { moments: [{ ...liverMoment, sourceLineSeconds: 5 }, denticleMoment, poreMoment] },
+      transcriptLines,
+    );
+
+    expect(result).toEqual({ ok: true, plan: validPlan });
   });
 
   it("rejects a plan whose first pause is past the first minute", () => {
@@ -193,8 +277,17 @@ describe("parseVideoQuizPlan", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("rejects function words that are not lowercase single words", () => {
-    for (const functionWords of [["Floats"], ["stays afloat"], []]) {
+  it("lowercases function words and keeps phrases whole instead of rejecting them", () => {
+    const result = parseVideoQuizPlan(
+      { moments: [{ ...liverMoment, functionWords: ["Floats", " Stays Afloat ", "one-way", "CO2", "!!"] }, denticleMoment, poreMoment] },
+      transcriptLines,
+    );
+
+    expect(result.ok && result.plan.moments[0]?.functionWords).toEqual(["floats", "stays afloat", "one-way", "co2"]);
+  });
+
+  it("rejects function words with no letters or digits", () => {
+    for (const functionWords of [[], ["!!", " "]]) {
       const result = parseVideoQuizPlan(
         { moments: [{ ...liverMoment, functionWords }, denticleMoment, poreMoment] },
         transcriptLines,
@@ -267,11 +360,12 @@ describe("handleVideoQuizPlan", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("retries once and tells the model which rule it broke", async () => {
+  it("retries once, tells the model which rule it broke, and logs the rejection", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        planReply({ moments: [{ ...liverMoment, pauseAtSeconds: 61 }, denticleMoment, poreMoment] }),
+        planReply({ moments: [{ ...liverMoment, pauseAtSeconds: 100 }, denticleMoment, poreMoment] }),
       )
       .mockResolvedValueOnce(planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
@@ -281,8 +375,9 @@ describe("handleVideoQuizPlan", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(validPlan);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const retryBody = String(fetchMock.mock.calls[1]?.[1].body);
-    expect(retryBody).toContain("pauseAtSeconds 61 is not the seconds value of any transcript line");
+    const rejection = "The first pause at 100 is more than 60 seconds after the first transcript line";
+    expect(String(fetchMock.mock.calls[1]?.[1].body)).toContain(rejection);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(`[/video-quiz-plan] attempt 1 rejected: ${rejection}`);
   });
 
   it("sends a retry the same cached transcript block, with the rejection after it", async () => {
