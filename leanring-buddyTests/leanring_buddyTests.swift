@@ -5,9 +5,11 @@
 //  Created by thorfinn on 3/2/26.
 //
 
+import Foundation
 import Testing
-@testable import leanring_buddy
+@testable import Clicky
 
+@MainActor
 struct leanring_buddyTests {
 
     @Test func firstPermissionRequestUsesSystemPromptOnly() async throws {

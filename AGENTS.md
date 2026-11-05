@@ -111,6 +111,7 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 | `ClickyAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
+| `leanring-buddyTests/leanring_buddyTests.swift` | ~219 | Swift Testing unit tests for voice-command parsing, quiz grading, the live scene trigger and rise script, and the permission gate. They import `Clicky` and run on the main actor, hosted in `Clicky.app`. |
 | `worker/src/index.ts` | ~165 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/live-scene` (generated page), `/judge-answer` (spoken grade), `/video-quiz-plan` (video quiz moments), `/video-frame-parts` (subject and labels in a frame). |
 | `worker/src/videoQuizPlan.ts` | ~281 | `POST /video-quiz-plan`. Sonnet returns the plan as schema-checked JSON and decides how many moments to pick. `parseVideoQuizPlan` moves a pause between two transcript lines to the next line start, moves a source time to the line playing then, lowercases function words, and checks the rest (tested in `worker/src/videoQuizPlan.test.ts`). Up to 2 retries name the broken rule, and each rejection logs "[/video-quiz-plan] attempt N rejected". |
 | `worker/src/liveScene.ts` | ~350 | `POST /live-scene` asks GPT-6.1 Sol Ultrafast for a page and a quiz, checks the reply, and retries once. `POST /judge-answer` asks Sonnet for a verdict and one spoken sentence as schema-checked JSON. |
@@ -127,6 +128,8 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 open leanring-buddy.xcodeproj
 
 # Select the leanring-buddy scheme, set signing team, Cmd+R to build and run
+
+# Cmd+U runs leanring-buddyTests (Swift Testing) hosted in Clicky.app. CI runs the same tests.
 
 # Known non-blocking warnings: Swift 6 concurrency warnings,
 # deprecated onChange warning in OverlayWindow.swift. Do NOT attempt to fix these.
@@ -169,7 +172,7 @@ pnpm 12 refuses to install a dependency with an unapproved build script.
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main.
 The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
-The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`.
+The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 Running xcodebuild there is fine, since the runner has no TCC permissions to lose.
 
 ## Verification
