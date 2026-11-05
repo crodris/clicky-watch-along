@@ -97,6 +97,30 @@ describe("parseVideoQuizPlan", () => {
     expect(result).toEqual({ ok: true, plan: validPlan });
   });
 
+  it("accepts a pause exactly on the last line start", () => {
+    const result = parseVideoQuizPlan(
+      { moments: [liverMoment, denticleMoment, { ...poreMoment, pauseAtSeconds: 200 }] },
+      transcriptLines,
+    );
+
+    expect(result.ok && result.plan.moments[2]?.pauseAtSeconds).toBe(200);
+  });
+
+  it("drops a question whose accent is a separate combining mark", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      {
+        moments: [
+          liverMoment,
+          denticleMoment,
+          { ...poreMoment, answerLabel: "résumé", question: "Let's pause here! What does the shark's résumé list?" },
+        ],
+      },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(2);
+  });
+
   it("rejects a pause after the last line start", () => {
     const result = parseVideoQuizPlan(
       { moments: [liverMoment, denticleMoment, { ...poreMoment, pauseAtSeconds: 205 }] },

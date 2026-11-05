@@ -143,7 +143,9 @@ const systemPrompt = [
 ].join("\n");
 
 function containsWholeWords(text: string, phrase: string): boolean {
+  // NFC joins an accent written as a separate combining mark onto its letter, so both spellings of "é" match.
   const escapedPhrase = phrase
+    .normalize("NFC")
     .toLowerCase()
     .trim()
     .replace(/[^\p{L}\p{N}\s]/gu, "")
@@ -154,7 +156,7 @@ function containsWholeWords(text: string, phrase: string): boolean {
   }
   // Unicode letters and digits, so an answer such as "résumé" still counts as a whole word in its question.
   const phrasePattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapedPhrase}($|[^\\p{L}\\p{N}])`, "u");
-  return phrasePattern.test(text.toLowerCase());
+  return phrasePattern.test(text.normalize("NFC").toLowerCase());
 }
 
 /**
