@@ -5,7 +5,7 @@
 
 ## Overview
 
-macOS menu bar companion app. Lives entirely in the macOS status bar (no dock icon, no main window). Clicking the menu bar icon opens a custom floating panel with companion voice controls. Uses push-to-talk (ctrl+option) to capture voice input, transcribes it via AssemblyAI streaming, and sends the transcript + a screenshot of the user's screen to Claude. Claude responds with text (streamed via SSE) and voice (ElevenLabs TTS). A blue cursor overlay can fly to and point at UI elements Claude references on any connected monitor.
+macOS menu bar companion app. Lives entirely in the macOS status bar (no dock icon, no main window). Clicking the menu bar icon opens a custom floating panel with companion voice controls. Uses push-to-talk (ctrl+option) to capture voice input, transcribes it with Apple Speech (this fork's provider; AssemblyAI streaming and OpenAI are the alternatives), and sends the transcript + a screenshot of the user's screen to Claude. Claude responds with text (streamed via SSE) and voice (ElevenLabs TTS). A blue cursor overlay can fly to and point at UI elements Claude references on any connected monitor.
 
 All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in the app.
 
@@ -15,7 +15,7 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **Framework**: SwiftUI (macOS native) with AppKit bridging for menu bar panel and cursor overlay
 - **Pattern**: MVVM with `@StateObject` / `@Published` state management
 - **AI Chat**: Claude (Sonnet 4.6 default, Opus 4.6 optional) via Cloudflare Worker proxy with SSE streaming
-- **Speech-to-Text**: AssemblyAI real-time streaming (`u3-rt-pro` model) via websocket, with OpenAI and Apple Speech as fallbacks
+- **Speech-to-Text**: Apple Speech, selected by `VoiceTranscriptionProvider` = `apple` in Info.plist. Setting it to `assemblyai` (real-time streaming over a websocket, `u3-rt-pro` model) or `openai` (upload on release) switches providers
 - **Text-to-Speech**: ElevenLabs (`eleven_multilingual_v2` model) via Cloudflare Worker proxy
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Voice Input**: Push-to-talk via `AVAudioEngine` + pluggable transcription-provider layer. System-wide keyboard shortcut via listen-only CGEvent tap.
@@ -39,7 +39,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /landmark` | `api.anthropic.com/v1/messages` | Sonnet says whether a paused frame shows one famous real place, and returns `{ isFamousPlace, name, latitude, longitude, heightMeters, radiusMeters }` |
 | `GET /v1/3dtiles/...` | `tile.googleapis.com` | Google Photorealistic 3D Tiles for the landmark page. Only `root.json` and dataset files pass, and the Worker adds `GOOGLE_MAPS_API_KEY` |
 
-Worker secrets: `ANTHROPIC_API_KEY`, `ASSEMBLYAI_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY` (a Maps Platform key with the Map Tiles API enabled and billing linked)
+Worker secrets: `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY` (a Maps Platform key with the Map Tiles API enabled and billing linked), and `ASSEMBLYAI_API_KEY` only when Info.plist selects the `assemblyai` provider
 Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by default, or `sonnet`)
 
 ### Key Architecture Decisions
@@ -145,8 +145,9 @@ pnpm install
 
 # Add secrets
 pnpm wrangler secret put ANTHROPIC_API_KEY
-pnpm wrangler secret put ASSEMBLYAI_API_KEY
 pnpm wrangler secret put ELEVENLABS_API_KEY
+# Only when Info.plist selects the assemblyai speech provider
+pnpm wrangler secret put ASSEMBLYAI_API_KEY
 
 # Deploy
 pnpm wrangler deploy
