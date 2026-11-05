@@ -32,7 +32,12 @@ const videoQuizMomentSchema = z
       .refine((answerLabel) => answerLabel.split(/\s+/).length <= 2, {
         message: "answerLabel must be one or two words",
       }),
-    functionWords: z.array(z.string().regex(/^[a-z]+$/)).min(1),
+    // A capital letter or a phrase is a formatting slip, so normalize it instead of spending a retry.
+    // Phrases stay whole, because LiveSceneAnswerJudge splits one into words and needs all of them.
+    functionWords: z
+      .array(z.string().trim().toLowerCase())
+      .transform((functionWords) => functionWords.filter((functionWord) => /[\p{L}\p{N}]/u.test(functionWord)))
+      .pipe(z.array(z.string()).min(1)),
     explanation: z.string().trim().min(1),
     sourceLineSeconds: z.number(),
     subject: z.string().trim().min(1),
@@ -138,17 +143,36 @@ const systemPrompt = [
 ].join("\n");
 
 function containsWholeWords(text: string, phrase: string): boolean {
+  // NFC joins an accent written as a separate combining mark onto its letter, so both spellings of "é" match.
   const escapedPhrase = phrase
+    .normalize("NFC")
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
     .split(/\s+/)
     .join("\\s+");
   if (escapedPhrase.length === 0) {
     return false;
   }
-  const phrasePattern = new RegExp(`(^|[^a-z0-9])${escapedPhrase}($|[^a-z0-9])`);
-  return phrasePattern.test(text.toLowerCase());
+  // Unicode letters and digits, so an answer such as "résumé" still counts as a whole word in its question.
+  const phrasePattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapedPhrase}($|[^\\p{L}\\p{N}])`, "u");
+  return phrasePattern.test(text.normalize("NFC").toLowerCase());
+}
+
+/**
+ * A pause between two line starts would stop the video mid-line, so it moves to where the line it falls in has finished.
+ * A pause after the last line start keeps its time, so parseVideoQuizPlan rejects a time no line confirms.
+ */
+function lineStartAtOrAfter(secondsToSnap: number, lineStartsInOrder: number[]): number {
+  return lineStartsInOrder.find((lineStart) => lineStart >= secondsToSnap) ?? secondsToSnap;
+}
+
+/**
+ * A source time between two line starts names the line that was playing then, which started before it.
+ * A source time before the first line keeps its time, so parseVideoQuizPlan rejects a line the model never saw.
+ */
+function lineStartAtOrBefore(secondsToSnap: number, lineStartsInOrder: number[]): number {
+  return [...lineStartsInOrder].reverse().find((lineStart) => lineStart <= secondsToSnap) ?? secondsToSnap;
 }
 
 export function parseVideoQuizPlan(
@@ -163,8 +187,17 @@ export function parseVideoQuizPlan(
     return { ok: false, error: issueMessages.join("; ") };
   }
 
+  const lineStartsInOrder = [...new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds))].sort(
+    (earlierSeconds, laterSeconds) => earlierSeconds - laterSeconds,
+  );
+
   // One give-away question should cost that stop, not the whole plan.
   const moments = parsedPlan.data.moments
+    .map((moment) => ({
+      ...moment,
+      pauseAtSeconds: lineStartAtOrAfter(moment.pauseAtSeconds, lineStartsInOrder),
+      sourceLineSeconds: lineStartAtOrBefore(moment.sourceLineSeconds, lineStartsInOrder),
+    }))
     .filter((moment) => !containsWholeWords(moment.question, moment.answerLabel))
     .sort((earlierMoment, laterMoment) => {
       return earlierMoment.pauseAtSeconds - laterMoment.pauseAtSeconds;
@@ -173,17 +206,23 @@ export function parseVideoQuizPlan(
     return { ok: false, error: "every question contains its own answer" };
   }
 
-  const lineStartSeconds = new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   // The app sends only what is left to watch, so timing rules count from the first line.
   const watchStartSeconds = Math.min(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
+  const videoLengthSeconds = Math.max(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   for (const moment of moments) {
-    if (!lineStartSeconds.has(moment.pauseAtSeconds)) {
+    if (moment.pauseAtSeconds > videoLengthSeconds) {
       return {
         ok: false,
-        error: `pauseAtSeconds ${moment.pauseAtSeconds} is not the seconds value of any transcript line`,
+        error: `pauseAtSeconds ${moment.pauseAtSeconds} is after the last transcript line at ${videoLengthSeconds}`,
       };
     }
-    if (!lineStartSeconds.has(moment.sourceLineSeconds) || moment.sourceLineSeconds >= moment.pauseAtSeconds) {
+    if (moment.sourceLineSeconds < watchStartSeconds) {
+      return {
+        ok: false,
+        error: `sourceLineSeconds ${moment.sourceLineSeconds} is before the first transcript line at ${watchStartSeconds}`,
+      };
+    }
+    if (moment.sourceLineSeconds >= moment.pauseAtSeconds) {
       return {
         ok: false,
         error: `sourceLineSeconds ${moment.sourceLineSeconds} must be a transcript line before pauseAtSeconds ${moment.pauseAtSeconds}, because the learner has not heard later lines`,
@@ -205,7 +244,6 @@ export function parseVideoQuizPlan(
     };
   }
 
-  const videoLengthSeconds = Math.max(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   const minimumGapSeconds =
     (videoLengthSeconds - watchStartSeconds) * minimumGapBetweenMomentsAsFractionOfVideo;
   for (let momentIndex = 1; momentIndex < moments.length; momentIndex += 1) {
@@ -255,8 +293,8 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
   const videoQuizPlanRequest = parsedRequest.requestBody;
 
   // Retries that name the broken rule, because a schema-valid plan still
-  // sometimes breaks one the schema cannot enforce, such as a pause that is not
-  // on a line boundary, and the learner would lose a plan that was otherwise right.
+  // sometimes breaks one the schema cannot enforce, such as a first pause past
+  // the first minute, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
   for (let attempt = 1; attempt <= maximumPlanAttempts; attempt += 1) {
     const anthropicReply = await requestAnthropicReplyJSON(anthropicAPIKey, "/video-quiz-plan", {
@@ -277,6 +315,7 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
       return jsonResponse(parsedPlan.plan, 200);
     }
     lastValidationError = parsedPlan.error;
+    console.error(`[/video-quiz-plan] attempt ${attempt} rejected: ${parsedPlan.error}`);
   }
   return jsonResponse({ error: lastValidationError }, 502);
 }
