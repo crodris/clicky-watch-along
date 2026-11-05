@@ -114,7 +114,8 @@ worker_log_line_count() {
 
 # Prints the "[/route] usage {...}" lines the Worker logged after line <from_line>, and saves them to <output_file>.
 # One line per model attempt, so two lines for one request mean one retry.
-# Rejected attempts also log "[/route] attempt N rejected: <reason>", saved next to it as .rejections.log.
+# A rejected model reply logs "[/video-quiz-plan] attempt N rejected: <reason>" or "[/live-scene] reply failed validation: <reason>".
+# Those lines are saved next to it as .rejections.log.
 report_usage_lines_since() {
   local port="$1" from_line="$2" output_file="$3"
   local rejections_file="${output_file%.usage.log}.rejections.log"
@@ -125,8 +126,9 @@ report_usage_lines_since() {
   sleep 1
   local new_log_lines
   # console.error lines can carry a wrangler prefix and color codes, so strip ANSI codes and match anywhere in the line.
-  new_log_lines="$(tail -n +"$((from_line + 1))" "$(cat "$state_root/worker-$port.logpath")" | sed $'s/\x1b\\[[0-9;]*m//g')"
-  grep -oE '\[/[a-z-]+\] attempt [0-9]+ rejected: .*' <<<"$new_log_lines" >"$rejections_file" || true
+  # LC_ALL=C keeps BSD sed from failing on a byte that is not valid UTF-8.
+  new_log_lines="$(tail -n +"$((from_line + 1))" "$(cat "$state_root/worker-$port.logpath")" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' || true)"
+  grep -oE '\[/[a-z-]+\] (attempt [0-9]+ rejected|reply failed validation): .*' <<<"$new_log_lines" >"$rejections_file" || true
   if [[ -s "$rejections_file" ]]; then
     cat "$rejections_file"
     echo "rejected attempts: $(wc -l <"$rejections_file" | tr -d ' '), saved to $rejections_file"
