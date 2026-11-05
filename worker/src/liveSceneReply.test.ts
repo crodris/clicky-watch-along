@@ -71,6 +71,17 @@ describe("live scene reply", () => {
     expect(checkedReply.accepted).toBe(false);
   });
 
+  it("names every quiz problem on one line, so the Worker log keeps the whole reason", () => {
+    const replyWithABrokenQuiz =
+      "```html\n" + liveScenePage + "\n```\n```json\n" + JSON.stringify({ ...liveSceneQuiz, answerLabel: "", functionWords: "pump" }) + "\n```";
+    const checkedReply = checkLiveSceneModelReply(replyWithABrokenQuiz);
+    expect(checkedReply.accepted).toBe(false);
+    if (checkedReply.accepted) return;
+    expect(checkedReply.reason).not.toContain("\n");
+    expect(checkedReply.reason).toContain("answerLabel");
+    expect(checkedReply.reason).toContain("functionWords");
+  });
+
   it("rejects a page missing focusPart", () => {
     const pageMissingFocusPart = liveScenePage.replace(
       "focusPart(labelText) { return false; }",

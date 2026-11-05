@@ -1,6 +1,7 @@
 /**
- * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log, and
- * one Anthropic Messages call whose answer is the first text block, as text or parsed as JSON.
+ * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log,
+ * one-line schema errors, and one Anthropic Messages call whose answer is the first text block,
+ * as text or parsed as JSON.
  */
 
 import { z } from "zod";
@@ -25,6 +26,16 @@ export function logModelUsage(routeName: string, modelResponseJSON: unknown): vo
 }
 
 type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
+
+/**
+ * Zod's own message is pretty-printed JSON across many lines, so a rejection logged with it keeps only
+ * its first line in tools that read the Worker log line by line. This names each issue as "path: message".
+ */
+export function zodIssuesOnOneLine(zodError: z.ZodError): string {
+  return zodError.issues
+    .map((issue) => (issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
+    .join("; ");
+}
 
 export function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
