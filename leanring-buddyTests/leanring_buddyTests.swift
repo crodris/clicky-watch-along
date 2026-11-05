@@ -5,12 +5,13 @@
 //  Created by thorfinn on 3/2/26.
 //
 
+import Foundation
 import Testing
-@testable import leanring_buddy
+@testable import Clicky
 
 struct leanring_buddyTests {
 
-    @Test func firstPermissionRequestUsesSystemPromptOnly() async throws {
+    @MainActor @Test func firstPermissionRequestUsesSystemPromptOnly() async throws {
         let presentationDestination = WindowPositionManager.permissionRequestPresentationDestination(
             hasPermissionNow: false,
             hasAttemptedSystemPrompt: false
@@ -19,7 +20,7 @@ struct leanring_buddyTests {
         #expect(presentationDestination == .systemPrompt)
     }
 
-    @Test func repeatedPermissionRequestOpensSystemSettings() async throws {
+    @MainActor @Test func repeatedPermissionRequestOpensSystemSettings() async throws {
         let presentationDestination = WindowPositionManager.permissionRequestPresentationDestination(
             hasPermissionNow: false,
             hasAttemptedSystemPrompt: true
@@ -28,7 +29,7 @@ struct leanring_buddyTests {
         #expect(presentationDestination == .systemSettings)
     }
 
-    @Test func knownGrantedScreenRecordingPermissionSkipsTheGate() async throws {
+    @MainActor @Test func knownGrantedScreenRecordingPermissionSkipsTheGate() async throws {
         let shouldTreatPermissionAsGranted = WindowPositionManager.shouldTreatScreenRecordingPermissionAsGrantedForSessionLaunch(
             hasScreenRecordingPermissionNow: false,
             hasPreviouslyConfirmedScreenRecordingPermission: true

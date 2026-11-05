@@ -169,7 +169,7 @@ pnpm 12 refuses to install a dependency with an unapproved build script.
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main.
 The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
-The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`.
+The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 Running xcodebuild there is fine, since the runner has no TCC permissions to lose.
 
 ## Verification

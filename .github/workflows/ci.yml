@@ -52,3 +52,11 @@ jobs:
           -configuration Debug
           -destination 'platform=macOS'
           CODE_SIGNING_ALLOWED=NO
+      - run: >
+          xcodebuild test
+          -project leanring-buddy.xcodeproj
+          -scheme leanring-buddy
+          -configuration Debug
+          -destination 'platform=macOS'
+          -only-testing:leanring-buddyTests
+          CODE_SIGNING_ALLOWED=NO
