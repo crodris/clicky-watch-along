@@ -127,7 +127,7 @@ report_usage_lines_since() {
   local new_log_lines
   # console.error lines can carry a wrangler prefix and color codes, so strip ANSI codes and match anywhere in the line.
   # LC_ALL=C keeps BSD sed from failing on a byte that is not valid UTF-8.
-  new_log_lines="$(tail -n +"$((from_line + 1))" "$(cat "$state_root/worker-$port.logpath")" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g' || true)"
+  new_log_lines="$(tail -n +"$((from_line + 1))" "$(cat "$state_root/worker-$port.logpath")" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*m//g')"
   grep -oE '\[/[a-z-]+\] (attempt [0-9]+ rejected|reply failed validation): .*' <<<"$new_log_lines" >"$rejections_file" || true
   if [[ -s "$rejections_file" ]]; then
     cat "$rejections_file"
