@@ -1,5 +1,5 @@
 /**
- * Helpers the Worker routes share: JSON responses, request body parsing, and
+ * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log, and
  * one Anthropic Messages call whose answer is the first text block, as text or parsed as JSON.
  */
 
@@ -13,6 +13,16 @@ const anthropicMessageSchema = z.object({
     }),
   ),
 });
+
+const modelUsageSchema = z.object({ usage: z.unknown() });
+
+/** Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends. */
+export function logModelUsage(routeName: string, modelResponseJSON: unknown): void {
+  const parsedResponse = modelUsageSchema.safeParse(modelResponseJSON);
+  if (parsedResponse.success && parsedResponse.data.usage !== undefined) {
+    console.log(`[${routeName}] usage ${JSON.stringify(parsedResponse.data.usage)}`);
+  }
+}
 
 type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
 
@@ -100,6 +110,7 @@ export async function requestAnthropicReplyText(
   } catch {
     return { ok: false, response: jsonResponse({ error: "Anthropic returned a body that was not JSON" }, 502) };
   }
+  logModelUsage(routeName, anthropicJSON);
 
   const parsedMessage = anthropicMessageSchema.safeParse(anthropicJSON);
   if (!parsedMessage.success) {

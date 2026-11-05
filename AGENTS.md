@@ -113,12 +113,12 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
 | `worker/src/index.ts` | ~165 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/live-scene` (generated page), `/judge-answer` (spoken grade), `/video-quiz-plan` (video quiz moments), `/video-frame-parts` (subject and labels in a frame). |
 | `worker/src/videoQuizPlan.ts` | ~281 | `POST /video-quiz-plan`. Sonnet returns the plan as schema-checked JSON and decides how many moments to pick. `parseVideoQuizPlan` checks them (tested in `worker/src/videoQuizPlan.test.ts`), and up to 2 retries name the broken rule. |
-| `worker/src/liveScene.ts` | ~289 | `POST /live-scene` asks GPT-6.1 Sol Ultrafast for a page and a quiz, checks the reply, and retries once. `POST /judge-answer` asks Sonnet for a verdict and one spoken sentence as schema-checked JSON. |
+| `worker/src/liveScene.ts` | ~350 | `POST /live-scene` asks GPT-6.1 Sol Ultrafast for a page and a quiz, checks the reply, and retries once. `POST /judge-answer` asks Sonnet for a verdict and one spoken sentence as schema-checked JSON. |
 | `worker/src/videoFrameParts.ts` | ~170 | `POST /video-frame-parts`. Sonnet returns the subject box and part points as schema-checked JSON, and `checkFrameParts` clamps them into the frame (tested in `worker/src/videoFrameParts.test.ts`). |
 | `worker/src/landmark.ts` | ~105 | `POST /landmark`, with `checkLandmark` rejecting coordinates off the globe (tested in `landmark.test.ts`). |
 | `worker/src/mapTiles.ts` | ~45 | `GET /v1/3dtiles/...`, which forwards Google 3D Tiles requests with the key (tested in `mapTiles.test.ts`). |
 | `worker/src/liveSceneReply.ts` | ~71 | Zod and plain checks for a live scene model reply: required page markers, no external URL, and a quiz JSON block. Tested in `worker/src/liveSceneReply.test.ts`. |
-| `worker/src/anthropic.ts` | ~95 | Shared Worker helpers: JSON responses, request body parsing, and one Anthropic Messages call that returns the first text block parsed as JSON. |
+| `worker/src/anthropic.ts` | ~120 | Shared Worker helpers: JSON responses, request body parsing, the token usage log, and one Anthropic Messages call that returns the first text block parsed as JSON. |
 
 ## Build & Run
 
@@ -153,6 +153,9 @@ npx wrangler dev
 
 # Test runs: build scenes with Sonnet (about $0.04 each) instead of GPT (about $0.23)
 npx wrangler dev --var LIVE_SCENE_MODEL:sonnet
+
+# Token use: every model call except the streamed /chat logs "[/route] usage {...}"
+npx wrangler tail
 
 # Tests and typecheck
 npm test

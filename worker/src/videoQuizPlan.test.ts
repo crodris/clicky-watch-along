@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { handleVideoQuizPlan, parseVideoQuizPlan } from "./videoQuizPlan";
 
 const transcriptLines = [
@@ -282,6 +283,28 @@ describe("handleVideoQuizPlan", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const retryBody = String(fetchMock.mock.calls[1]?.[1].body);
     expect(retryBody).toContain("pauseAtSeconds 61 is not the seconds value of any transcript line");
+  });
+
+  it("sends a retry the same cached transcript block, with the rejection after it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(planReply({ moments: [] }))
+      .mockResolvedValueOnce(planReply(validPlan));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+
+    const sentRequestSchema = z.object({ messages: z.array(z.object({ content: z.array(z.unknown()) })).min(1) });
+    const userContentOfCall = (callIndex: number): unknown[] => {
+      const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1].body));
+      return sentRequestSchema.parse(sentBody).messages[0]?.content ?? [];
+    };
+    const firstContent = userContentOfCall(0);
+    const retryContent = userContentOfCall(1);
+    expect(firstContent).toHaveLength(1);
+    expect(firstContent[0]).toMatchObject({ cache_control: { type: "ephemeral" } });
+    expect(retryContent[0]).toEqual(firstContent[0]);
+    expect(retryContent[1]).toMatchObject({ text: expect.stringContaining("Your previous reply was rejected") });
   });
 
   it("returns 502 after three replies that break the contract", async () => {

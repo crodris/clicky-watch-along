@@ -18,6 +18,7 @@ function verdictReply(text: string): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("handleJudgeAnswer", () => {
@@ -33,9 +34,26 @@ describe("handleJudgeAnswer", () => {
     const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
     expect(sentBody).toMatchObject({
       model: "claude-sonnet-5-5",
-      output_config: { format: { type: "json_schema" } },
+      output_config: { effort: "low", format: { type: "json_schema" } },
     });
     expect(sentBody).not.toHaveProperty("tool_choice");
+  });
+
+  it("logs the token usage the reply reports", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const verdict = { verdict: "correct", spokenReply: "Yes, the valves keep blood flowing one way." };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ content: [{ type: "text", text: JSON.stringify(verdict) }], usage: { input_tokens: 812, output_tokens: 64 } }),
+        ),
+      ),
+    );
+
+    await handleJudgeAnswer(requestWithBody(judgeRequest), "key");
+
+    expect(consoleLogSpy).toHaveBeenCalledWith('[/judge-answer] usage {"input_tokens":812,"output_tokens":64}');
   });
 
   it("returns 502 when the reply text is not a verdict", async () => {
@@ -63,14 +81,19 @@ const sceneModelReply = "```html\n" + scenePage + "\n```\n```json\n" + JSON.stri
 const sceneKeys = { OPENAI_API_KEY: "openai-key", ANTHROPIC_API_KEY: "anthropic-key" };
 
 describe("handleLiveScene model setting", () => {
-  it("asks GPT when LIVE_SCENE_MODEL is not set", async () => {
-    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: sceneModelReply })));
+  it("asks GPT when LIVE_SCENE_MODEL is not set and logs its token usage", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify({ output_text: sceneModelReply, usage: { input_tokens: 2400, output_tokens: 4100 } })),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
 
     expect(response.status).toBe(200);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.openai.com/v1/responses");
+    expect(consoleLogSpy).toHaveBeenCalledWith('[/live-scene] usage {"input_tokens":2400,"output_tokens":4100}');
   });
 
   it("asks Sonnet when LIVE_SCENE_MODEL is sonnet and returns its page", async () => {

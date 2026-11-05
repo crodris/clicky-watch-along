@@ -9,7 +9,13 @@
  */
 
 import { z } from "zod";
-import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON, requestAnthropicReplyText } from "./anthropic";
+import {
+  jsonResponse,
+  logModelUsage,
+  parseJSONRequest,
+  requestAnthropicReplyJSON,
+  requestAnthropicReplyText,
+} from "./anthropic";
 import { checkLiveSceneModelReply } from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
@@ -230,6 +236,7 @@ async function requestGPTLiveSceneReply(
   } catch {
     return { ok: false, kind: "unusable", reason: "OpenAI returned a body that was not JSON" };
   }
+  logModelUsage("/live-scene", responseJSON);
 
   const modelReply = modelReplyText(responseJSON);
   if (modelReply === undefined) {
@@ -294,6 +301,8 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
     system: judgeAnswerSystemPrompt,
     // Sonnet 5.5 rejects a forced tool call, so the verdict comes back as schema-checked JSON text.
     output_config: {
+      // Low effort, because grading one spoken sentence runs on every quiz answer and needs little thinking.
+      effort: "low",
       format: {
         type: "json_schema",
         schema: {
