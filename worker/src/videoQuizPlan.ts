@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON } from "./anthropic";
+import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON, zodIssuesOnOneLine } from "./anthropic";
 
 const transcriptLineSchema = z.object({
   seconds: z.number().nonnegative(),
@@ -181,10 +181,7 @@ export function parseVideoQuizPlan(
 ): VideoQuizPlanParseResult {
   const parsedPlan = videoQuizPlanSchema.safeParse(planJSON);
   if (!parsedPlan.success) {
-    const issueMessages = parsedPlan.error.issues.map((issue) => {
-      return issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message;
-    });
-    return { ok: false, error: issueMessages.join("; ") };
+    return { ok: false, error: zodIssuesOnOneLine(parsedPlan.error) };
   }
 
   const lineStartsInOrder = [...new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds))].sort(

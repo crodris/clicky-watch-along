@@ -1,5 +1,6 @@
 import { parse as parseJavaScript } from "acorn";
 import { z } from "zod";
+import { zodIssuesOnOneLine } from "./anthropic";
 
 export const liveSceneQuizSchema = z.object({
   question: z.string().min(1),
@@ -89,7 +90,7 @@ export function checkLiveSceneModelReply(modelReply: string): CheckedLiveSceneRe
 
   const parsedQuiz = liveSceneQuizSchema.safeParse(quizJSON);
   if (!parsedQuiz.success) {
-    return { accepted: false, reason: parsedQuiz.error.message };
+    return { accepted: false, reason: zodIssuesOnOneLine(parsedQuiz.error) };
   }
 
   return { accepted: true, html, quiz: parsedQuiz.data };

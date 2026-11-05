@@ -119,7 +119,7 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 | `worker/src/landmark.ts` | ~105 | `POST /landmark`, with `checkLandmark` rejecting coordinates off the globe (tested in `landmark.test.ts`). |
 | `worker/src/mapTiles.ts` | ~45 | `GET /v1/3dtiles/...`, which forwards Google 3D Tiles requests with the key (tested in `mapTiles.test.ts`). |
 | `worker/src/liveSceneReply.ts` | ~71 | Zod and plain checks for a live scene model reply: required page markers, no external URL, and a quiz JSON block. Tested in `worker/src/liveSceneReply.test.ts`. |
-| `worker/src/anthropic.ts` | ~120 | Shared Worker helpers: JSON responses, request body parsing, the token usage log, and one Anthropic Messages call that returns the first text block parsed as JSON. |
+| `worker/src/anthropic.ts` | ~130 | Shared Worker helpers: JSON responses, request body parsing, the token usage log, `zodIssuesOnOneLine` for schema errors that must stay on one log line, and one Anthropic Messages call that returns the first text block parsed as JSON. |
 
 ## Build & Run
 
