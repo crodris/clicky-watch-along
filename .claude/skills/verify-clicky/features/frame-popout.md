@@ -19,15 +19,22 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 
 Preconditions:
 
-- For the route: `$V worker-up` reported the Worker ready on port 8789, and an image of one clear object is on screen.
-- For the app: the app preconditions in [Live scene](./live-scene.md), and a paused YouTube frame that shows one clear object, such as a heart diagram.
+- For the route, `$V worker-up` reported the Worker ready on port 8789, and an image of one clear object is on screen.
+- For the app, the app and Chrome preconditions in [Video quiz](./video-quiz.md) apply, and the YouTube frame shows one clear object, such as a heart diagram.
 
-- **Route.** Build a body from a screenshot, then post it. Run `screencapture -x -t jpg .verify-clicky/frame.jpg && python3 -c "import base64,json,subprocess;w,h=[int(subprocess.check_output(['sips','-g',k,'.verify-clicky/frame.jpg']).split()[-1]) for k in ('pixelWidth','pixelHeight')];print(json.dumps({'frameBase64':base64.b64encode(open('.verify-clicky/frame.jpg','rb').read()).decode(),'frameWidth':w,'frameHeight':h,'subject':'','question':'','answerLabel':''}))" > .verify-clicky/frame-body.json`, then `$V post /video-frame-parts .verify-clicky/frame-body.json`. HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, and 1 to 8 `parts`.
-- **Pop out in the app.** Run `$V app-launch "pop this out"`. The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`. Run `$V shot popout` while the subject floats over the video.
-- **Cost ceiling.** One `[/video-frame-parts]` usage line per request.
+- **Route.** Build a body from a screenshot, then post it.
+  Run `RUN="$(readlink .verify-clicky/current)" && screencapture -x -t jpg "$RUN/frame.jpg" && python3 -c "import base64,json,subprocess,sys;frame_path=sys.argv[1];frame_width,frame_height=[int(subprocess.check_output(['sips','-g',dimension_key,frame_path]).split()[-1]) for dimension_key in ('pixelWidth','pixelHeight')];print(json.dumps({'frameBase64':base64.b64encode(open(frame_path,'rb').read()).decode(),'frameWidth':frame_width,'frameHeight':frame_height,'subject':'','question':'','answerLabel':''}))" "$RUN/frame.jpg" > "$RUN/frame-body.json"`, then `$V post /video-frame-parts "$RUN/frame-body.json"`.
+  The result is HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, and 1 to 8 `parts`.
+- **Pop out in the app.** Run `$V app-launch "pop this out"`.
+  The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
+  Run `$V shot popout` while the subject floats over the video.
+- **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
+  Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 
 ## Gotchas
 
-- A full-screen screenshot holds many things, so the route may pick an unexpected subject. Crop to one object when the subject matters.
+- A full-screen screenshot holds many things, so the route may pick an unexpected subject.
+  Crop to one object when the subject matters.
 - `subjectFound: false` on a chart or a talking head is correct behavior, not a failure.
-- The pop-out lines up with the video's on-screen rect. Moving or resizing the Chrome window during the run misplaces it.
+- The pop-out lines up with the video's on-screen rect.
+  Moving or resizing the Chrome window during the run misplaces it.

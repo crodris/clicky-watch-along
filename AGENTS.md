@@ -163,7 +163,7 @@ pnpm run typecheck
 ```
 
 pnpm 12 refuses to install a dependency with an unapproved build script.
-`worker/pnpm-workspace.yaml` and `tools/three-tiles/pnpm-workspace.yaml` list the approved ones under `allowBuilds`.
+`worker/pnpm-workspace.yaml` and `tools/three-tiles/pnpm-workspace.yaml` list each dependency build script under `allowBuilds`, approved with `true` (esbuild, workerd) or denied with `false` (sharp).
 
 ## CI
 
