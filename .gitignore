@@ -4,8 +4,10 @@ worker/.dev.vars
 *.xcuserstate
 build/
 releases/
-.claude/
+.claude/*
+!.claude/skills/
 coding-plans/
 xcuserdata/
 worker/.wrangler/
 *.profraw
+.verify-clicky/

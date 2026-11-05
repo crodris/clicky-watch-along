@@ -172,6 +172,12 @@ The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
 The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`.
 Running xcodebuild there is fine, since the runner has no TCC permissions to lose.
 
+## Verification
+
+The `verify-clicky` project skill (`.claude/skills/verify-clicky/`) proves behavior on the real Worker and Debug app.
+It drives Worker routes with curl and the app with the DEBUG-only `--live-scene-rehearsal` flag, and saves responses, usage lines, app logs, and screenshots under `.verify-clicky/runs/`.
+Its feature map in `features/` lists each feature's recipe, and a change to a mapped feature updates its file.
+
 ## Code Style & Conventions
 
 ### Variable and Method Naming
