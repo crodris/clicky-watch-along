@@ -18,6 +18,7 @@ function verdictReply(text: string): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("handleJudgeAnswer", () => {
@@ -53,7 +54,6 @@ describe("handleJudgeAnswer", () => {
     await handleJudgeAnswer(requestWithBody(judgeRequest), "key");
 
     expect(consoleLogSpy).toHaveBeenCalledWith('[/judge-answer] usage {"input_tokens":812,"output_tokens":64}');
-    consoleLogSpy.mockRestore();
   });
 
   it("returns 502 when the reply text is not a verdict", async () => {
@@ -94,7 +94,6 @@ describe("handleLiveScene model setting", () => {
     expect(response.status).toBe(200);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.openai.com/v1/responses");
     expect(consoleLogSpy).toHaveBeenCalledWith('[/live-scene] usage {"input_tokens":2400,"output_tokens":4100}');
-    consoleLogSpy.mockRestore();
   });
 
   it("asks Sonnet when LIVE_SCENE_MODEL is sonnet and returns its page", async () => {

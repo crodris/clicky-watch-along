@@ -1,5 +1,5 @@
 /**
- * Helpers the Worker routes share: JSON responses, request body parsing, and
+ * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log, and
  * one Anthropic Messages call whose answer is the first text block, as text or parsed as JSON.
  */
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { handleVideoQuizPlan, parseVideoQuizPlan } from "./videoQuizPlan";
 
 const transcriptLines = [
@@ -293,8 +294,11 @@ describe("handleVideoQuizPlan", () => {
 
     await handleVideoQuizPlan(requestWithBody(validRequest), "key");
 
-    const userContentOfCall = (callIndex: number): unknown[] =>
-      JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1].body)).messages[0].content;
+    const sentRequestSchema = z.object({ messages: z.array(z.object({ content: z.array(z.unknown()) })).min(1) });
+    const userContentOfCall = (callIndex: number): unknown[] => {
+      const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1].body));
+      return sentRequestSchema.parse(sentBody).messages[0]?.content ?? [];
+    };
     const firstContent = userContentOfCall(0);
     const retryContent = userContentOfCall(1);
     expect(firstContent).toHaveLength(1);
