@@ -97,6 +97,26 @@ describe("parseVideoQuizPlan", () => {
     expect(result).toEqual({ ok: true, plan: validPlan });
   });
 
+  it("keeps the time of a pause after the last line start", () => {
+    const result = parseVideoQuizPlan(
+      { moments: [liverMoment, denticleMoment, { ...poreMoment, pauseAtSeconds: 205 }] },
+      transcriptLines,
+    );
+
+    expect(result.ok && result.plan.moments[2]?.pauseAtSeconds).toBe(205);
+  });
+
+  it("rejects a source time before the first transcript line", () => {
+    const linesFromTheMiddle = transcriptLines.filter((transcriptLine) => transcriptLine.seconds >= 100);
+
+    const result = parseVideoQuizPlan(
+      { moments: [{ ...denticleMoment, sourceLineSeconds: 5 }, { ...poreMoment, pauseAtSeconds: 200, question: "Let's pause here! What came last?", answerLabel: "pores" }] },
+      linesFromTheMiddle,
+    );
+
+    expect(result).toEqual({ ok: false, error: "sourceLineSeconds 5 is before the first transcript line at 100" });
+  });
+
   it("moves a source time between two lines to the line playing then", () => {
     const result = parseVideoQuizPlan(
       { moments: [{ ...liverMoment, sourceLineSeconds: 5 }, denticleMoment, poreMoment] },
@@ -203,17 +223,17 @@ describe("parseVideoQuizPlan", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("splits and lowercases function words instead of rejecting them", () => {
+  it("lowercases function words and keeps phrases whole instead of rejecting them", () => {
     const result = parseVideoQuizPlan(
-      { moments: [{ ...liverMoment, functionWords: ["Floats", "stays afloat", "one-way"] }, denticleMoment, poreMoment] },
+      { moments: [{ ...liverMoment, functionWords: ["Floats", " Stays Afloat ", "one-way", "CO2", "!!"] }, denticleMoment, poreMoment] },
       transcriptLines,
     );
 
-    expect(result.ok && result.plan.moments[0]?.functionWords).toEqual(["floats", "stays", "afloat", "one", "way"]);
+    expect(result.ok && result.plan.moments[0]?.functionWords).toEqual(["floats", "stays afloat", "one-way", "co2"]);
   });
 
-  it("rejects function words with no letters left after normalizing", () => {
-    for (const functionWords of [[], ["!!", "42"]]) {
+  it("rejects function words with no letters or digits", () => {
+    for (const functionWords of [[], ["!!", " "]]) {
       const result = parseVideoQuizPlan(
         { moments: [{ ...liverMoment, functionWords }, denticleMoment, poreMoment] },
         transcriptLines,

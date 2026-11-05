@@ -32,12 +32,11 @@ const videoQuizMomentSchema = z
       .refine((answerLabel) => answerLabel.split(/\s+/).length <= 2, {
         message: "answerLabel must be one or two words",
       }),
-    // A capital letter or a two-word phrase is a formatting slip, so normalize it instead of spending a retry.
+    // A capital letter or a phrase is a formatting slip, so normalize it instead of spending a retry.
+    // Phrases stay whole, because LiveSceneAnswerJudge splits one into words and needs all of them.
     functionWords: z
-      .array(z.string())
-      .transform((functionWords) =>
-        functionWords.flatMap((functionWord) => functionWord.toLowerCase().match(/[a-z]+/g) ?? []),
-      )
+      .array(z.string().trim().toLowerCase())
+      .transform((functionWords) => functionWords.filter((functionWord) => /[\p{L}\p{N}]/u.test(functionWord)))
       .pipe(z.array(z.string()).min(1)),
     explanation: z.string().trim().min(1),
     sourceLineSeconds: z.number(),
@@ -157,14 +156,20 @@ function containsWholeWords(text: string, phrase: string): boolean {
   return phrasePattern.test(text.toLowerCase());
 }
 
-/** A pause between two line starts would stop the video mid-line, so it moves to where the line it falls in has finished. */
-function lineStartAtOrAfter(seconds: number, lineStartsInOrder: number[]): number {
-  return lineStartsInOrder.find((lineStart) => lineStart >= seconds) ?? lineStartsInOrder[lineStartsInOrder.length - 1];
+/**
+ * A pause between two line starts would stop the video mid-line, so it moves to where the line it falls in has finished.
+ * A pause after the last line start keeps its time, because the app pauses on the video clock and no later line exists.
+ */
+function lineStartAtOrAfter(secondsToSnap: number, lineStartsInOrder: number[]): number {
+  return lineStartsInOrder.find((lineStart) => lineStart >= secondsToSnap) ?? secondsToSnap;
 }
 
-/** A source time between two line starts names the line that was playing then, which started before it. */
-function lineStartAtOrBefore(seconds: number, lineStartsInOrder: number[]): number {
-  return [...lineStartsInOrder].reverse().find((lineStart) => lineStart <= seconds) ?? lineStartsInOrder[0];
+/**
+ * A source time between two line starts names the line that was playing then, which started before it.
+ * A source time before the first line keeps its time, so parseVideoQuizPlan rejects a line the model never saw.
+ */
+function lineStartAtOrBefore(secondsToSnap: number, lineStartsInOrder: number[]): number {
+  return [...lineStartsInOrder].reverse().find((lineStart) => lineStart <= secondsToSnap) ?? secondsToSnap;
 }
 
 export function parseVideoQuizPlan(
@@ -201,6 +206,12 @@ export function parseVideoQuizPlan(
   // The app sends only what is left to watch, so timing rules count from the first line.
   const watchStartSeconds = Math.min(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   for (const moment of moments) {
+    if (moment.sourceLineSeconds < watchStartSeconds) {
+      return {
+        ok: false,
+        error: `sourceLineSeconds ${moment.sourceLineSeconds} is before the first transcript line at ${watchStartSeconds}`,
+      };
+    }
     if (moment.sourceLineSeconds >= moment.pauseAtSeconds) {
       return {
         ok: false,
