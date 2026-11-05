@@ -10,5 +10,6 @@
     "3d-tiles-renderer": "0.5.3",
     "esbuild": "0.25.0",
     "three": "0.180.0"
-  }
+  },
+  "packageManager": "pnpm@12.11.2"
 }

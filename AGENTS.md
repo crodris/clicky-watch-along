@@ -88,7 +88,7 @@ Before any public release, add a runtime block for WebRTC in dynamically created
 | `VideoFramePopout.swift` | ~140 | The grabbed frame, the `POST /video-frame-parts` client, and the pop-out page built from the bundled `LiveSceneAssets/frame-popout.html` template with the video rect moved into the overlay screen's coordinates. |
 | `LiveSceneRise.swift` | ~50 | Loads the bundled `LiveSceneAssets/scene-rise.js` and adds it, with the cursor screenshot and the media rect, before the last `</body>` of a generated page. |
 | `LiveSceneAssets/scene-rise.js` | ~90 | Runs after a generated page's body. Shows the screenshot clipped to the media rect, shrinks the body onto that rect, then lifts it to full screen over 1.6 seconds once `window.__ready` is true or after 1.5 seconds. |
-| `LandmarkTiles.swift` | ~105 | The `POST /landmark` client and the landmark page built from `LiveSceneAssets/landmark-tiles.html`. `three-tiles.js` and the Draco decoder in `LiveSceneAssets` are built by `tools/three-tiles` (`npm install && npm run build`). |
+| `LandmarkTiles.swift` | ~105 | The `POST /landmark` client and the landmark page built from `LiveSceneAssets/landmark-tiles.html`. `three-tiles.js` and the Draco decoder in `LiveSceneAssets` are built by `tools/three-tiles` (`pnpm install && pnpm run build`). |
 | `LiveSceneClient.swift` | ~180 | Posts the cursor screen JPEG to `POST /live-scene`, and posts a spoken answer to `POST /judge-answer`. |
 | `CompanionManager.swift` | ~1700 | Central state machine. Owns dictation, shortcut monitoring, screen capture, Claude API, ElevenLabs TTS, and overlay management. Tracks voice state (idle/listening/processing/responding), conversation history, model selection, and cursor visibility. Coordinates the push-to-talk pipeline, the live scene, the video quiz, and the spoken-answer judge. |
 | `MenuBarPanelManager.swift` | ~243 | NSStatusItem + custom NSPanel lifecycle. Creates the menu bar icon, manages the floating companion panel (show/hide/position), installs click-outside-to-dismiss monitor. |
@@ -138,29 +138,45 @@ open leanring-buddy.xcodeproj
 
 ```bash
 cd worker
-npm install
+pnpm install
 
 # Add secrets
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ASSEMBLYAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
+pnpm wrangler secret put ANTHROPIC_API_KEY
+pnpm wrangler secret put ASSEMBLYAI_API_KEY
+pnpm wrangler secret put ELEVENLABS_API_KEY
 
 # Deploy
-npx wrangler deploy
+pnpm wrangler deploy
 
 # Local dev (create worker/.dev.vars with your keys)
-npx wrangler dev
+pnpm wrangler dev
 
 # Test runs: build scenes with Sonnet (about $0.04 each) instead of GPT (about $0.23)
-npx wrangler dev --var LIVE_SCENE_MODEL:sonnet
+pnpm wrangler dev --var LIVE_SCENE_MODEL:sonnet
 
 # Token use: every model call except the streamed /chat logs "[/route] usage {...}"
-npx wrangler tail
+pnpm wrangler tail
 
 # Tests and typecheck
-npm test
-npm run typecheck
+pnpm test
+pnpm run typecheck
 ```
+
+pnpm 12 refuses to install a dependency with an unapproved build script.
+`worker/pnpm-workspace.yaml` and `tools/three-tiles/pnpm-workspace.yaml` list each dependency build script under `allowBuilds`, approved with `true` (esbuild, workerd) or denied with `false` (sharp).
+
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to main.
+The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
+The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`.
+Running xcodebuild there is fine, since the runner has no TCC permissions to lose.
+
+## Verification
+
+The `verify-clicky` project skill (`.claude/skills/verify-clicky/`) proves behavior on the real Worker and Debug app.
+It drives Worker routes with curl and the app with the DEBUG-only `--live-scene-rehearsal` flag, and saves responses, usage lines, app logs, and screenshots under `.verify-clicky/runs/`.
+Its feature map in `features/` lists each feature's recipe, and a change to a mapped feature updates its file.
 
 ## Code Style & Conventions
 
