@@ -146,6 +146,8 @@ pnpm install
 # Add secrets
 pnpm wrangler secret put ANTHROPIC_API_KEY
 pnpm wrangler secret put ELEVENLABS_API_KEY
+pnpm wrangler secret put OPENAI_API_KEY
+pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 # Only when Info.plist selects the assemblyai speech provider
 pnpm wrangler secret put ASSEMBLYAI_API_KEY
 
