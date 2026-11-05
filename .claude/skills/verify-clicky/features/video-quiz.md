@@ -36,10 +36,12 @@ Preconditions:
   The second usage line shows `cache_read_input_tokens` above 0.
   On the fixture it read 2246 cached tokens.
 - **Cost ceiling.** At most 3 usage lines per request, since the route retries up to 2 times when a plan breaks a rule.
-  Report the retry count.
   Each line has `output_tokens` under 8000 and `thinking_tokens` above 0.
-  Zero thinking means the effort setting was lowered, and plans then fail the rules most of the time.
-  On main, 8 runs on 4 real transcripts averaged 4164 output tokens with 2659 thinking, and 4 of the 8 retried once.
+  Zero thinking means the effort setting was lowered, and low effort fails about half the plans even with the repair in `parseVideoQuizPlan`.
+  On main after PR 3, 8 runs on 4 real transcripts returned 8 of 8 plans with 1 retry in total, averaging 2676 output tokens, 1524 thinking tokens, and 19.7 seconds per request.
+- **Retries.** Each rejected attempt logs `[/video-quiz-plan] attempt N rejected: <reason>`, which `post` prints and saves to `<response>.rejections.log`.
+  A request with 2 usage lines has 1 rejection line, and the report names the rule it gives.
+  A pause between two transcript lines, a source time inside a line, or function words with capitals or spaces around them are repaired in code and never cause a rejection.
 - **Quiz in the app.** Start the quiz and answer the first question.
   Run `$V app-launch "watch this video with me and quiz me|?I'm not sure, can you give me a hint|stop the quiz"` and `$V app-wait 600`.
   The log shows `Video quiz: found tab`, `read N caption lines`, `planned N moments`, `paused at Ns for moment 1`, then `Video quiz: stopped`.

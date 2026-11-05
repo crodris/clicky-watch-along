@@ -122,6 +122,7 @@ $V shot <name>                       # one PNG per display
 
 `post` saves the response body to the run and prints it.
 It then prints one line per model attempt with input, cache read, output, and thinking tokens, and saves those lines to `<response>.usage.log`.
+A route that rejects a model reply and retries logs `[/route] attempt N rejected: <reason>`, which `post` prints and saves to `<response>.rejections.log`.
 Request bodies for routes that need no image are in `fixtures/`.
 
 The app log is `.verify-clicky/runs/<run>/app.log`.
@@ -135,7 +136,7 @@ Run it with no arguments for this usage:
 
 ```text
 new-run <name>            Start an evidence folder and make it current.
-doctor                    Health check of the Worker ports, the Debug app, and Chrome.
+doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
 worker-up [port] [-- wrangler args]
                           Start wrangler dev from this checkout (default port 8789).
 worker-down               Stop the Workers this script started.
@@ -194,4 +195,4 @@ $V cleanup
 It quits the Clicky instance and stops the Workers this script started, killing each process tree by its recorded PID after checking the start time.
 It never kills by process name, and it never deletes `.verify-clicky/runs/`.
 When a port is still held after cleanup, it names the process and leaves it for Chris.
-Run cleanup after every failed attempt too, because a Worker left running holds the API keys and spends them for any local caller.
+Run cleanup after every failed attempt too, because a Worker left running holds the API keys and spends them for any local caller, including web pages open in the browser.

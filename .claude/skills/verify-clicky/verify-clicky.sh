@@ -14,7 +14,7 @@ usage() {
 Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
 
   new-run <name>            Start an evidence folder and make it current.
-  doctor                    Health check of the Worker ports, the Debug app, and Chrome. Writes nothing.
+  doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
   worker-up [port] [-- wrangler args]
                             Start wrangler dev from this checkout (default port 8789).
                             Pass 8787 only when nothing listens there and the app must use it.
@@ -114,14 +114,26 @@ worker_log_line_count() {
 
 # Prints the "[/route] usage {...}" lines the Worker logged after line <from_line>, and saves them to <output_file>.
 # One line per model attempt, so two lines for one request mean one retry.
+# Rejected attempts also log "[/route] attempt N rejected: <reason>", saved next to it as .rejections.log.
 report_usage_lines_since() {
   local port="$1" from_line="$2" output_file="$3"
+  local rejections_file="${output_file%.usage.log}.rejections.log"
   if ! worker_was_started_here "$port"; then
     echo "usage lines: unavailable, no Worker this script started is listening on port $port"
     return 0
   fi
   sleep 1
-  tail -n +"$((from_line + 1))" "$(cat "$state_root/worker-$port.logpath")" | grep -E '^\[/[a-z-]+\] usage ' >"$output_file" || true
+  local new_log_lines
+  # console.error lines can carry a wrangler prefix and color codes, so strip ANSI codes and match anywhere in the line.
+  new_log_lines="$(tail -n +"$((from_line + 1))" "$(cat "$state_root/worker-$port.logpath")" | sed $'s/\x1b\\[[0-9;]*m//g')"
+  grep -oE '\[/[a-z-]+\] attempt [0-9]+ rejected: .*' <<<"$new_log_lines" >"$rejections_file" || true
+  if [[ -s "$rejections_file" ]]; then
+    cat "$rejections_file"
+    echo "rejected attempts: $(wc -l <"$rejections_file" | tr -d ' '), saved to $rejections_file"
+  else
+    rm -f "$rejections_file"
+  fi
+  grep -oE '\[/[a-z-]+\] usage \{.*' <<<"$new_log_lines" >"$output_file" || true
   local usage_line
   while IFS= read -r usage_line; do
     local route_name="${usage_line%% usage *}"
@@ -256,8 +268,8 @@ command_doctor() {
     # The full URL can hold tokens, so print only the host and whether it is a YouTube video page.
     local front_tab_url front_tab_host
     front_tab_url="$(osascript -e 'tell application "Google Chrome" to get URL of active tab of front window' 2>/dev/null || true)"
-    front_tab_host="$(sed -n 's#^[a-z]*://\([^/]*\).*#\1#p' <<<"$front_tab_url")"
-    if [[ "$front_tab_url" == https://www.youtube.com/watch* ]]; then
+    front_tab_host="$(sed -n 's#^[a-z]*://\([^/?#]*@\)\{0,1\}\([^/?#@]*\).*#\2#p' <<<"$front_tab_url")"
+    if [[ "$front_tab_url" == *youtube.com/watch* ]]; then
       echo "chrome front tab: a YouTube video page"
     else
       echo "chrome front tab: ${front_tab_host:-unknown}, not a YouTube video page"
@@ -275,6 +287,10 @@ command_worker_up() {
   if [[ $# -gt 0 && "$1" == "--" ]]; then shift; fi
   if [[ ! "$port" =~ ^[0-9]+$ ]]; then
     echo "worker-up takes a numeric port first, then -- before wrangler args, as in: worker-up 8789 -- --var LIVE_SCENE_MODEL:sonnet" >&2
+    exit 1
+  fi
+  if [[ -n "$(recorded_process_id "$state_root/worker-$port.pid")" ]]; then
+    echo "a Worker this script started for port $port is still running. Run worker-down first." >&2
     exit 1
   fi
   if [[ -n "$(listener_pid_on_port "$port")" ]]; then
@@ -295,7 +311,7 @@ command_worker_up() {
   for _ in $(seq 1 60); do
     if grep 'Ready on' "$worker_log" >/dev/null 2>&1 && worker_was_started_here "$port" && worker_answers_free_probe "$port"; then
       echo "worker ready on http://127.0.0.1:$port, log $worker_log"
-      echo "It holds the API keys and spends them for any local caller, so stop it with cleanup when the run ends."
+      echo "It holds the API keys and spends them for any local caller, including web pages open in the browser, so stop it with cleanup when the run ends."
       return 0
     fi
     if ! kill -0 "$wrangler_root_id" 2>/dev/null; then
