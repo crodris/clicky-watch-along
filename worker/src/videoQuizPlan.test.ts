@@ -284,6 +284,25 @@ describe("handleVideoQuizPlan", () => {
     expect(retryBody).toContain("pauseAtSeconds 61 is not the seconds value of any transcript line");
   });
 
+  it("sends a retry the same cached transcript block, with the rejection after it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(planReply({ moments: [] }))
+      .mockResolvedValueOnce(planReply(validPlan));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+
+    const userContentOfCall = (callIndex: number): unknown[] =>
+      JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1].body)).messages[0].content;
+    const firstContent = userContentOfCall(0);
+    const retryContent = userContentOfCall(1);
+    expect(firstContent).toHaveLength(1);
+    expect(firstContent[0]).toMatchObject({ cache_control: { type: "ephemeral" } });
+    expect(retryContent[0]).toEqual(firstContent[0]);
+    expect(retryContent[1]).toMatchObject({ text: expect.stringContaining("Your previous reply was rejected") });
+  });
+
   it("returns 502 after three replies that break the contract", async () => {
     const fetchMock = vi.fn(async () => {
       return planReply({ moments: [] });

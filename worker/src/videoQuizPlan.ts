@@ -231,16 +231,18 @@ function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError
     content: [
       {
         type: "text" as const,
-        text: [
-          `Video title: ${videoQuizPlanRequest.title}`,
-          "",
-          "Transcript:",
-          transcriptText,
-          ...(rejectedReplyError.length > 0
-            ? ["", `Your previous reply was rejected: ${rejectedReplyError}. Reply with the plan again and fix that.`]
-            : []),
-        ].join("\n"),
+        text: [`Video title: ${videoQuizPlanRequest.title}`, "", "Transcript:", transcriptText].join("\n"),
+        // A retry sends the same system prompt and transcript, so it reads them from the cache instead of paying full price.
+        cache_control: { type: "ephemeral" as const },
       },
+      ...(rejectedReplyError.length > 0
+        ? [
+            {
+              type: "text" as const,
+              text: `Your previous reply was rejected: ${rejectedReplyError}. Reply with the plan again and fix that.`,
+            },
+          ]
+        : []),
     ],
   };
 }

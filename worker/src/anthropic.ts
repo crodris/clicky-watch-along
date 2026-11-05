@@ -14,6 +14,16 @@ const anthropicMessageSchema = z.object({
   ),
 });
 
+const modelUsageSchema = z.object({ usage: z.unknown() });
+
+/** Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends. */
+export function logModelUsage(routeName: string, modelResponseJSON: unknown): void {
+  const parsedResponse = modelUsageSchema.safeParse(modelResponseJSON);
+  if (parsedResponse.success && parsedResponse.data.usage !== undefined) {
+    console.log(`[${routeName}] usage ${JSON.stringify(parsedResponse.data.usage)}`);
+  }
+}
+
 type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
 
 export function jsonResponse(body: unknown, status: number): Response {
@@ -100,6 +110,7 @@ export async function requestAnthropicReplyText(
   } catch {
     return { ok: false, response: jsonResponse({ error: "Anthropic returned a body that was not JSON" }, 502) };
   }
+  logModelUsage(routeName, anthropicJSON);
 
   const parsedMessage = anthropicMessageSchema.safeParse(anthropicJSON);
   if (!parsedMessage.success) {
