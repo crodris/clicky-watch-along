@@ -97,13 +97,43 @@ describe("parseVideoQuizPlan", () => {
     expect(result).toEqual({ ok: true, plan: validPlan });
   });
 
-  it("keeps the time of a pause after the last line start", () => {
+  it("rejects a pause after the last line start", () => {
     const result = parseVideoQuizPlan(
       { moments: [liverMoment, denticleMoment, { ...poreMoment, pauseAtSeconds: 205 }] },
       transcriptLines,
     );
 
-    expect(result.ok && result.plan.moments[2]?.pauseAtSeconds).toBe(205);
+    expect(result).toEqual({ ok: false, error: "pauseAtSeconds 205 is after the last transcript line at 200" });
+  });
+
+  it("keeps a question whose answer is only part of a longer accented word", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      {
+        moments: [
+          liverMoment,
+          denticleMoment,
+          { ...poreMoment, answerLabel: "nome", question: "Let's pause here! What does the shark's génome store?" },
+        ],
+      },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(3);
+  });
+
+  it("drops a question that contains its accented answer", () => {
+    const checkedPlan = parseVideoQuizPlan(
+      {
+        moments: [
+          liverMoment,
+          denticleMoment,
+          { ...poreMoment, answerLabel: "Résumé", question: "Let's pause here! What does the shark's résumé list?" },
+        ],
+      },
+      transcriptLines,
+    );
+
+    expect(checkedPlan.ok && checkedPlan.plan.moments.length).toBe(2);
   });
 
   it("rejects a source time before the first transcript line", () => {

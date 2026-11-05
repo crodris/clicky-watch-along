@@ -146,19 +146,20 @@ function containsWholeWords(text: string, phrase: string): boolean {
   const escapedPhrase = phrase
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
     .split(/\s+/)
     .join("\\s+");
   if (escapedPhrase.length === 0) {
     return false;
   }
-  const phrasePattern = new RegExp(`(^|[^a-z0-9])${escapedPhrase}($|[^a-z0-9])`);
+  // Unicode letters and digits, so an answer such as "résumé" still counts as a whole word in its question.
+  const phrasePattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapedPhrase}($|[^\\p{L}\\p{N}])`, "u");
   return phrasePattern.test(text.toLowerCase());
 }
 
 /**
  * A pause between two line starts would stop the video mid-line, so it moves to where the line it falls in has finished.
- * A pause after the last line start keeps its time, because the app pauses on the video clock and no later line exists.
+ * A pause after the last line start keeps its time, so parseVideoQuizPlan rejects a time no line confirms.
  */
 function lineStartAtOrAfter(secondsToSnap: number, lineStartsInOrder: number[]): number {
   return lineStartsInOrder.find((lineStart) => lineStart >= secondsToSnap) ?? secondsToSnap;
@@ -205,7 +206,14 @@ export function parseVideoQuizPlan(
 
   // The app sends only what is left to watch, so timing rules count from the first line.
   const watchStartSeconds = Math.min(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
+  const videoLengthSeconds = Math.max(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   for (const moment of moments) {
+    if (moment.pauseAtSeconds > videoLengthSeconds) {
+      return {
+        ok: false,
+        error: `pauseAtSeconds ${moment.pauseAtSeconds} is after the last transcript line at ${videoLengthSeconds}`,
+      };
+    }
     if (moment.sourceLineSeconds < watchStartSeconds) {
       return {
         ok: false,
@@ -234,7 +242,6 @@ export function parseVideoQuizPlan(
     };
   }
 
-  const videoLengthSeconds = Math.max(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   const minimumGapSeconds =
     (videoLengthSeconds - watchStartSeconds) * minimumGapBetweenMomentsAsFractionOfVideo;
   for (let momentIndex = 1; momentIndex < moments.length; momentIndex += 1) {
