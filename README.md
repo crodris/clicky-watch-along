@@ -31,10 +31,8 @@ The scan is cut down to the structure and about 130 meters around it, and it flo
 ## Running it
 
 I run this locally, with the Worker on `pnpm wrangler dev`, and Debug builds point at `http://127.0.0.1:8787`.
-Follow the setup below, then add these:
+Follow the setup below, which includes the OpenAI and Google Maps keys this fork needs, then add these:
 
-- `OPENAI_API_KEY` in `worker/.dev.vars`, for the 3D models
-- `GOOGLE_MAPS_API_KEY` in `worker/.dev.vars`, for the famous places, with the Map Tiles API turned on and billing linked
 - `brew install yt-dlp`, for the video transcripts
 - In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
 
@@ -45,7 +43,7 @@ Speech uses Apple's speech recognition in this fork, so you don't need an Assemb
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
 The Worker has no authentication or rate limits yet, and its 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
-Everything below is the original Clicky README.
+Everything below is the original Clicky README, with the setup, architecture, and project structure updated for this fork.
 
 ---
 
@@ -90,7 +88,7 @@ Once you get Claude running, paste this:
 ```
 Hi Claude.
 
-Clone https://github.com/farzaa/clicky.git into my current directory.
+Clone https://github.com/crodris/clicky-watch-along.git into my current directory.
 
 Then read the CLAUDE.md. I want to get Clicky running locally on my Mac.
 
@@ -109,7 +107,8 @@ If you want to do it yourself, here's the deal.
 - Xcode 26 (CI builds with Xcode 26.5)
 - Node.js 18+ and pnpm 12 (for the Cloudflare Worker)
 - A [Cloudflare](https://cloudflare.com) account (free tier works)
-- API keys for: [Anthropic](https://console.anthropic.com), [AssemblyAI](https://www.assemblyai.com), [ElevenLabs](https://elevenlabs.io)
+- API keys for: [Anthropic](https://console.anthropic.com), [ElevenLabs](https://elevenlabs.io), [OpenAI](https://platform.openai.com) for the 3D models, and [Google Maps Platform](https://console.cloud.google.com/google/maps-apis) for the famous places, with the Map Tiles API turned on and billing linked
+- Speech uses Apple's speech recognition, so you need an [AssemblyAI](https://www.assemblyai.com) key only if you switch back to it
 
 ### 1. Set up the Cloudflare Worker
 
@@ -124,8 +123,9 @@ Now add your secrets. Wrangler will prompt you to paste each one:
 
 ```bash
 pnpm wrangler secret put ANTHROPIC_API_KEY
-pnpm wrangler secret put ASSEMBLYAI_API_KEY
 pnpm wrangler secret put ELEVENLABS_API_KEY
+pnpm wrangler secret put OPENAI_API_KEY
+pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 ```
 
 For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
@@ -156,24 +156,18 @@ This starts a local server (usually `http://localhost:8787`) that behaves exactl
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
-ASSEMBLYAI_API_KEY=...
 ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=...
+OPENAI_API_KEY=...
+GOOGLE_MAPS_API_KEY=...
 ```
 
-Then update the proxy URLs in the Swift code to point to `http://localhost:8787` instead of the deployed Worker URL while developing. Grep for `clicky-proxy` to find them all.
+Debug builds already call `http://127.0.0.1:8787`, so a local run needs no URL changes.
 
-### 3. Update the proxy URLs in the app
+### 3. Point Release builds at your Worker
 
-The app has the Worker URL hardcoded in a few places. Search for `your-worker-name.your-subdomain.workers.dev` and replace it with your Worker URL:
-
-```bash
-grep -r "clicky-proxy" leanring-buddy/
-```
-
-You'll find it in:
-- `CompanionManager.swift` — Claude chat + ElevenLabs TTS
-- `AssemblyAIStreamingTranscriptionProvider.swift` — AssemblyAI token endpoint
+Debug builds call the local Worker, and Release builds won't compile until you set `workerBaseURL` in `CompanionManager.swift` to your deployed https Worker URL.
+The placeholder URL in `AssemblyAIStreamingTranscriptionProvider.swift` matters only if you switch speech back to AssemblyAI.
 
 ### 4. Open in Xcode and run
 
@@ -199,7 +193,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
+**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
 
 ## Project structure
 
@@ -210,14 +204,20 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   ClaudeAPI.swift           # Claude streaming client
   ElevenLabsTTSClient.swift # Text-to-speech playback
   OverlayWindow.swift       # Blue cursor overlay
-  AssemblyAI*.swift         # Real-time transcription
+  AppleSpeech*.swift        # Speech recognition this fork uses
+  AssemblyAI*.swift         # Upstream's real-time transcription, unused here
   BuddyDictation*.swift     # Push-to-talk pipeline
   VideoQuizSession.swift    # Watch-along quiz that pauses YouTube in Chrome
   LiveSceneOverlay.swift    # Transparent window that plays the 3D scene
+  VideoFramePopout.swift    # Lifts the paused frame's subject out in 3D
+  LandmarkTiles.swift       # Google's 3D scan of a famous place
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan, /video-frame-parts, /landmark, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
+  src/videoFrameParts.ts    # Finds the subject and its parts in a video frame
+  src/landmark.ts           # Recognizes a famous place in a video frame
+  src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
 
