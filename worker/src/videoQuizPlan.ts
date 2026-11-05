@@ -32,7 +32,13 @@ const videoQuizMomentSchema = z
       .refine((answerLabel) => answerLabel.split(/\s+/).length <= 2, {
         message: "answerLabel must be one or two words",
       }),
-    functionWords: z.array(z.string().regex(/^[a-z]+$/)).min(1),
+    // A capital letter or a two-word phrase is a formatting slip, so normalize it instead of spending a retry.
+    functionWords: z
+      .array(z.string())
+      .transform((functionWords) =>
+        functionWords.flatMap((functionWord) => functionWord.toLowerCase().match(/[a-z]+/g) ?? []),
+      )
+      .pipe(z.array(z.string()).min(1)),
     explanation: z.string().trim().min(1),
     sourceLineSeconds: z.number(),
     subject: z.string().trim().min(1),
@@ -151,6 +157,16 @@ function containsWholeWords(text: string, phrase: string): boolean {
   return phrasePattern.test(text.toLowerCase());
 }
 
+/** A pause between two line starts would stop the video mid-line, so it moves to where the line it falls in has finished. */
+function lineStartAtOrAfter(seconds: number, lineStartsInOrder: number[]): number {
+  return lineStartsInOrder.find((lineStart) => lineStart >= seconds) ?? lineStartsInOrder[lineStartsInOrder.length - 1];
+}
+
+/** A source time between two line starts names the line that was playing then, which started before it. */
+function lineStartAtOrBefore(seconds: number, lineStartsInOrder: number[]): number {
+  return [...lineStartsInOrder].reverse().find((lineStart) => lineStart <= seconds) ?? lineStartsInOrder[0];
+}
+
 export function parseVideoQuizPlan(
   planJSON: unknown,
   transcriptLines: TranscriptLine[],
@@ -163,8 +179,17 @@ export function parseVideoQuizPlan(
     return { ok: false, error: issueMessages.join("; ") };
   }
 
+  const lineStartsInOrder = [...new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds))].sort(
+    (earlierSeconds, laterSeconds) => earlierSeconds - laterSeconds,
+  );
+
   // One give-away question should cost that stop, not the whole plan.
   const moments = parsedPlan.data.moments
+    .map((moment) => ({
+      ...moment,
+      pauseAtSeconds: lineStartAtOrAfter(moment.pauseAtSeconds, lineStartsInOrder),
+      sourceLineSeconds: lineStartAtOrBefore(moment.sourceLineSeconds, lineStartsInOrder),
+    }))
     .filter((moment) => !containsWholeWords(moment.question, moment.answerLabel))
     .sort((earlierMoment, laterMoment) => {
       return earlierMoment.pauseAtSeconds - laterMoment.pauseAtSeconds;
@@ -173,17 +198,10 @@ export function parseVideoQuizPlan(
     return { ok: false, error: "every question contains its own answer" };
   }
 
-  const lineStartSeconds = new Set(transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   // The app sends only what is left to watch, so timing rules count from the first line.
   const watchStartSeconds = Math.min(...transcriptLines.map((transcriptLine) => transcriptLine.seconds));
   for (const moment of moments) {
-    if (!lineStartSeconds.has(moment.pauseAtSeconds)) {
-      return {
-        ok: false,
-        error: `pauseAtSeconds ${moment.pauseAtSeconds} is not the seconds value of any transcript line`,
-      };
-    }
-    if (!lineStartSeconds.has(moment.sourceLineSeconds) || moment.sourceLineSeconds >= moment.pauseAtSeconds) {
+    if (moment.sourceLineSeconds >= moment.pauseAtSeconds) {
       return {
         ok: false,
         error: `sourceLineSeconds ${moment.sourceLineSeconds} must be a transcript line before pauseAtSeconds ${moment.pauseAtSeconds}, because the learner has not heard later lines`,
@@ -255,8 +273,8 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
   const videoQuizPlanRequest = parsedRequest.requestBody;
 
   // Retries that name the broken rule, because a schema-valid plan still
-  // sometimes breaks one the schema cannot enforce, such as a pause that is not
-  // on a line boundary, and the learner would lose a plan that was otherwise right.
+  // sometimes breaks one the schema cannot enforce, such as a first pause past
+  // the first minute, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
   for (let attempt = 1; attempt <= maximumPlanAttempts; attempt += 1) {
     const anthropicReply = await requestAnthropicReplyJSON(anthropicAPIKey, "/video-quiz-plan", {
@@ -277,6 +295,7 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
       return jsonResponse(parsedPlan.plan, 200);
     }
     lastValidationError = parsedPlan.error;
+    console.error(`[/video-quiz-plan] attempt ${attempt} rejected: ${parsedPlan.error}`);
   }
   return jsonResponse({ error: lastValidationError }, 502);
 }
