@@ -88,6 +88,49 @@ enum DS {
         static let blue900 = Color(hex: "#1e3a8a")
         static let blue950 = Color(hex: "#172554")
 
+        // ── Status Line Palettes ────────────────────────────────────
+        // Tailwind CSS v4 purple, orange, green, pink, and sky shades for the status label's
+        // lines (LiveSceneStatusLine). Most lines use their hue's shades this way:
+        //   500  → icon color        700  → text and deep icon strokes
+        //   300  → light strokes     400  → letter highlight
+        //   100 or 200 → pale fills  50   → wash behind the icon
+        // The pink line has no 500, so it uses 400 for the icon and 300 for the highlight.
+        // The pop-out line uses the blue scale above.
+
+        static let purple50  = Color(hex: "#faf5ff")
+        static let purple100 = Color(hex: "#f3e8ff")
+        static let purple300 = Color(hex: "#d8b4fe")
+        static let purple400 = Color(hex: "#c084fc")
+        static let purple500 = Color(hex: "#a855f7")
+        static let purple700 = Color(hex: "#7e22ce")
+
+        static let orange50  = Color(hex: "#fff7ed")
+        static let orange200 = Color(hex: "#fed7aa")
+        static let orange300 = Color(hex: "#fdba74")
+        static let orange400 = Color(hex: "#fb923c")
+        static let orange500 = Color(hex: "#f97316")
+        static let orange700 = Color(hex: "#c2410c")
+
+        static let green50  = Color(hex: "#f0fdf4")
+        static let green100 = Color(hex: "#dcfce7")
+        static let green300 = Color(hex: "#86efac")
+        static let green400 = Color(hex: "#4ade80")
+        static let green500 = Color(hex: "#22c55e")
+        static let green700 = Color(hex: "#15803d")
+
+        static let pink50  = Color(hex: "#fdf2f8")
+        static let pink100 = Color(hex: "#fce7f3")
+        static let pink300 = Color(hex: "#f9a8d4")
+        static let pink400 = Color(hex: "#f472b6")
+        static let pink700 = Color(hex: "#be185d")
+
+        static let sky50  = Color(hex: "#f0f9ff")
+        static let sky100 = Color(hex: "#e0f2fe")
+        static let sky300 = Color(hex: "#7dd3fc")
+        static let sky400 = Color(hex: "#38bdf8")
+        static let sky500 = Color(hex: "#0ea5e9")
+        static let sky700 = Color(hex: "#0369a1")
+
         // ── Accent (derived from blue scale) ───────────────────────
         // The primary fill is Blue 600; hover darkens to Blue 700.
 

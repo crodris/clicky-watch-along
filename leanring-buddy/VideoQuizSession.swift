@@ -260,7 +260,7 @@ final class VideoQuizSession {
         }
         framePopoutTasksByMomentIndex = [:]
         // A failure or a stop during planning would otherwise leave the planning label up.
-        LiveSceneStatusLabel.shared.hide()
+        LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
         print("Video quiz: stopped")
     }
 
@@ -332,13 +332,14 @@ final class VideoQuizSession {
 
             let planningStartDate = Date()
             // Reading and planning take 10 to 15 seconds, so the label says what Clicky is doing meanwhile.
-            LiveSceneStatusLabel.shared.show("Reading the transcript")
+            LiveSceneStatusLabel.shared.show(.readingTheTranscript)
             let transcriptLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: videoTab.url)
             guard isRunning, !Task.isCancelled else { return }
             print("Video quiz: read \(transcriptLines.count) caption lines")
             allTranscriptLines = transcriptLines
 
-            LiveSceneStatusLabel.shared.show("Picking spots to quiz you on")
+            // A press that hid the reading label must not bring the planning label back.
+            LiveSceneStatusLabel.shared.replace(.readingTheTranscript, with: .pickingQuizSpots)
             let plannedMoments = try await VideoQuizPlanClient(workerBaseURL: workerBaseURL).requestPlan(
                 title: videoTab.title,
                 transcriptLines: transcriptLines.filter { transcriptLine in
@@ -346,7 +347,7 @@ final class VideoQuizSession {
                 }
             )
             guard isRunning, !Task.isCancelled else { return }
-            LiveSceneStatusLabel.shared.hide()
+            LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
             moments = plannedMoments.map { plannedMoment in
                 var quizWithWhatWasHeard = plannedMoment.quiz
                 quizWithWhatWasHeard.heardTranscript = transcriptLines

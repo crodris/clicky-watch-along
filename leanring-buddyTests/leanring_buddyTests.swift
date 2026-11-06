@@ -363,4 +363,51 @@ struct leanring_buddyTests {
         #expect(sourceRect == ["x": 200.5, "y": -12, "width": 640, "height": 360.25])
     }
 
+    @Test func popOutCubeIsFlatAtEachEndOfItsLoopAndFullWhileTurning() async throws {
+        let loopStart = PopOutCubePose.at(elapsedSeconds: 0)
+        let midTurn = PopOutCubePose.at(elapsedSeconds: PopOutCubePose.loopSeconds * 0.5)
+        let justBeforeTheLoopRepeats = PopOutCubePose.at(elapsedSeconds: PopOutCubePose.loopSeconds - 0.001)
+
+        #expect(loopStart.depth == 0 && loopStart.turnDegrees == 0)
+        #expect(midTurn.depth == 1)
+        // The cube ends one full turn later and flat, so the repeat has no jump.
+        #expect(justBeforeTheLoopRepeats.depth < 0.01)
+        #expect(abs(justBeforeTheLoopRepeats.turnDegrees - 360) < 0.5)
+    }
+
+    @Test func transcriptLineIsFullyTypedWithTheCaretAtTheEndBeforeItClears() async throws {
+        let statusLine = LiveSceneStatusLine.readingTheTranscript
+        let letterCount = statusLine.displayedText.count
+        func poses(atSeconds elapsedSeconds: Double) -> [StatusLetterPose] {
+            (0..<letterCount).map { statusLine.letterPose(letterIndex: $0, letterCount: letterCount, elapsedSeconds: elapsedSeconds) }
+        }
+
+        let fullyTyped = poses(atSeconds: 2.0)
+        #expect(fullyTyped.allSatisfy { $0.opacity == 1 })
+        #expect(fullyTyped.indices.filter { fullyTyped[$0].showsCaret } == [letterCount - 1])
+
+        let cleared = poses(atSeconds: 2.85)
+        #expect(cleared.allSatisfy { $0.opacity == 0 })
+    }
+
+    @Test func statusLabelOwnersSwapAndHideOnlyTheirOwnLines() async throws {
+        // A delayed swap after a press hid the label does not bring the label back.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: nil) == nil)
+        // A swap does not take over another owner's line.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: .poppingItOut) == .poppingItOut)
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: .buildingYourScene) == .almostThere)
+
+        // A push-to-talk press passes no set and hides whatever shows.
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: nil, whileShowing: .pickingQuizSpots) == nil)
+        // An owner hides its own lines and leaves other owners' lines up.
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .almostThere) == nil)
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .poppingItOut) == .poppingItOut)
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines, whileShowing: .readingYourScreen) == .readingYourScreen)
+
+        // Each owner's set holds every line that owner shows, so none of its lines can be left up.
+        #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut])
+        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
+        #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
+    }
+
 }
