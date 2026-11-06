@@ -46,7 +46,7 @@ describe("checkFrameParts", () => {
     });
   });
 
-  it("drops labels that are long, wordy, or hold characters beyond letters, digits, apostrophes, and hyphens", () => {
+  it("drops labels that are long, wordy, or hold characters beyond letters, digits, apostrophes, periods, and hyphens", () => {
     const labelsFromAPage = {
       ...modelReply,
       parts: [
@@ -65,6 +65,26 @@ describe("checkFrameParts", () => {
       parts: [
         { label: "Front leg", x: 600, y: 300, isQuizAnswer: true },
         { label: "Hind-leg's joint", x: 600, y: 400, isQuizAnswer: false },
+      ],
+    });
+  });
+
+  it("keeps curly apostrophes as straight ones and allows a period in a name", () => {
+    const labelsWithPunctuation = {
+      ...modelReply,
+      parts: [
+        { label: "Achilles\u2019 tendon", x: 600, y: 300 },
+        { label: "St. Peter's dome", x: 600, y: 400 },
+      ],
+      answerPartIndex: -1,
+    };
+
+    expect(checkFrameParts(labelsWithPunctuation, 1280, 720)).toEqual({
+      subjectFound: true,
+      subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      parts: [
+        { label: "Achilles' tendon", x: 600, y: 300, isQuizAnswer: false },
+        { label: "St. Peter's dome", x: 600, y: 400, isQuizAnswer: false },
       ],
     });
   });

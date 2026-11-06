@@ -246,7 +246,8 @@ struct ChromePageGeometry: Decodable, Equatable {
 /// The element's place on screen. The page zoom is the page's device pixel ratio divided by the
 /// screen's backing scale factor, so a CSS pixel is `pageZoom` points. At zoom 1 this is the plain
 /// sum of the window origin, the browser frame, and the element's offset.
-/// Nil when the geometry cannot be trusted.
+/// This is the fallback for when Chrome's accessibility tree gives no web area, and it assumes the whole
+/// browser frame sits left of and above the viewport. Nil when the geometry cannot be trusted.
 func screenRectInChromeCoordinates(from pageGeometry: ChromePageGeometry, backingScaleFactor: Double) -> ScreenRectInChromeCoordinates? {
     guard pageGeometry.devicePixelRatio > 0, backingScaleFactor > 0 else { return nil }
     let pageZoom = pageGeometry.devicePixelRatio / backingScaleFactor
@@ -259,7 +260,12 @@ func screenRectInChromeCoordinates(from pageGeometry: ChromePageGeometry, backin
     // is then unknown, and a rect placed from it would sit on the wrong pixels.
     let largestPlausibleBrowserFrameWidthInPoints = 400.0
     let largestPlausibleBrowserFrameHeightInPoints = 250.0
-    guard browserFrameWidthInPoints <= largestPlausibleBrowserFrameWidthInPoints,
+    // A frame below zero by more than rounding means the backing scale factor does not belong to the screen
+    // Chrome is on, so the zoom and everything built on it is wrong.
+    let mostNegativeBrowserFrameInPointsThatRoundingExplains = -2.0
+    guard browserFrameWidthInPoints >= mostNegativeBrowserFrameInPointsThatRoundingExplains,
+          browserFrameHeightInPoints >= mostNegativeBrowserFrameInPointsThatRoundingExplains,
+          browserFrameWidthInPoints <= largestPlausibleBrowserFrameWidthInPoints,
           browserFrameHeightInPoints <= largestPlausibleBrowserFrameHeightInPoints else {
         return nil
     }

@@ -708,10 +708,11 @@ private struct ChromeVideoTab {
 
     /// Picks the media in the active tab of Chrome's front window that the learner is most likely looking at:
     /// the largest visible video or image, with a video counting four times its area. Images that show nothing
-    /// (not loaded, hidden, or fully transparent) are skipped. Returns the window's and the element's raw page
-    /// geometry as JSON, or 'none' under 160x90 visible. The page measures in CSS pixels and the window in
-    /// screen points, so `screenRectInChromeCoordinates` turns them into one screen rect, which depends on
-    /// the page zoom and so on the screen Chrome is on.
+    /// (not loaded, hidden, or fully transparent) are skipped. A loaded image with no natural width is skipped
+    /// too, except an SVG, which can have only a viewBox and so no natural width. Returns the window's and
+    /// the element's raw page geometry as JSON, or 'none' under 160x90 visible. The page measures in CSS pixels and the window in
+    /// screen points, so `screenRectInChromeCoordinates` turns them into one screen rect, using Chrome's
+    /// accessibility web area when it can, and the page zoom and the screen Chrome is on when it cannot.
     private static let largestVisibleMediaJavaScript = [
         "(function () {",
         "var best = null; var bestScore = 0;",
@@ -720,7 +721,7 @@ private struct ChromeVideoTab {
         "var element = candidates[index];",
         "var isVideo = element.tagName === 'VIDEO';",
         "if (isVideo && !element.videoWidth) { continue; }",
-        "if (!isVideo && (!element.complete || !element.naturalWidth)) { continue; }",
+        "if (!isVideo && (!element.complete || (!element.naturalWidth && element.currentSrc.toLowerCase().indexOf('.svg') < 0))) { continue; }",
         "var style = window.getComputedStyle(element);",
         "if (style.visibility === 'hidden' || style.opacity === '0') { continue; }",
         "var rect = element.getBoundingClientRect();",
@@ -759,29 +760,38 @@ private struct ChromeVideoTab {
         guard let pageGeometry = try? JSONDecoder().decode(ChromePageGeometry.self, from: Data(javaScriptResult.utf8)) else {
             return nil
         }
-        return screenRectInChromeCoordinates(
+        // The web area of Chrome's window says where the viewport sits, which the page geometry cannot when a
+        // side panel, vertical tabs, or docked DevTools take window space. The page geometry is the fallback.
+        if let rectFromWebArea = screenRectInChromeCoordinates(
+            from: pageGeometry,
+            matchingWebAreaFrames: ChromeWebArea.webAreaFramesOfChromesFocusedWindow()
+        ) {
+            print("Media rect: placed from Chrome's accessibility web area")
+            return rectFromWebArea
+        }
+        let rectFromPageGeometry = screenRectInChromeCoordinates(
             from: pageGeometry,
             backingScaleFactor: backingScaleFactorOfTheScreenHoldingTheWindow(of: pageGeometry)
         )
+        print("Media rect: no matching web area, \(rectFromPageGeometry == nil ? "the page geometry gave no rect either" : "placed from the page geometry")")
+        return rectFromPageGeometry
     }
 
-    /// The pixel density of the screen Chrome's window starts on, which the page zoom is measured against.
-    /// Falls back to the main screen's, then to 1 when no screen is known.
+    /// The pixel density of the screen that holds the largest part of Chrome's window, which the page zoom is
+    /// measured against. Falls back to the main screen's, then to 1 when no screen is known.
     private static func backingScaleFactorOfTheScreenHoldingTheWindow(of pageGeometry: ChromePageGeometry) -> Double {
         let fallbackBackingScaleFactor = Double(NSScreen.main?.backingScaleFactor ?? 1)
-        guard let mainDisplayHeight = NSScreen.screens.first?.frame.height else { return fallbackBackingScaleFactor }
-        // Chrome's origin is the top left of the main display and AppKit's is the bottom left. The point is
-        // moved 1 point inside the window, because a CGRect does not contain its own top edge in AppKit coordinates.
-        let pointInsideTheWindowInAppKitCoordinates = CGPoint(
-            x: pageGeometry.screenX + 1,
-            y: mainDisplayHeight - pageGeometry.screenY - 1
+        let windowRect = ScreenRectInChromeCoordinates(
+            rectX: pageGeometry.screenX,
+            rectY: pageGeometry.screenY,
+            rectWidth: pageGeometry.outerWidth,
+            rectHeight: pageGeometry.outerHeight
         )
-        guard let screenHoldingTheWindow = NSScreen.screens.first(where: { screen in
-            screen.frame.contains(pointInsideTheWindowInAppKitCoordinates)
-        }) else {
+        let screens = NSScreen.screens
+        guard let screenIndex = indexOfTheScreenFrameHolding(windowRect, screenFramesInAppKitCoordinates: screens.map(\.frame)) else {
             return fallbackBackingScaleFactor
         }
-        return Double(screenHoldingTheWindow.backingScaleFactor)
+        return Double(screens[screenIndex].backingScaleFactor)
     }
 
     private static func titleWithoutYouTubeSuffix(_ tabTitle: String) -> String {

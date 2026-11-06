@@ -56,7 +56,7 @@ const framePartsSystemPrompt = [
 
 const maximumLabelCharacterCount = 40;
 const maximumLabelWordCount = 4;
-const plainLabelPattern = /^[\p{L}\p{N} '\-]+$/u;
+const plainLabelPattern = /^[\p{L}\p{N} '.\-]+$/u;
 
 /**
  * Labels come from any web page's image and later reach a chat system prompt, so only short plain
@@ -88,7 +88,8 @@ export function checkFrameParts(modelReply: ModelReply, frameWidth: number, fram
   };
   const boxIsTooSmall = subjectBox.right - subjectBox.left < 40 || subjectBox.bottom - subjectBox.top < 40;
   const parts = modelReply.parts.slice(0, maximumPartCount).map((part, partIndex) => ({
-    label: part.label.replace(/\s*\(.*?\)\s*/g, " ").trim(),
+    // Curly apostrophes become straight ones first, so a name like "Achilles' tendon" passes the plain-label check.
+    label: part.label.replace(/[\u2018\u2019]/g, "'").replace(/\s*\(.*?\)\s*/g, " ").trim(),
     x: clamp(Math.round(part.x), subjectBox.left, subjectBox.right),
     y: clamp(Math.round(part.y), subjectBox.top, subjectBox.bottom),
     // The answer flag uses the model's own index, so it is set before any part is dropped.

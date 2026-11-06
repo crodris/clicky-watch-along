@@ -45,6 +45,7 @@ Preconditions:
 - `subjectFound: false` on a chart or a talking head is correct behavior, not a failure.
 - The pop-out lines up with the video's or image's on-screen rect, on the display that shows it, wherever the mouse is.
   Moving or resizing the Chrome window during the run misplaces it.
-- The image rect accounts for page zoom, but not for DevTools docked to the window.
-  With DevTools docked, Clicky says it could not find an image or a video, so undock them first.
+- The image rect comes from the web area in Chrome's accessibility tree, so it accounts for page zoom and for side panels, vertical tabs, and docked DevTools.
+  Clicky logs "Media rect: placed from Chrome's accessibility web area" when that worked.
+  Without a matching web area, such as when Accessibility is off, it falls back to the page-geometry math, logs "placed from the page geometry", and gives no rect when DevTools are docked.
   Only Chrome's windows are captured, so a window of another app over Chrome does not show in the pop-out.

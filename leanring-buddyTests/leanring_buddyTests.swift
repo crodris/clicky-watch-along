@@ -234,6 +234,46 @@ struct leanring_buddyTests {
         // DevTools docked to the bottom take 400 points of the window height.
         let bottomDockedDevToolsGeometry = pageGeometry(devicePixelRatio: 2, innerWidth: 1400, innerHeight: 400, left: 80, top: 40)
         #expect(screenRectInChromeCoordinates(from: bottomDockedDevToolsGeometry, backingScaleFactor: 2) == nil)
+
+        // A backing scale factor of 1 for a 2x page doubles the zoom, so the viewport is wider than the window
+        // and the browser frame comes out negative.
+        #expect(screenRectInChromeCoordinates(from: unzoomedGeometry, backingScaleFactor: 1) == nil)
+    }
+
+    @Test func webAreaPlacesTheImageRectWithPanelsOnEitherSideOfThePage() async throws {
+        // A 1400x900 point window at (100, 50). The page itself is 880x800 CSS pixels.
+        func pageGeometry(devicePixelRatio: Double, innerWidth: Double, innerHeight: Double) -> ChromePageGeometry {
+            ChromePageGeometry(
+                screenX: 100, screenY: 50, outerWidth: 1400, outerHeight: 900,
+                innerWidth: innerWidth, innerHeight: innerHeight, devicePixelRatio: devicePixelRatio,
+                left: 80, top: 40, width: 400, height: 200
+            )
+        }
+
+        // Vertical tabs take 200 points on the left and a side panel takes 320 on the right, so the web area
+        // is narrower than the window and offset only on the left. The window-frame math cannot place this.
+        let pageWebArea = CGRect(x: 300, y: 150, width: 880, height: 800)
+        let pageBesideVerticalTabsAndSidePanel = pageGeometry(devicePixelRatio: 2, innerWidth: 880, innerHeight: 800)
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [pageWebArea]) == ScreenRectInChromeCoordinates(
+            rectX: 300 + 80, rectY: 150 + 40, rectWidth: 400, rectHeight: 200
+        ))
+
+        // At 125% zoom the 1120x640 CSS viewport fills a 1400x800 point web area, so a CSS pixel is 1.25 points.
+        let zoomedWebArea = CGRect(x: 100, y: 150, width: 1400, height: 800)
+        let zoomedPage = pageGeometry(devicePixelRatio: 2.5, innerWidth: 1120, innerHeight: 640)
+        #expect(screenRectInChromeCoordinates(from: zoomedPage, matchingWebAreaFrames: [zoomedWebArea]) == ScreenRectInChromeCoordinates(
+            rectX: 100 + 80 * 1.25, rectY: 150 + 40 * 1.25, rectWidth: 500, rectHeight: 250
+        ))
+
+        // Docked DevTools are a tall, narrow web area of their own, listed before the page's.
+        let devToolsWebArea = CGRect(x: 1180, y: 150, width: 320, height: 800)
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [devToolsWebArea, pageWebArea]) == ScreenRectInChromeCoordinates(
+            rectX: 300 + 80, rectY: 150 + 40, rectWidth: 400, rectHeight: 200
+        ))
+
+        // With only the DevTools shape, or no web area at all, nothing matches the page.
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [devToolsWebArea]) == nil)
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: []) == nil)
     }
 
     @Test func popoutPlaysOnTheScreenShowingTheImageNotTheMouseScreen() async throws {
