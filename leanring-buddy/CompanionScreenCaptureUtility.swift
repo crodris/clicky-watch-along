@@ -130,15 +130,17 @@ enum CompanionScreenCaptureUtility {
         return capturedScreens
     }
 
-    /// Captures just this rect of the screen at full resolution, without Clicky's own windows
-    /// or the mouse pointer, so a pop-out can lift a page image no matter which site serves it.
-    /// Nil when no display holds the rect's center.
+    /// Captures just this rect of the screen at the display's pixel density (up to 1280 pixels on the
+    /// longest side), showing only Google Chrome's windows and no mouse pointer, so a pop-out can lift
+    /// a page image no matter which site serves it. Capturing only Chrome keeps another app's window
+    /// that covers Chrome out of the crop, and leaves out Clicky's own windows too.
+    /// Nil when Chrome has no on-screen window or no display intersects the rect.
     static func captureScreenRectAsJPEG(_ screenRect: ScreenRectInChromeCoordinates) async throws -> VideoFrameGrab? {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let ownBundleIdentifier = Bundle.main.bundleIdentifier
-        let ownAppWindows = content.windows.filter { window in
-            window.owningApplication?.bundleIdentifier == ownBundleIdentifier
+        let chromeWindows = content.windows.filter { window in
+            window.owningApplication?.bundleIdentifier == "com.google.Chrome"
         }
+        guard !chromeWindows.isEmpty else { return nil }
         var pixelsPerPointByDisplayID: [CGDirectDisplayID: CGFloat] = [:]
         for screen in NSScreen.screens {
             if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
@@ -165,7 +167,7 @@ enum CompanionScreenCaptureUtility {
         configuration.height = captureRegion.outputHeightInPixels
         configuration.showsCursor = false
         let cgImage = try await SCScreenshotManager.captureImage(
-            contentFilter: SCContentFilter(display: display, excludingWindows: ownAppWindows),
+            contentFilter: SCContentFilter(display: display, including: chromeWindows),
             configuration: configuration
         )
         guard let jpegData = NSBitmapImageRep(cgImage: cgImage)
@@ -203,20 +205,24 @@ struct DisplayCaptureRegion: Equatable {
     let capturedScreenRect: ScreenRectInChromeCoordinates
 }
 
-/// Picks the display under the rect's center and cuts the rect to that display. The output keeps
-/// the display's full pixel density, shrunk only when its longest side passes the limit.
+/// Picks the display that holds the largest part of the rect and cuts the rect to that display.
+/// The rect's center can sit in the gap between displays of different sizes, so the center is not used.
+/// The output keeps the display's full pixel density, shrunk only when its longest side passes the limit.
 func displayCaptureRegion(
     for screenRect: ScreenRectInChromeCoordinates,
     on displays: [CapturableDisplay],
     longestSideLimitInPixels: Int
 ) -> DisplayCaptureRegion? {
     let requestedRect = CGRect(x: screenRect.rectX, y: screenRect.rectY, width: screenRect.rectWidth, height: screenRect.rectHeight)
-    let requestedRectCenter = CGPoint(x: requestedRect.midX, y: requestedRect.midY)
-    guard let display = displays.first(where: { display in display.frame.contains(requestedRectCenter) }) else {
+    func intersectionArea(with display: CapturableDisplay) -> CGFloat {
+        let intersection = requestedRect.intersection(display.frame)
+        return intersection.isNull ? 0 : intersection.width * intersection.height
+    }
+    guard let display = displays.max(by: { displayA, displayB in intersectionArea(with: displayA) < intersectionArea(with: displayB) }),
+          intersectionArea(with: display) > 0 else {
         return nil
     }
     let capturedRect = requestedRect.intersection(display.frame)
-    guard !capturedRect.isEmpty else { return nil }
 
     let fullDensityWidth = capturedRect.width * display.pixelsPerPoint
     let fullDensityHeight = capturedRect.height * display.pixelsPerPoint

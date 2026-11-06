@@ -3,9 +3,11 @@
 //  leanring-buddy
 //
 //  One transparent window and one page, reused for every live scene. The
-//  window is created on the screen under the mouse, and later plays move it
-//  there again. Each scene is generated HTML loaded in that window. The page
-//  reports tourFinished when the camera tour ends.
+//  window is created on the screen a scene plays on, and later plays move it
+//  to their screen: the one under the mouse for generated scenes, and the one
+//  showing the video or image for pop-outs and landmark pages. Each scene is
+//  generated HTML loaded in that window. The page reports tourFinished when
+//  the camera tour ends.
 //
 
 import AppKit
@@ -535,7 +537,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 }
 
-/// The scene overlay and the status label both follow the mouse, so they share this screen lookup.
+/// The status label and generated scenes follow the mouse, so they share this screen lookup.
 func screenUnderTheMouseCursor() -> NSScreen? {
     let mouseLocation = NSEvent.mouseLocation
     if let screenContainingTheMouse = NSScreen.screens.first(where: { screen in

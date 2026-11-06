@@ -190,8 +190,50 @@ struct leanring_buddyTests {
         #expect(retinaRegion?.outputWidthInPixels == 1280)
         #expect(retinaRegion?.outputHeightInPixels == 640)
 
+        // The center (-100, 1000) falls below the left display, in the gap beside the main display,
+        // so the display holding the larger part of the image is chosen instead.
+        let imageWithItsCenterInTheGapBetweenDisplays = ScreenRectInChromeCoordinates(rectX: -400, rectY: 900, rectWidth: 600, rectHeight: 200)
+        #expect(displayCaptureRegion(for: imageWithItsCenterInTheGapBetweenDisplays, on: capturableDisplays, longestSideLimitInPixels: 1280) == DisplayCaptureRegion(
+            displayID: 1,
+            sourceRectInDisplayPoints: CGRect(x: 0, y: 900, width: 200, height: 200),
+            outputWidthInPixels: 400,
+            outputHeightInPixels: 400,
+            capturedScreenRect: ScreenRectInChromeCoordinates(rectX: 0, rectY: 900, rectWidth: 200, rectHeight: 200)
+        ))
+
         let imageOffEveryDisplay = ScreenRectInChromeCoordinates(rectX: 5000, rectY: 5000, rectWidth: 300, rectHeight: 200)
         #expect(displayCaptureRegion(for: imageOffEveryDisplay, on: capturableDisplays, longestSideLimitInPixels: 1280) == nil)
+    }
+
+    @Test func pageZoomScalesTheImageRectAndDockedDevToolsGiveNoRect() async throws {
+        // A 1400x900 point window on a 2x screen with 100 points of tab strip and toolbar above the page.
+        func pageGeometry(devicePixelRatio: Double, innerWidth: Double, innerHeight: Double, left: Double, top: Double) -> ChromePageGeometry {
+            ChromePageGeometry(
+                screenX: 100, screenY: 50, outerWidth: 1400, outerHeight: 900,
+                innerWidth: innerWidth, innerHeight: innerHeight, devicePixelRatio: devicePixelRatio,
+                left: left, top: top, width: 400, height: 200
+            )
+        }
+
+        // At 125% zoom a CSS pixel is 1.25 points, so the 1120x640 CSS viewport fills 1400x800 points.
+        let zoomedGeometry = pageGeometry(devicePixelRatio: 2.5, innerWidth: 1120, innerHeight: 640, left: 80, top: 40)
+        #expect(screenRectInChromeCoordinates(from: zoomedGeometry, backingScaleFactor: 2) == ScreenRectInChromeCoordinates(
+            rectX: 200, rectY: 200, rectWidth: 500, rectHeight: 250
+        ))
+
+        // At zoom 1 the result is window origin + (outer - inner) + offset, the math before zoom was handled.
+        let unzoomedGeometry = pageGeometry(devicePixelRatio: 2, innerWidth: 1400, innerHeight: 800, left: 80, top: 40)
+        #expect(screenRectInChromeCoordinates(from: unzoomedGeometry, backingScaleFactor: 2) == ScreenRectInChromeCoordinates(
+            rectX: 100 + (1400 - 1400) + 80, rectY: 50 + (900 - 800) + 40, rectWidth: 400, rectHeight: 200
+        ))
+
+        // DevTools docked to the right take 500 points of the window width.
+        let sideDockedDevToolsGeometry = pageGeometry(devicePixelRatio: 2, innerWidth: 900, innerHeight: 800, left: 80, top: 40)
+        #expect(screenRectInChromeCoordinates(from: sideDockedDevToolsGeometry, backingScaleFactor: 2) == nil)
+
+        // DevTools docked to the bottom take 400 points of the window height.
+        let bottomDockedDevToolsGeometry = pageGeometry(devicePixelRatio: 2, innerWidth: 1400, innerHeight: 400, left: 80, top: 40)
+        #expect(screenRectInChromeCoordinates(from: bottomDockedDevToolsGeometry, backingScaleFactor: 2) == nil)
     }
 
     @Test func popoutPlaysOnTheScreenShowingTheImageNotTheMouseScreen() async throws {
@@ -208,6 +250,11 @@ struct leanring_buddyTests {
 
         let imageOnTheDisplayAbove = ScreenRectInChromeCoordinates(rectX: 100, rectY: -700, rectWidth: 400, rectHeight: 400)
         #expect(indexOfTheScreenFrameHolding(imageOnTheDisplayAbove, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == 2)
+
+        // The center (1900, 200) sits above the right display, in the gap beside the main display,
+        // but most of the image is on the main display.
+        let imageWithItsCenterInTheGapBetweenScreens = ScreenRectInChromeCoordinates(rectX: 1500, rectY: 100, rectWidth: 800, rectHeight: 200)
+        #expect(indexOfTheScreenFrameHolding(imageWithItsCenterInTheGapBetweenScreens, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == 0)
 
         let imageOnTheMainDisplay = ScreenRectInChromeCoordinates(rectX: 100, rectY: 100, rectWidth: 400, rectHeight: 300)
         #expect(indexOfTheScreenFrameHolding(imageOnTheMainDisplay, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == 0)
