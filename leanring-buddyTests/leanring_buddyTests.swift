@@ -194,6 +194,28 @@ struct leanring_buddyTests {
         #expect(displayCaptureRegion(for: imageOffEveryDisplay, on: capturableDisplays, longestSideLimitInPixels: 1280) == nil)
     }
 
+    @Test func popoutPlaysOnTheScreenShowingTheImageNotTheMouseScreen() async throws {
+        // AppKit frames: the main display first, a display to its right that sits 200 points lower,
+        // and a display above it, where Chrome's y is negative.
+        let screenFramesInAppKitCoordinates = [
+            CGRect(x: 0, y: 0, width: 1728, height: 1117),
+            CGRect(x: 1728, y: -200, width: 1920, height: 1080),
+            CGRect(x: 0, y: 1117, width: 1920, height: 1080),
+        ]
+
+        let imageMostlyOnTheRightDisplay = ScreenRectInChromeCoordinates(rectX: 1500, rectY: 400, rectWidth: 800, rectHeight: 400)
+        #expect(indexOfTheScreenFrameHolding(imageMostlyOnTheRightDisplay, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == 1)
+
+        let imageOnTheDisplayAbove = ScreenRectInChromeCoordinates(rectX: 100, rectY: -700, rectWidth: 400, rectHeight: 400)
+        #expect(indexOfTheScreenFrameHolding(imageOnTheDisplayAbove, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == 2)
+
+        let imageOnTheMainDisplay = ScreenRectInChromeCoordinates(rectX: 100, rectY: 100, rectWidth: 400, rectHeight: 300)
+        #expect(indexOfTheScreenFrameHolding(imageOnTheMainDisplay, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == 0)
+
+        let imageOffEveryScreen = ScreenRectInChromeCoordinates(rectX: 9000, rectY: 100, rectWidth: 400, rectHeight: 300)
+        #expect(indexOfTheScreenFrameHolding(imageOffEveryScreen, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == nil)
+    }
+
     @Test func renderAloneStartsA3DScene() async throws {
         #expect(liveSceneKind(for: "Hey Clicky, I've never been to the Colosseum. Could you render this for me?") == .explore)
         #expect(liveSceneKind(for: "can you make a rendering of it") == .explore)

@@ -24,6 +24,10 @@ struct VideoFrameGrab: Decodable {
     let rectY: Double
     let rectWidth: Double
     let rectHeight: Double
+
+    var screenRect: ScreenRectInChromeCoordinates {
+        ScreenRectInChromeCoordinates(rectX: rectX, rectY: rectY, rectWidth: rectWidth, rectHeight: rectHeight)
+    }
 }
 
 struct VideoFramePopout {
@@ -235,15 +239,30 @@ func rectInOverlayPage(of screenRect: ScreenRectInChromeCoordinates, overlayScre
 
 /// The video's place on screen in the overlay page's coordinates.
 func videoRectInOverlayPage(of frameGrab: VideoFrameGrab, overlayScreen: NSScreen) -> [String: Double] {
-    rectInOverlayPage(
-        of: ScreenRectInChromeCoordinates(
-            rectX: frameGrab.rectX,
-            rectY: frameGrab.rectY,
-            rectWidth: frameGrab.rectWidth,
-            rectHeight: frameGrab.rectHeight
-        ),
-        overlayScreen: overlayScreen
+    rectInOverlayPage(of: frameGrab.screenRect, overlayScreen: overlayScreen)
+}
+
+/// The screen showing the grabbed video or image, so its pop-out plays over it even when
+/// the mouse is on another display. Falls back to the screen under the mouse.
+func overlayScreen(showing frameGrab: VideoFrameGrab) -> NSScreen? {
+    let screens = NSScreen.screens
+    if let screenIndex = indexOfTheScreenFrameHolding(frameGrab.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)) {
+        return screens[screenIndex]
+    }
+    return screenUnderTheMouseCursor()
+}
+
+/// The first frame is the main display, whose top edge is Chrome's y of 0.
+func indexOfTheScreenFrameHolding(
+    _ screenRect: ScreenRectInChromeCoordinates,
+    screenFramesInAppKitCoordinates: [CGRect]
+) -> Int? {
+    guard let mainDisplayHeight = screenFramesInAppKitCoordinates.first?.height else { return nil }
+    let rectCenterInAppKitCoordinates = CGPoint(
+        x: screenRect.rectX + screenRect.rectWidth / 2,
+        y: mainDisplayHeight - (screenRect.rectY + screenRect.rectHeight / 2)
     )
+    return screenFramesInAppKitCoordinates.firstIndex { screenFrame in screenFrame.contains(rectCenterInAppKitCoordinates) }
 }
 
 /// The bundled pop-out page with this frame's data in it, or nil when the template is missing.

@@ -62,6 +62,7 @@ The overlay serves the generated page from `clicky-asset://live/page.html` with 
 On a timeout, an error, or a 422, Clicky says "Sorry, I couldn't build that one." and resumes a video it paused for the scene.
 A transcript that says "quiz" or "test me" plays the same scene with one label shown as "?".
 The overlay plays the page on the screen under the mouse cursor.
+A frame pop-out or landmark page plays on the screen showing its video or image instead, so it lines up even when the mouse is on another display.
 The page rises out of the video or image it was asked about: Clicky reads the on-screen rect of the largest visible video or image in Chrome's front tab before the request, and `LiveSceneRise.swift` adds the cursor screenshot and that rect to the page for the bundled `scene-rise.js`, which shows the screenshot clipped to the rect and grows the page out of it once the scene is ready.
 In a quiz, Clicky asks what that part is and what it does when the camera tour ends, and a correct name that misses what it does gets one follow-up.
 The learner answers by voice.

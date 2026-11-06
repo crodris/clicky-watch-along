@@ -284,13 +284,14 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     /// False means the page was refused. Generated code must never run without the network block in place.
     /// rendersMapTiles is only for the bundled landmark page, never for generated HTML.
-    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false) -> Bool {
+    /// `overlayScreen` must be the screen the page's coordinates were computed for.
+    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false, overlayScreen: NSScreen) -> Bool {
         guard networkBlockRuleList != nil else {
             print("Live scene: refused a live page because its network block is missing")
             return false
         }
         discardThePreviousWebView()
-        placeOverlayOnTheScreenUnderTheMouse()
+        placeOverlay(on: overlayScreen)
         liveSceneOverlayWindow?.ignoresMouseEvents = true
         queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel, rendersMapTiles: rendersMapTiles)
         startQueuedPageLoad()
@@ -418,11 +419,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         startQueuedPageLoad()
     }
 
-    private func placeOverlayOnTheScreenUnderTheMouse() {
-        guard let screen = screenUnderTheMouseCursor() else {
-            print("Live scene: no screen is available")
-            return
-        }
+    private func placeOverlay(on screen: NSScreen) {
         if let liveSceneOverlayWindow {
             liveSceneOverlayWindow.setFrame(screen.frame, display: true)
             liveSceneOverlayWindow.orderFrontRegardless()

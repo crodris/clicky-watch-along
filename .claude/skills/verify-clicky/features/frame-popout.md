@@ -43,5 +43,5 @@ Preconditions:
 - A full-screen screenshot holds many things, so the route may pick an unexpected subject.
   Crop to one object when the subject matters.
 - `subjectFound: false` on a chart or a talking head is correct behavior, not a failure.
-- The pop-out lines up with the video's on-screen rect.
+- The pop-out lines up with the video's or image's on-screen rect, on the display that shows it, wherever the mouse is.
   Moving or resizing the Chrome window during the run misplaces it.
