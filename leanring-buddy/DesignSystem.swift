@@ -90,10 +90,11 @@ enum DS {
 
         // ── Status Line Palettes ────────────────────────────────────
         // Tailwind CSS v4 purple, orange, green, pink, and sky shades for the status label's
-        // lines (LiveSceneStatusLine). Each line pairs one hue with the same set of shades:
+        // lines (LiveSceneStatusLine). Most lines use their hue's shades this way:
         //   500  → icon color        700  → text and deep icon strokes
         //   300  → light strokes     400  → letter highlight
-        //   100–200 → pale fills     50   → wash behind the icon
+        //   100 or 200 → pale fills  50   → wash behind the icon
+        // The pink line has no 500, so it uses 400 for the icon and 300 for the highlight.
         // The pop-out line uses the blue scale above.
 
         static let purple50  = Color(hex: "#faf5ff")

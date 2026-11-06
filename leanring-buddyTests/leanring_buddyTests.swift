@@ -403,6 +403,11 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .almostThere) == nil)
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .poppingItOut) == .poppingItOut)
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines, whileShowing: .readingYourScreen) == .readingYourScreen)
+
+        // Each owner's set holds every line that owner shows, so none of its lines can be left up.
+        #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut])
+        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
+        #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
 }

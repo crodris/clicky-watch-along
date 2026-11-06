@@ -689,6 +689,9 @@ final class CompanionManager: ObservableObject {
                 }
             }
             print("Live scene rehearsal: saying \"\(transcript)\" in phase \(liveScenePhase)")
+            // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
+            // the same, and a line the previous step left up cannot stay on screen.
+            LiveSceneStatusLabel.shared.hide()
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
             if nextStepInterruptsThisOne {
                 try? await Task.sleep(nanoseconds: 6_000_000_000)
@@ -1055,7 +1058,8 @@ final class CompanionManager: ObservableObject {
             LiveSceneStatusLabel.shared.show(.buildingYourScene)
             let almostThereTask = Task {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
-                guard !Task.isCancelled else { return }
+                // A newer build owns the label now, so this older one must not swap its line.
+                guard !Task.isCancelled, requestGeneration == self.liveSceneRequestGeneration else { return }
                 // A press that hid the label must not bring it back, so this swaps only while "Building" shows.
                 LiveSceneStatusLabel.shared.replace(.buildingYourScene, with: .almostThere)
                 await self.speakLiveSceneStatus("Almost there")
