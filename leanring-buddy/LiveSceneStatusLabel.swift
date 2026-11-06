@@ -2,8 +2,9 @@
 //  LiveSceneStatusLabel.swift
 //  leanring-buddy
 //
-//  A small label at the bottom of the screen while a scene builds, so the wait
-//  has something on screen. Clicky also says the build lines out loud.
+//  A label next to the cursor while Clicky works, so the wait has something on
+//  screen. Each step has its own animated look (see LiveSceneStatusLine). Clicky
+//  also says the scene build lines out loud.
 //
 
 import AppKit
@@ -12,23 +13,34 @@ import SwiftUI
 
 @MainActor
 private final class LiveSceneStatusLabelModel: ObservableObject {
-    @Published var statusText = ""
+    @Published var statusLine: LiveSceneStatusLine?
     @Published var isVisible = false
+    /// When the current line appeared, so its loop starts from the beginning.
+    var statusLineShownDate = Date()
 }
 
 private struct LiveSceneStatusLabelView: View {
     @ObservedObject var statusLabelModel: LiveSceneStatusLabelModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Text(statusLabelModel.statusText)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(Capsule().fill(Color.black.opacity(0.82)))
-            .opacity(statusLabelModel.isVisible ? 1 : 0)
-            .animation(.easeOut(duration: 0.2), value: statusLabelModel.isVisible)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        ZStack(alignment: .leading) {
+            // The label leaves the view tree when hidden, which stops the TimelineView's loop.
+            if statusLabelModel.isVisible, let statusLine = statusLabelModel.statusLine {
+                TimelineView(.animation) { timeline in
+                    LiveSceneStatusLabelContent(
+                        statusLine: statusLine,
+                        elapsedSeconds: reduceMotion
+                            ? statusLine.stillMomentSeconds
+                            : timeline.date.timeIntervalSince(statusLabelModel.statusLineShownDate)
+                    )
+                }
+                .padding(.leading, 8)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: statusLabelModel.isVisible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 
@@ -44,8 +56,11 @@ final class LiveSceneStatusLabel {
     private var statusLabelPanel: NSPanel?
     private var cursorFollowTimer: Timer?
 
-    func show(_ statusText: String) {
-        statusLabelModel.statusText = statusText
+    func show(_ statusLine: LiveSceneStatusLine) {
+        if statusLabelModel.statusLine != statusLine || !statusLabelModel.isVisible {
+            statusLabelModel.statusLineShownDate = Date()
+        }
+        statusLabelModel.statusLine = statusLine
         let panel = statusLabelPanel ?? makeStatusLabelPanel()
         statusLabelPanel = panel
         moveStatusLabelToTheCursor()

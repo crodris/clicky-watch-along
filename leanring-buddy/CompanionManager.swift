@@ -976,7 +976,7 @@ final class CompanionManager: ObservableObject {
     /// Lifts the subject of the paused YouTube frame, or of the largest image on any other page, out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
-        LiveSceneStatusLabel.shared.show("Popping it out")
+        LiveSceneStatusLabel.shared.show(.poppingItOut)
         await speakLiveSceneLine("Sure, let me pop that out.")
         guard !Task.isCancelled else {
             LiveSceneStatusLabel.shared.hide()
@@ -1028,7 +1028,7 @@ final class CompanionManager: ObservableObject {
         sceneKind: LiveSceneKind,
         requestGeneration: Int
     ) async {
-        LiveSceneStatusLabel.shared.show("Reading your screen")
+        LiveSceneStatusLabel.shared.show(.readingYourScreen)
         await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
@@ -1046,11 +1046,11 @@ final class CompanionManager: ObservableObject {
         guard !Task.isCancelled else { return }
 
         if let cursorScreenJPEGData {
-            LiveSceneStatusLabel.shared.show("Building your 3D scene")
+            LiveSceneStatusLabel.shared.show(.buildingYourScene)
             let almostThereTask = Task {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !Task.isCancelled else { return }
-                LiveSceneStatusLabel.shared.show("Almost there")
+                LiveSceneStatusLabel.shared.show(.almostThere)
                 await self.speakLiveSceneStatus("Almost there")
             }
             let sceneRequestTask = Task {

@@ -332,13 +332,13 @@ final class VideoQuizSession {
 
             let planningStartDate = Date()
             // Reading and planning take 10 to 15 seconds, so the label says what Clicky is doing meanwhile.
-            LiveSceneStatusLabel.shared.show("Reading the transcript")
+            LiveSceneStatusLabel.shared.show(.readingTheTranscript)
             let transcriptLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: videoTab.url)
             guard isRunning, !Task.isCancelled else { return }
             print("Video quiz: read \(transcriptLines.count) caption lines")
             allTranscriptLines = transcriptLines
 
-            LiveSceneStatusLabel.shared.show("Picking spots to quiz you on")
+            LiveSceneStatusLabel.shared.show(.pickingQuizSpots)
             let plannedMoments = try await VideoQuizPlanClient(workerBaseURL: workerBaseURL).requestPlan(
                 title: videoTab.title,
                 transcriptLines: transcriptLines.filter { transcriptLine in
