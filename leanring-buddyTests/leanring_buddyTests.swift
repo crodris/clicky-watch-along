@@ -276,6 +276,9 @@ struct leanring_buddyTests {
         #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [webAreaTwoPercentWider, pageWebArea]) == ScreenRectInChromeCoordinates(
             rectX: 300 + 80, rectY: 150 + 40, rectWidth: 400, rectHeight: 200
         ))
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [pageWebArea, webAreaTwoPercentWider]) == ScreenRectInChromeCoordinates(
+            rectX: 300 + 80, rectY: 150 + 40, rectWidth: 400, rectHeight: 200
+        ))
         let webAreaThreeAndAHalfPercentWider = CGRect(x: 0, y: 0, width: 880 * 1.035, height: 800)
         #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [webAreaThreeAndAHalfPercentWider]) == nil)
 

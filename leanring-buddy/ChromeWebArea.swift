@@ -17,7 +17,8 @@ enum ChromeWebArea {
     private static let maximumTreeDepth = 30
     private static let maximumVisitedElementCount = 4000
     /// A busy Chrome would otherwise hold each accessibility call for the 6-second default, and these calls
-    /// run on the main actor, which also serves the push-to-talk shortcut.
+    /// run on the main actor, which also serves the push-to-talk shortcut. A timeout applies only to the
+    /// element it is set on, so every element gets it before its first call.
     private static let secondsToWaitForEachAccessibilityCall: Float = 0.5
 
     /// The screen frames of every web area in Chrome's focused window, in global points with the origin
@@ -30,12 +31,12 @@ enum ChromeWebArea {
             return []
         }
         let chromeApplicationElement = AXUIElementCreateApplication(chromeProcessIdentifier)
+        AXUIElementSetMessagingTimeout(chromeApplicationElement, secondsToWaitForEachAccessibilityCall)
         // Chrome builds its accessibility tree only after a client asks for it, so without this flag the
         // window has no web area in it. Chrome then keeps the tree on for the rest of its session, which
         // costs its renderers some CPU and memory. Setting it again on a later call changes nothing more.
         AXUIElementSetAttributeValue(chromeApplicationElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
 
-        AXUIElementSetMessagingTimeout(chromeApplicationElement, secondsToWaitForEachAccessibilityCall)
         // There is one try and no wait. On the first call of a Chrome session the tree may not be built yet,
         // and the caller then places the rect from the page geometry instead.
         guard let focusedWindowElement = elementAttribute(kAXFocusedWindowAttribute, of: chromeApplicationElement)
@@ -88,6 +89,7 @@ enum ChromeWebArea {
 
     /// Nil when the attribute is missing or the call fails, such as when Accessibility is not allowed.
     private static func attributeValue(_ attributeName: String, of element: AXUIElement) -> CFTypeRef? {
+        AXUIElementSetMessagingTimeout(element, secondsToWaitForEachAccessibilityCall)
         var copiedValue: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, attributeName as CFString, &copiedValue)
         return result == .success ? copiedValue : nil

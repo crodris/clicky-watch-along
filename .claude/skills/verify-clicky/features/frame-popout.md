@@ -48,5 +48,5 @@ Preconditions:
 - The image rect comes from the web area in Chrome's accessibility tree, so it accounts for page zoom and for side panels, vertical tabs, and docked DevTools.
   Clicky logs "Media rect: placed from Chrome's accessibility web area" when that worked.
   Without a matching web area, such as when Accessibility is off, it falls back to the page-geometry math, logs "placed from the page geometry", and gives no rect when DevTools are docked.
-  The first pop-out of a Chrome session can fall back too, because Chrome builds its accessibility tree only once Clicky asks for it.
+  The first pop-out of a Chrome session can fall back too, because Chrome builds its accessibility tree only once Clicky asks for it, and keeps it on until Chrome quits.
   Only Chrome's windows are captured, so a window of another app over Chrome does not show in the pop-out.
