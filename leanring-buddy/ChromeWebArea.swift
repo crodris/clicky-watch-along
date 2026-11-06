@@ -16,8 +16,9 @@ enum ChromeWebArea {
     private static let webAreaRole = "AXWebArea"
     private static let maximumTreeDepth = 30
     private static let maximumVisitedElementCount = 4000
-    private static let maximumTryCount = 3
-    private static let secondsToWaitBetweenTries = 0.15
+    /// A busy Chrome would otherwise hold each accessibility call for the 6-second default, and these calls
+    /// run on the main actor, which also serves the push-to-talk shortcut.
+    private static let secondsToWaitForEachAccessibilityCall: Float = 0.5
 
     /// The screen frames of every web area in Chrome's focused window, in global points with the origin
     /// at the top left of the main display, which is the space Chrome's `screenX` uses.
@@ -30,22 +31,18 @@ enum ChromeWebArea {
         }
         let chromeApplicationElement = AXUIElementCreateApplication(chromeProcessIdentifier)
         // Chrome builds its accessibility tree only after a client asks for it, so without this flag the
-        // window has no web area in it. Setting it again on a later call is harmless.
+        // window has no web area in it. Chrome then keeps the tree on for the rest of its session, which
+        // costs its renderers some CPU and memory. Setting it again on a later call changes nothing more.
         AXUIElementSetAttributeValue(chromeApplicationElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
 
-        for tryNumber in 1...maximumTryCount {
-            if let focusedWindowElement = elementAttribute(kAXFocusedWindowAttribute, of: chromeApplicationElement)
-                ?? elementAttribute(kAXMainWindowAttribute, of: chromeApplicationElement) {
-                let webAreaFramesFound = webAreaFramesInTree(of: focusedWindowElement)
-                if !webAreaFramesFound.isEmpty { return webAreaFramesFound }
-            }
-            // Chrome may need a moment to build the tree after the flag is first set. The callers are
-            // synchronous, so this blocks for at most two waits of 150 ms.
-            if tryNumber < maximumTryCount {
-                Thread.sleep(forTimeInterval: secondsToWaitBetweenTries)
-            }
+        AXUIElementSetMessagingTimeout(chromeApplicationElement, secondsToWaitForEachAccessibilityCall)
+        // There is one try and no wait. On the first call of a Chrome session the tree may not be built yet,
+        // and the caller then places the rect from the page geometry instead.
+        guard let focusedWindowElement = elementAttribute(kAXFocusedWindowAttribute, of: chromeApplicationElement)
+            ?? elementAttribute(kAXMainWindowAttribute, of: chromeApplicationElement) else {
+            return []
         }
-        return []
+        return webAreaFramesInTree(of: focusedWindowElement)
     }
 
     /// Walks the tree breadth first and collects each web area. It does not look inside a web area,

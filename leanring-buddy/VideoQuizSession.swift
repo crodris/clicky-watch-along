@@ -721,7 +721,7 @@ private struct ChromeVideoTab {
         "var element = candidates[index];",
         "var isVideo = element.tagName === 'VIDEO';",
         "if (isVideo && !element.videoWidth) { continue; }",
-        "if (!isVideo && (!element.complete || (!element.naturalWidth && element.currentSrc.toLowerCase().indexOf('.svg') < 0))) { continue; }",
+        "if (!isVideo && (!element.complete || (!element.naturalWidth && !/svg/i.test(element.currentSrc)))) { continue; }",
         "var style = window.getComputedStyle(element);",
         "if (style.visibility === 'hidden' || style.opacity === '0') { continue; }",
         "var rect = element.getBoundingClientRect();",

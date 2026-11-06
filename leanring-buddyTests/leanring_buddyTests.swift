@@ -271,6 +271,14 @@ struct leanring_buddyTests {
             rectX: 300 + 80, rectY: 150 + 40, rectWidth: 400, rectHeight: 200
         ))
 
+        // The closest shape wins even when a near match is listed first, and a shape 3.5 percent away never matches.
+        let webAreaTwoPercentWider = CGRect(x: 0, y: 0, width: 880 * 1.02, height: 800)
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [webAreaTwoPercentWider, pageWebArea]) == ScreenRectInChromeCoordinates(
+            rectX: 300 + 80, rectY: 150 + 40, rectWidth: 400, rectHeight: 200
+        ))
+        let webAreaThreeAndAHalfPercentWider = CGRect(x: 0, y: 0, width: 880 * 1.035, height: 800)
+        #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [webAreaThreeAndAHalfPercentWider]) == nil)
+
         // With only the DevTools shape, or no web area at all, nothing matches the page.
         #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: [devToolsWebArea]) == nil)
         #expect(screenRectInChromeCoordinates(from: pageBesideVerticalTabsAndSidePanel, matchingWebAreaFrames: []) == nil)
