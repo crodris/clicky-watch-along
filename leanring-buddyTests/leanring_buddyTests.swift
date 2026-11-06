@@ -5,6 +5,7 @@
 //  Created by thorfinn on 3/2/26.
 //
 
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Clicky
@@ -165,6 +166,32 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "play some pop without the vocals") == nil)
         #expect(liveSceneKind(for: "that popped up on my screen") == nil)
         #expect(liveSceneKind(for: "what's on the latest menu") == nil)
+    }
+
+    @Test func imagePopoutCapturesTheDisplayUnderTheImageAtFullDensity() async throws {
+        // A Retina main display, and a 1x display to its left that sits 200 points higher.
+        let capturableDisplays = [
+            CapturableDisplay(displayID: 1, frame: CGRect(x: 0, y: 0, width: 1728, height: 1117), pixelsPerPoint: 2),
+            CapturableDisplay(displayID: 2, frame: CGRect(x: -1920, y: -200, width: 1920, height: 1080), pixelsPerPoint: 1),
+        ]
+
+        let imageHangingOffTheLeftDisplay = ScreenRectInChromeCoordinates(rectX: -1950, rectY: 100, rectWidth: 600, rectHeight: 400)
+        #expect(displayCaptureRegion(for: imageHangingOffTheLeftDisplay, on: capturableDisplays, longestSideLimitInPixels: 1280) == DisplayCaptureRegion(
+            displayID: 2,
+            sourceRectInDisplayPoints: CGRect(x: 0, y: 300, width: 570, height: 400),
+            outputWidthInPixels: 570,
+            outputHeightInPixels: 400,
+            capturedScreenRect: ScreenRectInChromeCoordinates(rectX: -1920, rectY: 100, rectWidth: 570, rectHeight: 400)
+        ))
+
+        let largeImageOnTheRetinaDisplay = ScreenRectInChromeCoordinates(rectX: 100, rectY: 200, rectWidth: 800, rectHeight: 400)
+        let retinaRegion = displayCaptureRegion(for: largeImageOnTheRetinaDisplay, on: capturableDisplays, longestSideLimitInPixels: 1280)
+        #expect(retinaRegion?.sourceRectInDisplayPoints == CGRect(x: 100, y: 200, width: 800, height: 400))
+        #expect(retinaRegion?.outputWidthInPixels == 1280)
+        #expect(retinaRegion?.outputHeightInPixels == 640)
+
+        let imageOffEveryDisplay = ScreenRectInChromeCoordinates(rectX: 5000, rectY: 5000, rectWidth: 300, rectHeight: 200)
+        #expect(displayCaptureRegion(for: imageOffEveryDisplay, on: capturableDisplays, longestSideLimitInPixels: 1280) == nil)
     }
 
     @Test func renderAloneStartsA3DScene() async throws {

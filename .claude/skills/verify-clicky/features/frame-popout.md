@@ -2,6 +2,7 @@
 
 Saying "pop this out" over a YouTube video lifts the subject of the current frame out of the video in 3D, with every part labeled and no question.
 The app grabs the frame from the `<video>` element, asks `/video-frame-parts` for the subject box and up to 8 part labels, and plays `frame-popout.html` starting exactly over the video on screen.
+On any other page, the same request lifts the largest visible image instead, captured from the screen under it.
 A frame without one clear subject, such as a chart or a person talking, returns `subjectFound: false` and nothing pops out.
 
 ## Sub-features
@@ -10,10 +11,12 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels.
 - `popout-none` returns `subjectFound: false` for a frame with no clear subject.
 - `popout-in-quiz` pauses a running video quiz first.
+- `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 
 ## How to get to it (user POV)
 
 - With a YouTube video in Chrome's front tab, hold ctrl+option and say "pop this out".
+- With a page showing an image, such as a Wikipedia diagram, in Chrome's front tab, say the same thing.
 
 ## Driving it with verify-clicky.sh
 
@@ -28,6 +31,10 @@ Preconditions:
 - **Pop out in the app.** Run `$V app-launch "pop this out"`.
   The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot popout` while the subject floats over the video.
+- **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
+  Run `$V app-launch "pop this out"`.
+  The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.
+  Run `$V shot image-popout` while the subject floats over the image.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

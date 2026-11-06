@@ -129,4 +129,108 @@ enum CompanionScreenCaptureUtility {
 
         return capturedScreens
     }
+
+    /// Captures just this rect of the screen at full resolution, without Clicky's own windows
+    /// or the mouse pointer, so a pop-out can lift a page image no matter which site serves it.
+    /// Nil when no display holds the rect's center.
+    static func captureScreenRectAsJPEG(_ screenRect: ScreenRectInChromeCoordinates) async throws -> VideoFrameGrab? {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let ownBundleIdentifier = Bundle.main.bundleIdentifier
+        let ownAppWindows = content.windows.filter { window in
+            window.owningApplication?.bundleIdentifier == ownBundleIdentifier
+        }
+        var pixelsPerPointByDisplayID: [CGDirectDisplayID: CGFloat] = [:]
+        for screen in NSScreen.screens {
+            if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+                pixelsPerPointByDisplayID[screenNumber] = screen.backingScaleFactor
+            }
+        }
+        // SCDisplay.frame is in global points with the origin at the top left of the main display,
+        // the same space Chrome reports element rects in.
+        let capturableDisplays = content.displays.map { display in
+            CapturableDisplay(
+                displayID: display.displayID,
+                frame: display.frame,
+                pixelsPerPoint: pixelsPerPointByDisplayID[display.displayID] ?? 1
+            )
+        }
+        guard let captureRegion = displayCaptureRegion(for: screenRect, on: capturableDisplays, longestSideLimitInPixels: 1280),
+              let display = content.displays.first(where: { display in display.displayID == captureRegion.displayID }) else {
+            return nil
+        }
+
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = captureRegion.sourceRectInDisplayPoints
+        configuration.width = captureRegion.outputWidthInPixels
+        configuration.height = captureRegion.outputHeightInPixels
+        configuration.showsCursor = false
+        let cgImage = try await SCScreenshotManager.captureImage(
+            contentFilter: SCContentFilter(display: display, excludingWindows: ownAppWindows),
+            configuration: configuration
+        )
+        guard let jpegData = NSBitmapImageRep(cgImage: cgImage)
+                .representation(using: .jpeg, properties: [.compressionFactor: 0.85]) else {
+            return nil
+        }
+        return VideoFrameGrab(
+            jpeg: jpegData.base64EncodedString(),
+            width: cgImage.width,
+            height: cgImage.height,
+            videoSeconds: nil,
+            rectX: captureRegion.capturedScreenRect.rectX,
+            rectY: captureRegion.capturedScreenRect.rectY,
+            rectWidth: captureRegion.capturedScreenRect.rectWidth,
+            rectHeight: captureRegion.capturedScreenRect.rectHeight
+        )
+    }
+}
+
+/// One display, with its frame in global points with the origin at the top left of the main display.
+struct CapturableDisplay {
+    let displayID: CGDirectDisplayID
+    let frame: CGRect
+    let pixelsPerPoint: CGFloat
+}
+
+/// The part of one display that a screen rect covers, ready for a ScreenCaptureKit capture.
+struct DisplayCaptureRegion: Equatable {
+    let displayID: CGDirectDisplayID
+    /// The rect in the display's own points, with the origin at its top left, as `sourceRect` wants.
+    let sourceRectInDisplayPoints: CGRect
+    let outputWidthInPixels: Int
+    let outputHeightInPixels: Int
+    /// The rect cut to the display's edges, so the pop-out starts over exactly what was captured.
+    let capturedScreenRect: ScreenRectInChromeCoordinates
+}
+
+/// Picks the display under the rect's center and cuts the rect to that display. The output keeps
+/// the display's full pixel density, shrunk only when its longest side passes the limit.
+func displayCaptureRegion(
+    for screenRect: ScreenRectInChromeCoordinates,
+    on displays: [CapturableDisplay],
+    longestSideLimitInPixels: Int
+) -> DisplayCaptureRegion? {
+    let requestedRect = CGRect(x: screenRect.rectX, y: screenRect.rectY, width: screenRect.rectWidth, height: screenRect.rectHeight)
+    let requestedRectCenter = CGPoint(x: requestedRect.midX, y: requestedRect.midY)
+    guard let display = displays.first(where: { display in display.frame.contains(requestedRectCenter) }) else {
+        return nil
+    }
+    let capturedRect = requestedRect.intersection(display.frame)
+    guard !capturedRect.isEmpty else { return nil }
+
+    let fullDensityWidth = capturedRect.width * display.pixelsPerPoint
+    let fullDensityHeight = capturedRect.height * display.pixelsPerPoint
+    let shrinkFactor = min(1, CGFloat(longestSideLimitInPixels) / max(fullDensityWidth, fullDensityHeight))
+    return DisplayCaptureRegion(
+        displayID: display.displayID,
+        sourceRectInDisplayPoints: capturedRect.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY),
+        outputWidthInPixels: max(1, Int((fullDensityWidth * shrinkFactor).rounded())),
+        outputHeightInPixels: max(1, Int((fullDensityHeight * shrinkFactor).rounded())),
+        capturedScreenRect: ScreenRectInChromeCoordinates(
+            rectX: capturedRect.minX,
+            rectY: capturedRect.minY,
+            rectWidth: capturedRect.width,
+            rectHeight: capturedRect.height
+        )
+    )
 }

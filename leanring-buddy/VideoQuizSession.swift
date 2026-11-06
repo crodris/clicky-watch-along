@@ -147,6 +147,7 @@ private enum VideoQuizFailure: Error {
     case chromeIsNotRunning
     case noYouTubeTabFound
     case noVideoOnThePage
+    case noImageOrVideoToPopOut
     case javaScriptFromAppleEventsIsOff
     case notAllowedToControlChrome
     case chromeScriptFailed(String)
@@ -164,6 +165,8 @@ private enum VideoQuizFailure: Error {
             return "I couldn't find a YouTube video open in Chrome."
         case .noVideoOnThePage:
             return "I couldn't find a video player on that page."
+        case .noImageOrVideoToPopOut:
+            return "I couldn't find an image or a video in Chrome to pop out."
         case .javaScriptFromAppleEventsIsOff:
             return "JavaScript from Apple Events is turned off in Chrome. Turn it on under View, Developer, then ask me again."
         case .notAllowedToControlChrome:
@@ -482,13 +485,24 @@ final class VideoQuizSession {
         ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab()
     }
 
-    /// The frame the YouTube tab shows right now, for a pop-out the learner asked for.
-    /// Nil when Sonnet or Vision finds no single subject in it.
+    /// The frame the YouTube tab shows right now, or the largest image on any other page,
+    /// for a pop-out the learner asked for. Nil when Sonnet or Vision finds no single subject in it.
     static func framePopoutOfTheVisibleFrame(workerBaseURL: String) async throws -> VideoFramePopout? {
-        // Only the video in front is the one the learner pointed at.
-        let videoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
-        let frameGrab = try grabFrame(of: videoTab)
-        print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds)s for a requested pop-out")
+        let frameGrab: VideoFrameGrab
+        do {
+            // Only the video in front is the one the learner pointed at.
+            let videoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
+            frameGrab = try grabFrame(of: videoTab)
+            print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds ?? 0)s for a requested pop-out")
+        } catch VideoQuizFailure.noYouTubeTabFound {
+            // A cross-origin image cannot be read from a page canvas, so the screen under it is captured instead.
+            guard let mediaRect = try ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTabOrNone(),
+                  let screenGrab = try await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(mediaRect) else {
+                throw VideoQuizFailure.noImageOrVideoToPopOut
+            }
+            frameGrab = screenGrab
+            print("Video quiz: captured a \(frameGrab.width)x\(frameGrab.height) image from the screen for a requested pop-out")
+        }
         // No question is being asked, so no label gets the quiz mark.
         return try await VideoFramePopoutClient.requestPopout(
             workerBaseURL: workerBaseURL,
@@ -521,7 +535,7 @@ final class VideoQuizSession {
             print("Video quiz: could not grab a frame for moment \(momentIndex + 1): \(error)")
             return nil
         }
-        print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds)s for moment \(momentIndex + 1)")
+        print("Video quiz: grabbed a \(frameGrab.width)x\(frameGrab.height) frame at \(frameGrab.videoSeconds ?? 0)s for moment \(momentIndex + 1)")
         let workerBaseURL = workerBaseURL
         return Task {
             let requestStartDate = Date()
@@ -709,15 +723,20 @@ private struct ChromeVideoTab {
         guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
             return nil
         }
-        let javaScriptResult: String
         do {
-            javaScriptResult = try runAppleScript("""
-            tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
-            """)
+            return try screenRectOfTheLargestVisibleMediaInFrontTabOrNone()
         } catch {
             print("Live scene: could not read the media rect from Chrome: \(error)")
             return nil
         }
+    }
+
+    /// The same rect for a pop-out, which says out loud why Chrome refused, such as JavaScript
+    /// from Apple Events being off. Nil when no media is big enough.
+    static func screenRectOfTheLargestVisibleMediaInFrontTabOrNone() throws -> ScreenRectInChromeCoordinates? {
+        let javaScriptResult = try runAppleScript("""
+        tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
+        """)
         return try? JSONDecoder().decode(ScreenRectInChromeCoordinates.self, from: Data(javaScriptResult.utf8))
     }
 

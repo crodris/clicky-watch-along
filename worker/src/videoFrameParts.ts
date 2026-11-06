@@ -2,8 +2,9 @@
  * POST /video-frame-parts.
  *
  * The app grabs a frame from the playing video a few seconds before a quiz
- * pause. Sonnet finds the subject in that frame and places up to 8 part labels,
- * so the app can lift the subject out of the frame in 3D at the pause.
+ * pause, or when the learner asks to pop out a video frame or a page image.
+ * Sonnet finds the subject in that frame and places up to 8 part labels, so the
+ * app can lift the subject out of the frame in 3D.
  */
 
 import { z } from "zod";

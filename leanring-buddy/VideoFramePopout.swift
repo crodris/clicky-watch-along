@@ -2,22 +2,24 @@
 //  VideoFramePopout.swift
 //  leanring-buddy
 //
-//  A frame grabbed from the playing video, and the subject and part labels
-//  Sonnet found in it. At a quiz pause the overlay lifts that subject out of
-//  the frame in 3D, starting exactly over the video on screen.
+//  A frame grabbed from the playing video or captured over a page image, and
+//  the subject and part labels Sonnet found in it. The overlay lifts that subject
+//  out of the frame in 3D, starting exactly over the video or image on screen.
 //
 
 import AppKit
 import Foundation
 import Vision
 
-/// What the grab JavaScript in Chrome returns. The rect is the video element in
-/// global screen points with the origin at the top left of the main display.
+/// A frame to lift a subject out of: what the grab JavaScript in Chrome returns for a video,
+/// or a capture of the screen over a page image. The rect is in global screen points
+/// with the origin at the top left of the main display.
 struct VideoFrameGrab: Decodable {
     let jpeg: String
     let width: Int
     let height: Int
-    let videoSeconds: Double
+    /// Nil for a page image captured from the screen.
+    let videoSeconds: Double?
     let rectX: Double
     let rectY: Double
     let rectWidth: Double
@@ -211,7 +213,7 @@ enum VideoFrameSubjectMask {
 
 /// A rectangle in global screen points with the origin at the top left of the main display,
 /// which is how Chrome reports where a page element sits on screen.
-struct ScreenRectInChromeCoordinates: Decodable {
+struct ScreenRectInChromeCoordinates: Decodable, Equatable {
     let rectX: Double
     let rectY: Double
     let rectWidth: Double

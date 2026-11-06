@@ -973,7 +973,7 @@ final class CompanionManager: ObservableObject {
         return true
     }
 
-    /// Lifts the subject of the paused YouTube frame out in 3D with every label showing.
+    /// Lifts the subject of the paused YouTube frame, or of the largest image on any other page, out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
         LiveSceneStatusLabel.shared.show("Popping it out")
