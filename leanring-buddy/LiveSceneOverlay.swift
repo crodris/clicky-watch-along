@@ -3,9 +3,11 @@
 //  leanring-buddy
 //
 //  One transparent window and one page, reused for every live scene. The
-//  window is created on the screen under the mouse, and later plays move it
-//  there again. Each scene is generated HTML loaded in that window. The page
-//  reports tourFinished when the camera tour ends.
+//  window is created on the screen a scene plays on, and later plays move it
+//  to their screen: the one under the mouse for generated scenes, and the one
+//  showing the video or image for pop-outs and landmark pages. Each scene is
+//  generated HTML loaded in that window. The page reports tourFinished when
+//  the camera tour ends.
 //
 
 import AppKit
@@ -284,13 +286,14 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     /// False means the page was refused. Generated code must never run without the network block in place.
     /// rendersMapTiles is only for the bundled landmark page, never for generated HTML.
-    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false) -> Bool {
+    /// `overlayScreen` must be the screen the page's coordinates were computed for.
+    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false, overlayScreen: NSScreen) -> Bool {
         guard networkBlockRuleList != nil else {
             print("Live scene: refused a live page because its network block is missing")
             return false
         }
         discardThePreviousWebView()
-        placeOverlayOnTheScreenUnderTheMouse()
+        placeOverlay(on: overlayScreen)
         liveSceneOverlayWindow?.ignoresMouseEvents = true
         queuedPageLoad = QueuedLiveScenePage(html: html, hidesQuizLabel: hidesQuizLabel, rendersMapTiles: rendersMapTiles)
         startQueuedPageLoad()
@@ -418,11 +421,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         startQueuedPageLoad()
     }
 
-    private func placeOverlayOnTheScreenUnderTheMouse() {
-        guard let screen = screenUnderTheMouseCursor() else {
-            print("Live scene: no screen is available")
-            return
-        }
+    private func placeOverlay(on screen: NSScreen) {
         if let liveSceneOverlayWindow {
             liveSceneOverlayWindow.setFrame(screen.frame, display: true)
             liveSceneOverlayWindow.orderFrontRegardless()
@@ -538,7 +537,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 }
 
-/// The scene overlay and the status label both follow the mouse, so they share this screen lookup.
+/// The status label and generated scenes follow the mouse, so they share this screen lookup.
 func screenUnderTheMouseCursor() -> NSScreen? {
     let mouseLocation = NSEvent.mouseLocation
     if let screenContainingTheMouse = NSScreen.screens.first(where: { screen in

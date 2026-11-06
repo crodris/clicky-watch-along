@@ -2,26 +2,32 @@
 //  VideoFramePopout.swift
 //  leanring-buddy
 //
-//  A frame grabbed from the playing video, and the subject and part labels
-//  Sonnet found in it. At a quiz pause the overlay lifts that subject out of
-//  the frame in 3D, starting exactly over the video on screen.
+//  A frame grabbed from the playing video or captured over a page image, and
+//  the subject and part labels Sonnet found in it. The overlay lifts that subject
+//  out of the frame in 3D, starting exactly over the video or image on screen.
 //
 
 import AppKit
 import Foundation
 import Vision
 
-/// What the grab JavaScript in Chrome returns. The rect is the video element in
-/// global screen points with the origin at the top left of the main display.
+/// A frame to lift a subject out of: what the grab JavaScript in Chrome returns for a video,
+/// or a capture of the screen over a page image. The rect is in global screen points
+/// with the origin at the top left of the main display.
 struct VideoFrameGrab: Decodable {
     let jpeg: String
     let width: Int
     let height: Int
-    let videoSeconds: Double
+    /// Nil for a page image captured from the screen.
+    let videoSeconds: Double?
     let rectX: Double
     let rectY: Double
     let rectWidth: Double
     let rectHeight: Double
+
+    var screenRect: ScreenRectInChromeCoordinates {
+        ScreenRectInChromeCoordinates(rectX: rectX, rectY: rectY, rectWidth: rectWidth, rectHeight: rectHeight)
+    }
 }
 
 struct VideoFramePopout {
@@ -211,11 +217,64 @@ enum VideoFrameSubjectMask {
 
 /// A rectangle in global screen points with the origin at the top left of the main display,
 /// which is how Chrome reports where a page element sits on screen.
-struct ScreenRectInChromeCoordinates: Decodable {
+struct ScreenRectInChromeCoordinates: Decodable, Equatable {
     let rectX: Double
     let rectY: Double
     let rectWidth: Double
     let rectHeight: Double
+}
+
+/// What Chrome reports about its window and one page element. The page measures in CSS pixels
+/// and the window in screen points, so the two only meet through the page zoom.
+struct ChromePageGeometry: Decodable, Equatable {
+    /// The window's top left in global points, with the origin at the top left of the main display.
+    let screenX: Double
+    let screenY: Double
+    let outerWidth: Double
+    let outerHeight: Double
+    /// The page viewport in CSS pixels.
+    let innerWidth: Double
+    let innerHeight: Double
+    let devicePixelRatio: Double
+    /// The element's visible part in CSS pixels, relative to the viewport.
+    let left: Double
+    let top: Double
+    let width: Double
+    let height: Double
+}
+
+/// The element's place on screen. The page zoom is the page's device pixel ratio divided by the
+/// screen's backing scale factor, so a CSS pixel is `pageZoom` points. At zoom 1 this is the plain
+/// sum of the window origin, the browser frame, and the element's offset.
+/// This is the fallback for when Chrome's accessibility tree gives no web area, and it assumes the whole
+/// browser frame sits left of and above the viewport. Nil when the geometry cannot be trusted.
+func screenRectInChromeCoordinates(from pageGeometry: ChromePageGeometry, backingScaleFactor: Double) -> ScreenRectInChromeCoordinates? {
+    guard pageGeometry.devicePixelRatio > 0, backingScaleFactor > 0 else { return nil }
+    let pageZoom = pageGeometry.devicePixelRatio / backingScaleFactor
+    let viewportWidthInPoints = pageGeometry.innerWidth * pageZoom
+    let viewportHeightInPoints = pageGeometry.innerHeight * pageZoom
+    let browserFrameWidthInPoints = pageGeometry.outerWidth - viewportWidthInPoints
+    let browserFrameHeightInPoints = pageGeometry.outerHeight - viewportHeightInPoints
+    // Docked DevTools take a side or the bottom of the window, so the gap between the window and the
+    // viewport is far bigger than the tab strip and toolbar. The viewport's own offset inside the window
+    // is then unknown, and a rect placed from it would sit on the wrong pixels.
+    let largestPlausibleBrowserFrameWidthInPoints = 400.0
+    let largestPlausibleBrowserFrameHeightInPoints = 250.0
+    // A frame below zero by more than rounding means the backing scale factor does not belong to the screen
+    // Chrome is on, so the zoom and everything built on it is wrong.
+    let mostNegativeBrowserFrameInPointsThatRoundingExplains = -2.0
+    guard browserFrameWidthInPoints >= mostNegativeBrowserFrameInPointsThatRoundingExplains,
+          browserFrameHeightInPoints >= mostNegativeBrowserFrameInPointsThatRoundingExplains,
+          browserFrameWidthInPoints <= largestPlausibleBrowserFrameWidthInPoints,
+          browserFrameHeightInPoints <= largestPlausibleBrowserFrameHeightInPoints else {
+        return nil
+    }
+    return ScreenRectInChromeCoordinates(
+        rectX: pageGeometry.screenX + browserFrameWidthInPoints + pageGeometry.left * pageZoom,
+        rectY: pageGeometry.screenY + browserFrameHeightInPoints + pageGeometry.top * pageZoom,
+        rectWidth: pageGeometry.width * pageZoom,
+        rectHeight: pageGeometry.height * pageZoom
+    )
 }
 
 /// A screen rectangle in the overlay page's coordinates. Chrome's screen origin
@@ -233,15 +292,41 @@ func rectInOverlayPage(of screenRect: ScreenRectInChromeCoordinates, overlayScre
 
 /// The video's place on screen in the overlay page's coordinates.
 func videoRectInOverlayPage(of frameGrab: VideoFrameGrab, overlayScreen: NSScreen) -> [String: Double] {
-    rectInOverlayPage(
-        of: ScreenRectInChromeCoordinates(
-            rectX: frameGrab.rectX,
-            rectY: frameGrab.rectY,
-            rectWidth: frameGrab.rectWidth,
-            rectHeight: frameGrab.rectHeight
-        ),
-        overlayScreen: overlayScreen
+    rectInOverlayPage(of: frameGrab.screenRect, overlayScreen: overlayScreen)
+}
+
+/// The screen showing the grabbed video or image, so its pop-out plays over it even when
+/// the mouse is on another display. Falls back to the screen under the mouse.
+func overlayScreen(showing frameGrab: VideoFrameGrab) -> NSScreen? {
+    let screens = NSScreen.screens
+    if let screenIndex = indexOfTheScreenFrameHolding(frameGrab.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)) {
+        return screens[screenIndex]
+    }
+    return screenUnderTheMouseCursor()
+}
+
+/// The index of the screen that holds the largest part of the rect, or nil when no screen touches it.
+/// The rect's center can sit in the gap between screens of different sizes, so the center is not used.
+/// The first frame is the main display, whose top edge is Chrome's y of 0.
+func indexOfTheScreenFrameHolding(
+    _ screenRect: ScreenRectInChromeCoordinates,
+    screenFramesInAppKitCoordinates: [CGRect]
+) -> Int? {
+    guard let mainDisplayHeight = screenFramesInAppKitCoordinates.first?.height else { return nil }
+    // Flip the rect from Chrome's top-left origin to AppKit's bottom-left origin.
+    let rectInAppKitCoordinates = CGRect(
+        x: screenRect.rectX,
+        y: mainDisplayHeight - (screenRect.rectY + screenRect.rectHeight),
+        width: screenRect.rectWidth,
+        height: screenRect.rectHeight
     )
+    func intersectionArea(with screenFrame: CGRect) -> CGFloat {
+        let intersection = rectInAppKitCoordinates.intersection(screenFrame)
+        return intersection.isNull ? 0 : intersection.width * intersection.height
+    }
+    let areaHeldByEachScreenFrame = screenFramesInAppKitCoordinates.map(intersectionArea(with:))
+    guard let largestArea = areaHeldByEachScreenFrame.max(), largestArea > 0 else { return nil }
+    return areaHeldByEachScreenFrame.firstIndex(of: largestArea)
 }
 
 /// The bundled pop-out page with this frame's data in it, or nil when the template is missing.

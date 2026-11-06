@@ -959,13 +959,13 @@ final class CompanionManager: ObservableObject {
         }
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled,
               let placeInFrame,
-              let overlayScreen = screenUnderTheMouseCursor(),
+              let overlayScreen = overlayScreen(showing: placeInFrame.frameGrab),
               let landmarkPageHTML = landmarkTilesPageHTML(
                   for: placeInFrame.famousPlace,
                   frameGrab: placeInFrame.frameGrab,
                   overlayScreen: overlayScreen
               ),
-              LiveSceneOverlay.shared.playLiveScene(html: landmarkPageHTML, hidesQuizLabel: false, rendersMapTiles: true) else {
+              LiveSceneOverlay.shared.playLiveScene(html: landmarkPageHTML, hidesQuizLabel: false, rendersMapTiles: true, overlayScreen: overlayScreen) else {
             return false
         }
         print("Landmark: showing Google 3D tiles of \(placeInFrame.famousPlace.name)")
@@ -973,7 +973,7 @@ final class CompanionManager: ObservableObject {
         return true
     }
 
-    /// Lifts the subject of the paused YouTube frame out in 3D with every label showing.
+    /// Lifts the subject of the paused YouTube frame, or of the largest image on any other page, out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
         LiveSceneStatusLabel.shared.show("Popping it out")
@@ -1002,9 +1002,9 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide()
 
         guard let framePopout,
-              let overlayScreen = screenUnderTheMouseCursor(),
+              let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
-              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false) else {
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
             await speakLiveSceneLine(failureLine)
             voiceState = .idle
@@ -1175,9 +1175,10 @@ final class CompanionManager: ObservableObject {
             )
             guard requestGeneration == liveSceneRequestGeneration else { return }
             let quizToAskAfterTour = sceneKind == .quiz ? liveScene.quiz : nil
+            // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
+            guard let overlayScreen = screenUnderTheMouseCursor() else { return }
             var liveScenePageHTML = liveScene.html
             if let mediaRectToRiseFrom,
-               let overlayScreen = screenUnderTheMouseCursor(),
                let riseScript = liveSceneRiseScriptFromTheBundle() {
                 liveScenePageHTML = liveScenePageThatRisesFromTheSource(
                     generatedPageHTML: liveScene.html,
@@ -1188,7 +1189,8 @@ final class CompanionManager: ObservableObject {
             }
             let liveSceneWasAccepted = LiveSceneOverlay.shared.playLiveScene(
                 html: liveScenePageHTML,
-                hidesQuizLabel: quizToAskAfterTour != nil
+                hidesQuizLabel: quizToAskAfterTour != nil,
+                overlayScreen: overlayScreen
             )
             guard liveSceneWasAccepted else { return }
             liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
@@ -1392,9 +1394,9 @@ final class CompanionManager: ObservableObject {
         clearFinishedLiveScene()
         videoQuizQuestionIsActive = true
         if let framePopout,
-           let overlayScreen = screenUnderTheMouseCursor(),
+           let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
            let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
-           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true) {
+           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
             return
