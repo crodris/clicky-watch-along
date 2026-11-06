@@ -6,7 +6,7 @@ This is my fork of [Clicky](https://github.com/farzaa/clicky), the open source v
 
 **A watch-along quiz.** Open a YouTube video in Chrome, hold Control + Option, and say "watch this video with me and quiz me."
 Clicky reads the video's transcript, and Sonnet picks the spots worth a question, spread across the video.
-While it plans, a label at the bottom of the screen says "Reading the transcript" and then "Picking spots to quiz you on."
+While it plans, a label next to your cursor says "Reading the transcript" and then "Picking spots to quiz you on."
 Clicky pauses and plays the video by itself, and it only asks about parts you've already heard.
 You answer out loud, and when you ask for help, it explains the answer before the video keeps going.
 Press Escape to skip a question, or say "stop the quiz" to end it.
@@ -16,6 +16,10 @@ When it finds one, the subject lifts out of the video in 3D with its parts label
 Charts and people talking stay voice only.
 You can also say "pop this out" or "pop this heart out" at any time, and Clicky lifts out whatever the video shows, with every label and no question.
 
+**Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
+You can drag to spin it.
+It works best on 2D illustrations, like engravings and prints.
+
 **3D models on request.** Say "show me" or "in 3D" over a video, and Clicky pauses it.
 It sends a screenshot and what the video just said to GPT-6.1 Sol, which writes a labeled three.js scene, usually in about 8 to 14 seconds.
 Clicky says "Building your 3D scene" while it waits, and the scene grows out of the video once it's ready.
@@ -24,6 +28,10 @@ Clicky highlights each part as it talks, and you can drag to rotate and pinch to
 Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
+
+**A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
+That covers popping out an image, reading your screen, building a 3D scene, reading a video's transcript, and picking quiz spots.
+While a label shows, its icon sits where Clicky's blue triangle usually is, and the triangle comes back when the step is done.
 
 **Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.
 The scan is cut down to the structure and about 130 meters around it, and it floats over the video.
@@ -209,13 +217,16 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   BuddyDictation*.swift     # Push-to-talk pipeline
   VideoQuizSession.swift    # Watch-along quiz that pauses YouTube in Chrome
   LiveSceneOverlay.swift    # Transparent window that plays the 3D scene
-  VideoFramePopout.swift    # Lifts the paused frame's subject out in 3D
+  VideoFramePopout.swift    # Lifts the subject of a video frame or page image out in 3D
+  ChromeWebArea.swift       # Finds where Chrome's page sits on screen, for the image pop-out
+  LiveSceneStatusLine.swift # The loading label for each step and its animation
+  LiveSceneStatusLabelViews.swift # Draws each loading label and its icon
   LandmarkTiles.swift       # Google's 3D scan of a famous place
 worker/                  # Cloudflare Worker proxy
   src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan, /video-frame-parts, /landmark, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
-  src/videoFrameParts.ts    # Finds the subject and its parts in a video frame
+  src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
 CLAUDE.md                # Full architecture doc (agents read this)
