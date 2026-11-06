@@ -11,8 +11,10 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Shared with the overlay, which hides Clicky's blue triangle while a status line shows,
+/// so the line's icon takes the triangle's place.
 @MainActor
-private final class LiveSceneStatusLabelModel: ObservableObject {
+final class LiveSceneStatusLabelModel: ObservableObject {
     @Published var statusLine: LiveSceneStatusLine?
     @Published var isVisible = false
     /// When the current line appeared, so its loop starts from the beginning.
@@ -36,7 +38,8 @@ private struct LiveSceneStatusLabelView: View {
                     )
                 }
                 .padding(.leading, 8)
-                .transition(.opacity)
+                // Grows out of the icon's spot, where the triangle just faded, and shrinks back into it.
+                .transition(.scale(scale: 0.4, anchor: .leading).combined(with: .opacity))
             }
         }
         .animation(.easeOut(duration: 0.2), value: statusLabelModel.isVisible)
@@ -49,10 +52,13 @@ final class LiveSceneStatusLabel {
     static let shared = LiveSceneStatusLabel()
 
     private static let panelSize = CGSize(width: 420, height: 60)
-    private static let distanceFromCursor = CGPoint(x: 24, y: -50)
+    /// Puts the icon's center where the overlay draws Clicky's triangle: 35 points right of
+    /// the mouse and 25 below it. The icon's center sits 24 points in from the panel's left
+    /// edge (8 padding plus half the 32-point tile) and 30 up from its bottom (half of 60).
+    private static let distanceFromCursor = CGPoint(x: 35 - 24, y: -25 - 30)
     private static let cursorFollowInterval: TimeInterval = 1.0 / 30.0
 
-    private let statusLabelModel = LiveSceneStatusLabelModel()
+    let statusLabelModel = LiveSceneStatusLabelModel()
     private var statusLabelPanel: NSPanel?
     private var cursorFollowTimer: Timer?
 
