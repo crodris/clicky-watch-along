@@ -260,7 +260,7 @@ final class VideoQuizSession {
         }
         framePopoutTasksByMomentIndex = [:]
         // A failure or a stop during planning would otherwise leave the planning label up.
-        LiveSceneStatusLabel.shared.hide()
+        LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
         print("Video quiz: stopped")
     }
 
@@ -338,7 +338,8 @@ final class VideoQuizSession {
             print("Video quiz: read \(transcriptLines.count) caption lines")
             allTranscriptLines = transcriptLines
 
-            LiveSceneStatusLabel.shared.show(.pickingQuizSpots)
+            // A press that hid the reading label must not bring the planning label back.
+            LiveSceneStatusLabel.shared.replace(.readingTheTranscript, with: .pickingQuizSpots)
             let plannedMoments = try await VideoQuizPlanClient(workerBaseURL: workerBaseURL).requestPlan(
                 title: videoTab.title,
                 transcriptLines: transcriptLines.filter { transcriptLine in
@@ -346,7 +347,7 @@ final class VideoQuizSession {
                 }
             )
             guard isRunning, !Task.isCancelled else { return }
-            LiveSceneStatusLabel.shared.hide()
+            LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
             moments = plannedMoments.map { plannedMoment in
                 var quizWithWhatWasHeard = plannedMoment.quiz
                 quizWithWhatWasHeard.heardTranscript = transcriptLines

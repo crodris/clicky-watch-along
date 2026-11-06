@@ -977,11 +977,14 @@ final class CompanionManager: ObservableObject {
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
         LiveSceneStatusLabel.shared.show(.poppingItOut)
-        await speakLiveSceneLine("Sure, let me pop that out.")
-        guard !Task.isCancelled else {
-            LiveSceneStatusLabel.shared.hide()
-            return
+        defer {
+            // Every exit hides the pop-out line, unless a newer request took over, whose own line is not ours to hide.
+            if requestGeneration == liveSceneRequestGeneration {
+                LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
+            }
         }
+        await speakLiveSceneLine("Sure, let me pop that out.")
+        guard !Task.isCancelled else { return }
         voiceState = .processing
         var framePopout: VideoFramePopout?
         var failureLine = "I couldn't find one thing in this frame to pop out."
@@ -995,11 +998,8 @@ final class CompanionManager: ObservableObject {
                 failureLine = spokenFailure
             }
         }
-        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else {
-            LiveSceneStatusLabel.shared.hide()
-            return
-        }
-        LiveSceneStatusLabel.shared.hide()
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
+        LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
 
         guard let framePopout,
               let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
@@ -1029,6 +1029,12 @@ final class CompanionManager: ObservableObject {
         requestGeneration: Int
     ) async {
         LiveSceneStatusLabel.shared.show(.readingYourScreen)
+        defer {
+            // Every exit hides the build lines, unless a newer request took over, whose own line is not ours to hide.
+            if requestGeneration == liveSceneRequestGeneration {
+                LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
+            }
+        }
         await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
@@ -1050,7 +1056,8 @@ final class CompanionManager: ObservableObject {
             let almostThereTask = Task {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !Task.isCancelled else { return }
-                LiveSceneStatusLabel.shared.show(.almostThere)
+                // A press that hid the label must not bring it back, so this swaps only while "Building" shows.
+                LiveSceneStatusLabel.shared.replace(.buildingYourScene, with: .almostThere)
                 await self.speakLiveSceneStatus("Almost there")
             }
             let sceneRequestTask = Task {
@@ -1075,7 +1082,7 @@ final class CompanionManager: ObservableObject {
             buildingLineTask.cancel()
         }
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
-        LiveSceneStatusLabel.shared.hide()
+        LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
 
         guard case .touring = liveScenePhase else {
             await sayTheSceneCouldNotBeBuilt()
@@ -1354,7 +1361,7 @@ final class CompanionManager: ObservableObject {
                 liveSceneRequestTask?.cancel()
                 liveSceneRequestTask = nil
                 liveSceneRequestGeneration += 1
-                LiveSceneStatusLabel.shared.hide()
+                LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
                 liveScenePhase = .idle
             }
             if videoQuizQuestionIsActive {

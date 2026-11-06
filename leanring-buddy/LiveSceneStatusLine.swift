@@ -11,7 +11,7 @@
 import Foundation
 import SwiftUI
 
-enum LiveSceneStatusLine: CaseIterable {
+enum LiveSceneStatusLine {
     case poppingItOut
     case readingYourScreen
     case buildingYourScene
@@ -37,19 +37,42 @@ enum LiveSceneStatusLine: CaseIterable {
 
     var palette: StatusLabelPalette {
         switch self {
-        case .poppingItOut:
-            return StatusLabelPalette(icon: "#2563eb", text: "#2563eb", light: "#60a5fa", pale: "#bfdbfe", wash: "#eff6ff", highlight: "#60a5fa")
-        case .readingYourScreen:
-            return StatusLabelPalette(icon: "#a855f7", text: "#7e22ce", light: "#d8b4fe", pale: "#f3e8ff", wash: "#faf5ff", highlight: "#c084fc")
-        case .buildingYourScene:
-            return StatusLabelPalette(icon: "#f97316", text: "#c2410c", light: "#fdba74", pale: "#fed7aa", wash: "#fff7ed", highlight: "#fb923c")
-        case .almostThere:
-            return StatusLabelPalette(icon: "#22c55e", text: "#15803d", light: "#86efac", pale: "#dcfce7", wash: "#f0fdf4", highlight: "#4ade80")
-        case .readingTheTranscript:
-            return StatusLabelPalette(icon: "#f472b6", text: "#be185d", light: "#f9a8d4", pale: "#fce7f3", wash: "#fdf2f8", highlight: "#f9a8d4")
-        case .pickingQuizSpots:
-            return StatusLabelPalette(icon: "#0ea5e9", text: "#0369a1", light: "#7dd3fc", pale: "#e0f2fe", wash: "#f0f9ff", highlight: "#38bdf8")
+        case .poppingItOut: return .poppingItOut
+        case .readingYourScreen: return .readingYourScreen
+        case .buildingYourScene: return .buildingYourScene
+        case .almostThere: return .almostThere
+        case .readingTheTranscript: return .readingTheTranscript
+        case .pickingQuizSpots: return .pickingQuizSpots
         }
+    }
+
+    /// The lines the scene build shows. Only the scene build hides these.
+    static let sceneBuildLines: Set<LiveSceneStatusLine> = [.readingYourScreen, .buildingYourScene, .almostThere]
+    /// The line the pop-out shows. Only the pop-out hides it.
+    static let popOutLines: Set<LiveSceneStatusLine> = [.poppingItOut]
+    /// The lines the video quiz shows while it reads and plans. Only the video quiz hides these.
+    static let videoQuizPlanningLines: Set<LiveSceneStatusLine> = [.readingTheTranscript, .pickingQuizSpots]
+
+    /// What the label shows (nil when hidden) after one owner swaps its own line for the next.
+    /// The swap happens only while `expectedCurrentLine` shows, so a line never comes back
+    /// after a push-to-talk press or another owner took the label.
+    static func lineShowing(
+        afterReplacing expectedCurrentLine: LiveSceneStatusLine,
+        with newLine: LiveSceneStatusLine,
+        whileShowing currentLine: LiveSceneStatusLine?
+    ) -> LiveSceneStatusLine? {
+        currentLine == expectedCurrentLine ? newLine : currentLine
+    }
+
+    /// What the label shows (nil when hidden) after a hide. A nil `linesToHide` hides whatever shows,
+    /// and a set hides only a line in it, so one owner never hides another owner's line.
+    static func lineShowing(
+        afterHidingOnlyIfShowingOneOf linesToHide: Set<LiveSceneStatusLine>?,
+        whileShowing currentLine: LiveSceneStatusLine?
+    ) -> LiveSceneStatusLine? {
+        guard let linesToHide else { return nil }
+        guard let currentLine, !linesToHide.contains(currentLine) else { return nil }
+        return currentLine
     }
 
     /// A moment in the loop where every letter is on screen, shown when the
@@ -61,11 +84,13 @@ enum LiveSceneStatusLine: CaseIterable {
         case .buildingYourScene: return 1.6
         case .almostThere: return 1.5
         case .readingTheTranscript: return 2.0
-        case .pickingQuizSpots: return 1.0
+        case .pickingQuizSpots: return 1.1
         }
     }
 }
 
+/// The colors one status line draws with. Each look is a constant, so reading it for every
+/// letter on every frame costs nothing.
 struct StatusLabelPalette {
     let iconColor: Color
     let textColor: Color
@@ -74,14 +99,30 @@ struct StatusLabelPalette {
     let washColor: Color
     let highlightColor: Color
 
-    init(icon: String, text: String, light: String, pale: String, wash: String, highlight: String) {
-        iconColor = Color(hex: icon)
-        textColor = Color(hex: text)
-        lightColor = Color(hex: light)
-        paleColor = Color(hex: pale)
-        washColor = Color(hex: wash)
-        highlightColor = Color(hex: highlight)
-    }
+    static let poppingItOut = StatusLabelPalette(
+        iconColor: DS.Colors.blue600, textColor: DS.Colors.blue600, lightColor: DS.Colors.blue400,
+        paleColor: DS.Colors.blue200, washColor: DS.Colors.blue50, highlightColor: DS.Colors.blue400
+    )
+    static let readingYourScreen = StatusLabelPalette(
+        iconColor: DS.Colors.purple500, textColor: DS.Colors.purple700, lightColor: DS.Colors.purple300,
+        paleColor: DS.Colors.purple100, washColor: DS.Colors.purple50, highlightColor: DS.Colors.purple400
+    )
+    static let buildingYourScene = StatusLabelPalette(
+        iconColor: DS.Colors.orange500, textColor: DS.Colors.orange700, lightColor: DS.Colors.orange300,
+        paleColor: DS.Colors.orange200, washColor: DS.Colors.orange50, highlightColor: DS.Colors.orange400
+    )
+    static let almostThere = StatusLabelPalette(
+        iconColor: DS.Colors.green500, textColor: DS.Colors.green700, lightColor: DS.Colors.green300,
+        paleColor: DS.Colors.green100, washColor: DS.Colors.green50, highlightColor: DS.Colors.green400
+    )
+    static let readingTheTranscript = StatusLabelPalette(
+        iconColor: DS.Colors.pink400, textColor: DS.Colors.pink700, lightColor: DS.Colors.pink300,
+        paleColor: DS.Colors.pink100, washColor: DS.Colors.pink50, highlightColor: DS.Colors.pink300
+    )
+    static let pickingQuizSpots = StatusLabelPalette(
+        iconColor: DS.Colors.sky500, textColor: DS.Colors.sky700, lightColor: DS.Colors.sky300,
+        paleColor: DS.Colors.sky100, washColor: DS.Colors.sky50, highlightColor: DS.Colors.sky400
+    )
 }
 
 // MARK: - Motion helpers
@@ -150,8 +191,11 @@ struct StatusLetterPose: Equatable {
 }
 
 extension LiveSceneStatusLine {
+    /// The quiz-spots line's dotted letters, found once because every letter asks on every frame.
+    private static let quizSpotLetterIndexes = spotLetterIndexes(in: LiveSceneStatusLine.pickingQuizSpots.displayedText)
+
     /// The letters that get a dot in the quiz-spots line: four spread across the line, skipping spaces.
-    static func spotLetterIndexes(in displayedText: String) -> [Int] {
+    private static func spotLetterIndexes(in displayedText: String) -> [Int] {
         let letterIndexes = displayedText.enumerated().compactMap { index, character in
             character == " " ? nil : index
         }
@@ -208,7 +252,7 @@ extension LiveSceneStatusLine {
             return StatusLetterPose(highlightAmount: unfilledAmount)
 
         case .readingTheTranscript:
-            // The line types out behind a caret, the caret blinks twice at the end, and the line clears.
+            // The line types out behind a caret, the caret goes dark once (0.70 to 0.76 of the loop), shows again until 0.84, and the line clears.
             guard let loopFraction = StatusLabelMotion.loopFraction(elapsedSeconds: elapsedSeconds, loopSeconds: 3.0) else {
                 return StatusLetterPose(opacity: 0)
             }
@@ -229,7 +273,7 @@ extension LiveSceneStatusLine {
 
         case .pickingQuizSpots:
             // Four letters lift one by one and get a dot under them, like the spots the magnifier lights up.
-            guard let spotOrder = Self.spotLetterIndexes(in: displayedText).firstIndex(of: letterIndex),
+            guard let spotOrder = Self.quizSpotLetterIndexes.firstIndex(of: letterIndex),
                   let loopFraction = StatusLabelMotion.loopFraction(
                       elapsedSeconds: elapsedSeconds, loopSeconds: 2.4, delaySeconds: Double(spotOrder) * 0.35
                   ) else { return StatusLetterPose() }
@@ -268,7 +312,9 @@ struct PopOutCubePose: Equatable {
             let keyframeFractions = [0, 0.12, 0.35, 0.80, 1]
             return StatusLabelMotion.value(
                 at: loopFraction,
-                keyframes: Array(zip(keyframeFractions, values)).map { (fraction: $0.0, value: $0.1) },
+                keyframes: zip(keyframeFractions, values).map { keyframeFraction, keyframeValue in
+                    (fraction: keyframeFraction, value: keyframeValue)
+                },
                 easing: StatusLabelMotion.easeInOut
             )
         }

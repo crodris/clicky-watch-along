@@ -390,4 +390,19 @@ struct leanring_buddyTests {
         #expect(cleared.allSatisfy { $0.opacity == 0 })
     }
 
+    @Test func statusLabelOwnersSwapAndHideOnlyTheirOwnLines() async throws {
+        // A delayed swap after a press hid the label does not bring the label back.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: nil) == nil)
+        // A swap does not take over another owner's line.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: .poppingItOut) == .poppingItOut)
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: .buildingYourScene) == .almostThere)
+
+        // A push-to-talk press passes no set and hides whatever shows.
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: nil, whileShowing: .pickingQuizSpots) == nil)
+        // An owner hides its own lines and leaves other owners' lines up.
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .almostThere) == nil)
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .poppingItOut) == .poppingItOut)
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines, whileShowing: .readingYourScreen) == .readingYourScreen)
+    }
+
 }

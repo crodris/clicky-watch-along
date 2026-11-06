@@ -82,7 +82,7 @@ private struct StatusLetter: View {
                 glyph.foregroundColor(palette.textColor).offset(x: 3, y: 3)
                 glyph.foregroundColor(palette.textColor).offset(x: 2, y: 2)
             } else if statusLine == .poppingItOut {
-                glyph.foregroundColor(Color(hex: "#1e3a8a").opacity(0.3)).offset(y: 4)
+                glyph.foregroundColor(DS.Colors.blue900.opacity(0.3)).offset(y: 4)
             }
             ForEach(outlineOffsets.indices, id: \.self) { outlineIndex in
                 glyph.foregroundColor(.white).offset(outlineOffsets[outlineIndex])
@@ -156,31 +156,82 @@ private enum StatusIconDrawing {
 
     private struct CubeFace {
         /// Corners as seen from outside the face: top left, top right, bottom right, bottom left.
-        /// Each coordinate is -1 or 1 on the x, y (down), and z (toward the viewer) axes.
-        let corners: [(Double, Double, Double)]
+        let corners: [CubePoint]
         let color: Color
         let isFront: Bool
     }
 
+    /// A point in the cube's space. The unit cube's corners sit at -1 or 1 on each axis.
     private struct CubePoint {
-        let x: Double
-        let y: Double
-        let z: Double
+        let horizontalPosition: Double
+        /// Grows downward, like the screen.
+        let verticalPosition: Double
+        let depthTowardViewer: Double
     }
 
     private struct PlacedCubeFace {
         let face: CubeFace
         let placedCorners: [CubePoint]
-        var averageDepth: Double { placedCorners.reduce(0) { $0 + $1.z } / Double(placedCorners.count) }
+        var averageDepth: Double {
+            placedCorners.map(\.depthTowardViewer).reduce(0, +) / Double(placedCorners.count)
+        }
     }
 
     private static let popOutCubeFaces: [CubeFace] = [
-        CubeFace(corners: [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)], color: Color(hex: "#2563eb"), isFront: true),
-        CubeFace(corners: [(1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1)], color: Color(hex: "#1d4ed8"), isFront: false),
-        CubeFace(corners: [(1, -1, 1), (1, -1, -1), (1, 1, -1), (1, 1, 1)], color: Color(hex: "#1e40af"), isFront: false),
-        CubeFace(corners: [(-1, -1, -1), (-1, -1, 1), (-1, 1, 1), (-1, 1, -1)], color: Color(hex: "#60a5fa"), isFront: false),
-        CubeFace(corners: [(-1, -1, -1), (1, -1, -1), (1, -1, 1), (-1, -1, 1)], color: Color(hex: "#bfdbfe"), isFront: false),
-        CubeFace(corners: [(-1, 1, 1), (1, 1, 1), (1, 1, -1), (-1, 1, -1)], color: Color(hex: "#1e3a8a"), isFront: false),
+        CubeFace(
+            corners: [
+                CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: 1),
+            ],
+            color: DS.Colors.blue600, isFront: true
+        ),
+        CubeFace(
+            corners: [
+                CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: -1),
+            ],
+            color: DS.Colors.blue700, isFront: false
+        ),
+        CubeFace(
+            corners: [
+                CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: 1),
+            ],
+            color: DS.Colors.blue800, isFront: false
+        ),
+        CubeFace(
+            corners: [
+                CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: -1),
+            ],
+            color: DS.Colors.blue400, isFront: false
+        ),
+        CubeFace(
+            corners: [
+                CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: 1),
+            ],
+            color: DS.Colors.blue200, isFront: false
+        ),
+        CubeFace(
+            corners: [
+                CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: 1),
+                CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: -1),
+                CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: -1),
+            ],
+            color: DS.Colors.blue900, isFront: false
+        ),
     ]
 
     static func drawPopOutCube(in context: inout GraphicsContext, elapsedSeconds: Double) {
@@ -194,23 +245,26 @@ private enum StatusIconDrawing {
         let shadowWidth = 16 * (0.6 + 0.4 * cubePose.depth)
         context.fill(
             Path(ellipseIn: CGRect(x: 13 - shadowWidth / 2, y: 23, width: shadowWidth, height: 3)),
-            with: .color(Color(hex: "#1e3a8a").opacity(0.3 * cubePose.depth))
+            with: .color(DS.Colors.blue900.opacity(0.3 * cubePose.depth))
         )
 
         // Scale, turn about the vertical axis, tilt about the horizontal one, then lift.
-        func placedPoint(_ x: Double, _ y: Double, _ z: Double) -> CubePoint {
-            let scaledX: Double = x * cubePose.scale
-            let scaledY: Double = y * cubePose.scale
-            let scaledZ: Double = z * cubePose.scale
+        func placedPoint(_ cubePoint: CubePoint) -> CubePoint {
+            let scaledX: Double = cubePoint.horizontalPosition * cubePose.scale
+            let scaledY: Double = cubePoint.verticalPosition * cubePose.scale
+            let scaledZ: Double = cubePoint.depthTowardViewer * cubePose.scale
             let turnedX: Double = scaledX * cos(turnRadians) + scaledZ * sin(turnRadians)
             let turnedZ: Double = scaledZ * cos(turnRadians) - scaledX * sin(turnRadians)
             let tiltedY: Double = scaledY * cos(tiltRadians) - turnedZ * sin(tiltRadians)
             let tiltedZ: Double = scaledY * sin(tiltRadians) + turnedZ * cos(tiltRadians)
-            return CubePoint(x: turnedX, y: tiltedY - cubePose.liftPoints, z: tiltedZ)
+            return CubePoint(horizontalPosition: turnedX, verticalPosition: tiltedY - cubePose.liftPoints, depthTowardViewer: tiltedZ)
         }
         func projected(_ point: CubePoint) -> CGPoint {
-            let perspectiveFactor: Double = perspectiveDistance / (perspectiveDistance - point.z)
-            return CGPoint(x: 13 + point.x * perspectiveFactor, y: 13 + point.y * perspectiveFactor)
+            let perspectiveFactor: Double = perspectiveDistance / (perspectiveDistance - point.depthTowardViewer)
+            return CGPoint(
+                x: 13 + point.horizontalPosition * perspectiveFactor,
+                y: 13 + point.verticalPosition * perspectiveFactor
+            )
         }
         // A face is visible when its corners still wind clockwise on screen. Edge-on faces have no area.
         func faceIsVisible(_ placedCorners: [CubePoint]) -> Bool {
@@ -227,14 +281,18 @@ private enum StatusIconDrawing {
         var facesToDraw: [PlacedCubeFace] = []
         for face in popOutCubeFaces {
             let placedCorners: [CubePoint] = face.corners.map { corner in
-                placedPoint(corner.0 * halfEdge, corner.1 * halfEdge, corner.2 * halfEdge * cubePose.depth)
+                placedPoint(CubePoint(
+                    horizontalPosition: corner.horizontalPosition * halfEdge,
+                    verticalPosition: corner.verticalPosition * halfEdge,
+                    depthTowardViewer: corner.depthTowardViewer * halfEdge * cubePose.depth
+                ))
             }
             if faceIsVisible(placedCorners) {
                 facesToDraw.append(PlacedCubeFace(face: face, placedCorners: placedCorners))
             }
         }
         // Farther faces first, so nearer ones paint over them.
-        facesToDraw.sort { $0.averageDepth < $1.averageDepth }
+        facesToDraw.sort { fartherFace, nearerFace in fartherFace.averageDepth < nearerFace.averageDepth }
 
         for faceToDraw in facesToDraw {
             var facePath = Path()
@@ -248,15 +306,28 @@ private enum StatusIconDrawing {
                 let topRight = faceToDraw.placedCorners[1]
                 let bottomLeft = faceToDraw.placedCorners[3]
                 func pointOnFrontFace(across: Double, down: Double) -> CGPoint {
-                    let x: Double = topLeft.x + across * (topRight.x - topLeft.x) + down * (bottomLeft.x - topLeft.x)
-                    let y: Double = topLeft.y + across * (topRight.y - topLeft.y) + down * (bottomLeft.y - topLeft.y)
-                    let z: Double = topLeft.z + across * (topRight.z - topLeft.z) + down * (bottomLeft.z - topLeft.z)
-                    return projected(CubePoint(x: x, y: y, z: z))
+                    let horizontalPosition: Double = topLeft.horizontalPosition
+                        + across * (topRight.horizontalPosition - topLeft.horizontalPosition)
+                        + down * (bottomLeft.horizontalPosition - topLeft.horizontalPosition)
+                    let verticalPosition: Double = topLeft.verticalPosition
+                        + across * (topRight.verticalPosition - topLeft.verticalPosition)
+                        + down * (bottomLeft.verticalPosition - topLeft.verticalPosition)
+                    let depthTowardViewer: Double = topLeft.depthTowardViewer
+                        + across * (topRight.depthTowardViewer - topLeft.depthTowardViewer)
+                        + down * (bottomLeft.depthTowardViewer - topLeft.depthTowardViewer)
+                    return projected(CubePoint(
+                        horizontalPosition: horizontalPosition,
+                        verticalPosition: verticalPosition,
+                        depthTowardViewer: depthTowardViewer
+                    ))
                 }
-                let mountainPeaks: [(Double, Double)] = [(0, 1), (0.3, 0.3), (0.5, 0.62), (0.72, 0.18), (1, 1)]
+                let mountainPeaks: [(across: Double, down: Double)] = [(0, 1), (0.3, 0.3), (0.5, 0.62), (0.72, 0.18), (1, 1)]
                 var mountainPath = Path()
-                mountainPath.addLines(mountainPeaks.map { across, down in
-                    pointOnFrontFace(across: 3.0 / 16 + across * 10.0 / 16, down: 5.0 / 16 + down * 8.0 / 16)
+                mountainPath.addLines(mountainPeaks.map { mountainPeak in
+                    pointOnFrontFace(
+                        across: 3.0 / 16 + mountainPeak.across * 10.0 / 16,
+                        down: 5.0 / 16 + mountainPeak.down * 8.0 / 16
+                    )
                 })
                 mountainPath.closeSubpath()
                 context.fill(mountainPath, with: .color(.white))
