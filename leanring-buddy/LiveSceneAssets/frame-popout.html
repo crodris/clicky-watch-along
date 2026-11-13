@@ -100,7 +100,7 @@ const x0 = Math.max(0, box.left - pad), y0 = Math.max(0, box.top - pad);
 const x1 = Math.min(W - 1, box.right + pad), y1 = Math.min(H - 1, box.bottom + pad);
 const boxW = x1 - x0 + 1, boxH = y1 - y0 + 1;
 
-// The app's subject mask, from Apple's subject lifting, is white where the subject is.
+// The app's subject mask is white where the subject is. It comes from Apple's subject lifting, or from Sonnet's box for a painted scene.
 const maskImage = await new Promise((resolve, reject) => {
   const loadedMask = new Image();
   loadedMask.onload = () => resolve(loadedMask);

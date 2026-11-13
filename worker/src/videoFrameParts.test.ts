@@ -103,6 +103,12 @@ describe("checkFrameParts", () => {
     });
   });
 
+  it("keeps a painted scene as found even when the model marks it as no single object", () => {
+    const sceneMarkedNotFound = { ...modelReply, subjectFound: false, wholePictureIsSubject: true };
+
+    expect(checkFrameParts(sceneMarkedNotFound, 1280, 720)).toMatchObject({ subjectFound: true, wholePictureIsSubject: true });
+  });
+
   it("treats a box too small to lift out as no subject", () => {
     const tinyBox = { ...modelReply, subjectBox: { left: 100, top: 100, right: 120, bottom: 300 } };
 
@@ -125,6 +131,9 @@ describe("handleVideoFrameParts", () => {
       output_config: { format: { type: "json_schema" } },
       messages: [{ content: [{ type: "image", source: { data: "AAAA" } }, { type: "text" }] }],
     });
+    // The reply check requires every key in modelReply, so a key missing from the sent schema would fail every call.
+    const sentSchemaRequiredKeys = (sentBody as { output_config: { format: { schema: { required: string[] } } } }).output_config.format.schema.required;
+    expect([...sentSchemaRequiredKeys].sort()).toEqual(Object.keys(modelReply).sort());
   });
 
   it("returns 502 when the reply is not the parts JSON", async () => {

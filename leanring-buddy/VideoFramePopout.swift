@@ -103,9 +103,10 @@ enum VideoFramePopoutClient {
         guard let frameJPEGData = Data(base64Encoded: frameGrab.jpeg) else { return nil }
         let liftsTheWholePicture = framePartsResponse.wholePictureIsSubject == true
         let frameWidth = frameGrab.width, frameHeight = frameGrab.height
-        // Vision is on-device and takes under half a second, so it runs off the main actor.
+        // Building either mask walks every frame pixel, and Vision takes under half a second, so both run off the main actor.
         let subjectMask = try await Task.detached(priority: .userInitiated) {
             if liftsTheWholePicture {
+                print("Frame pop-out: lifting the whole picture in Sonnet's box")
                 return VideoFrameSubjectMask.wholePictureMask(frameWidth: frameWidth, frameHeight: frameHeight, pictureBox: subjectBox)
             }
             return try VideoFrameSubjectMask.subjectMask(frameJPEGData: frameJPEGData, sonnetSubjectBox: subjectBox)
@@ -121,7 +122,8 @@ enum VideoFramePopoutClient {
 }
 
 /// Apple's subject lifting finds the subject's outline, which a color match cannot do
-/// when the drawing sits on a shape or a gradient. Sonnet's box picks which subject to keep.
+/// when the drawing sits on a shape or a gradient. Sonnet's box picks which subject to keep,
+/// or, for a painted scene, is the mask itself.
 enum VideoFrameSubjectMask {
     struct SubjectMask {
         let pngData: Data

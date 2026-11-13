@@ -8,7 +8,7 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 ## Sub-features
 
 - `popout-voice` triggers on "pop this out", "pop out", or up to 3 words between, as in "pop this heart out".
-- `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels.
+- `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels, and `wholePictureIsSubject`.
 - `popout-none` returns `subjectFound: false` for a frame with no clear subject.
 - `popout-in-quiz` pauses a running video quiz first.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
@@ -29,7 +29,7 @@ Preconditions:
 
 - **Route.** Build a body from a screenshot, then post it.
   Run `RUN="$(readlink .verify-clicky/current)" && screencapture -x -t jpg "$RUN/frame.jpg" && python3 -c "import base64,json,subprocess,sys;frame_path=sys.argv[1];frame_width,frame_height=[int(subprocess.check_output(['sips','-g',dimension_key,frame_path]).split()[-1]) for dimension_key in ('pixelWidth','pixelHeight')];print(json.dumps({'frameBase64':base64.b64encode(open(frame_path,'rb').read()).decode(),'frameWidth':frame_width,'frameHeight':frame_height,'subject':'','question':'','answerLabel':''}))" "$RUN/frame.jpg" > "$RUN/frame-body.json"`, then `$V post /video-frame-parts "$RUN/frame-body.json"`.
-  The result is HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, and 1 to 8 `parts`.
+  The result is HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, `wholePictureIsSubject` as a boolean, and 1 to 8 `parts`.
 - **Pop out in the app.** Run `$V app-launch "pop this out"`.
   The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot popout` while the subject floats over the video.
@@ -40,7 +40,8 @@ Preconditions:
 - **Pop out a painted scene.** Post a body built from The Starry Night, as in the route step.
   The result has `wholePictureIsSubject: true` and a `subjectBox` around the whole painting.
   Dürer's Young Hare, Stag Beetle, and Rhinoceros and a heart diagram return `wholePictureIsSubject: false`.
-  In the app, the whole Starry Night lifts out, not only the cypress, and the hare lifts out without its paper.
+  In the app, the log shows `Frame pop-out: lifting the whole picture in Sonnet's box` for The Starry Night, and `Vision kept N of M subjects` for the hare.
+  Run `$V shot scene-popout` while the painting floats over the page.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 
