@@ -80,8 +80,12 @@ nonisolated enum LearnerVideoCommand: Equatable {
         case .setPlaybackRate(let playbackRate):
             change = "video.playbackRate = \(Self.javaScriptNumber(min(2, max(0.25, playbackRate))));"
         }
-        return "(function () { var video = document.querySelector('video'); if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Math.round(video.duration || 0), paused: video.paused, playbackRate: video.playbackRate }); })()"
+        return "(function () { \(Self.mainVideoJavaScript) if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Math.round(video.duration || 0), paused: video.paused, playbackRate: video.playbackRate }); })()"
     }
+
+    /// Picks the page's main video: the largest one on screen, so a preview or an ad thumbnail never wins.
+    /// A page whose videos all have no size, such as a background tab mid-layout, falls back to the first one.
+    private static let mainVideoJavaScript = "var videos = Array.prototype.slice.call(document.querySelectorAll('video')); var video = videos[0] || null; var largestArea = 0; videos.forEach(function (candidate) { var rect = candidate.getBoundingClientRect(); var area = rect.width * rect.height; if (area > largestArea) { largestArea = area; video = candidate; } });"
 
     /// NaN and infinity are not JavaScript literals the page can read, so they become 0.
     private static func javaScriptNumber(_ value: Double) -> String {
@@ -697,17 +701,18 @@ final class VideoQuizSession {
 
     private var captionLinesByVideoURL: [String: [VideoQuizTranscriptLine]] = [:]
 
-    /// The YouTube video in Chrome's front tab, as the voice command model sees it, or nil when none is in front.
+    /// The main video in Chrome's front tab, on any site, as the voice command model sees it, or nil when the
+    /// page has none. A video inside a frame from another site cannot be reached by a page script, so it counts as none.
     func frontVideoStateForVoiceCommands() -> JSONValue? {
-        guard let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else { return nil }
-        return try? Self.runLearnerVideoCommand(.readState, in: frontVideoTab, title: frontVideoTab.title)
+        guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+        return try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title)
     }
 
     /// Runs a pause, play, seek, or speed change the learner asked for on the video in front, and returns its state.
     /// A pause or play the learner asks for is theirs, so Clicky drops its own record of a pause on that tab
     /// and will not press play on it later.
     func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) throws -> JSONValue {
-        let frontVideoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
+        let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
         let videoState = try Self.runLearnerVideoCommand(learnerVideoCommand, in: frontVideoTab, title: frontVideoTab.title)
         switch learnerVideoCommand {
         case .pause, .play:
@@ -722,9 +727,10 @@ final class VideoQuizSession {
     }
 
     /// The caption lines that best match the query in the video in front. The quiz's own captions are reused,
-    /// and other videos' captions are read once with yt-dlp and kept for the rest of the session.
+    /// and other videos' captions are read once with yt-dlp, which reads many sites besides YouTube, and kept
+    /// for the rest of the session. A site yt-dlp cannot read throws, and the model hears the search failed.
     func captionMomentsInTheFrontVideo(matching query: String) async throws -> [VideoCaptionMoment] {
-        let frontVideoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
+        let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
         let captionLines: [VideoQuizTranscriptLine]
         if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, !allTranscriptLines.isEmpty {
             captionLines = allTranscriptLines
@@ -799,6 +805,25 @@ private struct ChromeVideoTab {
         windowId == otherVideoTab.windowId && tabId == otherVideoTab.tabId
     }
 
+    /// The active tab of Chrome's front window, on any site. The voice tools check for a video with JavaScript.
+    static func frontTabOfTheFrontWindow() throws -> ChromeVideoTab {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
+            throw VideoQuizFailure.chromeIsNotRunning
+        }
+        let frontTabOutput = try runAppleScript("""
+        tell application "Google Chrome"
+            if (count of windows) is 0 then return ""
+            set frontTab to active tab of front window
+            return (id of front window as text) & "|" & (id of frontTab as text) & "|" & (URL of frontTab) & "|" & (title of frontTab)
+        end tell
+        """)
+        let tabFields = frontTabOutput.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
+        guard tabFields.count == 4, let windowId = Int(tabFields[0]), let tabId = Int(tabFields[1]) else {
+            throw VideoQuizFailure.noVideoOnThePage
+        }
+        return ChromeVideoTab(windowId: windowId, tabId: tabId, url: String(tabFields[2]), title: titleWithoutYouTubeSuffix(String(tabFields[3])))
+    }
+
     /// The active tab of the front window if it is a YouTube watch page, else any
     /// YouTube watch tab in any Chrome window, unless `onlyTheActiveTabOfTheFrontWindow` is set.
     static func findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: Bool = false) throws -> ChromeVideoTab {
@@ -808,24 +833,45 @@ private struct ChromeVideoTab {
 
         // Chrome lists windows front to back. Each output line is
         // windowId|tabId|windowPosition|isActiveTab|url|title
-        let findTabsAppleScript = """
-        tell application "Google Chrome"
-            set matchingTabLines to {}
-            repeat with windowPosition from 1 to (count of windows)
-                set chromeWindow to window windowPosition
-                set activeTabIdOfWindow to id of active tab of chromeWindow
-                repeat with chromeTab in (tabs of chromeWindow)
-                    set tabURL to URL of chromeTab
-                    if tabURL contains "youtube.com/watch" then
-                        set tabIsActive to ((id of chromeTab) = activeTabIdOfWindow)
-                        set end of matchingTabLines to (id of chromeWindow as text) & "|" & (id of chromeTab as text) & "|" & (windowPosition as text) & "|" & (tabIsActive as text) & "|" & tabURL & "|" & (title of chromeTab)
-                    end if
+        // Every Apple Event costs about 17 ms, so each window's tabs are read in three batches rather than
+        // one event per tab, which took about 640 ms with 28 tabs open. When only the front tab matters,
+        // its URL alone decides, so a page that is not a YouTube video costs two or three events.
+        let findTabsAppleScript: String
+        if onlyTheActiveTabOfTheFrontWindow {
+            findTabsAppleScript = """
+            tell application "Google Chrome"
+                if (count of windows) is 0 then return ""
+                set frontTab to active tab of front window
+                set tabURL to URL of frontTab
+                if tabURL does not contain "youtube.com/watch" then return ""
+                return (id of front window as text) & "|" & (id of frontTab as text) & "|1|true|" & tabURL & "|" & (title of frontTab)
+            end tell
+            """
+        } else {
+            findTabsAppleScript = """
+            tell application "Google Chrome"
+                set matchingTabLines to {}
+                repeat with windowPosition from 1 to (count of windows)
+                    set chromeWindow to window windowPosition
+                    set windowId to id of chromeWindow
+                    set activeTabIdOfWindow to id of active tab of chromeWindow
+                    set tabIds to id of every tab of chromeWindow
+                    set tabURLs to URL of every tab of chromeWindow
+                    set tabTitles to title of every tab of chromeWindow
+                    repeat with tabIndex from 1 to (count of tabIds)
+                        set tabURL to item tabIndex of tabURLs
+                        if tabURL contains "youtube.com/watch" then
+                            set tabId to item tabIndex of tabIds
+                            set tabIsActive to (tabId = activeTabIdOfWindow)
+                            set end of matchingTabLines to (windowId as text) & "|" & (tabId as text) & "|" & (windowPosition as text) & "|" & (tabIsActive as text) & "|" & tabURL & "|" & (item tabIndex of tabTitles)
+                        end if
+                    end repeat
                 end repeat
-            end repeat
-            set AppleScript's text item delimiters to linefeed
-            return matchingTabLines as text
-        end tell
-        """
+                set AppleScript's text item delimiters to linefeed
+                return matchingTabLines as text
+            end tell
+            """
+        }
         let findTabsOutput = try runAppleScript(findTabsAppleScript)
 
         struct FoundTab {

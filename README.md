@@ -43,10 +43,10 @@ Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
-**Talk to what's already on screen.** Once a 3D model is up, or a YouTube video is in front, short commands change it right away instead of building something new.
+**Talk to what's already on screen.** Once a 3D model is up, or a video is playing in Chrome on any site, short commands change it right away instead of building something new.
 Say "turn it to the left", "zoom in on the wing", "pull it apart", or "show me inside", and the model moves in about a second.
 Say "no, the other way" and Clicky undoes its last turn.
-Over a video, say "go back ten seconds", "play it at 1.5 speed", or "skip to where they talk about the engine".
+Over a video on YouTube or most other sites, say "go back ten seconds", "play it at 1.5 speed", or "skip to where they talk about the engine".
 Each change shows a small chip under your cursor naming what Clicky did, like `rotate_model(yawDegrees: -45)`, and Clicky says a few words once the screen has changed.
 Press Control + Option while it talks, and it stops right away.
 During a quiz question you can ask for a hint, ask to hear the question again, or skip it.

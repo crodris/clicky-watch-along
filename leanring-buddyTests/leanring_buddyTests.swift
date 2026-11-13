@@ -717,8 +717,8 @@ struct leanring_buddyTests {
     }
 
     @Test func videoToolsAreOfferedOnlyWithAYouTubeVideoInFront() async throws {
-        let sceneOnly = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, youTubeVideoIsInFront: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
-        let videoOnly = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, youTubeVideoIsInFront: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        let sceneOnly = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        let videoOnly = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
 
         #expect(!AppVoiceTool.available(in: sceneOnly).contains(.seekRelative))
         #expect(AppVoiceTool.available(in: sceneOnly).contains(.explainPart))
@@ -728,7 +728,7 @@ struct leanring_buddyTests {
     }
 
     @Test func aViewCommandDuringAQuizQuestionCannotHandTheTranscriptBackToTheJudge() async throws {
-        let questionOpen = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, youTubeVideoIsInFront: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)
+        let questionOpen = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)
         let availableTools = AppVoiceTool.available(in: questionOpen)
 
         #expect(!availableTools.contains(.answerWithScreen))
@@ -738,11 +738,11 @@ struct leanring_buddyTests {
     }
 
     @Test func aQuizAnswerOrASceneStillBuildingNeverGoesToTheVoiceCommandRouter() async throws {
-        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, youTubeVideoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
-        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, youTubeVideoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
-        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, youTubeVideoIsInFront: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
-        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, youTubeVideoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
-        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, youTubeVideoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
+        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
+        #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
     }
 
     @Test func findingAMomentPicksTheCaptionsThatSayTheQueryWords() async throws {

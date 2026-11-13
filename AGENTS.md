@@ -91,7 +91,7 @@ The overlay never becomes key, so the pinch comes from the push-to-talk event ta
 The overlay is a nonactivating panel, so the page under it keeps the keyboard.
 Before any public release, add a runtime block for WebRTC in dynamically created frames, add authentication and rate limits to the Worker (the `GET /v1/3dtiles/` route spends the Maps key for any caller), send video captions to /live-scene as a separate untrusted field instead of merging them into the learner's request, and pass part labels read from a generated page as sanitized untrusted data instead of putting them in the system prompt.
 
-**Voice Commands**: A follow-up command spoken while a scene is on screen or a YouTube video is in Chrome's front tab goes to `POST /voice-command` instead of the keyword path (`voiceCommandRouterTakesTheTranscript`).
+**Voice Commands**: A follow-up command spoken while a scene is on screen or a video plays in Chrome's front tab, on any site, goes to `POST /voice-command` instead of the keyword path (`voiceCommandRouterTakesTheTranscript`).
 A quiz answer still goes to the judge, and a scene still building keeps the keyword path.
 The tools use the WebMCP and MCP shape (`{ name, description, inputSchema }`), but the page is a `WKWebView`, not Chrome, so they are plain functions the app calls with `callAsyncJavaScript`, not `navigator.modelContext`.
 Page tools live in the bundled `LiveSceneAssets/scene-tools.js`, which the overlay adds to every page before its scripts run as `window.clickyTools` (`list`, `call`, `state`).
@@ -100,6 +100,8 @@ They are `rotate_model`, `zoom`, `zoom_to_part`, `reset_view`, `explode_view`, a
 Rule 7 of the `/live-scene` prompt asks generated pages for the same primitives plus `THREE`, `camera`, `renderer`, and `parts` (`{ label, object, isOuterShell }`), which `explode_view` moves apart and `set_inside_view` cuts open with a clipping plane through the model's center that follows the camera.
 App tools (`AppVoiceTool`) are `answer_with_screen`, `build_new_scene`, and `pop_out`, which hand off to `respondToTranscript` (the old path), plus `close_scene`, `explain_part`, `pause_video`, `play_video`, `seek_relative`, `seek_to_time`, `set_speed`, `find_moment`, and `end_quiz`, each offered only when it can work.
 While a quiz question is open the hand-off tools are left out, because the old path would send the transcript back to the judge.
+The video tools act on the largest video on the front tab's page (`ChromeVideoTab.frontTabOfTheFrontWindow`), so they work on Vimeo, Coursera, or a Wikimedia file as well as YouTube, but not on a video inside a frame from another site, which a page script cannot reach. The quiz, the pop-out frame grab, and the landmark scan stay on YouTube, because they copy the frame through a page canvas, which Chrome blocks for a video served from another site.
+Finding a YouTube tab reads each window's tabs in three batched Apple Events, and the front-tab check reads only the front tab, because one event per tab took about 640 ms with 28 tabs open.
 A voice pause or play on a tab Clicky paused drops Clicky's pause record, so Clicky never presses play on it later.
 `find_moment` scores the captions (the quiz's, or yt-dlp's, kept per video for the session) and returns the best 3 lines, and the model then calls `seek_to_time`.
 Each call shows `VoiceToolCallChip` under the cursor with the call, such as `rotate_model(yawDegrees: -45)`, for 1.4 seconds with a fade only.

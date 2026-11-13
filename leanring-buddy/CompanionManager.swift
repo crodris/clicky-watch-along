@@ -796,15 +796,16 @@ final class CompanionManager: ObservableObject {
         let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
         if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
+        // Read once here and handed to the router, because each read is a round trip to Chrome.
+        let frontVideoState = phaseIsWaitingForAQuizAnswer || sceneIsBuilding ? nil : videoQuizSession.frontVideoStateForVoiceCommands()
         let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            youTubeVideoIsInFront: !phaseIsWaitingForAQuizAnswer && !sceneIsBuilding
-                && videoQuizSession.frontVideoStateForVoiceCommands() != nil,
+            videoIsInFront: frontVideoState != nil,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding
         )
         if routerTakesTheTranscript {
-            startVoiceCommand(transcript: transcript)
+            startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
             return
         }
         respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
@@ -1471,7 +1472,7 @@ final class CompanionManager: ObservableObject {
             LiveSceneOverlay.shared.highlightPart(labelText: quiz.answerLabel)
             await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply)
         case .sceneCommand:
-            startVoiceCommand(transcript: transcript)
+            startVoiceCommand(transcript: transcript, frontVideoState: videoQuizSession.frontVideoStateForVoiceCommands())
             return
         }
         guard !Task.isCancelled else { return }
@@ -1767,24 +1768,25 @@ final class CompanionManager: ObservableObject {
     /// A follow-up command while a scene or a YouTube video is live. A fast model picks tools the page
     /// and the app offer, the screen changes, and Clicky says the model's short confirmation after that.
     /// A request that needs a new scene or a screenshot answer hands off to respondToTranscript.
-    private func startVoiceCommand(transcript: String) {
+    private func startVoiceCommand(transcript: String, frontVideoState: JSONValue?) {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         voiceState = .processing
         currentResponseTask = Task {
-            await self.runVoiceCommand(transcript: transcript)
+            await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
         }
     }
 
-    private func runVoiceCommand(transcript: String) async {
+    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
         let commandStartedAt = Date()
-        let pageTools = await LiveSceneOverlay.shared.pageVoiceTools()
-        let pageState = await LiveSceneOverlay.shared.pageVoiceState()
-        let frontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
+        // The two page reads wait on WebKit, not on each other.
+        async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
+        async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
+        let (pageTools, pageState) = await (pageToolsRead, pageStateRead)
         let appToolContext = AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
-            youTubeVideoIsInFront: frontVideoState != nil,
+            videoIsInFront: frontVideoState != nil,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
@@ -1925,7 +1927,7 @@ final class CompanionManager: ObservableObject {
         let appToolContext = AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
-            youTubeVideoIsInFront: videoQuizSession.frontVideoStateForVoiceCommands() != nil,
+            videoIsInFront: videoQuizSession.frontVideoStateForVoiceCommands() != nil,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )

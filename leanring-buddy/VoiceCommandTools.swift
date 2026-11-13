@@ -192,7 +192,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     nonisolated struct Context: Equatable, Sendable {
         var sceneIsOnScreen: Bool
         var sceneHasLabels: Bool
-        var youTubeVideoIsInFront: Bool
+        var videoIsInFront: Bool
         var videoQuizIsRunning: Bool
         /// While a quiz question waits for its answer, every utterance goes to the judge first. A hand-off
         /// to the old path would send it back to the judge, so only view and video tools are offered then.
@@ -209,7 +209,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             case .explainPart:
                 return context.sceneIsOnScreen && context.sceneHasLabels
             case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed, .findMoment:
-                return context.youTubeVideoIsInFront
+                return context.videoIsInFront
             case .endQuiz:
                 return context.videoQuizIsRunning
             }
@@ -238,15 +238,15 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .explainPart:
             return "Say what one labeled part does, while the camera turns to it. label must be one of the scene state's labels."
         case .pauseVideo:
-            return "Pause the YouTube video in Chrome's front tab."
+            return "Pause the video in Chrome's front tab."
         case .playVideo:
-            return "Play the YouTube video in Chrome's front tab."
+            return "Play the video in Chrome's front tab."
         case .seekRelative:
-            return "Move the YouTube video forward (positive seconds) or back (negative seconds)."
+            return "Move the video in Chrome's front tab forward (positive seconds) or back (negative seconds)."
         case .seekToTime:
-            return "Move the YouTube video to a time, in seconds from the start."
+            return "Move the video in Chrome's front tab to a time, in seconds from the start."
         case .setSpeed:
-            return "Set how fast the YouTube video plays. 1 is normal speed."
+            return "Set how fast the video in Chrome's front tab plays. 1 is normal speed."
         case .findMoment:
             return "Search the video's captions for where something is said. Returns up to 3 moments, best match first, with their times, so you can call seek_to_time next."
         case .endQuiz:
@@ -445,16 +445,16 @@ nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSO
     """
 }
 
-/// The router takes a command only when something is live to command: a scene on screen or a YouTube
-/// video in front. A quiz answer goes to the judge, and a scene still building keeps its keyword path.
+/// The router takes a command only when something is live to command: a scene on screen or a
+/// video in Chrome's front tab, on any site. A quiz answer goes to the judge, and a scene still building keeps its keyword path.
 nonisolated func voiceCommandRouterTakesTheTranscript(
     sceneIsOnScreen: Bool,
-    youTubeVideoIsInFront: Bool,
+    videoIsInFront: Bool,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool
 ) -> Bool {
     if phaseIsWaitingForAQuizAnswer || sceneIsBuilding { return false }
-    return sceneIsOnScreen || youTubeVideoIsInFront
+    return sceneIsOnScreen || videoIsInFront
 }
 
 // MARK: - Finding a moment in the captions
