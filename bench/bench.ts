@@ -1,0 +1,623 @@
+// Clicky benchmark. Measures latency, tokens, and cost of every Worker route the demo uses,
+// against a Worker started by the verify-clicky helper, and checks each reply on fixed fixtures.
+//
+//   .claude/skills/verify-clicky/verify-clicky.sh worker-up
+//   node bench/bench.ts worker --label baseline [--runs 5] [--only chat-first,tts]
+//   node bench/bench.ts app --label baseline [--runs 3]
+//
+// Results go to bench/results/<label>-<kind>-<sha>.json. See bench/README.md.
+
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const benchDirectory = dirname(fileURLToPath(import.meta.url));
+const checkoutRoot = dirname(benchDirectory);
+const fixturesDirectory = join(benchDirectory, "fixtures");
+const verifyClickyScript = join(checkoutRoot, ".claude/skills/verify-clicky/verify-clicky.sh");
+const verifyClickyStateDirectory = join(checkoutRoot, ".verify-clicky");
+
+// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-11-13).
+const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
+  "claude-sonnet-4-6": { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
+  "claude-sonnet-5-5": { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 },
+  "claude-haiku-5-5": { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
+};
+// OpenAI's pricing page refuses automated fetches, so a GPT scene uses the repo's measured estimate per call.
+const gptLiveSceneCostPerCallUSD = 0.23;
+// https://elevenlabs.io/pricing/api (fetched 2026-11-13): multilingual v2 costs $0.08 per 1,000 characters, Flash and Turbo $0.04.
+const elevenLabsPricePerThousandCharacters: Record<string, number> = {
+  eleven_multilingual_v2: 0.08,
+  eleven_flash_v2_5: 0.04,
+  eleven_turbo_v2_5: 0.04,
+};
+
+type UsageLine = {
+  route: string;
+  model: string;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+};
+
+type QualityCheck = { passed: boolean; detail: string };
+
+type Sample = {
+  caseId: string;
+  runIndex: number;
+  httpStatus: number;
+  firstByteMs: number;
+  firstTokenMs: number | null;
+  totalMs: number;
+  usageLines: UsageLine[];
+  ttsCharacters: number;
+  costUSD: number;
+  quality: QualityCheck;
+};
+
+type BenchCase = {
+  id: string;
+  route: string;
+  description: string;
+  requestBody: () => unknown;
+  checkReply: (replyText: string, contentType: string, replyBytes: number) => QualityCheck;
+};
+
+function numberField(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJSONObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reads an Anthropic or OpenAI usage object, which name the cache and output fields differently. */
+function usageLineFromUsageObject(route: string, usageObject: Record<string, unknown>): UsageLine {
+  const inputTokensDetails = isRecord(usageObject.input_tokens_details) ? usageObject.input_tokens_details : {};
+  return {
+    route,
+    model: typeof usageObject.model === "string" ? usageObject.model : "unknown",
+    inputTokens: numberField(usageObject, "input_tokens"),
+    cacheWriteTokens: numberField(usageObject, "cache_creation_input_tokens"),
+    cacheReadTokens: numberField(usageObject, "cache_read_input_tokens") || numberField(inputTokensDetails, "cached_tokens"),
+    outputTokens: numberField(usageObject, "output_tokens"),
+  };
+}
+
+function costOfUsageLine(usageLine: UsageLine): number {
+  if (usageLine.model.startsWith("gpt-")) {
+    return gptLiveSceneCostPerCallUSD;
+  }
+  const prices = anthropicPricesPerMillionTokens[usageLine.model];
+  if (prices === undefined) {
+    throw new Error(`No price for model ${usageLine.model}. Add it to anthropicPricesPerMillionTokens.`);
+  }
+  return (
+    (usageLine.inputTokens * prices.input +
+      usageLine.cacheWriteTokens * prices.cacheWrite +
+      usageLine.cacheReadTokens * prices.cacheRead +
+      usageLine.outputTokens * prices.output) /
+    1_000_000
+  );
+}
+
+// ---------- Fixtures ----------
+
+const fixtureBase64 = (fileName: string) => readFileSync(join(fixturesDirectory, fileName)).toString("base64");
+
+/** Reads the app's own chat system prompt, so the benchmark sends what the app sends even after the prompt changes. */
+function appChatSystemPrompt(): string {
+  const companionManagerSource = readFileSync(join(checkoutRoot, "leanring-buddy/CompanionManager.swift"), "utf8");
+  const promptMatch = companionManagerSource.match(
+    /companionVoiceResponseSystemPrompt = """\n([\s\S]*?)\n( *)"""/,
+  );
+  if (promptMatch === null) {
+    throw new Error("companionVoiceResponseSystemPrompt not found in CompanionManager.swift");
+  }
+  // Swift strips the closing delimiter's indentation from every line of a multiline string.
+  const closingIndentation = promptMatch[2];
+  return promptMatch[1]
+    .split("\n")
+    .map((promptLine) => (promptLine.startsWith(closingIndentation) ? promptLine.slice(closingIndentation.length) : promptLine))
+    .join("\n");
+}
+
+/** The /chat body ClaudeAPI.analyzeImageStreaming builds for one screen. */
+function appChatRequestBody(transcript: string, conversationHistory: { userTranscript: string; assistantResponse: string }[]) {
+  const historyMessages = conversationHistory.flatMap((exchange) => [
+    { role: "user", content: exchange.userTranscript },
+    { role: "assistant", content: exchange.assistantResponse },
+  ]);
+  return {
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    stream: true,
+    system: appChatSystemPrompt(),
+    messages: [
+      ...historyMessages,
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: fixtureBase64("screen.jpg") } },
+          { type: "text", text: "user's screen (cursor is here) (image dimensions: 1280x800 pixels)" },
+          { type: "text", text: transcript },
+        ],
+      },
+    ],
+  };
+}
+
+/** The screen fixture draws "Download PDF" as a button at the top right and a sidebar link at the bottom left. */
+function pointIsOnADownloadPDFControl(pointX: number, pointY: number): boolean {
+  const topRightButton = pointX >= 1140 && pointX <= 1280 && pointY >= 38 && pointY <= 80;
+  const sidebarLink = pointX >= 10 && pointX <= 140 && pointY >= 355 && pointY <= 388;
+  return topRightButton || sidebarLink;
+}
+
+const spokenReplyForSpeech =
+  "the heart has four chambers. the two atria on top collect blood, and the two ventricles underneath pump it out, the left one sending it to your whole body.";
+
+function judgeCase(caseSuffix: string, learnerTranscript: string, expectedVerdict: string): BenchCase {
+  return {
+    id: `judge-${caseSuffix}`,
+    route: "/judge-answer",
+    description: `Grades "${learnerTranscript}" and expects ${expectedVerdict}`,
+    requestBody: () => ({
+      question: "What is this part of the heart, and what does it do?",
+      answerLabel: "left ventricle",
+      explanation: "The left ventricle pumps oxygen-rich blood out to the body through the aorta.",
+      transcript: learnerTranscript,
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const verdict = reply?.verdict;
+      return { passed: verdict === expectedVerdict, detail: `verdict ${String(verdict)}` };
+    },
+  };
+}
+
+function framePartsCase(id: string, frameFileName: string, expectWholePicture: boolean, description: string): BenchCase {
+  return {
+    id,
+    route: "/video-frame-parts",
+    description,
+    requestBody: () => ({
+      frameBase64: fixtureBase64(frameFileName),
+      frameWidth: 1280,
+      frameHeight: 720,
+      subject: "",
+      question: "",
+      answerLabel: "",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      if (reply?.subjectFound !== true) {
+        return { passed: false, detail: "subjectFound is not true" };
+      }
+      const parts = Array.isArray(reply.parts) ? reply.parts : [];
+      const wholePicture = reply.wholePictureIsSubject === true;
+      const passed = wholePicture === expectWholePicture && parts.length >= 3;
+      return { passed, detail: `wholePictureIsSubject ${wholePicture}, ${parts.length} parts` };
+    },
+  };
+}
+
+const benchCases: BenchCase[] = [
+  {
+    id: "chat-first",
+    route: "/chat",
+    description: "First push-to-talk question with one 1280x800 screenshot, streamed",
+    requestBody: () => appChatRequestBody("how do i download this page as a pdf?", []),
+    checkReply: (replyText) => {
+      const pointMatch = replyText.match(/\[POINT:(\d+),(\d+)/);
+      if (pointMatch === null) {
+        return { passed: false, detail: "no [POINT:x,y] tag" };
+      }
+      const pointX = Number(pointMatch[1]);
+      const pointY = Number(pointMatch[2]);
+      return { passed: pointIsOnADownloadPDFControl(pointX, pointY), detail: `pointed at ${pointX},${pointY}` };
+    },
+  },
+  {
+    id: "chat-followup",
+    route: "/chat",
+    description: "Second question in the same conversation, with one exchange of history",
+    requestBody: () =>
+      appChatRequestBody("what are the four chambers called?", [
+        {
+          userTranscript: "how do i download this page as a pdf?",
+          assistantResponse: "see that blue download pdf button up in the top right? click that and it'll save the whole article for you.",
+        },
+      ]),
+    checkReply: (replyText) => {
+      const spokenText = replyText.toLowerCase();
+      const passed = spokenText.includes("atri") && spokenText.includes("ventricle") && /\[POINT:/.test(replyText);
+      return { passed, detail: passed ? "names atria and ventricles" : `reply: ${replyText.slice(0, 120)}` };
+    },
+  },
+  {
+    id: "tts",
+    route: "/tts",
+    description: `Speaks a ${spokenReplyForSpeech.length}-character reply with the app's ElevenLabs settings`,
+    requestBody: () => ({
+      text: spokenReplyForSpeech,
+      model_id: "eleven_multilingual_v2",
+      voice_settings: { stability: 0.35, similarity_boost: 0.75, style: 0.4 },
+    }),
+    checkReply: (_replyText, contentType, replyBytes) => ({
+      passed: contentType.includes("audio") && replyBytes > 20_000,
+      detail: `${contentType}, ${Math.round(replyBytes / 1024)} KB`,
+    }),
+  },
+  {
+    id: "video-quiz-plan",
+    route: "/video-quiz-plan",
+    description: "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+    requestBody: () =>
+      JSON.parse(readFileSync(join(checkoutRoot, ".claude/skills/verify-clicky/fixtures/video-quiz-plan.json"), "utf8")),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const moments = Array.isArray(reply?.moments) ? reply.moments : [];
+      return { passed: moments.length >= 1, detail: `${moments.length} moments` };
+    },
+  },
+  framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", false, "Finds the heart in a 1280x720 diagram frame"),
+  framePartsCase("frame-parts-painting", "starry-night-frame.jpg", true, "Lifts The Starry Night out as a whole picture"),
+  {
+    id: "landmark",
+    route: "/landmark",
+    description: "Recognizes the Eiffel Tower in a 1280x720 frame",
+    requestBody: () => ({
+      frameBase64: fixtureBase64("eiffel-tower-frame.jpg"),
+      videoTitle: "A day in Paris",
+      learnerRequest: "show me this in 3D",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      if (reply?.isFamousPlace !== true) {
+        return { passed: false, detail: "isFamousPlace is not true" };
+      }
+      const latitudeError = Math.abs(numberField(reply, "latitude") - 48.85826);
+      const longitudeError = Math.abs(numberField(reply, "longitude") - 2.29451);
+      const passed = String(reply.name).includes("Eiffel") && latitudeError < 0.003 && longitudeError < 0.003;
+      return { passed, detail: `${String(reply.name)} at ${numberField(reply, "latitude")},${numberField(reply, "longitude")}` };
+    },
+  },
+  {
+    id: "live-scene",
+    route: "/live-scene",
+    description: "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+    requestBody: () => ({
+      question: "show me the inside of a heart",
+      screenshotBase64: fixtureBase64("screen.jpg"),
+      screenshotMediaType: "image/jpeg",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const quiz = isRecord(reply?.quiz) ? reply.quiz : {};
+      const passed = typeof reply?.html === "string" && typeof quiz.answerLabel === "string";
+      return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
+    },
+  },
+  judgeCase("correct", "that's the left ventricle, it pumps blood out to the whole body", "correct"),
+  judgeCase("named-only", "the left ventricle", "named_only"),
+  judgeCase("wrong", "is it the lungs?", "wrong"),
+  judgeCase("help", "i don't know, can you tell me?", "asked_for_help"),
+];
+
+// ---------- Worker runs ----------
+
+function workerLogPath(port: number): string {
+  const logPathRecord = join(verifyClickyStateDirectory, `worker-${port}.logpath`);
+  if (!existsSync(logPathRecord)) {
+    throw new Error(`No Worker started by verify-clicky on port ${port}. Run: ${verifyClickyScript} worker-up ${port}`);
+  }
+  return readFileSync(logPathRecord, "utf8").trim();
+}
+
+const ansiColorCode = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
+
+function usageLinesLoggedAfter(logPath: string, byteOffset: number): UsageLine[] {
+  const newLogText = readFileSync(logPath).subarray(byteOffset).toString("utf8").replace(ansiColorCode, "");
+  const usageLines: UsageLine[] = [];
+  for (const usageMatch of newLogText.matchAll(/\[(\/[a-z-]+)\] usage (\{.*\})/g)) {
+    const usageObject = parseJSONObject(usageMatch[2]);
+    if (usageObject !== undefined) {
+      usageLines.push(usageLineFromUsageObject(usageMatch[1], usageObject));
+    }
+  }
+  return usageLines;
+}
+
+/** /chat streams Server-Sent Events and logs no usage line, so its usage and first text token come from the stream. */
+async function readChatStream(response: Response, requestStartMs: number) {
+  if (response.body === null) {
+    throw new Error("/chat returned no body");
+  }
+  const decoder = new TextDecoder();
+  let bufferedText = "";
+  let replyText = "";
+  let firstTokenMs: number | null = null;
+  let usageObject: Record<string, unknown> = {};
+  for await (const streamChunk of response.body) {
+    bufferedText += decoder.decode(streamChunk, { stream: true });
+    const completeLines = bufferedText.split("\n");
+    bufferedText = completeLines.pop() ?? "";
+    for (const streamLine of completeLines) {
+      if (!streamLine.startsWith("data: ")) {
+        continue;
+      }
+      const streamEvent = parseJSONObject(streamLine.slice(6));
+      if (streamEvent === undefined) {
+        continue;
+      }
+      if (streamEvent.type === "message_start" && isRecord(streamEvent.message)) {
+        const startUsage = isRecord(streamEvent.message.usage) ? streamEvent.message.usage : {};
+        usageObject = { ...startUsage, model: streamEvent.message.model };
+      }
+      if (streamEvent.type === "message_delta" && isRecord(streamEvent.usage)) {
+        usageObject = { ...usageObject, output_tokens: streamEvent.usage.output_tokens };
+      }
+      if (streamEvent.type === "content_block_delta" && isRecord(streamEvent.delta) && streamEvent.delta.type === "text_delta") {
+        firstTokenMs ??= performance.now() - requestStartMs;
+        replyText += String(streamEvent.delta.text);
+      }
+    }
+  }
+  return { replyText, firstTokenMs, usageLine: usageLineFromUsageObject("/chat", usageObject) };
+}
+
+async function runOneSample(benchCase: BenchCase, runIndex: number, port: number, logPath: string): Promise<Sample> {
+  const requestBodyText = JSON.stringify(benchCase.requestBody());
+  const logOffsetBeforeRequest = statSync(logPath).size;
+  const requestStartMs = performance.now();
+  const response = await fetch(`http://127.0.0.1:${port}${benchCase.route}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: requestBodyText,
+  });
+  const firstByteMs = performance.now() - requestStartMs;
+  const contentType = response.headers.get("content-type") ?? "";
+
+  let replyText = "";
+  let replyBytes = 0;
+  let firstTokenMs: number | null = null;
+  let streamedUsageLines: UsageLine[] = [];
+  if (benchCase.route === "/chat" && response.ok) {
+    const chatStream = await readChatStream(response, requestStartMs);
+    replyText = chatStream.replyText;
+    firstTokenMs = chatStream.firstTokenMs;
+    streamedUsageLines = [chatStream.usageLine];
+  } else {
+    const replyBuffer = Buffer.from(await response.arrayBuffer());
+    replyBytes = replyBuffer.length;
+    replyText = contentType.includes("audio") ? "" : replyBuffer.toString("utf8");
+  }
+  const totalMs = performance.now() - requestStartMs;
+
+  // The Worker writes its usage line just before it answers, so give wrangler's log a moment to flush.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest);
+
+  let ttsCharacters = 0;
+  let costUSD = usageLines.reduce((runningCost, usageLine) => runningCost + costOfUsageLine(usageLine), 0);
+  if (benchCase.route === "/tts") {
+    const ttsBody = parseJSONObject(requestBodyText) ?? {};
+    ttsCharacters = String(ttsBody.text).length;
+    costUSD = (ttsCharacters / 1000) * (elevenLabsPricePerThousandCharacters[String(ttsBody.model_id)] ?? NaN);
+  }
+
+  const quality = response.ok
+    ? benchCase.checkReply(replyText, contentType, replyBytes)
+    : { passed: false, detail: `HTTP ${response.status}: ${replyText.slice(0, 200)}` };
+  return {
+    caseId: benchCase.id,
+    runIndex,
+    httpStatus: response.status,
+    firstByteMs,
+    firstTokenMs,
+    totalMs,
+    usageLines,
+    ttsCharacters,
+    costUSD,
+    quality,
+  };
+}
+
+// ---------- App runs ----------
+
+type AppStep = { id: string; transcript: string; doneLinePattern: RegExp; description: string };
+
+const appSteps: AppStep[] = [
+  {
+    id: "app-voice-reply",
+    transcript: "what are the four chambers of the heart called?",
+    doneLinePattern: /^🔊 ElevenLabs TTS: playing/,
+    description: "Transcript in to the first spoken word of the reply",
+  },
+  {
+    id: "app-image-popout",
+    transcript: "pop this out",
+    doneLinePattern: /^Frame pop-out: lifting/,
+    description: "\"pop this out\" over the heart image to the pop-out page starting",
+  },
+];
+
+type AppSample = { stepId: string; runIndex: number; elapsedMs: number | null };
+
+async function runAppBenchmark(runCount: number): Promise<AppSample[]> {
+  const rehearsalTranscripts: string[] = [];
+  for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
+    rehearsalTranscripts.push(...appSteps.map((appStep) => appStep.transcript));
+  }
+  execFileSync(verifyClickyScript, ["app-launch", rehearsalTranscripts.join("|")], { stdio: "inherit" });
+  const appLogPath = join(realpathSync(join(verifyClickyStateDirectory, "current")), "app.log");
+
+  // Swift print() has no timestamps, so this watches the log and stamps each new line when it appears.
+  const stampedLines: { atMs: number; text: string }[] = [];
+  let readLineCount = 0;
+  const deadlineMs = performance.now() + 15 * 60_000;
+  while (performance.now() < deadlineMs) {
+    const logLines = existsSync(appLogPath) ? readFileSync(appLogPath, "utf8").split("\n") : [];
+    const nowMs = performance.now();
+    for (const logLine of logLines.slice(readLineCount, Math.max(readLineCount, logLines.length - 1))) {
+      stampedLines.push({ atMs: nowMs, text: logLine });
+    }
+    readLineCount = Math.max(readLineCount, logLines.length - 1);
+    if (stampedLines.some((stampedLine) => stampedLine.text.startsWith("Live scene rehearsal: done"))) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  execFileSync(verifyClickyScript, ["app-quit"], { stdio: "inherit" });
+
+  const appSamples: AppSample[] = [];
+  const stepStartIndexes = stampedLines.flatMap((stampedLine, lineIndex) =>
+    stampedLine.text.startsWith("Live scene rehearsal: saying") ? [lineIndex] : [],
+  );
+  stepStartIndexes.forEach((stepStartIndex, stepNumber) => {
+    const appStep = appSteps[stepNumber % appSteps.length];
+    const nextStepStartIndex = stepStartIndexes[stepNumber + 1] ?? stampedLines.length;
+    const doneLine = stampedLines
+      .slice(stepStartIndex, nextStepStartIndex)
+      .find((stampedLine) => appStep.doneLinePattern.test(stampedLine.text));
+    appSamples.push({
+      stepId: appStep.id,
+      runIndex: Math.floor(stepNumber / appSteps.length),
+      elapsedMs: doneLine === undefined ? null : doneLine.atMs - stampedLines[stepStartIndex].atMs,
+    });
+  });
+  return appSamples;
+}
+
+// ---------- Summary ----------
+
+function percentile(sortedValues: number[], fraction: number): number {
+  if (sortedValues.length === 0) {
+    return NaN;
+  }
+  const rank = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(fraction * sortedValues.length) - 1));
+  return sortedValues[rank];
+}
+
+function latencySummary(values: number[]) {
+  const sortedValues = [...values].sort((smaller, larger) => smaller - larger);
+  return {
+    p50: Math.round(percentile(sortedValues, 0.5)),
+    p95: Math.round(percentile(sortedValues, 0.95)),
+    min: Math.round(sortedValues[0] ?? NaN),
+    max: Math.round(sortedValues[sortedValues.length - 1] ?? NaN),
+  };
+}
+
+const mean = (values: number[]) => (values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length);
+
+function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
+  const sumOverLines = (sample: Sample, pickTokens: (usageLine: UsageLine) => number) =>
+    sample.usageLines.reduce((runningSum, usageLine) => runningSum + pickTokens(usageLine), 0);
+  const firstTokenTimes = samples.flatMap((sample) => (sample.firstTokenMs === null ? [] : [sample.firstTokenMs]));
+  return {
+    caseId: benchCase.id,
+    route: benchCase.route,
+    description: benchCase.description,
+    models: [...new Set(samples.flatMap((sample) => sample.usageLines.map((usageLine) => usageLine.model)))],
+    runs: samples.length,
+    qualityPassed: samples.filter((sample) => sample.quality.passed).length,
+    totalMs: latencySummary(samples.map((sample) => sample.totalMs)),
+    firstByteMs: latencySummary(samples.map((sample) => sample.firstByteMs)),
+    firstTokenMs: firstTokenTimes.length > 0 ? latencySummary(firstTokenTimes) : null,
+    modelCallsPerRequest: mean(samples.map((sample) => sample.usageLines.length)),
+    meanInputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.inputTokens)))),
+    meanCacheWriteTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheWriteTokens)))),
+    meanCacheReadTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheReadTokens)))),
+    meanOutputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.outputTokens)))),
+    meanCostUSD: Number(mean(samples.map((sample) => sample.costUSD)).toFixed(5)),
+  };
+}
+
+// ---------- Command line ----------
+
+function commandLineOption(optionName: string): string | undefined {
+  const optionIndex = process.argv.indexOf(`--${optionName}`);
+  return optionIndex === -1 ? undefined : process.argv[optionIndex + 1];
+}
+
+function writeResultFile(label: string, benchKind: string, result: unknown): string {
+  const commitSHA = execFileSync("git", ["-C", checkoutRoot, "rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).trim();
+  const workingTreeIsDirty =
+    execFileSync("git", ["-C", checkoutRoot, "status", "--porcelain", "--", "worker", "leanring-buddy"], { encoding: "utf8" }).trim() !== "";
+  const resultsDirectory = join(benchDirectory, "results");
+  mkdirSync(resultsDirectory, { recursive: true });
+  const resultPath = join(resultsDirectory, `${label}-${benchKind}-${commitSHA}.json`);
+  const resultWithProvenance = { label, benchKind, commitSHA, workingTreeIsDirty, recordedAt: new Date().toISOString(), ...(isRecord(result) ? result : { result }) };
+  writeFileSync(resultPath, `${JSON.stringify(resultWithProvenance, null, 2)}\n`);
+  return resultPath;
+}
+
+async function main() {
+  const benchKind = process.argv[2];
+  const label = commandLineOption("label");
+  if ((benchKind !== "worker" && benchKind !== "app") || label === undefined) {
+    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789]");
+    process.exit(1);
+  }
+  const runCount = Number(commandLineOption("runs") ?? (benchKind === "worker" ? 5 : 3));
+
+  if (benchKind === "app") {
+    const appSamples = await runAppBenchmark(runCount);
+    const appSummary = appSteps.map((appStep) => {
+      const stepTimes = appSamples.flatMap((appSample) => (appSample.stepId === appStep.id && appSample.elapsedMs !== null ? [appSample.elapsedMs] : []));
+      return { stepId: appStep.id, description: appStep.description, runs: stepTimes.length, elapsedMs: latencySummary(stepTimes) };
+    });
+    console.table(appSummary.map((stepSummary) => ({ step: stepSummary.stepId, runs: stepSummary.runs, ...stepSummary.elapsedMs })));
+    console.log(`saved ${writeResultFile(label, "app", { runCount, summary: appSummary, samples: appSamples })}`);
+    return;
+  }
+
+  const port = Number(commandLineOption("port") ?? 8789);
+  const logPath = workerLogPath(port);
+  const onlyCaseIds = commandLineOption("only")?.split(",");
+  const selectedCases = benchCases.filter((benchCase) => onlyCaseIds === undefined || onlyCaseIds.includes(benchCase.id));
+  const samples: Sample[] = [];
+  for (const benchCase of selectedCases) {
+    for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
+      const sample = await runOneSample(benchCase, runIndex, port, logPath);
+      samples.push(sample);
+      console.log(
+        `${benchCase.id} #${runIndex + 1}: HTTP ${sample.httpStatus}, ${Math.round(sample.totalMs)} ms` +
+          `${sample.firstTokenMs === null ? "" : `, first token ${Math.round(sample.firstTokenMs)} ms`}, ` +
+          `${sample.usageLines.length} model call(s), $${sample.costUSD.toFixed(4)}, ` +
+          `${sample.quality.passed ? "PASS" : "FAIL"} ${sample.quality.detail}`,
+      );
+    }
+  }
+  const summary = selectedCases.map((benchCase) => summarizeCase(benchCase, samples.filter((sample) => sample.caseId === benchCase.id)));
+  console.table(
+    summary.map((caseSummary) => ({
+      case: caseSummary.caseId,
+      pass: `${caseSummary.qualityPassed}/${caseSummary.runs}`,
+      p50: caseSummary.totalMs.p50,
+      p95: caseSummary.totalMs.p95,
+      ttft: caseSummary.firstTokenMs?.p50 ?? "",
+      in: caseSummary.meanInputTokens,
+      cached: caseSummary.meanCacheReadTokens,
+      out: caseSummary.meanOutputTokens,
+      usd: caseSummary.meanCostUSD,
+    })),
+  );
+  console.log(`saved ${writeResultFile(label, "worker", { runCount, port, summary, samples })}`);
+}
+
+await main();

@@ -15,13 +15,17 @@ const anthropicMessageSchema = z.object({
   ),
 });
 
-const modelUsageSchema = z.object({ usage: z.unknown() });
+const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()) });
 
-/** Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends. */
+/**
+ * Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends.
+ * The line also names the model, because the benchmark prices each line by it.
+ */
 export function logModelUsage(routeName: string, modelResponseJSON: unknown): void {
   const parsedResponse = modelUsageSchema.safeParse(modelResponseJSON);
-  if (parsedResponse.success && parsedResponse.data.usage !== undefined) {
-    console.log(`[${routeName}] usage ${JSON.stringify(parsedResponse.data.usage)}`);
+  if (parsedResponse.success) {
+    const { model, usage } = parsedResponse.data;
+    console.log(`[${routeName}] usage ${JSON.stringify({ model, ...usage })}`);
   }
 }
 
