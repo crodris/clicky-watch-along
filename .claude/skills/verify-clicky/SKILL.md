@@ -22,9 +22,10 @@ $V            # prints usage
 - Never run this skill, and never copy `worker/.dev.vars`, on a checkout that holds commits from a fork or from an author Chris has not approved.
   The skill runs the checkout's Worker code, install scripts, and helper script with Chris's API keys.
   Verify those pull requests through CI only.
-- Never run `xcodebuild` on this Mac.
+- Never run `xcodebuild` on this Mac as Chris's user.
   It resets the app's TCC permissions.
-  Chris builds the Debug app in Xcode (Cmd+B), and CI builds it on a GitHub runner, which is fine.
+  Chris builds the Debug app in Xcode (Cmd+B).
+  CI builds it on this Mac only as the separate `clicky-ci` user, into a temp folder, so it never replaces the app Chris's grants belong to.
 - Never stop, quit, or drive a Worker or a Clicky instance this script did not start.
   Doctor names the owner of each, and the helper refuses to drive one it did not start.
 - Never run `wrangler deploy`.

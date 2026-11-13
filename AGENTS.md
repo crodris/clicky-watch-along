@@ -206,12 +206,15 @@ The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
 The `bench` job typechecks `bench/` and checks that the committed results in `bench/results/` still parse.
 The `app` job builds the `leanring-buddy` scheme with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 Pushes and same-repo pull requests run it on the self-hosted runner `clicky-mac` on Chris's Mac, because GitHub's macOS queue can take over 10 minutes.
-That runner runs as the separate `clicky-ci` macOS user, and macOS stores TCC permissions per user, so its xcodebuild runs cannot reset Chris's grants for Clicky.
+That runner runs as the separate `clicky-ci` macOS user and builds into the job's temp folder.
+So it never replaces the `Clicky.app` that Chris's Xcode builds, which his Screen Recording and Accessibility grants belong to.
+The test host only checks those permissions and never requests them.
 The hosted tests need a desktop session to reach `testmanagerd`, so the runner starts from the login item `/Users/clicky-ci/Library/LaunchAgents/com.crodris.clicky-ci-runner.plist`.
 After a restart, log in to `clicky-ci` once through fast user switching, then switch back, and the runner keeps running in that background session.
-The `clicky-ci` password is the same as Chris's own login password.
-While the Mac sleeps or `clicky-ci` is logged out, these jobs wait.
-Fork pull requests run on GitHub's `macos-latest`, and the repo requires approval before an outside contributor's workflow runs, since a fork can change `runs-on`.
+While the Mac sleeps or `clicky-ci` is logged out, these jobs wait, and GitHub cancels a job that waits over 24 hours.
+On the Mac runner, a step fails the job when `xcodebuild -version` is not Xcode 26.5, so update the version in `ci.yml` after updating Xcode.
+Fork pull requests run on GitHub's `macos-latest`, and the repo requires approval before an outside contributor's workflow runs.
+A fork can change `runs-on` or add a workflow, so never approve a fork run whose diff touches `.github/`.
 
 ## Verification
 
