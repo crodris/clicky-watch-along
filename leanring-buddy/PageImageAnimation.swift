@@ -176,13 +176,15 @@ enum PageImageAnimation {
 }
 
 /// A redirect may only move to another https URL.
-private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
+/// The completion-handler form is used because Swift 6.3 crashes emitting the async form's thunk under main-actor default isolation.
+nonisolated private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
         willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest
-    ) async -> URLRequest? {
-        request.url?.scheme == "https" ? request : nil
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(request.url?.scheme == "https" ? request : nil)
     }
 }
