@@ -15,6 +15,7 @@ Press Escape to skip a question, or say "stop the quiz" to end it.
 When it finds one, the subject lifts out of the video in 3D with its parts labeled, and Clicky asks the question once the tour ends.
 Charts and people talking stay voice only.
 You can also say "pop this out" or "pop this heart out" at any time, and Clicky lifts out whatever the video shows, with every label and no question.
+When that tour ends, Clicky talks about two or three of the parts, highlighting each one as it names it.
 
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
 You can drag to spin it.
@@ -36,6 +37,7 @@ While a label shows, its icon sits where Clicky's blue triangle usually is, and 
 
 **Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.
 The scan is cut down to the structure and about 130 meters around it, and it floats over the video.
+When the camera stops, Clicky names the place and says how tall it is.
 
 ## Running it
 

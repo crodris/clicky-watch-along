@@ -14,6 +14,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
+- `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
+  The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
 
 ## How to get to it (user POV)
 
@@ -33,6 +35,7 @@ Preconditions:
 - **Pop out in the app.** Run `$V app-launch "pop this out"`.
   The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot popout` while the subject floats over the video.
+  When the tour ends, the log shows `Frame pop-out narration: N sentences for afterTour`, and Clicky speaks about the parts while each one turns yellow.
 - **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
   Run `$V app-launch "pop this out"`.
   The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.

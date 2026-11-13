@@ -427,4 +427,14 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
+    @Test func narrationPartTagsMatchOnlyKnownLabelsInTheirExactSpelling() async throws {
+        let knownPartLabels = ["Left Ventricle", "aorta"]
+        // Claude may change the case or add spaces, and the highlight still uses the pop-out's own spelling.
+        #expect(knownPartLabel(matching: " left ventricle ", knownPartLabels: knownPartLabels) == "Left Ventricle")
+        #expect(knownPartLabel(matching: "Aorta", knownPartLabels: knownPartLabels) == "aorta")
+        // A part the model does not have, or a sentence with no tag, highlights nothing.
+        #expect(knownPartLabel(matching: "lungs", knownPartLabels: knownPartLabels) == nil)
+        #expect(knownPartLabel(matching: nil, knownPartLabels: knownPartLabels) == nil)
+    }
+
 }

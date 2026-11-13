@@ -10,6 +10,7 @@ The scan is cut down to the structure and about 130 m around it, floating over t
 - `landmark-route` is the `/landmark` route, which returns `isFamousPlace`, `name`, `latitude`, `longitude`, `heightMeters`, and `radiusMeters`.
 - `landmark-not-famous` returns `isFamousPlace: false`, and the app builds a live scene instead.
 - `landmark-tiles` is `GET /v1/3dtiles/...`, which passes only `root.json` and dataset files.
+- `landmark-line` speaks one line after the tour, naming the place and its height from the `/landmark` reply, with no model call.
 
 ## How to get to it (user POV)
 
@@ -30,6 +31,7 @@ Preconditions:
 - **Scan in the app.** Run `$V app-launch "show me this in 3D"`.
   The log shows `Landmark: showing Google 3D tiles of <name>`.
   Run `$V shot landmark` while the scan is up.
+  When the tour ends, the log shows `Landmark: saying "This is <name>, in real 3D. It stands about N meters tall..."`.
 - **Cost ceiling.** One `[/landmark]` usage line per request, with `thinking_tokens` 0 and `output_tokens` under 300.
   The route runs at low effort and used 51 output tokens and 0 thinking on 2026-11-05.
   Tile requests spend the Maps key, not model tokens.

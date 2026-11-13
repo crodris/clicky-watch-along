@@ -91,6 +91,8 @@ final class CompanionManager: ObservableObject {
     }()
 
     private var liveScenePhase: LiveScenePhase = .idle
+    /// Set each time a page plays, so narration uses Clicky's own data about the page on screen.
+    private var liveScenePageOnScreen: LiveScenePageOnScreen?
     /// Bumped on every new question so a scene request still in flight cannot play late.
     private var liveSceneRequestGeneration = 0
     private var liveSceneRequestTask: Task<Void, Never>?
@@ -973,6 +975,7 @@ final class CompanionManager: ObservableObject {
         }
         print("Landmark: showing Google 3D tiles of \(placeInFrame.famousPlace.name)")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .landmark(placeInFrame.famousPlace)
         return true
     }
 
@@ -1019,6 +1022,11 @@ final class CompanionManager: ObservableObject {
         }
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .framePopout(framePopout)
+        // Idle during the tour so the triangle shows, while the narration is written in the background.
+        voiceState = .idle
+        await narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
+        guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
     }
@@ -1092,7 +1100,9 @@ final class CompanionManager: ObservableObject {
             await sayTheSceneCouldNotBeBuilt()
             return
         }
-        if sceneKind == .explore {
+        if case .landmark(let famousPlace) = liveScenePageOnScreen {
+            await speakTheLandmarkLineAfterItsTour(famousPlace)
+        } else if sceneKind == .explore {
             await speakAboutTheLiveSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
         }
         guard !Task.isCancelled else { return }
@@ -1205,6 +1215,7 @@ final class CompanionManager: ObservableObject {
             )
             guard liveSceneWasAccepted else { return }
             liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
+            liveScenePageOnScreen = .generatedPage
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
@@ -1410,6 +1421,7 @@ final class CompanionManager: ObservableObject {
            LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
+            liveScenePageOnScreen = .framePopout(framePopout)
             return
         }
         liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
@@ -1573,6 +1585,69 @@ final class CompanionManager: ObservableObject {
             ClickyAnalytics.trackTTSError(error: error.localizedDescription)
             print("⚠️ ElevenLabs TTS error: \(error)")
             speakCreditsErrorFallback()
+        }
+    }
+
+    // MARK: - Bundled Page Narration
+
+    /// Says a few sentences about a frame pop-out, one part each, highlighting that part as it is named.
+    /// The Claude call starts right away and the speech waits for the tour, so it is ready when the camera stops.
+    /// The labels come from the pop-out's own parts list, because the page may not have loaded yet.
+    private func narrateTheFramePopout(_ framePopout: VideoFramePopout, narrationTrigger: LiveSceneNarrationTrigger) async {
+        let knownPartLabels = framePopout.parts.map(\.label)
+        var pausedFrameImages: [(data: Data, label: String)] = []
+        if let pausedFrameJPEGData = Data(base64Encoded: framePopout.frameGrab.jpeg) {
+            pausedFrameImages.append((data: pausedFrameJPEGData, label: "the paused video frame the 3d model was lifted from"))
+        }
+        let narrationText: String
+        do {
+            narrationText = try await claudeAPI.analyzeImageStreaming(
+                images: pausedFrameImages,
+                systemPrompt: liveSceneNarrationSystemPrompt,
+                userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels),
+                onTextChunk: { _ in }
+            ).text
+        } catch {
+            print("Frame pop-out narration failed: \(error)")
+            return
+        }
+        await waitForTheLiveSceneTourToFinish()
+        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase else { return }
+        let spokenParts = liveSceneSpokenParts(from: narrationText)
+        print("Frame pop-out narration: \(spokenParts.count) sentences for \(narrationTrigger)")
+        for spokenPart in spokenParts {
+            guard !Task.isCancelled else { return }
+            await speakLiveSceneNarrationSentence(
+                spokenPart.spokenText,
+                aboutPartLabel: knownPartLabel(matching: spokenPart.partLabel, knownPartLabels: knownPartLabels)
+            )
+        }
+        guard !Task.isCancelled else { return }
+        LiveSceneOverlay.shared.highlightPart(labelText: "")
+    }
+
+    /// A nil part label means the sentence names no part on the model, so nothing is highlighted.
+    private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?) async {
+        if let partLabel {
+            LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
+        }
+        await speakLiveSceneLine(spokenText)
+        await waitForClickyToFinishSpeaking()
+    }
+
+    /// The name and height come from the /landmark reply, so this line needs no model call.
+    private func speakTheLandmarkLineAfterItsTour(_ famousPlace: FamousPlace) async {
+        await waitForTheLiveSceneTourToFinish()
+        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase else { return }
+        let landmarkLine = landmarkNarrationLine(for: famousPlace)
+        print("Landmark: saying \"\(landmarkLine)\"")
+        await speakLiveSceneLine(landmarkLine)
+        await waitForClickyToFinishSpeaking()
+    }
+
+    private func waitForTheLiveSceneTourToFinish() async {
+        while case .touring = liveScenePhase, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 200_000_000)
         }
     }
 
