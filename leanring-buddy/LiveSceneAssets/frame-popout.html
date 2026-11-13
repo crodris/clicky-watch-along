@@ -393,6 +393,10 @@ const render = (now) => {
         halfWidth, halfHeight: entry.element.offsetHeight / 2 + 3,
       };
     });
+  // A label's center stays this far plus half its size inside the viewport, so none leaves the screen.
+  const labelViewportMargin = 8;
+  const keepLabelAxisInViewport = (position, halfSize, viewportSize) =>
+    Math.min(viewportSize - labelViewportMargin - halfSize, Math.max(labelViewportMargin + halfSize, position));
   // Labels that land on each other are pushed apart, so none hides another.
   for (let pass = 0; pass < 12; pass++) {
     for (let first = 0; first < placements.length; first++) for (let second = first + 1; second < placements.length; second++) {
@@ -408,6 +412,11 @@ const render = (now) => {
         a.labelX += direction * push; b.labelX -= direction * push;
       }
     }
+    // Clamping inside each pass lets the next pass push labels apart again, instead of overlapping at an edge.
+    for (const placement of placements) {
+      placement.labelX = keepLabelAxisInViewport(placement.labelX, placement.halfWidth, pageWidth);
+      placement.labelY = keepLabelAxisInViewport(placement.labelY, placement.halfHeight, pageHeight);
+    }
   }
   // Each label follows its part exactly, and its offset from the part glides toward the new layout.
   // While the learner drags, the offsets hold still, so labels move with the model instead of
@@ -415,13 +424,15 @@ const render = (now) => {
   const glide = 1 - Math.exp(-frameMilliseconds / 120);
   const offsetsHoldStill = dragging && tourDone;
   for (const placement of placements) {
-    const { entry, pointX, pointY } = placement;
+    const { entry, pointX, pointY, halfWidth, halfHeight } = placement;
     if (entry.offsetX === undefined) { entry.offsetX = placement.labelX - pointX; entry.offsetY = placement.labelY - pointY; }
     if (!offsetsHoldStill) {
       entry.offsetX += (placement.labelX - pointX - entry.offsetX) * glide;
       entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
     }
-    const labelX = pointX + entry.offsetX, labelY = pointY + entry.offsetY;
+    // Offsets held still during a drag, and the glide between layouts, can carry a label past the edge, so the final position is clamped too.
+    const labelX = keepLabelAxisInViewport(pointX + entry.offsetX, halfWidth, pageWidth);
+    const labelY = keepLabelAxisInViewport(pointY + entry.offsetY, halfHeight, pageHeight);
     // A transform keeps the label at sub-pixel positions like its SVG line. Left and top snap to
     // whole pixels in WebKit, which made labels shimmer against their lines.
     entry.element.style.transform = `translate(${labelX}px, ${labelY}px) translate(-50%, -50%)`;
