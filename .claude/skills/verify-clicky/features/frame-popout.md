@@ -10,10 +10,16 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-voice` triggers on "pop this out", "pop out", or up to 3 words between, as in "pop this heart out".
 - `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels, and `wholePictureIsSubject`.
 - `popout-none` returns `subjectFound: false` for a frame with no clear subject.
-- `popout-in-quiz` pauses a running video quiz first.
+- `popout-pauses-video` pauses a playing YouTube video first, with or without a quiz, and plays it again when the pop-out clears, unless the learner had paused it.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
+- `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
+  The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
+  For an image on a web page, the prompt calls it a picture, never a video.
+- `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
+  A press that moves more than 4 px is a drag that turns the model, not a click.
+- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the label in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
 
 ## How to get to it (user POV)
 
@@ -33,6 +39,11 @@ Preconditions:
 - **Pop out in the app.** Run `$V app-launch "pop this out"`.
   The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot popout` while the subject floats over the video.
+  When the tour ends, the log shows `Frame pop-out narration: N sentences for afterTour`, and Clicky speaks about the parts while each one turns yellow.
+  Then click one label without moving the mouse.
+  The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
+  Drag across a label instead, and the model turns with no tap line in the log.
+  While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just under that label, drawn over the model, with the label's name in its bubble.
 - **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
   Run `$V app-launch "pop this out"`.
   The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.

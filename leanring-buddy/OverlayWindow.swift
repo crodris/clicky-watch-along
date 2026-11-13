@@ -98,6 +98,20 @@ enum BuddyNavigationMode {
     case pointingAtTarget
 }
 
+/// How long the buddy keeps pointing once it reaches a detected element.
+enum BuddyPointingHold: Equatable {
+    /// A few seconds after its bubble text appears, then it flies back to the cursor.
+    case briefly
+    /// Until CompanionManager clears the location, so it stays on a 3D scene part for as long as
+    /// Clicky talks about it. Only the narration with this ID may release it.
+    case untilReleased(byNarrationID: UUID)
+
+    var holdsUntilReleased: Bool {
+        if case .untilReleased = self { return true }
+        return false
+    }
+}
+
 // SwiftUI view for the blue glowing cursor pointer.
 // Each screen gets its own BlueCursorView. The view checks whether
 // the cursor is currently on THIS screen and only shows the buddy
@@ -177,6 +191,10 @@ struct BlueCursorView: View {
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
     @State private var isReturningToCursor: Bool = false
+
+    /// True while the buddy flies to or points at a target that holds until released. CompanionManager
+    /// has already reset its hold by the time the location clears, so the view keeps its own copy.
+    @State private var currentTargetHoldsUntilReleased: Bool = false
 
     // MARK: - Onboarding Video Layout
 
@@ -387,6 +405,9 @@ struct BlueCursorView: View {
             // that position so it points at the element.
             guard let screenLocation = newLocation,
                   let displayFrame = companionManager.detectedElementDisplayFrame else {
+                if newLocation == nil {
+                    flyBackFromAReleasedHeldTarget()
+                }
                 return
             }
 
@@ -495,6 +516,7 @@ struct BlueCursorView: View {
         // Enter navigation mode — stop cursor following
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = false
+        currentTargetHoldsUntilReleased = companionManager.detectedElementPointingHold.holdsUntilReleased
 
         animateBezierFlightArc(to: clampedTarget) {
             guard self.buddyNavigationMode == .navigatingToTarget else { return }
@@ -602,16 +624,30 @@ struct BlueCursorView: View {
             ?? "right here!"
 
         streamNavigationBubbleCharacter(phrase: pointerPhrase, characterIndex: 0) {
-            // All characters streamed — hold for 3 seconds, then fly back
+            // A held target stays until CompanionManager clears the location.
+            guard !self.currentTargetHoldsUntilReleased else { return }
+            // All characters streamed. Hold for 3 seconds, then fly back.
+            // A held target that arrived since then must not be cut short by this older timer.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                guard self.buddyNavigationMode == .pointingAtTarget else { return }
+                guard self.buddyNavigationMode == .pointingAtTarget, !self.currentTargetHoldsUntilReleased else { return }
                 self.navigationBubbleOpacity = 0.0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    guard self.buddyNavigationMode == .pointingAtTarget else { return }
+                    guard self.buddyNavigationMode == .pointingAtTarget, !self.currentTargetHoldsUntilReleased else { return }
                     self.startFlyingBackToCursor()
                 }
             }
         }
+    }
+
+    /// A held target ends when CompanionManager clears the location, once Clicky stops talking about that part.
+    /// Only the screen whose buddy is at or flying to the target has anything to release.
+    private func flyBackFromAReleasedHeldTarget() {
+        guard currentTargetHoldsUntilReleased,
+              buddyNavigationMode != .followingCursor,
+              !isReturningToCursor else { return }
+        currentTargetHoldsUntilReleased = false
+        navigationBubbleOpacity = 0.0
+        startFlyingBackToCursor()
     }
 
     /// Streams the navigation bubble text one character at a time with variable
@@ -678,6 +714,7 @@ struct BlueCursorView: View {
         navigationAnimationTimer = nil
         buddyNavigationMode = .followingCursor
         isReturningToCursor = false
+        currentTargetHoldsUntilReleased = false
         triangleRotationDegrees = -35.0
         buddyFlightScale = 1.0
         navigationBubbleText = ""
@@ -791,6 +828,11 @@ private struct BlueCursorSpinnerView: View {
 // buddy seamlessly follows the cursor across multiple monitors.
 @MainActor
 class OverlayWindowManager {
+    /// One above .screenSaver, where the live scene window and the status label sit, so the blue
+    /// cursor draws over a 3D scene when it points at a part. These windows ignore the mouse, so
+    /// clicks and drags still reach the scene under them.
+    private static let cursorOverlayWindowLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+
     private var overlayWindows: [OverlayWindow] = []
     var hasShownOverlayBefore = false
 
@@ -805,6 +847,7 @@ class OverlayWindowManager {
         // Create one overlay window per screen
         for screen in screens {
             let window = OverlayWindow(screen: screen)
+            window.level = Self.cursorOverlayWindowLevel
 
             let contentView = BlueCursorView(
                 screenFrame: screen.frame,

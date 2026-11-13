@@ -28,6 +28,10 @@ struct VideoFrameGrab: Decodable {
     var screenRect: ScreenRectInChromeCoordinates {
         ScreenRectInChromeCoordinates(rectX: rectX, rectY: rectY, rectWidth: rectWidth, rectHeight: rectHeight)
     }
+
+    var source: FramePopoutSource {
+        videoSeconds == nil ? .pageImage : .pausedYouTubeFrame
+    }
 }
 
 struct VideoFramePopout {

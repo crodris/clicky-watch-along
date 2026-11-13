@@ -14,11 +14,23 @@ Press Escape to skip a question, or say "stop the quiz" to end it.
 **The paused frame pops out in 3D.** Six seconds before each pause, Clicky grabs the video frame and asks Sonnet to find the subject and its parts.
 When it finds one, the subject lifts out of the video in 3D with its parts labeled, and Clicky asks the question once the tour ends.
 Charts and people talking stay voice only.
-You can also say "pop this out" or "pop this heart out" at any time, and Clicky lifts out whatever the video shows, with every label and no question.
+The part you are asked about shows as a large blue "?".
+Name it correctly and the label turns green with the real name, a ring bursts out at the part, and a short chime plays.
+A wrong answer shakes the label once, and it stays a "?" for your second try.
+Asking for help, or missing twice, shows the name in the normal color with no celebration.
+With Reduce Motion on, the label still turns green, but it skips the shake and the ring.
+When the question is over, the labels fade and the subject eases back flat into the paused frame, and then the video plays.
+Press Escape again while it settles back to hide it at once.
+You can also say "pop this out" or "pop this heart out" at any time, and Clicky pauses the video and lifts out whatever it shows, with every label and no question.
+When that tour ends, Clicky talks about two or three of the parts, highlighting each one as it names it.
+Click any label after that, and Clicky turns the model to that part and tells you what it does.
+Each time Clicky names a part, its blue triangle flies onto the model, points at that label, and flies back to your mouse when Clicky is done talking.
+It plays the video again when you close the pop-out, unless you had paused it yourself.
 
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
 You can drag to spin it.
 It works best on 2D illustrations, like engravings and prints.
+Clicky talks about its parts the same way, and calls it a picture, not a video.
 A painted scene, like The Starry Night, lifts out whole, sky included, while a drawing of one animal, like Dürer's Young Hare, lifts out only the animal.
 
 **3D models on request.** Say "show me" or "in 3D" over a video, and Clicky pauses it.
@@ -36,6 +48,7 @@ While a label shows, its icon sits where Clicky's blue triangle usually is, and 
 
 **Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.
 The scan is cut down to the structure and about 130 meters around it, and it floats over the video.
+When the camera stops, Clicky names the place and says how tall it is.
 
 ## Running it
 

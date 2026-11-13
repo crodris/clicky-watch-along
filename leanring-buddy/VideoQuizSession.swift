@@ -190,6 +190,28 @@ extension VideoQuizFailure: LocalizedError {
     var errorDescription: String? { spokenLine }
 }
 
+// MARK: - Who paused the video
+
+/// Why Clicky holds a video paused. Clicky presses play again only for a pause it holds,
+/// so a video the learner paused is never held and never played.
+nonisolated enum ClickyVideoPauseReason: Equatable {
+    case quizQuestion
+    case requestedScene
+}
+
+/// A question may be asked only while its own pause is still held. A requested scene that took the pause
+/// over, or a video that has already played on, means the question would run under the scene or the video.
+nonisolated func quizQuestionMayStillBeAsked(heldPauseReason: ClickyVideoPauseReason?) -> Bool {
+    heldPauseReason == .quizQuestion
+}
+
+/// Whether Clicky holds the video's pause once a pop-out or 3D model was requested over it.
+/// It holds the pause when it pauses a playing video itself, or already held this video's pause
+/// for a quiz question. A video the learner paused stays theirs, so it is not held and not resumed.
+nonisolated func clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: Bool, clickyAlreadyHoldsThePause: Bool) -> Bool {
+    videoIsPlaying || clickyAlreadyHoldsThePause
+}
+
 // MARK: - Session
 
 @MainActor
@@ -216,8 +238,16 @@ final class VideoQuizSession {
     private var currentVideoTab: ChromeVideoTab?
     private var moments: [VideoQuizMoment] = []
     private var askedMomentIndices: Set<Int> = []
-    private var isWaitingForQuestionToFinish = false
-    private(set) var videoIsPausedForRequestedScene = false
+    /// The one record of a video Clicky paused, with the tab it paused. Nil means Clicky holds no pause,
+    /// including when the learner paused the video. The tab is kept because the learner can switch tabs before the resume.
+    private struct VideoPausedByClicky {
+        let reason: ClickyVideoPauseReason
+        let tab: ChromeVideoTab
+    }
+    private var videoPausedByClicky: VideoPausedByClicky?
+    var videoIsPausedForRequestedScene: Bool {
+        videoPausedByClicky?.reason == .requestedScene
+    }
     private var allTranscriptLines: [VideoQuizTranscriptLine] = []
     private var consecutiveFailedPlaybackReadCount = 0
     private var framePopoutTasksByMomentIndex: [Int: Task<VideoFramePopout?, Never>] = [:]
@@ -241,7 +271,6 @@ final class VideoQuizSession {
         isRunning = true
         moments = []
         askedMomentIndices = []
-        isWaitingForQuestionToFinish = false
         consecutiveFailedPlaybackReadCount = 0
         framePopoutTasksByMomentIndex = [:]
         runningTask = Task {
@@ -249,10 +278,11 @@ final class VideoQuizSession {
         }
     }
 
+    /// Leaves a question's pause held. The caller plays it with resumeVideoAfterQuestion once the
+    /// question's pop-out has landed back in its frame.
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        isWaitingForQuestionToFinish = false
         runningTask?.cancel()
         runningTask = nil
         for framePopoutTask in framePopoutTasksByMomentIndex.values {
@@ -264,35 +294,46 @@ final class VideoQuizSession {
         print("Video quiz: stopped")
     }
 
-    /// Pauses for a 3D model the learner asked for, and returns what the video
-    /// just said, so "show me that" can be built from it.
+    /// Pauses the YouTube video in Chrome's front tab for a 3D model or pop-out the learner asked for,
+    /// with or without a quiz, so the video's narrator does not talk over Clicky. Returns what the quiz
+    /// video just said, so "show me that" can be built from it, or "" when no quiz watches this video.
+    /// A running quiz only pauses its own video, and Clicky holds one pause at a time.
     func pauseVideoForRequestedScene() -> String {
-        guard isRunning, let currentVideoTab else { return "" }
-        isWaitingForQuestionToFinish = true
-        videoIsPausedForRequestedScene = true
-        var heardText = ""
+        guard let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else { return "" }
+        let quizWatchesTheFrontVideo = isRunning && currentVideoTab?.isTheSameTab(as: frontVideoTab) == true
+        if isRunning && !quizWatchesTheFrontVideo { return "" }
+        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: frontVideoTab) { return "" }
         do {
-            let playbackState = try readPlaybackState(of: currentVideoTab)
-            try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: currentVideoTab)
-            heardText = allTranscriptLines
+            let playbackState = try readPlaybackState(of: frontVideoTab)
+            if !playbackState.isPaused {
+                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab)
+            }
+            if clickyHoldsTheVideoPauseAfterASceneRequest(
+                videoIsPlaying: !playbackState.isPaused,
+                clickyAlreadyHoldsThePause: videoPausedByClicky != nil
+            ) {
+                videoPausedByClicky = VideoPausedByClicky(reason: .requestedScene, tab: frontVideoTab)
+            }
+            print("Video quiz: paused for a requested 3D model, held by Clicky \(videoIsPausedForRequestedScene)")
+            guard quizWatchesTheFrontVideo else { return "" }
+            return allTranscriptLines
                 .filter { $0.seconds < playbackState.currentSeconds }
                 .suffix(12)
                 .map(\.text)
                 .joined(separator: " ")
-            print("Video quiz: paused for a requested 3D model")
         } catch {
             print("Video quiz: could not pause for a 3D model: \(error)")
+            return ""
         }
-        return heardText
     }
 
+    /// Presses play once the scene is gone, but only for a pause Clicky made for it.
     func resumeVideoAfterRequestedScene() {
-        videoIsPausedForRequestedScene = false
-        resumeVideoAfterQuestion()
+        guard videoIsPausedForRequestedScene else { return }
+        playTheVideoClickyPaused()
+        endTheQuizWhenEveryMomentWasAsked()
     }
 
-    /// Called once the explanation has been spoken. Presses play again, and ends
-    /// the session after the last moment.
     /// True when the quiz's YouTube tab is the active tab of Chrome's front window. A scene asked for
     /// over any other page is not about this video, so it must not pause or resume it.
     func quizVideoIsTheTabInFront() -> Bool {
@@ -300,22 +341,33 @@ final class VideoQuizSession {
               let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else {
             return false
         }
-        return frontVideoTab.windowId == currentVideoTab.windowId && frontVideoTab.tabId == currentVideoTab.tabId
+        return frontVideoTab.isTheSameTab(as: currentVideoTab)
     }
 
+    /// Called once the explanation has been spoken. Presses play again, and ends
+    /// the session after the last moment.
     func resumeVideoAfterQuestion() {
-        guard isRunning, isWaitingForQuestionToFinish, let currentVideoTab else { return }
-        isWaitingForQuestionToFinish = false
+        guard videoPausedByClicky?.reason == .quizQuestion else { return }
+        playTheVideoClickyPaused()
+        endTheQuizWhenEveryMomentWasAsked()
+    }
+
+    private func playTheVideoClickyPaused() {
+        guard let pausedVideoTab = videoPausedByClicky?.tab else { return }
+        videoPausedByClicky = nil
         do {
-            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: currentVideoTab)
+            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab)
             print("Video quiz: resumed the video")
         } catch {
             print("Video quiz: could not resume the video: \(error)")
         }
-        if askedMomentIndices.count == moments.count {
-            print("Video quiz: all \(moments.count) moments asked")
-            stop()
-        }
+    }
+
+    /// No moments yet means the quiz is still planning, which is not the end.
+    private func endTheQuizWhenEveryMomentWasAsked() {
+        guard isRunning, !moments.isEmpty, askedMomentIndices.count == moments.count else { return }
+        print("Video quiz: all \(moments.count) moments asked")
+        stop()
     }
 
     // MARK: Planning
@@ -396,7 +448,7 @@ final class VideoQuizSession {
     private func pollPlaybackUntilTheQuizEnds(videoTab: ChromeVideoTab) async {
         while isRunning, !Task.isCancelled {
             try? await Task.sleep(for: .seconds(Self.secondsBetweenPlaybackReads))
-            guard isRunning, !Task.isCancelled, !isWaitingForQuestionToFinish else { continue }
+            guard isRunning, !Task.isCancelled, videoPausedByClicky == nil else { continue }
 
             let playbackState: VideoPlaybackState
             do {
@@ -441,7 +493,7 @@ final class VideoQuizSession {
             return
         }
         askedMomentIndices.insert(momentIndex)
-        isWaitingForQuestionToFinish = true
+        videoPausedByClicky = VideoPausedByClicky(reason: .quizQuestion, tab: videoTab)
         let moment = moments[momentIndex]
         print("Video quiz: paused at \(videoSecondsWhenReached)s for moment \(momentIndex + 1), planned for \(moment.pauseAtSeconds)s")
         let framePopout = await framePopoutForThePausedFrame(momentIndex: momentIndex, videoTab: videoTab)
@@ -459,6 +511,10 @@ final class VideoQuizSession {
             secondsWaitedForClickyToBeFree += Self.secondsBetweenBusyChecks
         }
         guard isRunning, !Task.isCancelled else { return }
+        guard quizQuestionMayStillBeAsked(heldPauseReason: videoPausedByClicky?.reason) else {
+            print("Video quiz: skipping the question for moment \(momentIndex + 1), its pause is no longer held")
+            return
+        }
         askQuestion(moment.quiz, framePopout)
     }
 
@@ -647,6 +703,11 @@ private struct ChromeVideoTab {
     let tabId: Int
     let url: String
     let title: String
+
+    /// The url and title change when the learner moves to another video inside the same tab, so only the ids identify it.
+    func isTheSameTab(as otherVideoTab: ChromeVideoTab) -> Bool {
+        windowId == otherVideoTab.windowId && tabId == otherVideoTab.tabId
+    }
 
     /// The active tab of the front window if it is a YouTube watch page, else any
     /// YouTube watch tab in any Chrome window, unless `onlyTheActiveTabOfTheFrontWindow` is set.
