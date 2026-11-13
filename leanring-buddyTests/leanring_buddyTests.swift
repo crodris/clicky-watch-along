@@ -551,7 +551,8 @@ struct leanring_buddyTests {
             frameGrab: frameGrab,
             subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
             parts: [VideoFramePopout.Part(label: "Aorta", x: 10, y: 10, isQuizAnswer: false)],
-            subjectMaskPNGBase64: ""
+            subjectMaskPNGBase64: "",
+            pictureShowsDepth: false
         )
         let framePopoutOnScreen = LiveScenePageOnScreen.framePopout(framePopout)
 

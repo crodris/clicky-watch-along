@@ -55,6 +55,8 @@ struct VideoFramePopout {
     let parts: [Part]
     /// A PNG as large as the frame, white where the subject is.
     let subjectMaskPNGBase64: String
+    /// True for a cutaway, a 3D render, or a photo, which lifts out as a flat card instead of puffed up.
+    let pictureShowsDepth: Bool
 }
 
 private struct VideoFramePartsResponse: Decodable {
@@ -63,6 +65,8 @@ private struct VideoFramePartsResponse: Decodable {
     let parts: [VideoFramePopout.Part]?
     /// True for a painted scene, which lifts out whole instead of as Vision's foreground objects.
     let wholePictureIsSubject: Bool?
+    /// Missing from a Worker that predates it, which keeps the puffed-up lift.
+    let pictureShowsDepth: Bool?
 }
 
 enum VideoFramePopoutClient {
@@ -120,7 +124,8 @@ enum VideoFramePopoutClient {
             frameGrab: frameGrab,
             subjectBox: subjectMask.boundingBox,
             parts: parts,
-            subjectMaskPNGBase64: subjectMask.pngData.base64EncodedString()
+            subjectMaskPNGBase64: subjectMask.pngData.base64EncodedString(),
+            pictureShowsDepth: framePartsResponse.pictureShowsDepth == true
         )
     }
 }
@@ -388,6 +393,7 @@ func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScr
         "parts": framePopout.parts.map { part in
             ["label": part.label, "x": part.x, "y": part.y, "isQuizAnswer": part.isQuizAnswer] as [String: Any]
         },
+        "pictureShowsDepth": framePopout.pictureShowsDepth,
     ]
     // JSONSerialization escapes "/" as "\/", so a label can never close the script tag.
     guard let popoutDataJSON = try? JSONSerialization.data(withJSONObject: popoutData),

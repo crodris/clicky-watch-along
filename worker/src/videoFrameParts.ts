@@ -29,6 +29,7 @@ const modelReplySchema = z.object({
   parts: z.array(z.object({ label: z.string().min(1), x: z.number(), y: z.number() })),
   answerPartIndex: z.number().int(),
   wholePictureIsSubject: z.boolean(),
+  pictureShowsDepth: z.boolean(),
 });
 
 type ModelReply = z.infer<typeof modelReplySchema>;
@@ -40,6 +41,11 @@ export type FrameParts =
       subjectBox: { left: number; top: number; right: number; bottom: number };
       /** True for a painted scene, which the app lifts out whole instead of cutting out its foreground objects. */
       wholePictureIsSubject: boolean;
+      /**
+       * True for a cutaway, a 3D render, or a photo, whose perspective and shading are already drawn in.
+       * The app lifts it as a flat card, since puffing it up smears that drawing. Always false for a painted scene.
+       */
+      pictureShowsDepth: boolean;
       parts: { label: string; x: number; y: number; isQuizAnswer: boolean }[];
     };
 
@@ -51,6 +57,8 @@ const framePartsSystemPrompt = [
   "wholePictureIsSubject is true only for a painting, fresco, or print of a whole scene, where what the artist painted around the main figures is part of the work, such as a landscape, a night sky over a town, or several people painted together.",
   "It is false for art that shows one animal, person, plant, or object on a plain or empty background, such as a woodcut of one animal or a botanical drawing on blank paper, and false for teaching diagrams and filmed objects.",
   "When wholePictureIsSubject is true, subjectFound is true.",
+  "pictureShowsDepth is true when the subject is drawn, rendered, or photographed so it already looks solid, with perspective, realistic shading, or a cutaway, such as a 3D render of a machine, a cutaway of an engine, or a photo of an object or animal.",
+  "It is false for flat diagrams, outline drawings, icons, and textbook illustrations with only simple shading, such as a labeled diagram of an organ or a flower, and false whenever wholePictureIsSubject is true.",
   "subjectBox is the subject's bounding box in pixels. Unless wholePictureIsSubject is true, leave out characters, hands, text, and other drawings.",
   "When wholePictureIsSubject is true, subjectBox covers the whole painted area and leaves out only a frame, a wall, or a caption around it.",
   "parts names up to 8 parts of the subject a 10-year-old could learn, two or three plain words each, with no parentheses.",
@@ -106,7 +114,14 @@ export function checkFrameParts(modelReply: ModelReply, frameWidth: number, fram
   if (boxIsTooSmall || parts.length === 0) {
     return { subjectFound: false };
   }
-  return { subjectFound: true, subjectBox, wholePictureIsSubject: modelReply.wholePictureIsSubject, parts };
+  return {
+    subjectFound: true,
+    subjectBox,
+    wholePictureIsSubject: modelReply.wholePictureIsSubject,
+    // A painted scene keeps its puffed-up lift, which is how paintings pop out today.
+    pictureShowsDepth: modelReply.pictureShowsDepth && !modelReply.wholePictureIsSubject,
+    parts,
+  };
 }
 
 function framePartsRequestBody(frameRequest: FrameRequest): unknown {
@@ -125,6 +140,7 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
           properties: {
             wholePictureIsSubject: { type: "boolean" },
             subjectFound: { type: "boolean" },
+            pictureShowsDepth: { type: "boolean" },
             subjectBox: {
               type: "object",
               additionalProperties: false,
@@ -147,7 +163,7 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
             },
             answerPartIndex: { type: "integer" },
           },
-          required: ["wholePictureIsSubject", "subjectFound", "subjectBox", "parts", "answerPartIndex"],
+          required: ["wholePictureIsSubject", "subjectFound", "pictureShowsDepth", "subjectBox", "parts", "answerPartIndex"],
         },
       },
     },

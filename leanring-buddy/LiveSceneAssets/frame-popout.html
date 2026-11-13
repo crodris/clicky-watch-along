@@ -273,6 +273,9 @@ for (const value of distance) if (value > maximumInsideDistance) maximumInsideDi
 const rimRadius = 22;
 const thicknessInFramePixels = (d) => {
   if (d <= 0) return 0;
+  // A picture that already shows depth, like a cutaway or a photo of a machine, has its perspective
+  // and shading drawn in. Puffing it up stretches that drawing along the slopes into smears, so it lifts as a flat card.
+  if (popout.pictureShowsDepth) return 0;
   const rim = Math.sqrt(1 - Math.pow(1 - Math.min(d, rimRadius) / rimRadius, 2));
   // No point rises higher than its distance from the outline. Otherwise a thin drawn tube turns into
   // a wall several times deeper than it is wide, and its stretched side reads as a second tube.
@@ -396,6 +399,9 @@ let pressStartX = 0, pressStartY = 0, pressTravel = 0, pressedLabelEntry = null;
 // Drag events arrive unevenly (about 51 a second against 60 frames in Clicky's overlay),
 // so snapping to each event left about 1 frame in 6 standing still.
 let draggedYaw = 0, draggedPitch = 0;
+// A flat card turned edge-on shows it is paper thin, so a picture that shows depth only tilts.
+const largestDraggedYaw = popout.pictureShowsDepth ? 0.75 : Infinity;
+const largestDraggedPitch = popout.pictureShowsDepth ? 0.45 : 1.1;
 addEventListener("pointerdown", (event) => {
   dragging = true; lastX = event.clientX; lastY = event.clientY;
   pressStartX = event.clientX; pressStartY = event.clientY; pressTravel = 0;
@@ -412,8 +418,8 @@ addEventListener("pointermove", (event) => {
   if (!dragging) return;
   pressTravel = Math.max(pressTravel, Math.hypot(event.clientX - pressStartX, event.clientY - pressStartY));
   if (!tourDone) return;
-  draggedYaw -= (event.clientX - lastX) * 0.008;
-  draggedPitch = Math.min(1.1, Math.max(-1.1, draggedPitch + (event.clientY - lastY) * 0.005));
+  draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw - (event.clientX - lastX) * 0.008));
+  draggedPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, draggedPitch + (event.clientY - lastY) * 0.005));
   lastX = event.clientX; lastY = event.clientY;
 });
 

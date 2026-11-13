@@ -308,8 +308,10 @@ function framePartsCase(id: string, frameFileName: string, expectWholePicture: b
       }
       const parts = Array.isArray(reply.parts) ? reply.parts : [];
       const wholePicture = reply.wholePictureIsSubject === true;
-      const passed = wholePicture === expectWholePicture && parts.length >= 3;
-      return { passed, detail: `wholePictureIsSubject ${wholePicture}, ${parts.length} parts` };
+      // Both fixtures are flat art, so a depth flag would swap their puffed-up lift for a flat card.
+      const showsDepth = reply.pictureShowsDepth === true;
+      const passed = wholePicture === expectWholePicture && !showsDepth && parts.length >= 3;
+      return { passed, detail: `wholePictureIsSubject ${wholePicture}, pictureShowsDepth ${showsDepth}, ${parts.length} parts` };
     },
   };
 }
