@@ -12,6 +12,7 @@ Saying "stop the quiz" ends it.
 - `quiz-plan` is the `/video-quiz-plan` route, which returns spread-out moments on transcript line boundaries, at least 20 seconds in.
 - `quiz-pause` pauses at each moment, asks the question, and resumes after the answer.
 - `quiz-stop` stops on "stop the quiz", "stop watching", or "can we stop".
+  During a question it clears the pop-out first, and the video plays once the pop-out has landed in its frame.
 - `quiz-skip` skips the current question on Escape, which this skill cannot drive.
 
 ## How to get to it (user POV)

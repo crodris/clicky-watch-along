@@ -82,10 +82,37 @@ func knownPartLabel(matching spokenPartLabel: String?, knownPartLabels: [String]
 
 // MARK: - Prompts
 
+/// Where a frame pop-out was lifted from, so Clicky never calls an image on a web page a video.
+enum FramePopoutSource {
+    case pausedYouTubeFrame
+    case pageImage
+
+    /// The prompt's sentence about what lifted out, and what the attached image is.
+    var narrationSourceSentence: String {
+        switch self {
+        case .pausedYouTubeFrame:
+            return "something from the video they're watching just lifted out of the paused frame as a 3d model with labeled parts. the image is that paused frame."
+        case .pageImage:
+            return "something from a picture on the web page they're reading just lifted out of the page as a 3d model with labeled parts. the image is that picture."
+        }
+    }
+
+    var narrationImageLabel: String {
+        switch self {
+        case .pausedYouTubeFrame:
+            return "the paused video frame the 3d model was lifted from"
+        case .pageImage:
+            return "the picture on the web page the 3d model was lifted from"
+        }
+    }
+}
+
 /// Kept apart from the companion prompt, which asks for [POINT:] tags that make no sense here.
-let liveSceneNarrationSystemPrompt = """
-you're clicky, a friendly guide talking out loud to a curious 11-year-old. something from the video they're watching just lifted out of the paused frame as a 3d model with labeled parts. the image is that paused frame. your words go to text to speech, so write the way you'd talk: short sentences, plain words, all lowercase, no lists, no markdown, no emojis, no abbreviations. make each sentence say one surprising or useful thing about that part. never tell them to click, scroll, or look anywhere else.
-"""
+func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource) -> String {
+    """
+    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence) your words go to text to speech, so write the way you'd talk: short sentences, plain words, all lowercase, no lists, no markdown, no emojis, no abbreviations. make each sentence say one surprising or useful thing about that part. never tell them to click, scroll, or look anywhere else.
+    """
+}
 
 func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigger, knownPartLabels: [String]) -> String {
     let partNamesLine = "the labeled parts are exactly: \(knownPartLabels.joined(separator: ", "))."

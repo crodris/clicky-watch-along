@@ -206,12 +206,6 @@ nonisolated func clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: Bool
     videoIsPlaying || clickyAlreadyHoldsThePause
 }
 
-/// Whether stopping the quiz presses play. Only a quiz question's pause ends with the quiz.
-/// A requested scene's pause ends when the scene clears, because the scene is still on screen.
-nonisolated func shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: ClickyVideoPauseReason?) -> Bool {
-    pauseHeldByClicky == .quizQuestion
-}
-
 // MARK: - Session
 
 @MainActor
@@ -278,13 +272,11 @@ final class VideoQuizSession {
         }
     }
 
+    /// Leaves a question's pause held. The caller plays it with resumeVideoAfterQuestion once the
+    /// question's pop-out has landed back in its frame.
     func stop() {
         guard isRunning else { return }
         isRunning = false
-        // A stop while a question is up would otherwise leave the video Clicky paused for it paused for good.
-        if shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: videoPausedByClicky?.reason) {
-            playTheVideoClickyPaused()
-        }
         runningTask?.cancel()
         runningTask = nil
         for framePopoutTask in framePopoutTasksByMomentIndex.values {

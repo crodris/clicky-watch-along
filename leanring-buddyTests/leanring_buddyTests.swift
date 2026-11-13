@@ -75,12 +75,6 @@ struct leanring_buddyTests {
         #expect(!clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: false, clickyAlreadyHoldsThePause: false))
     }
 
-    @Test func stoppingTheQuizPlaysTheVideoOnlyForAQuestionPauseClickyHolds() async throws {
-        #expect(shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: .quizQuestion))
-        #expect(!shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: .requestedScene))
-        #expect(!shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: nil))
-    }
-
     @Test func videoQuizAsksAMomentOnlyWhenTheVideoIsJustPastItAndItIsNotAnswered() async throws {
         let pauseAtSecondsPerMoment: [Double] = [30, 90, 150]
 
@@ -457,41 +451,41 @@ struct leanring_buddyTests {
 
     @Test func clearingAFramePopoutPlaysTheReturnAndASecondClearHidesAtOnce() async throws {
         var overlayPhase = LiveSceneOverlayPhase.showing(isFramePopout: true)
-        let requestClearResult1 = overlayPhase.requestClear()
-        #expect(requestClearResult1 == .playReturnThenHide)
+        let clearStepOnFirstRequest = overlayPhase.requestClear()
+        #expect(clearStepOnFirstRequest == .playReturnThenHide)
         #expect(overlayPhase == .returningToSource)
         // A second Escape during the return hides immediately.
-        let requestClearResult2 = overlayPhase.requestClear()
-        #expect(requestClearResult2 == .hideNow)
+        let clearStepOnSecondRequest = overlayPhase.requestClear()
+        #expect(clearStepOnSecondRequest == .hideNow)
         #expect(overlayPhase == .hidden)
         // A repeated clear does nothing.
-        let requestClearResult3 = overlayPhase.requestClear()
-        #expect(requestClearResult3 == .nothingToClear)
+        let clearStepOnceHidden = overlayPhase.requestClear()
+        #expect(clearStepOnceHidden == .nothingToClear)
         #expect(overlayPhase == .hidden)
     }
 
     @Test func clearingAnyOtherPageHidesAtOnceWithNoReturn() async throws {
         var overlayPhase = LiveSceneOverlayPhase.showing(isFramePopout: false)
-        let requestClearResult4 = overlayPhase.requestClear()
-        #expect(requestClearResult4 == .hideNow)
+        let clearStepForAnotherPage = overlayPhase.requestClear()
+        #expect(clearStepForAnotherPage == .hideNow)
         #expect(overlayPhase == .hidden)
     }
 
     @Test func theReturnHidesTheWindowOnceAndOnlyWhileItIsPlaying() async throws {
         var overlayPhase = LiveSceneOverlayPhase.showing(isFramePopout: true)
-        let finishReturnResult5 = overlayPhase.finishReturn()
-        #expect(!finishReturnResult5)
+        let hidesWhileStillShowing = overlayPhase.finishReturn()
+        #expect(!hidesWhileStillShowing)
         _ = overlayPhase.requestClear()
-        let finishReturnResult6 = overlayPhase.finishReturn()
-        #expect(finishReturnResult6)
+        let hidesWhenTheReturnFinishes = overlayPhase.finishReturn()
+        #expect(hidesWhenTheReturnFinishes)
         #expect(overlayPhase == .hidden)
         // The fallback timer firing after returnFinished finds nothing to do.
-        let finishReturnResult7 = overlayPhase.finishReturn()
-        #expect(!finishReturnResult7)
+        let hidesAgainAfterTheReturnFinished = overlayPhase.finishReturn()
+        #expect(!hidesAgainAfterTheReturnFinished)
         // A late returnFinished does not hide a scene that replaced the return.
         var replacedPhase = LiveSceneOverlayPhase.showing(isFramePopout: true)
-        let finishReturnResult8 = replacedPhase.finishReturn()
-        #expect(!finishReturnResult8)
+        let hidesAReplacementScene = replacedPhase.finishReturn()
+        #expect(!hidesAReplacementScene)
         #expect(replacedPhase == .showing(isFramePopout: true))
     }
 
@@ -515,10 +509,6 @@ struct leanring_buddyTests {
         )
         let framePopoutOnScreen = LiveScenePageOnScreen.framePopout(framePopout)
 
-        #expect(LiveScenePageEvent(messageBody: "partTapped:Aorta") == .partTapped(untrustedLabel: "Aorta"))
-        #expect(LiveScenePageEvent(messageBody: "tourFinished") == .tourFinished)
-        #expect(LiveScenePageEvent(messageBody: "somethingElse") == nil)
-
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: framePopoutOnScreen, liveScenePhase: .allLabelsShowing) == "Aorta")
         // During the tour, or with a quiz question waiting, a tap is ignored.
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: framePopoutOnScreen, liveScenePhase: .touring(quizToAskAfterTour: nil)) == nil)
@@ -531,6 +521,55 @@ struct leanring_buddyTests {
         let landmarkNamedLikeThePart = FamousPlace(name: "Aorta", latitude: 48.86, longitude: 2.29, heightMeters: 330, radiusMeters: 60)
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: .landmark(landmarkNamedLikeThePart), liveScenePhase: .allLabelsShowing) == nil)
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: nil, liveScenePhase: .allLabelsShowing) == nil)
+    }
+
+    @Test func pageEventsParseOnlyTheMessagesThePageSends() async throws {
+        #expect(LiveScenePageEvent(messageBody: "tourFinished") == .tourFinished)
+        #expect(LiveScenePageEvent(messageBody: "returnFinished") == .returnFinished)
+        #expect(LiveScenePageEvent(messageBody: "partTapped:Left Ventricle") == .partTapped(untrustedLabel: "Left Ventricle"))
+        // An empty label still parses, and partLabelToExplain drops it, since no part has that name.
+        #expect(LiveScenePageEvent(messageBody: "partTapped:") == .partTapped(untrustedLabel: ""))
+        // Only the leading prefix is removed, so a label that repeats it stays whole.
+        #expect(LiveScenePageEvent(messageBody: "partTapped:partTapped:Aorta") == .partTapped(untrustedLabel: "partTapped:Aorta"))
+        #expect(LiveScenePageEvent(messageBody: "TourFinished") == nil)
+        #expect(LiveScenePageEvent(messageBody: "somethingElse") == nil)
+        // WebKit hands a posted number, object, or null over as a non-string, and those are dropped.
+        #expect(LiveScenePageEvent(messageBody: NSNumber(value: 1)) == nil)
+        #expect(LiveScenePageEvent(messageBody: ["event": "tourFinished"]) == nil)
+        #expect(LiveScenePageEvent(messageBody: NSNull()) == nil)
+    }
+
+    @Test func narrationOfAPageImageNeverCallsItAVideo() async throws {
+        let pageImageGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
+        let youTubeFrameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: 42, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
+        #expect(pageImageGrab.source == .pageImage)
+        #expect(youTubeFrameGrab.source == .pausedYouTubeFrame)
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage).contains("video"))
+        #expect(!FramePopoutSource.pageImage.narrationImageLabel.contains("video"))
+        #expect(liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame).contains("the paused frame"))
+    }
+
+    @Test func onlyAFailureOfTheLoadClickyStartedEndsTheScene() async throws {
+        let failedLoad = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost)
+        #expect(pageLoadFailureEndsTheScene(failedLoad, failedNavigationIsTheLoadClickyStarted: true))
+        // A generated page navigating on its own fails too, and the scene stays.
+        #expect(!pageLoadFailureEndsTheScene(failedLoad, failedNavigationIsTheLoadClickyStarted: false))
+        // The policy refusing a page's https navigation, and a newer load cancelling this one, are not failures.
+        #expect(!pageLoadFailureEndsTheScene(NSError(domain: "WebKitErrorDomain", code: 102), failedNavigationIsTheLoadClickyStarted: true))
+        #expect(!pageLoadFailureEndsTheScene(URLError(.cancelled), failedNavigationIsTheLoadClickyStarted: true))
+    }
+
+    @Test func clearingTheSceneReleasesABuddyANarrationHoldsAndLeavesABriefPointAlone() async throws {
+        let companionManager = CompanionManager()
+        // A cancelled narration may never release its hold, so the clear does.
+        companionManager.detectedElementPointingHold = .untilReleased(byNarrationID: UUID())
+        companionManager.detectedElementScreenLocation = CGPoint(x: 10, y: 10)
+        companionManager.clearTheLiveSceneAndReleaseTheBuddy()
+        #expect(companionManager.detectedElementScreenLocation == nil)
+        #expect(companionManager.detectedElementPointingHold == .briefly)
+        companionManager.detectedElementScreenLocation = CGPoint(x: 20, y: 20)
+        companionManager.clearTheLiveSceneAndReleaseTheBuddy()
+        #expect(companionManager.detectedElementScreenLocation == CGPoint(x: 20, y: 20))
     }
 
     @Test func partLabelBoxBecomesTheGlobalPointUnderItsBottomEdge() async throws {

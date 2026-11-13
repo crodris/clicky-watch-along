@@ -562,11 +562,11 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        notePageLoadFailed(error)
+        notePageLoadFailed(navigation, error: error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        notePageLoadFailed(error)
+        notePageLoadFailed(navigation, error: error)
     }
 
     private func compileHttpAndHttpsBlock() {
@@ -681,16 +681,15 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         return webView
     }
 
-    private func notePageLoadFailed(_ error: Error) {
-        guard !navigationWasCancelled(error) else { return }
+    private func notePageLoadFailed(_ failedNavigation: WKNavigation?, error: Error) {
+        let failedNavigationIsTheLoadClickyStarted = navigationWeAreWaitingFor != nil && failedNavigation === navigationWeAreWaitingFor
+        guard pageLoadFailureEndsTheScene(error, failedNavigationIsTheLoadClickyStarted: failedNavigationIsTheLoadClickyStarted) else {
+            print("Live scene: ignored a failed navigation: \(error.localizedDescription)")
+            return
+        }
         print("Live scene: page failed to load: \(error.localizedDescription)")
         pageHasFinishedLoading = false
         onPageError?("page failed to load: \(error.localizedDescription)")
-    }
-
-    private func navigationWasCancelled(_ error: Error) -> Bool {
-        let urlError = error as? URLError
-        return urlError?.code == .cancelled
     }
 
     // arguments uses WebKit's dictionary type. Callers pass JSON values.
@@ -709,6 +708,16 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             }
         }
     }
+}
+
+/// Only a failure of the page load Clicky started ends the scene. A cancelled load is a newer load replacing it.
+/// A generated page's own navigation that the policy refuses fails with WebKit's "frame load interrupted" (102),
+/// and must not tear down a scene that is already showing.
+func pageLoadFailureEndsTheScene(_ error: Error, failedNavigationIsTheLoadClickyStarted: Bool) -> Bool {
+    let failure = error as NSError
+    let loadWasCancelled = failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled
+    let loadWasInterruptedByThePolicy = failure.domain == "WebKitErrorDomain" && failure.code == 102
+    return failedNavigationIsTheLoadClickyStarted && !loadWasCancelled && !loadWasInterruptedByThePolicy
 }
 
 /// The status label and generated scenes follow the mouse, so they share this screen lookup.

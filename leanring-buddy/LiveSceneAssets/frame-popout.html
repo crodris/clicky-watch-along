@@ -132,11 +132,14 @@ window.liveScene = {
     cameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, cameraDistance * (1 - amount)));
   },
   // Clicky's blue cursor points at a label, so the boxes are read only once the camera stops gliding.
+  // A subject sinking back has nothing to point at, and its window may hide, which stops animation frames, so this waits on timers.
   async labelRectsOnceTheCameraSettles() {
+    const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
     const giveUpAt = performance.now() + 3000;
-    while (focusMove && performance.now() < giveUpAt) await new Promise((resolve) => requestAnimationFrame(resolve));
+    while (focusMove && returnStartedAt === null && performance.now() < giveUpAt) await wait(50);
     // After the camera stops, each label's offset still eases toward its new spot for a few hundred milliseconds.
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await wait(400);
+    if (returnStartedAt !== null) return [];
     return labelEntries.map((entry) => {
       const rect = entry.element.getBoundingClientRect();
       return { label: entry.part.label, left: rect.left, top: rect.top, width: rect.width, height: rect.height };

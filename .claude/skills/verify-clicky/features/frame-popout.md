@@ -16,9 +16,10 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
+  For an image on a web page, the prompt calls it a picture, never a video.
 - `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
   A press that moves more than 4 px is a drag that turns the model, not a click.
-- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the label in its bubble, and back to the mouse when the narration ends.
+- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the label in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
 
 ## How to get to it (user POV)
 

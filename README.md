@@ -30,6 +30,7 @@ It plays the video again when you close the pop-out, unless you had paused it yo
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
 You can drag to spin it.
 It works best on 2D illustrations, like engravings and prints.
+Clicky talks about its parts the same way, and calls it a picture, not a video.
 A painted scene, like The Starry Night, lifts out whole, sky included, while a drawing of one animal, like Dürer's Young Hare, lifts out only the animal.
 
 **3D models on request.** Say "show me" or "in 3D" over a video, and Clicky pauses it.

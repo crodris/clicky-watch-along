@@ -769,6 +769,8 @@ final class CompanionManager: ObservableObject {
             if quizWatchesTheVideoInFront {
                 videoQuizQuestionIsActive = false
                 liveScenePhase = .idle
+                // The idle phase has no page, so the one on screen goes too. The new scene's own clear resumes the video.
+                clearTheLiveSceneAndReleaseTheBuddy()
             }
             if !heardText.isEmpty {
                 sceneQuestion = "\(transcript) The video just said: \(heardText)"
@@ -1185,9 +1187,18 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
+    /// cancelled narration can stay stuck reading label places from a page that is gone, so the clear releases it.
+    func clearTheLiveSceneAndReleaseTheBuddy() {
+        LiveSceneOverlay.shared.clear()
+        if detectedElementPointingHold.holdsUntilReleased {
+            clearDetectedElementLocation()
+        }
+    }
+
     private func clearFinishedLiveScene(resumesTheVideo: Bool = true) {
         guard case .allLabelsShowing = liveScenePhase else { return }
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         liveScenePhase = .idle
         guard resumesTheVideo, videoQuizSession.videoIsPausedForRequestedScene else { return }
         Task {
@@ -1387,7 +1398,17 @@ final class CompanionManager: ObservableObject {
             videoQuizSession.start()
             spokenLine = "Sure! Let me read through this video."
         case .stop:
+            if videoQuizQuestionIsActive {
+                videoQuizQuestionIsActive = false
+                liveScenePhase = .idle
+                clearTheLiveSceneAndReleaseTheBuddy()
+            }
             videoQuizSession.stop()
+            // A question's pop-out lands back in its frame before the video Clicky paused for it plays.
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                self.videoQuizSession.resumeVideoAfterQuestion()
+            }
             // The scene request runs in its own task, so cancelling the response task above
             // does not reach it. A new generation also keeps a reply already in flight from playing.
             if case .buildingScene = liveScenePhase {
@@ -1398,11 +1419,6 @@ final class CompanionManager: ObservableObject {
                 liveScenePhase = .idle
                 // The scene that would have resumed the video is gone, so nothing else will.
                 videoQuizSession.resumeVideoAfterRequestedScene()
-            }
-            if videoQuizQuestionIsActive {
-                videoQuizQuestionIsActive = false
-                liveScenePhase = .idle
-                LiveSceneOverlay.shared.clear()
             }
             spokenLine = "Okay, I'll stop quizzing. That was fun!"
         }
@@ -1433,6 +1449,9 @@ final class CompanionManager: ObservableObject {
     /// With a frame pop-out, the subject lifts out of the paused video and the question
     /// comes when its tour ends. Without one, Clicky asks by voice right away.
     private func askVideoQuizQuestion(_ quiz: LiveSceneQuiz, framePopout: VideoFramePopout?) {
+        // A narration of the finished pop-out could otherwise go on to highlight and point at the question's labels, the answer included.
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
         clearFinishedLiveScene()
         videoQuizQuestionIsActive = true
         if let framePopout,
@@ -1472,7 +1491,7 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
         // A frame pop-out sits over the video, so it lands back in its frame and goes away before play.
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         await LiveSceneOverlay.shared.waitForReturnToFinish()
         videoQuizSession.resumeVideoAfterQuestion()
     }
@@ -1489,16 +1508,16 @@ final class CompanionManager: ObservableObject {
         liveScenePhase = .idle
         await speakLiveSceneLine("Sorry, I couldn't build that one.")
         voiceState = .idle
-        if videoQuizSession.videoIsPausedForRequestedScene {
-            videoQuizSession.resumeVideoAfterRequestedScene()
-        }
+        // A pop-out whose page failed may still be landing back in its frame.
+        await LiveSceneOverlay.shared.waitForReturnToFinish()
+        videoQuizSession.resumeVideoAfterRequestedScene()
     }
 
     /// A page that throws before its tour ends never posts tourFinished, so Clicky would wait on it forever.
     private func handleLiveScenePageError(_ pageErrorText: String) {
         guard case .touring(let quizToAskAfterTour) = liveScenePhase else { return }
         print("Live scene: giving up on the page after \(pageErrorText)")
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         if quizToAskAfterTour != nil {
             // The question still works by voice, like a quiz moment with no pop-out.
             handleLiveSceneTourFinished()
@@ -1516,7 +1535,7 @@ final class CompanionManager: ObservableObject {
     private func closeLiveSceneOnEscape() {
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
-            LiveSceneOverlay.shared.clear()
+            clearTheLiveSceneAndReleaseTheBuddy()
             return
         }
         if videoQuizQuestionIsActive {
@@ -1537,7 +1556,7 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
         videoQuizQuestionIsActive = false
         liveScenePhase = .idle
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Video quiz: skipped the question on Escape")
@@ -1628,15 +1647,15 @@ final class CompanionManager: ObservableObject {
         // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
         defer { releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID) }
         let knownPartLabels = framePopout.parts.map(\.label)
-        var pausedFrameImages: [(data: Data, label: String)] = []
-        if let pausedFrameJPEGData = Data(base64Encoded: framePopout.frameGrab.jpeg) {
-            pausedFrameImages.append((data: pausedFrameJPEGData, label: "the paused video frame the 3d model was lifted from"))
+        var sourceImagesForNarration: [(data: Data, label: String)] = []
+        if let sourceImageJPEGData = Data(base64Encoded: framePopout.frameGrab.jpeg) {
+            sourceImagesForNarration.append((data: sourceImageJPEGData, label: framePopout.frameGrab.source.narrationImageLabel))
         }
         let narrationText: String
         do {
             narrationText = try await claudeAPI.analyzeImageStreaming(
-                images: pausedFrameImages,
-                systemPrompt: liveSceneNarrationSystemPrompt,
+                images: sourceImagesForNarration,
+                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source),
                 userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels),
                 onTextChunk: { _ in }
             ).text
