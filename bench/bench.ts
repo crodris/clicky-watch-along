@@ -453,41 +453,9 @@ const benchCases: BenchCase[] = [
   {
     id: "voice-command",
     route: "/voice-command",
-    description: 'Turns a frame pop-out the other way after "turn it the other way", with a recent rotate_model of 45 degrees',
-    requestBody: () => ({
-      messages: [
-        {
-          role: "user",
-          content: [
-            "<scene_state>A frame pop-out with labels wing, tail, engine. Yaw 45 degrees, pitch 0, zoom 0.2, no part focused.</scene_state>",
-            "<recent_actions>rotate_model yawDegrees 45, pitchDegrees 0</recent_actions>",
-            "turn it the other way",
-          ].join("\n"),
-        },
-      ],
-      tools: [
-        {
-          name: "rotate_model",
-          description: "Turns the model around its center by these degrees. Positive yaw turns it to the right.",
-          inputSchema: {
-            type: "object",
-            properties: { yawDegrees: { type: "number" }, pitchDegrees: { type: "number" } },
-            required: ["yawDegrees", "pitchDegrees"],
-          },
-        },
-        {
-          name: "zoom",
-          description: "Moves the camera closer with a positive amount and farther with a negative one, as a fraction of the zoom range.",
-          inputSchema: { type: "object", properties: { amount: { type: "number" } }, required: ["amount"] },
-        },
-        {
-          name: "zoom_to_part",
-          description: "Moves the camera to one labeled part and highlights it.",
-          inputSchema: { type: "object", properties: { label: { type: "string", enum: ["wing", "tail", "engine"] } }, required: ["label"] },
-        },
-        { name: "reset_view", description: "Puts the camera back to frame the whole model.", inputSchema: { type: "object", properties: {} } },
-      ],
-    }),
+    description: 'Turns a frame pop-out the other way after "no, turn it the other way", with a recent rotate_model of 45 degrees',
+    // The body is the one the app builds: its scene state JSON, its recent actions, and the tools a pop-out offers.
+    requestBody: () => JSON.parse(readFileSync(join(fixturesDirectory, "voice-command.json"), "utf8")),
     checkReply: (replyText) => {
       const reply = parseJSONObject(replyText);
       const toolCalls = (Array.isArray(reply?.content) ? reply.content : []).filter(isRecord).filter((block) => block.type === "tool_use");

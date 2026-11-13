@@ -11,13 +11,13 @@ A request that needs a new scene or a screenshot answer hands off to the old pat
 - `voice-correction` reads "no, the other way" against the last 5 tool calls and reverses the last turn.
 - `voice-scene-tools` turns, zooms, focuses a part, resets, explodes, or cuts open the scene on screen.
   Explode and cutaway need a generated page that lists its `parts`.
-- `voice-video-tools` pauses, plays, seeks, changes speed, and finds a moment in the captions of the largest video on the front tab's page, on any site. A video in a frame from another site cannot be reached.
+- `voice-video-tools` pauses, plays, seeks, and changes the speed of the largest video on the front tab's page, on any site, and finds a moment in the captions of a YouTube video. A video in a frame from another site cannot be reached.
   A voice pause or play drops Clicky's own pause record on that tab.
 - `voice-handoff` sends "show me a different model", "pop this out", and questions about the screen to the old path.
 - `voice-quiz-controls` lets the judge hear skip, repeat, a hint request, or a view command during a quiz question.
 - `voice-chip` shows each call under the cursor for 1.4 seconds, with a fade only.
 - `voice-debug-log` prints the full JSON of each reply and tool result when the panel's "Log tool call JSON" switch is on (Debug builds).
-- `voice-debug-mcp` serves the same tools at `http://127.0.0.1:8790/mcp` in Debug builds.
+- `voice-debug-mcp` serves the same tools at `http://127.0.0.1:8790/mcp` in Debug builds launched with `--voice-tool-debug-server`, which `app-launch` passes.
 
 ## How to get to it (user POV)
 

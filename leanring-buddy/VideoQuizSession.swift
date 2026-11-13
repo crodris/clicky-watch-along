@@ -78,9 +78,11 @@ nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tab
 /// Caption search hands the front tab's URL to yt-dlp, so it reads only https pages on a public host,
 /// never a page on this Mac or on the local network.
 nonisolated func captionSearchMayReadTheVideoPage(urlText: String) -> Bool {
-    guard let pageURL = URL(string: urlText), pageURL.scheme == "https", let host = pageURL.host()?.lowercased() else {
+    guard let pageURL = URL(string: urlText), pageURL.scheme == "https", var host = pageURL.host()?.lowercased() else {
         return false
     }
+    // "localhost." with its trailing dot is the same host as "localhost".
+    while host.hasSuffix(".") { host.removeLast() }
     if host == "localhost" || host.hasSuffix(".local") || host.hasSuffix(".localhost") || host.hasSuffix(".internal") {
         return false
     }
@@ -115,7 +117,7 @@ nonisolated enum LearnerVideoCommand: Equatable {
         case .setPlaybackRate(let playbackRate):
             change = "video.playbackRate = \(Self.javaScriptNumber(min(2, max(0.25, playbackRate))));"
         }
-        return "(function () { \(Self.mainVideoJavaScript) if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Math.round(video.duration || 0), paused: video.paused, playing: !video.paused && video.readyState >= 3, playbackRate: video.playbackRate }); })()"
+        return "(function () { \(Self.mainVideoJavaScript) if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Number.isFinite(video.duration) ? Math.round(video.duration) : 0, paused: video.paused, playing: !video.paused && video.readyState >= 3, playbackRate: video.playbackRate }); })()"
     }
 
     /// Picks the page's main video: the largest one on screen, so a preview or an ad thumbnail never wins.
@@ -762,8 +764,8 @@ final class VideoQuizSession {
     }
 
     /// The caption lines that best match the query in the video in front. The quiz's own captions are reused,
-    /// and other videos' captions are read once with yt-dlp, which reads many sites besides YouTube, and kept
-    /// for the rest of the session. A site yt-dlp cannot read throws, and the model hears the search failed.
+    /// and another YouTube video's captions are read once with yt-dlp and kept for the rest of the session.
+    /// Any other site throws, since the captions reader keeps only YouTube's format, and the model hears the search failed.
     func captionMomentsInTheFrontVideo(matching query: String) async throws -> [VideoCaptionMoment] {
         let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
         let captionLines: [VideoQuizTranscriptLine]
@@ -771,6 +773,9 @@ final class VideoQuizSession {
             captionLines = allTranscriptLines
         } else if !captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) {
             throw VideoQuizFailure.noVideoOnThePage
+        } else if !(URL(string: frontVideoTab.url)?.host()?.lowercased().hasSuffix("youtube.com") ?? false) {
+            // The captions reader keeps only YouTube's json3 captions, which other sites do not serve.
+            throw VideoQuizFailure.noCaptions
         } else if let cachedCaptionLines = captionLinesByVideoURL[frontVideoTab.url] {
             captionLines = cachedCaptionLines
         } else {
@@ -781,7 +786,7 @@ final class VideoQuizSession {
     }
 
     private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String) throws -> JSONValue {
-        let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab)
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab, timeoutSeconds: 2)
         guard javaScriptResult != "no-video",
               let pageVideoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
               let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title) else {
@@ -850,10 +855,12 @@ private struct ChromeVideoTab {
         tell application "Google Chrome"
             if (count of windows) is 0 then return ""
             set frontTab to active tab of front window
-            return (id of front window as text) & "|" & (id of frontTab as text) & "|" & (URL of frontTab) & "|" & (title of frontTab)
+            set fieldSeparator to (ASCII character 31)
+            return (id of front window as text) & fieldSeparator & (id of frontTab as text) & fieldSeparator & (URL of frontTab) & fieldSeparator & (title of frontTab)
         end tell
         """)
-        let tabFields = frontTabOutput.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
+        // ASCII 31, the unit separator, cannot appear in a URL or a tab title, while "|" can.
+        let tabFields = frontTabOutput.split(separator: "\u{1F}", maxSplits: 3, omittingEmptySubsequences: false)
         guard tabFields.count == 4, let windowId = Int(tabFields[0]), let tabId = Int(tabFields[1]) else {
             throw VideoQuizFailure.noVideoOnThePage
         }
@@ -1036,9 +1043,17 @@ private struct ChromeVideoTab {
     /// Runs JavaScript in this tab and returns its result. The JavaScript must
     /// not contain double quotes or backslashes, because it sits inside an AppleScript string.
     @discardableResult
-    static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab) throws -> String {
-        try runAppleScript("""
-        tell application "Google Chrome" to execute (tab id \(videoTab.tabId) of window id \(videoTab.windowId)) javascript "\(javaScript)"
+    /// A busy page can hold an Apple Event for about 2 minutes by default, which freezes the main actor,
+    /// so the voice tools, which reach any site, pass a short timeout.
+    static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> String {
+        let executeLine = "tell application \"Google Chrome\" to execute (tab id \(videoTab.tabId) of window id \(videoTab.windowId)) javascript \"\(javaScript)\""
+        guard let timeoutSeconds else {
+            return try runAppleScript(executeLine)
+        }
+        return try runAppleScript("""
+        with timeout of \(timeoutSeconds) seconds
+        \(executeLine)
+        end timeout
         """)
     }
 
@@ -1106,6 +1121,8 @@ private enum VideoCaptionsDownloader {
             "-o", captionsDirectory.appendingPathComponent("%(id)s.%(ext)s").path,
             // The voice tools pass whatever page is in front, so only sites yt-dlp knows are read, never a crawl of any page.
             "--use-extractors", "default,-generic",
+            // A yt-dlp config on this Mac could add options, such as an exec step, to a URL from any page.
+            "--ignore-config",
             // Everything after this is the URL, even if it starts with a dash.
             "--",
             videoURL,

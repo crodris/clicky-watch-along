@@ -6,7 +6,8 @@
 (() => {
   const liveScene = () => window.liveScene;
   const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const labelsOnScreen = () => [...document.querySelectorAll(".scene-label")]
+  // The landmark page styles its place name as a label too, and it is not a part.
+  const labelsOnScreen = () => [...document.querySelectorAll(".scene-label:not(#placeName)")]
     .map((labelElement) => labelElement.textContent.trim())
     .filter((labelText) => labelText !== "");
 

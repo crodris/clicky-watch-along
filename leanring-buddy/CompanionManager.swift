@@ -253,7 +253,10 @@ final class CompanionManager: ObservableObject {
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
         #if DEBUG
-        voiceToolDebugServer.start()
+        // Off unless asked for, since any process on this Mac can reach a loopback port.
+        if CommandLine.arguments.contains("--voice-tool-debug-server") {
+            voiceToolDebugServer.start()
+        }
         #endif
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
@@ -1500,6 +1503,11 @@ final class CompanionManager: ObservableObject {
                 transcript: transcript,
                 heardTranscript: quiz.heardTranscript
             )
+            if case .control(let quizControl) = judgedAnswer.verdict {
+                // A hint, a repeat, a skip, or a view command is not an answer, so the follow-up stays open.
+                await respondToQuizControl(quizControl, transcript: transcript, quiz: quiz, judgeSpokenReply: judgedAnswer.spokenReply)
+                return
+            }
             if judgedAnswer.verdict == .answer(.nameAndFunctionWord) {
                 spokenLine = judgedAnswer.spokenReply
             } else {
@@ -1771,7 +1779,7 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Voice Commands
 
-    /// A follow-up command while a scene or a YouTube video is live. A fast model picks tools the page
+    /// A follow-up command while a scene is on screen or a video plays in Chrome's front tab. A fast model picks tools the page
     /// and the app offer, the screen changes, and Clicky says the model's short confirmation after that.
     /// A request that needs a new scene or a screenshot answer hands off to respondToTranscript.
     private func startVoiceCommand(transcript: String, frontVideoState: JSONValue?) {
@@ -1796,7 +1804,8 @@ final class CompanionManager: ObservableObject {
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
-        let tools = pageTools + AppVoiceTool.available(in: appToolContext).map(\.descriptor)
+        let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
+        let offeredToolNames = Set(tools.map(\.name))
         let userMessageText = voiceCommandUserMessageText(
             transcript: transcript,
             sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState),
@@ -1814,8 +1823,15 @@ final class CompanionManager: ObservableObject {
             } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
-                print("Voice command: the router failed, so the keyword path takes it: \(error)")
                 guard !Task.isCancelled else { return }
+                // During a quiz question the keyword path is the judge, which sent this command here,
+                // so handing it back would loop between the two on every failure.
+                if liveScenePhaseIsWaitingForAQuizAnswer {
+                    print("Voice command: the router failed during a quiz question: \(error)")
+                    await speakLiveSceneLine("Sorry, I couldn't do that one.")
+                    break
+                }
+                print("Voice command: the router failed, so the keyword path takes it: \(error)")
                 respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
                 return
             }
@@ -1825,9 +1841,11 @@ final class CompanionManager: ObservableObject {
             var outcomes: [VoiceToolOutcome] = []
             var toolResultBlocks: [JSONValue] = []
             for toolCall in reply.toolCalls {
+                // A push-to-talk press cancels this command, so its remaining calls must not run.
+                guard !Task.isCancelled else { return }
                 VoiceToolCallChip.shared.show(toolCall.chipText)
                 let toolStartedAt = Date()
-                let outcome = await runVoiceTool(toolCall, transcript: transcript)
+                let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
                 print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
                 logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
                 outcomes.append(outcome)
@@ -1844,6 +1862,11 @@ final class CompanionManager: ObservableObject {
 
             switch voiceCommandNextStep(toolCalls: reply.toolCalls, outcomes: outcomes, replyText: reply.text) {
             case .finishSilently:
+                // A hand-off that started its own reply cancelled this task. One that did nothing, such as
+                // closing a scene with no video to resume, leaves the spinner up unless this clears it.
+                guard !Task.isCancelled else { return }
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
                 return
             case .askTheModelAgain:
                 messages.append(.object(["role": .string("assistant"), "content": .array(reply.assistantContent)]))
@@ -1861,7 +1884,12 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
-    private func runVoiceTool(_ toolCall: VoiceToolCall, transcript: String) async -> VoiceToolOutcome {
+    /// Runs only a tool this turn offered, so a model, a page, or a debug caller cannot reach one the
+    /// current state left out, such as a hand-off during a quiz question.
+    private func runVoiceTool(_ toolCall: VoiceToolCall, offeredToolNames: Set<String>, transcript: String) async -> VoiceToolOutcome {
+        guard offeredToolNames.contains(toolCall.name) else {
+            return .failed(error: "\(toolCall.name) is not available right now", state: nil)
+        }
         guard let appVoiceTool = AppVoiceTool(rawValue: toolCall.name) else {
             return await LiveSceneOverlay.shared.callPageVoiceTool(named: toolCall.name, input: toolCall.inputWithoutConfirmation)
         }
@@ -1933,7 +1961,8 @@ final class CompanionManager: ObservableObject {
             let videoState = try videoQuizSession.runLearnerVideoCommand(learnerVideoCommand)
             return .changed(state: .object(["video": videoState]))
         } catch {
-            return .failed(error: "No YouTube video is in Chrome's front tab", state: nil)
+            // The quiz's failure lines say what the learner can fix, such as turning on JavaScript from Apple Events.
+            return .failed(error: (error as? LocalizedError)?.errorDescription ?? "No video is in Chrome's front tab", state: nil)
         }
     }
 
@@ -1948,16 +1977,14 @@ final class CompanionManager: ObservableObject {
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
-        return await LiveSceneOverlay.shared.pageVoiceTools() + appTools.map(\.descriptor)
+        return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
     }
 
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
-        if let appVoiceTool = AppVoiceTool(rawValue: toolName), appVoiceTool.needsTheSpokenRequest {
-            return .failed(error: "\(toolName) needs a spoken request, so say it instead", state: nil)
-        }
+        let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
         VoiceToolCallChip.shared.show(toolCall.chipText)
-        return await runVoiceTool(toolCall, transcript: "")
+        return await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
     }
     #endif
 
@@ -1997,8 +2024,10 @@ final class CompanionManager: ObservableObject {
 
     /// The debug setting in the panel prints the full JSON of every voice command reply and tool result.
     private func logVoiceCommandJSONIfEnabled(_ what: String, _ jsonValues: [JSONValue]) {
+        #if DEBUG
         guard UserDefaults.standard.bool(forKey: Self.logsVoiceToolCallJSONDefaultsKey) else { return }
         print("Voice command JSON \(what): \(JSONValue.array(jsonValues).compactJSONText)")
+        #endif
     }
 
     static let logsVoiceToolCallJSONDefaultsKey = "logsVoiceToolCallJSON"

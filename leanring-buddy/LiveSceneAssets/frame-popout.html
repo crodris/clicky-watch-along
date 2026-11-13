@@ -140,8 +140,9 @@ window.liveScene = {
   rotateBy(yawDegrees, pitchDegrees) {
     if (!sceneIsBuilt || returnStartedAt !== null) return;
     window.liveScene.endTour();
-    draggedYaw += THREE.MathUtils.degToRad(yawDegrees);
-    draggedPitch = Math.min(1.1, Math.max(-1.1, draggedPitch + THREE.MathUtils.degToRad(pitchDegrees)));
+    // The same limits as a drag, so a picture that already shows depth never turns to its paper-thin edge.
+    draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw + THREE.MathUtils.degToRad(yawDegrees)));
+    draggedPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, draggedPitch + THREE.MathUtils.degToRad(pitchDegrees)));
     if (reducedMotionQuery.matches) { yaw = draggedYaw; pitch = draggedPitch; }
   },
   // A voice command during the tour stops it where it is, and the camera glides to the subject from there.

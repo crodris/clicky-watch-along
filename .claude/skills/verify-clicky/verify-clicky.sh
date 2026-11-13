@@ -418,7 +418,7 @@ command_app_launch() {
   worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
-    --args --live-scene-rehearsal "$rehearsal_steps"
+    --args --voice-tool-debug-server --live-scene-rehearsal "$rehearsal_steps"
   for _ in $(seq 1 20); do
     local launched_pid
     launched_pid="$(running_clicky_pids | head -1)"

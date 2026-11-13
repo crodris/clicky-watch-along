@@ -204,10 +204,12 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             switch appVoiceTool {
             case .answerWithScreen, .buildNewScene, .popOut:
                 return !context.quizQuestionIsOpen
+            // While a question is open the scene is the question's, so closing it or explaining a part,
+            // which may be the answer, waits until the learner answers or skips.
             case .closeScene:
-                return context.sceneIsOnScreen
+                return context.sceneIsOnScreen && !context.quizQuestionIsOpen
             case .explainPart:
-                return context.sceneIsOnScreen && context.sceneHasLabels
+                return context.sceneIsOnScreen && context.sceneHasLabels && !context.quizQuestionIsOpen
             case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed, .findMoment:
                 return context.videoIsInFront
             case .endQuiz:
@@ -311,7 +313,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
                 let valueText: String
                 switch argumentValue {
                 case .number(let numberValue):
-                    valueText = numberValue.rounded() == numberValue ? String(Int(numberValue)) : String(format: "%.2f", numberValue)
+                    // Int(exactly:) is nil for a huge or fractional value, which Int() would trap on.
+                    valueText = Int(exactly: numberValue).map(String.init) ?? String(format: "%.2f", numberValue)
                 case .string(let stringValue):
                     valueText = "\"\(stringValue)\""
                 default:
@@ -398,6 +401,18 @@ nonisolated enum VoiceCommandNextStep: Equatable, Sendable {
     case finishSilently
 }
 
+/// The page tools scene-tools.js defines. A page can rewrite what it lists, so only these names are offered
+/// from it, and none of them can shadow an app tool.
+nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view"]
+
+nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
+    let knownPageTools = pageTools.filter { pageTool in pageVoiceToolNames.contains(pageTool.name) }
+    return knownPageTools + appTools.map(\.descriptor)
+}
+
+/// Spoken text comes from the model, which reads page text, so it is cut to a length that fits a confirmation or one sentence.
+nonisolated let longestSpokenVoiceCommandLine = 300
+
 /// The confirmations are spoken only when every tool changed the screen. A lookup or a failure goes back
 /// to the model, which then acts on the lookup or says what went wrong.
 nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [VoiceToolOutcome], replyText: String) -> VoiceCommandNextStep {
@@ -405,7 +420,7 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
         return .finishSilently
     }
     if toolCalls.isEmpty {
-        return .speak(replyText)
+        return .speak(String(replyText.prefix(longestSpokenVoiceCommandLine)))
     }
     let modelMustReadTheResults = outcomes.contains { outcome in
         switch outcome {
@@ -417,7 +432,7 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
         return .askTheModelAgain
     }
     let confirmations = toolCalls.map(\.confirmation).filter { !$0.isEmpty }
-    return .speak(confirmations.joined(separator: " "))
+    return .speak(String(confirmations.joined(separator: " ").prefix(longestSpokenVoiceCommandLine)))
 }
 
 /// A play counts only once the video is really playing, meaning not paused and holding data to play, so Clicky

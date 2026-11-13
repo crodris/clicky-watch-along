@@ -2,7 +2,8 @@
 //  VoiceToolDebugServer.swift
 //  leanring-buddy
 //
-//  Debug builds only. Serves the same voice tools the router uses as a tiny MCP endpoint
+//  Debug builds only, and only when Clicky is launched with --voice-tool-debug-server.
+//  Serves the same voice tools the router uses as a tiny MCP endpoint
 //  (JSON-RPC over HTTP POST at http://127.0.0.1:8790/mcp), so an agent such as Claude Code, or
 //  verify-clicky with curl, can turn the model or seek the video without speaking.
 //  It answers only loopback requests that carry no Origin header and send JSON, so a web page
@@ -51,6 +52,8 @@ final class VoiceToolDebugServer {
     private func serve(_ connection: NWConnection) {
         connection.start(queue: .main)
         receiveRequest(on: connection, bytesSoFar: Data())
+        // A sender that never finishes its request would keep the connection open forever.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { connection.cancel() }
     }
 
     /// Reads until the headers and the Content-Length body have arrived, then answers once and closes.
@@ -162,7 +165,8 @@ nonisolated struct DebugHTTPRequest: Equatable {
             let headerName = headerLine[..<colonIndex].trimmingCharacters(in: .whitespaces).lowercased()
             headers[headerName] = headerLine[headerLine.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
         }
-        let contentLength = Int(headers["content-length"] ?? "0") ?? 0
+        // A negative length would trap in prefix(_:), and the server reads at most 1 MB.
+        guard let contentLength = Int(headers["content-length"] ?? "0"), (0...1_000_000).contains(contentLength) else { return nil }
         let bodyBytes = bytes[headerEnd.upperBound...]
         guard bodyBytes.count >= contentLength else { return nil }
         method = String(requestLineParts[0])
