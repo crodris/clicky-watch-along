@@ -196,7 +196,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     static let shared = LiveSceneOverlay()
 
     var onTourFinished: (() -> Void)?
-    /// An uncaught error or rejection in the page. A page that throws mid-tour never posts tourFinished.
+    /// An uncaught error or rejection in the page, a failed page load, or a lost web content process.
+    /// A page that fails any of these mid-tour never posts tourFinished.
     var onPageError: ((String) -> Void)?
 
     private static let pageErrorForwardingScript = """
@@ -386,6 +387,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         print("Live scene: web content process terminated")
         pageHasFinishedLoading = false
         liveSceneOverlayWindow?.ignoresMouseEvents = true
+        onPageError?("web content process terminated")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -512,6 +514,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         guard !navigationWasCancelled(error) else { return }
         print("Live scene: page failed to load: \(error.localizedDescription)")
         pageHasFinishedLoading = false
+        onPageError?("page failed to load: \(error.localizedDescription)")
     }
 
     private func navigationWasCancelled(_ error: Error) -> Bool {
