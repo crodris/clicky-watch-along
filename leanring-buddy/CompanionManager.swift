@@ -1236,6 +1236,11 @@ final class CompanionManager: ObservableObject {
         Task {
             await self.speakLiveSceneLine("Okay, back to the video.")
             await self.waitForClickyToFinishSpeaking()
+            // Speaking the line set the voice state to responding, and a quiz asks its next question only when idle.
+            if self.voiceState == .responding {
+                self.voiceState = .idle
+                self.scheduleTransientHideIfNeeded()
+            }
             try? await Task.sleep(nanoseconds: 500_000_000)
             // A frame pop-out lands back in the paused frame before the video moves.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
