@@ -288,7 +288,13 @@ function judgeCase(judgeCaseSpec: {
   };
 }
 
-function framePartsCase(id: string, frameFileName: string, expectWholePicture: boolean, description: string): BenchCase {
+function framePartsCase(
+  id: string,
+  frameFileName: string,
+  expectWholePicture: boolean,
+  expectShowsDepth: boolean,
+  description: string,
+): BenchCase {
   return {
     id,
     route: "/video-frame-parts",
@@ -308,9 +314,8 @@ function framePartsCase(id: string, frameFileName: string, expectWholePicture: b
       }
       const parts = Array.isArray(reply.parts) ? reply.parts : [];
       const wholePicture = reply.wholePictureIsSubject === true;
-      // Both fixtures are flat art, so a depth flag would swap their puffed-up lift for a flat card.
       const showsDepth = reply.pictureShowsDepth === true;
-      const passed = wholePicture === expectWholePicture && !showsDepth && parts.length >= 3;
+      const passed = wholePicture === expectWholePicture && showsDepth === expectShowsDepth && parts.length >= 3;
       return { passed, detail: `wholePictureIsSubject ${wholePicture}, pictureShowsDepth ${showsDepth}, ${parts.length} parts` };
     },
   };
@@ -406,8 +411,9 @@ const benchCases: BenchCase[] = [
       };
     },
   },
-  framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", false, "Finds the heart in a 1280x720 diagram frame"),
-  framePartsCase("frame-parts-painting", "starry-night-frame.jpg", true, "Lifts The Starry Night out as a whole picture"),
+  framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", false, false, "Finds the heart in a 1280x720 diagram frame"),
+  framePartsCase("frame-parts-painting", "starry-night-frame.jpg", true, false, "Lifts The Starry Night out as a whole picture"),
+  framePartsCase("frame-parts-cutaway", "turbofan-cutaway-frame.jpg", false, true, "Marks a 3D cutaway of a turbofan as showing depth"),
   {
     id: "landmark",
     route: "/landmark",

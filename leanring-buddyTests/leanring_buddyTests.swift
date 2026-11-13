@@ -5,6 +5,7 @@
 //  Created by thorfinn on 3/2/26.
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -584,6 +585,23 @@ struct leanring_buddyTests {
         #expect(LiveScenePageEvent(messageBody: NSNumber(value: 1)) == nil)
         #expect(LiveScenePageEvent(messageBody: ["event": "tourFinished"]) == nil)
         #expect(LiveScenePageEvent(messageBody: NSNull()) == nil)
+    }
+
+    @Test func framePopoutPageCarriesWhetherThePictureShowsDepth() async throws {
+        // The page reads the flag from its data, so a flag lost on the way brings back the smeared lift.
+        let overlayScreen = try #require(NSScreen.screens.first)
+        let frameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
+        for pictureShowsDepth in [true, false] {
+            let framePopout = VideoFramePopout(
+                frameGrab: frameGrab,
+                subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
+                parts: [VideoFramePopout.Part(label: "Fan", x: 10, y: 10, isQuizAnswer: false)],
+                subjectMaskPNGBase64: "",
+                pictureShowsDepth: pictureShowsDepth
+            )
+            let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
+            #expect(popoutPageHTML.contains("\"pictureShowsDepth\":\(pictureShowsDepth)"))
+        }
     }
 
     @Test func narrationOfAPageImageNeverCallsItAVideo() async throws {
