@@ -26,7 +26,7 @@ Case IDs are the `id` fields in `benchCases`.
 
 Run the two Workers side by side and let the benchmark alternate between them, so drift in upstream latency hits both sides equally.
 Each side is `label:port:checkout`.
-Each side sends what its own app version sends: the benchmark reads the chat model, effort, system prompt, speech model, and speech format from that checkout's Swift source, and prints them as the side's app profile.
+Each side sends what its own app version sends: the benchmark reads the chat model, effort, system prompt, whether the system prompt carries a cache breakpoint, the speech model, and the speech format from that checkout's Swift source, and prints them as the side's app profile.
 The second checkout is a git worktree at the other commit, with its own `worker/.dev.vars` and its own `verify-clicky.sh worker-up <port>`.
 
 ```bash
@@ -62,5 +62,5 @@ CI runs it on every committed result, so a result file that no longer parses fai
 - `firstAudioMs` is when the app could start speaking a `/tts` reply: the first buffer of streamed PCM, or the whole body for an MP3, which the older app downloads in full before it plays.
 - Tokens come from the Worker's `[/route] usage {...}` log lines, one per model call, so two lines for one request mean one retry.
   Streamed `/chat` logs no usage line, so its tokens come from the stream's `message_start` and `message_delta` events.
-- `costUSD` prices each usage line by the model it names. `/tts` is priced per character. A GPT live scene uses the repo's $0.23 estimate.
+- `costUSD` prices each usage line by the model it names. `/tts` is priced per character. A GPT live scene uses the repo's $0.23 estimate. A model or speech model with no price records `costUSD` as null and prints a warning, so the run goes on.
 - `quality` is a per-case check of the reply, such as the pointer landing on a "Download PDF" control or the landmark within 0.003 degrees of the Eiffel Tower.
