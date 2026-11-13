@@ -450,6 +450,56 @@ const benchCases: BenchCase[] = [
       return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
     },
   },
+  {
+    id: "voice-command",
+    route: "/voice-command",
+    description: 'Turns a frame pop-out the other way after "turn it the other way", with a recent rotate_model of 45 degrees',
+    requestBody: () => ({
+      messages: [
+        {
+          role: "user",
+          content: [
+            "<scene_state>A frame pop-out with labels wing, tail, engine. Yaw 45 degrees, pitch 0, zoom 0.2, no part focused.</scene_state>",
+            "<recent_actions>rotate_model yawDegrees 45, pitchDegrees 0</recent_actions>",
+            "turn it the other way",
+          ].join("\n"),
+        },
+      ],
+      tools: [
+        {
+          name: "rotate_model",
+          description: "Turns the model around its center by these degrees. Positive yaw turns it to the right.",
+          inputSchema: {
+            type: "object",
+            properties: { yawDegrees: { type: "number" }, pitchDegrees: { type: "number" } },
+            required: ["yawDegrees", "pitchDegrees"],
+          },
+        },
+        {
+          name: "zoom",
+          description: "Moves the camera closer with a positive amount and farther with a negative one, as a fraction of the zoom range.",
+          inputSchema: { type: "object", properties: { amount: { type: "number" } }, required: ["amount"] },
+        },
+        {
+          name: "zoom_to_part",
+          description: "Moves the camera to one labeled part and highlights it.",
+          inputSchema: { type: "object", properties: { label: { type: "string", enum: ["wing", "tail", "engine"] } }, required: ["label"] },
+        },
+        { name: "reset_view", description: "Puts the camera back to frame the whole model.", inputSchema: { type: "object", properties: {} } },
+      ],
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const toolCalls = (Array.isArray(reply?.content) ? reply.content : []).filter(isRecord).filter((block) => block.type === "tool_use");
+      const rotation = toolCalls.find((toolCall) => toolCall.name === "rotate_model");
+      const yawDegrees = isRecord(rotation?.input) ? numberField(rotation.input, "yawDegrees") : 0;
+      const confirmation = isRecord(rotation?.input) ? String(rotation.input.confirmation ?? "") : "";
+      return {
+        passed: toolCalls.length === 1 && yawDegrees < 0 && confirmation.length > 0,
+        detail: `${toolCalls.map((toolCall) => String(toolCall.name)).join(", ") || "no tool"}, yaw ${yawDegrees}, says "${confirmation}"`,
+      };
+    },
+  },
   judgeCase({ caseSuffix: "correct", quiz: heartQuiz, learnerTranscript: "that's the left ventricle, it pumps blood out to the whole body", expectedVerdict: "correct" }),
   judgeCase({ caseSuffix: "named-only", quiz: heartQuiz, learnerTranscript: "the left ventricle", expectedVerdict: "named_only", wordsTheReplyMustNotSay: ["pump", "aorta"] }),
   judgeCase({ caseSuffix: "wrong", quiz: heartQuiz, learnerTranscript: "is it the lungs?", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["ventricle", "pump"] }),

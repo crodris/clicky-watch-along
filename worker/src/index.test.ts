@@ -67,6 +67,19 @@ describe("system prompt caching on the Anthropic calls", () => {
   });
 });
 
+describe("POST /voice-command", () => {
+  it("is routed to the voice command handler", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    const response = await worker.fetch(
+      new Request("http://127.0.0.1:8787/voice-command", { method: "POST", body: JSON.stringify({ messages: [], tools: [] }) }),
+      testEnv,
+    );
+
+    expect(response.status).toBe(400);
+  });
+});
+
 describe("POST /tts", () => {
   it("streams from ElevenLabs in the output format the app asks for, and drops any other query value", async () => {
     const fetchMock = vi.fn(async (_url: URL) => new Response("audio", { headers: { "content-type": "audio/pcm" } }));
