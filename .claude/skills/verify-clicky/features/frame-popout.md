@@ -68,7 +68,7 @@ Preconditions:
 - **Put it back.** Run `$V app-launch "pop this out|put it back"`.
   The second step logs `Live scene: put back on request`, and the subject flattens back into its frame.
   The rehearsal sends the second step as soon as the tour ends, before the narration speaks, so the tap needs the run above.
-- **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`), a photo of an engine (`https://commons.wikimedia.org/wiki/File:F100_F-15_engine.JPG`), and a photo of a flower (`https://commons.wikimedia.org/wiki/File:Magnolia_grandiflora_-_flower_1.jpg`), 3 times each.
+- **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`), a photo of an engine (`https://commons.wikimedia.org/wiki/Special:FilePath/F100_F-15_engine.JPG?width=960`), and a photo of a flower (`https://commons.wikimedia.org/wiki/Special:FilePath/Magnolia_grandiflora_-_flower_1.jpg?width=960`), 3 times each.
   Every run returns `pictureShowsDepth: true`.
   The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
   In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
