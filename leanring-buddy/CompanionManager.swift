@@ -797,7 +797,16 @@ final class CompanionManager: ObservableObject {
         // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
         var sceneQuestion = transcript
         let requestedKind = liveSceneKind(for: transcript)
-        if requestedKind == .explore || requestedKind == .framePopout {
+        // "Animate this" over a finished pop-out animates the picture already on screen instead of popping it out again.
+        if requestedKind == .animatedFramePopout,
+           case .allLabelsShowing = liveScenePhase,
+           case .framePopout(let framePopoutOnScreen) = liveScenePageOnScreen {
+            currentResponseTask = Task {
+                await self.animateTheFramePopoutOnScreen(framePopoutOnScreen, requestGeneration: requestGeneration)
+            }
+            return
+        }
+        if requestedKind == .explore || requestedKind == .framePopout || requestedKind == .animatedFramePopout {
             let quizWatchesTheVideoInFront = videoQuizSession.isRunning && videoQuizSession.quizVideoIsTheTabInFront()
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
             if quizWatchesTheVideoInFront {
@@ -851,11 +860,14 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        if liveSceneKind(for: transcript) == .framePopout {
+        if requestedKind == .framePopout || requestedKind == .animatedFramePopout {
             clearFinishedLiveScene(resumesTheVideo: false)
             liveScenePhase = .buildingScene
             currentResponseTask = Task {
-                await self.popOutTheVisibleVideoFrame(requestGeneration: requestGeneration)
+                await self.popOutTheVisibleVideoFrame(
+                    requestGeneration: requestGeneration,
+                    animatesWhatFlows: requestedKind == .animatedFramePopout
+                )
             }
             return
         }
@@ -1044,7 +1056,7 @@ final class CompanionManager: ObservableObject {
 
     /// Lifts the subject of the paused YouTube frame, or of the largest image on any other page, out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
-    private func popOutTheVisibleVideoFrame(requestGeneration: Int) async {
+    private func popOutTheVisibleVideoFrame(requestGeneration: Int, animatesWhatFlows: Bool) async {
         LiveSceneStatusLabel.shared.show(.poppingItOut)
         defer {
             // Every exit hides the pop-out line, unless a newer request took over, whose own line is not ours to hide.
@@ -1088,12 +1100,54 @@ final class CompanionManager: ObservableObject {
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
         liveScenePageOnScreen = .framePopout(framePopout)
+        // Sonnet draws the flows while the tour plays, and the page starts them when the tour ends.
+        let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows
+            ? Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
+            : nil
         // Idle during the tour so the triangle shows, while the narration is written in the background.
         voiceState = .idle
         await narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+            pictureFlowsTask?.cancel()
+            return
+        }
+        // A missing animation is said after the narration, so the two never talk over each other.
+        if let spokenLine = await pictureFlowsTask?.value.spokenLineWhenNotShowing {
+            await speakLiveSceneLine(spokenLine)
+        }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
+    }
+
+    private func animateTheFramePopoutOnScreen(_ framePopout: VideoFramePopout, requestGeneration: Int) async {
+        await speakLiveSceneLine("Sure, let me animate that.")
+        guard !Task.isCancelled else { return }
+        voiceState = .processing
+        let pictureFlowsOutcome = await showPictureFlows(on: framePopout, requestGeneration: requestGeneration)
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
+            await speakLiveSceneLine(spokenLine)
+        }
+        scheduleTransientHideIfNeeded()
+    }
+
+    private func showPictureFlows(on framePopout: VideoFramePopout, requestGeneration: Int) async -> PictureFlowsOutcome {
+        let pictureFlows: [PictureFlow]
+        do {
+            pictureFlows = try await PictureFlowsClient.requestFlows(workerBaseURL: Self.workerBaseURL, framePopout: framePopout)
+        } catch {
+            print("Frame pop-out: picture flows failed: \(error.localizedDescription)")
+            return Task.isCancelled ? .superseded : .failed
+        }
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return .superseded }
+        guard !pictureFlows.isEmpty else {
+            print("Frame pop-out: nothing flows through this picture")
+            return .nothingFlows
+        }
+        LiveSceneOverlay.shared.showFlows(pictureFlows)
+        print("Frame pop-out: streaming \(pictureFlows.count) flows")
+        return .showing(flowCount: pictureFlows.count)
     }
 
     /// Clicky says each build status out loud as the label shows it, so the

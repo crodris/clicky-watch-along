@@ -180,6 +180,25 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "play some pop without the vocals") == nil)
         #expect(liveSceneKind(for: "that popped up on my screen") == nil)
         #expect(liveSceneKind(for: "what's on the latest menu") == nil)
+        #expect(liveSceneKind(for: "Hey Clicky, can you animate this?") == .animatedFramePopout)
+        #expect(liveSceneKind(for: "pop this out and make it move") == .animatedFramePopout)
+        #expect(liveSceneKind(for: "make that flow") == .animatedFramePopout)
+        #expect(liveSceneKind(for: "what animation software made this") == nil)
+    }
+
+    @Test func pictureFlowsSayWhyNothingMovesOnlyWhenNothingIsShowing() async throws {
+        let workerReply = Data(#"{"flows":[{"color":"orange","points":[[445,246],[880,292]]}]}"#.utf8)
+        struct FlowsReply: Decodable { let flows: [PictureFlow] }
+        let pictureFlows = try JSONDecoder().decode(FlowsReply.self, from: workerReply).flows
+        #expect(pictureFlows == [PictureFlow(color: .orange, points: [[445, 246], [880, 292]])])
+        // A color outside the palette fails the whole reply, so the page never gets an unknown color.
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"magenta","points":[[1,1],[9,9]]}]}"#.utf8))
+        }
+        #expect(PictureFlowsOutcome.showing(flowCount: 1).spokenLineWhenNotShowing == nil)
+        #expect(PictureFlowsOutcome.superseded.spokenLineWhenNotShowing == nil)
+        #expect(PictureFlowsOutcome.nothingFlows.spokenLineWhenNotShowing != nil)
+        #expect(PictureFlowsOutcome.failed.spokenLineWhenNotShowing != nil)
     }
 
     @Test func imagePopoutCapturesTheDisplayUnderTheImageAtFullDensity() async throws {

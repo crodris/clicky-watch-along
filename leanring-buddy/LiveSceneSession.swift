@@ -15,6 +15,8 @@ enum LiveSceneKind {
     case quiz
     /// The subject of the YouTube frame on screen lifts out in 3D with every label, and nothing is asked.
     case framePopout
+    /// The same pop-out, then streams of what flows through the subject, like air through an engine.
+    case animatedFramePopout
 }
 
 enum LiveScenePhase {
@@ -142,6 +144,14 @@ enum LiveSceneAnswerJudge {
 /// request wins, because "show me inside and quiz me" wants the quiz.
 nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
+    // "Animate" alone counts, but "animation" does not, so a question about animation software builds nothing.
+    let asksToAnimateThePicture = lowercaseTranscript.range(
+        of: #"\b(animate|make (it|this|that|them) (move|flow))\b"#,
+        options: .regularExpression
+    ) != nil
+    if asksToAnimateThePicture {
+        return .animatedFramePopout
+    }
     let asksForAFramePopout = lowercaseTranscript.range(
         // Up to 3 words may sit between "pop" and "out", as in "pop this heart out".
         // "out" must start its own word, so "pop without" does not count.
