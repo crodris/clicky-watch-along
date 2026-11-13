@@ -160,7 +160,8 @@ A record whose PID now belongs to another process is removed, and that process i
   It needs the microphone and a ctrl+option press through the CGEvent tap.
   Rehearsal steps enter the pipeline right after transcription, so the transcription providers (AssemblyAI, OpenAI, Apple Speech) stay unverified.
 - The menu bar panel, the model picker, and the permission prompts.
-- Mouse drag orbit, trackpad pinch, and Escape on a finished scene.
+- Mouse drag orbit and trackpad pinch.
+  Escape and a push-to-talk tap can be driven with `$V key escape` and `$V key push-to-talk-tap`, which send real key events through System Events.
 - Streamed `/chat` logs no usage line.
   Prove it through the app log line `🌐 Claude streaming request:` and the spoken reply.
 
