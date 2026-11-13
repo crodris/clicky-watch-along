@@ -1544,6 +1544,7 @@ final class CompanionManager: ObservableObject {
 
     /// Escape ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
+    /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
@@ -1554,12 +1555,28 @@ final class CompanionManager: ObservableObject {
             skipTheVideoQuizQuestion()
             return
         }
+        if case .idle = liveScenePhase {
+            stopTheReplyOnEscape()
+            return
+        }
         guard case .allLabelsShowing = liveScenePhase else { return }
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         voiceState = .idle
         clearFinishedLiveScene()
         scheduleTransientHideIfNeeded()
+    }
+
+    /// With no scene on screen, Escape skips the answer Clicky is thinking about or speaking,
+    /// the same way a push-to-talk press does, without asking anything new.
+    private func stopTheReplyOnEscape() {
+        guard voiceState == .processing || voiceState == .responding || elevenLabsTTSClient.isPlaying else { return }
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        clearDetectedElementLocation()
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+        print("Escape: stopped the reply")
     }
 
     private func skipTheVideoQuizQuestion() {

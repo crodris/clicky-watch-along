@@ -53,6 +53,8 @@ Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by de
 
 **Shared URLSession for AssemblyAI**: A single long-lived `URLSession` is shared across all AssemblyAI streaming sessions (owned by the provider, not the session). Creating and invalidating a URLSession per session corrupts the OS connection pool and causes "Socket is not connected" errors after a few rapid reconnections.
 
+**Interrupting a reply**: Escape or a quick ctrl+option tap stops the answer Clicky is thinking about or speaking, and a tap with no words asks nothing. With a scene or pop-out on screen, Escape keeps its scene behavior.
+
 **Transient Cursor Mode**: When "Show Clicky" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
 **Live Scene**: A transcript that contains "inside", "look like", "show me", "3D", or "render" calls `POST /live-scene`, and every label stays visible.
