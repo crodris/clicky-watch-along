@@ -153,7 +153,7 @@ window.liveScene = {
       .filter((flow) => flow.points.length >= 2 && flow.length > 0);
     flowsStartedAt = null;
   },
-  // Returns false when it changes nothing, so a voice tool can say so instead of confirming.
+  // Returns false while the pop-out builds or lands back in the video, so a voice tool can say so instead of confirming.
   zoomBy(amount) {
     if (!tourDone || returnStartedAt !== null) return false;
     restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));

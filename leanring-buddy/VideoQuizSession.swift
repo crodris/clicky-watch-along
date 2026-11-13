@@ -54,8 +54,9 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
     return transcriptNamesAVideo && transcriptAsksToBeQuizzed ? .start : nil
 }
 
-/// The page's answer about its video goes into the model's prompt, and any page can rewrite what its scripts
-/// return, so only the five expected fields pass, plus whether the tab is on YouTube, which the app reads from the URL, each with its expected type, plus the tab title cut short.
+/// The page's answer about its video goes into the model's prompt, and any page can rewrite what its scripts return.
+/// So only the five expected fields pass, each with its expected type, and the tab title is cut short.
+/// Whether the tab is on YouTube comes from the tab's URL, which the page cannot rewrite.
 /// Nil when a field is missing or has the wrong type.
 nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tabTitle: String, pageIsOnYouTube: Bool) -> JSONValue? {
     guard let seconds = pageVideoState["seconds"]?.numberValue,
