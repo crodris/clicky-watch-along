@@ -420,6 +420,19 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
     return .speak(confirmations.joined(separator: " "))
 }
 
+/// A play counts only once the video is really playing, so Clicky never says "playing" over a stopped video.
+/// A refused play goes back to the model as a failure that tells the learner what to do.
+nonisolated func learnerVideoPlayOutcome(videoStateAfterPlay: JSONValue?) -> VoiceToolOutcome {
+    guard let videoStateAfterPlay else {
+        return .failed(error: "The video is gone from Chrome's front tab", state: nil)
+    }
+    let videoState = JSONValue.object(["video": videoStateAfterPlay])
+    if videoStateAfterPlay["paused"]?.boolValue == true {
+        return .failed(error: "Chrome did not start the video. A page that has not been clicked yet cannot start a video with sound, so the learner should click the video once.", state: videoState)
+    }
+    return .changed(state: videoState)
+}
+
 // MARK: - The message the model reads
 
 /// One line per recent tool call, so "no, the other way" can be read against what Clicky just did.

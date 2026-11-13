@@ -787,6 +787,15 @@ struct leanring_buddyTests {
         #expect(learnerVideoStateTheModelMayRead(pageVideoState: .object(["seconds": .string("9")]), tabTitle: "") == nil)
     }
 
+    @Test func aPlayChromeRefusedIsAFailureNotAConfirmation() async throws {
+        let stillPaused: JSONValue = .object(["seconds": .number(0), "paused": .bool(true)])
+        let playing: JSONValue = .object(["seconds": .number(1), "paused": .bool(false)])
+
+        #expect(learnerVideoPlayOutcome(videoStateAfterPlay: stillPaused).isFailure)
+        #expect(learnerVideoPlayOutcome(videoStateAfterPlay: playing) == .changed(state: .object(["video": playing])))
+        #expect(learnerVideoPlayOutcome(videoStateAfterPlay: nil).isFailure)
+    }
+
     @Test func captionSearchReadsOnlyPublicHttpsPages() async throws {
         #expect(captionSearchMayReadTheVideoPage(urlText: "https://www.youtube.com/watch?v=L24Wf0VlTE0"))
         #expect(captionSearchMayReadTheVideoPage(urlText: "https://vimeo.com/76979871"))

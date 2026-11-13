@@ -1887,7 +1887,11 @@ final class CompanionManager: ObservableObject {
         case .pauseVideo:
             return runLearnerVideoCommand(.pause)
         case .playVideo:
-            return runLearnerVideoCommand(.play)
+            let playOutcome = runLearnerVideoCommand(.play)
+            guard case .changed = playOutcome else { return playOutcome }
+            // play() only asks. Chrome answers later, and refuses a video with sound on a page never clicked.
+            try? await Task.sleep(for: .milliseconds(400))
+            return learnerVideoPlayOutcome(videoStateAfterPlay: videoQuizSession.frontVideoStateForVoiceCommands())
         case .seekRelative:
             guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
             return runLearnerVideoCommand(.seekBy(seconds: seconds))
