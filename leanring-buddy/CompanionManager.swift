@@ -793,6 +793,12 @@ final class CompanionManager: ObservableObject {
             return
         }
 
+        // "Put it back" has its own tested phrase match, which keeps "put it back together" for the router.
+        if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+            respondToTranscript(transcript: transcript, requestedSceneKind: nil)
+            return
+        }
+
         let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
         if case .buildingScene = liveScenePhase { sceneIsBuilding = true }

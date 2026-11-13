@@ -24,5 +24,14 @@ for test_file in "$checkout_root"/leanring-buddyTests/*.swift; do
   ln -s "$test_file" "$package_dir/Tests/ClickyTests/"
 done
 
+# These tests read a page from the app bundle, which only exists when Xcode hosts the tests in Clicky.app,
+# so they are skipped here. CI and Cmd+U still run them.
+tests_that_need_the_app_bundle=(framePopoutPageCarriesWhetherThePictureShowsDepth)
+skip_arguments=()
+for test_name in "${tests_that_need_the_app_bundle[@]}"; do
+  skip_arguments+=(--skip "$test_name")
+done
+echo "swift-check: skipping ${#tests_that_need_the_app_bundle[@]} test(s) that need the app bundle: ${tests_that_need_the_app_bundle[*]}"
+
 cd "$package_dir"
-swift test "$@"
+swift test "${skip_arguments[@]}" "$@"
