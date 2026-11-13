@@ -793,13 +793,9 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        var phaseIsWaitingForAQuizAnswer = false
+        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
-        switch liveScenePhase {
-        case .awaitingAnswer, .awaitingFollowUpOnWhatThePartDoes: phaseIsWaitingForAQuizAnswer = true
-        case .buildingScene: sceneIsBuilding = true
-        case .idle, .touring, .allLabelsShowing: break
-        }
+        if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
         let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             youTubeVideoIsInFront: !phaseIsWaitingForAQuizAnswer && !sceneIsBuilding
@@ -812,6 +808,13 @@ final class CompanionManager: ObservableObject {
             return
         }
         respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
+    }
+
+    private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
+        switch liveScenePhase {
+        case .awaitingAnswer, .awaitingFollowUpOnWhatThePartDoes: return true
+        case .idle, .buildingScene, .touring, .allLabelsShowing: return false
+        }
     }
 
     /// The path every request took before voice tools: a quiz answer, a scene build, a pop-out, or a
@@ -1782,7 +1785,8 @@ final class CompanionManager: ObservableObject {
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
             youTubeVideoIsInFront: frontVideoState != nil,
-            videoQuizIsRunning: videoQuizSession.isRunning
+            videoQuizIsRunning: videoQuizSession.isRunning,
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
         let tools = pageTools + AppVoiceTool.available(in: appToolContext).map(\.descriptor)
         let userMessageText = voiceCommandUserMessageText(
@@ -1922,7 +1926,8 @@ final class CompanionManager: ObservableObject {
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
             youTubeVideoIsInFront: videoQuizSession.frontVideoStateForVoiceCommands() != nil,
-            videoQuizIsRunning: videoQuizSession.isRunning
+            videoQuizIsRunning: videoQuizSession.isRunning,
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return await LiveSceneOverlay.shared.pageVoiceTools() + appTools.map(\.descriptor)

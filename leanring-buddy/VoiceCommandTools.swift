@@ -194,13 +194,16 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var sceneHasLabels: Bool
         var youTubeVideoIsInFront: Bool
         var videoQuizIsRunning: Bool
+        /// While a quiz question waits for its answer, every utterance goes to the judge first. A hand-off
+        /// to the old path would send it back to the judge, so only view and video tools are offered then.
+        var quizQuestionIsOpen: Bool
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
         allCases.filter { appVoiceTool in
             switch appVoiceTool {
             case .answerWithScreen, .buildNewScene, .popOut:
-                return true
+                return !context.quizQuestionIsOpen
             case .closeScene:
                 return context.sceneIsOnScreen
             case .explainPart:

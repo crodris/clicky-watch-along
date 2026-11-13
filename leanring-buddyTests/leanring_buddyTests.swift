@@ -717,14 +717,24 @@ struct leanring_buddyTests {
     }
 
     @Test func videoToolsAreOfferedOnlyWithAYouTubeVideoInFront() async throws {
-        let sceneOnly = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, youTubeVideoIsInFront: false, videoQuizIsRunning: false)
-        let videoOnly = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, youTubeVideoIsInFront: true, videoQuizIsRunning: false)
+        let sceneOnly = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, youTubeVideoIsInFront: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        let videoOnly = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, youTubeVideoIsInFront: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
 
         #expect(!AppVoiceTool.available(in: sceneOnly).contains(.seekRelative))
         #expect(AppVoiceTool.available(in: sceneOnly).contains(.explainPart))
         #expect(AppVoiceTool.available(in: videoOnly).contains(.seekRelative))
         #expect(!AppVoiceTool.available(in: videoOnly).contains(.closeScene))
         #expect(!AppVoiceTool.available(in: videoOnly).contains(.endQuiz))
+    }
+
+    @Test func aViewCommandDuringAQuizQuestionCannotHandTheTranscriptBackToTheJudge() async throws {
+        let questionOpen = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, youTubeVideoIsInFront: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)
+        let availableTools = AppVoiceTool.available(in: questionOpen)
+
+        #expect(!availableTools.contains(.answerWithScreen))
+        #expect(!availableTools.contains(.buildNewScene))
+        #expect(!availableTools.contains(.popOut))
+        #expect(availableTools.contains(.seekRelative))
     }
 
     @Test func aQuizAnswerOrASceneStillBuildingNeverGoesToTheVoiceCommandRouter() async throws {
