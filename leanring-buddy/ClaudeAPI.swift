@@ -173,59 +173,65 @@ class ClaudeAPI {
         let payloadMB = Double(bodyData.count) / 1_048_576.0
         print("🌐 Claude streaming request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
-        // Use bytes streaming for SSE (Server-Sent Events)
-        let (byteStream, response) = try await session.bytes(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(
-                domain: "ClaudeAPI",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]
-            )
-        }
-
-        // If non-2xx status, read the full body as error text
-        guard (200...299).contains(httpResponse.statusCode) else {
-            var errorBodyChunks: [String] = []
-            for try await line in byteStream.lines {
-                errorBodyChunks.append(line)
-            }
-            let errorBody = errorBodyChunks.joined(separator: "\n")
-            throw NSError(
-                domain: "ClaudeAPI",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "API Error (\(httpResponse.statusCode)): \(errorBody)"]
-            )
-        }
-
-        // Parse SSE stream — each event is "data: {json}\n\n"
         var accumulatedResponseText = ""
+        do {
+            // Use bytes streaming for SSE (Server-Sent Events)
+            let (byteStream, response) = try await session.bytes(for: request)
 
-        for try await line in byteStream.lines {
-            // SSE lines look like: "data: {...}"
-            guard line.hasPrefix("data: ") else { continue }
-            let jsonString = String(line.dropFirst(6)) // Drop "data: " prefix
-
-            // End of stream marker
-            guard jsonString != "[DONE]" else { break }
-
-            guard let jsonData = jsonString.data(using: .utf8),
-                  let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                  let eventType = eventPayload["type"] as? String else {
-                continue
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NSError(
+                    domain: "ClaudeAPI",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]
+                )
             }
 
-            // We care about content_block_delta events that contain text chunks
-            if eventType == "content_block_delta",
-               let delta = eventPayload["delta"] as? [String: Any],
-               let deltaType = delta["type"] as? String,
-               deltaType == "text_delta",
-               let textChunk = delta["text"] as? String {
-                accumulatedResponseText += textChunk
-                // Send the accumulated text so far to the UI for progressive rendering
-                let currentAccumulatedText = accumulatedResponseText
-                await onTextChunk(currentAccumulatedText)
+            // If non-2xx status, read the full body as error text
+            guard (200...299).contains(httpResponse.statusCode) else {
+                var errorBodyChunks: [String] = []
+                for try await line in byteStream.lines {
+                    errorBodyChunks.append(line)
+                }
+                let errorBody = errorBodyChunks.joined(separator: "\n")
+                throw NSError(
+                    domain: "ClaudeAPI",
+                    code: httpResponse.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "API Error (\(httpResponse.statusCode)): \(errorBody)"]
+                )
             }
+
+            // Parse SSE stream — each event is "data: {json}\n\n"
+
+            for try await line in byteStream.lines {
+                // SSE lines look like: "data: {...}"
+                guard line.hasPrefix("data: ") else { continue }
+                let jsonString = String(line.dropFirst(6)) // Drop "data: " prefix
+
+                // End of stream marker
+                guard jsonString != "[DONE]" else { break }
+
+                guard let jsonData = jsonString.data(using: .utf8),
+                      let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                      let eventType = eventPayload["type"] as? String else {
+                    continue
+                }
+
+                // We care about content_block_delta events that contain text chunks
+                if eventType == "content_block_delta",
+                   let delta = eventPayload["delta"] as? [String: Any],
+                   let deltaType = delta["type"] as? String,
+                   deltaType == "text_delta",
+                   let textChunk = delta["text"] as? String {
+                    accumulatedResponseText += textChunk
+                    // Send the accumulated text so far to the UI for progressive rendering
+                    let currentAccumulatedText = accumulatedResponseText
+                    await onTextChunk(currentAccumulatedText)
+                }
+            }
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // A newer question cancelled this reply. Callers stay quiet on CancellationError,
+            // so this must not reach them as a failure that plays the lost-voice line.
+            throw CancellationError()
         }
 
         let duration = Date().timeIntervalSince(startTime)
