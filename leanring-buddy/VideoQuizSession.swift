@@ -55,13 +55,14 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
 }
 
 /// The page's answer about its video goes into the model's prompt, and any page can rewrite what its scripts
-/// return, so only the four expected fields pass, each with its expected type, plus the tab title cut short.
+/// return, so only the five expected fields pass, each with its expected type, plus the tab title cut short.
 /// Nil when a field is missing or has the wrong type.
 nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tabTitle: String) -> JSONValue? {
     guard let seconds = pageVideoState["seconds"]?.numberValue,
           let durationSeconds = pageVideoState["durationSeconds"]?.numberValue,
           let playbackRate = pageVideoState["playbackRate"]?.numberValue,
-          let paused = pageVideoState["paused"]?.boolValue else {
+          let paused = pageVideoState["paused"]?.boolValue,
+          let playing = pageVideoState["playing"]?.boolValue else {
         return nil
     }
     return .object([
@@ -69,6 +70,7 @@ nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tab
         "durationSeconds": .number(durationSeconds),
         "playbackRate": .number(playbackRate),
         "paused": .bool(paused),
+        "playing": .bool(playing),
         "title": .string(String(tabTitle.prefix(120))),
     ])
 }
@@ -113,7 +115,7 @@ nonisolated enum LearnerVideoCommand: Equatable {
         case .setPlaybackRate(let playbackRate):
             change = "video.playbackRate = \(Self.javaScriptNumber(min(2, max(0.25, playbackRate))));"
         }
-        return "(function () { \(Self.mainVideoJavaScript) if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Math.round(video.duration || 0), paused: video.paused, playbackRate: video.playbackRate }); })()"
+        return "(function () { \(Self.mainVideoJavaScript) if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Math.round(video.duration || 0), paused: video.paused, playing: !video.paused && video.readyState >= 3, playbackRate: video.playbackRate }); })()"
     }
 
     /// Picks the page's main video: the largest one on screen, so a preview or an ad thumbnail never wins.
