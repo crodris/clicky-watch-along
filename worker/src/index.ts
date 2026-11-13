@@ -13,6 +13,7 @@
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
+ *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
@@ -22,6 +23,7 @@ import { handleVideoFrameParts } from "./videoFrameParts";
 import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
 import { handleVoiceCommand } from "./voiceCommand";
+import { handlePictureFlows } from "./pictureFlows";
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -78,6 +80,10 @@ export default {
 
       if (url.pathname === "/voice-command") {
         return await handleVoiceCommand(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/picture-flows") {
+        return await handlePictureFlows(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/judge-answer") {

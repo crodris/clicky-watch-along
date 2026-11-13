@@ -57,6 +57,8 @@ struct VideoFramePopout {
     let subjectMaskPNGBase64: String
     /// True for a cutaway, a 3D render, or a photo, which lifts out as a flat card instead of puffed up.
     let pictureShowsDepth: Bool
+    /// The page image's own frames when it is animated, which the lifted subject keeps playing. Empty for a still.
+    var animationFrames: [PageImageAnimationFrame] = []
 }
 
 private struct VideoFramePartsResponse: Decodable {
@@ -281,6 +283,15 @@ struct ChromePageGeometry: Decodable, Equatable {
     let top: Double
     let width: Double
     let height: Double
+    /// The image's URL when it sits wholly inside the viewport, stretched to its box. Nil for a video.
+    let imageSourceURL: String?
+}
+
+/// The largest visible video or image in Chrome's front tab.
+struct LargestVisibleMediaInFrontTab {
+    let screenRect: ScreenRectInChromeCoordinates
+    /// Set only for an image whose own frames line up with a capture of `screenRect`.
+    let imageSourceURL: URL?
 }
 
 /// The element's place on screen. The page zoom is the page's device pixel ratio divided by the
@@ -394,6 +405,9 @@ func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScr
             ["label": part.label, "x": part.x, "y": part.y, "isQuizAnswer": part.isQuizAnswer] as [String: Any]
         },
         "pictureShowsDepth": framePopout.pictureShowsDepth,
+        "animationFrames": framePopout.animationFrames.map { animationFrame in
+            ["dataURL": "data:image/jpeg;base64,\(animationFrame.jpegBase64)", "delaySeconds": animationFrame.delaySeconds] as [String: Any]
+        },
     ]
     // JSONSerialization escapes "/" as "\/", so a label can never close the script tag.
     guard let popoutDataJSON = try? JSONSerialization.data(withJSONObject: popoutData),

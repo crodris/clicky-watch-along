@@ -31,6 +31,8 @@ It plays the video again when you close the pop-out, unless you had paused it yo
 You can drag to spin it.
 It works best on 2D illustrations, like engravings and prints.
 A picture that already shows depth, like a 3D cutaway of an engine or a photo, lifts out as a flat card that tilts, so its drawn perspective stays sharp.
+An animated GIF keeps playing after it pops out.
+Say "animate this" and Clicky draws what flows through the picture, like air through an engine or blood through a heart, streaming along the drawing.
 Clicky talks about its parts the same way, and calls it a picture, not a video.
 A painted scene, like The Starry Night, lifts out whole, sky included, while a drawing of one animal, like Dürer's Young Hare, lifts out only the animal.
 
@@ -244,6 +246,8 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   LiveSceneOverlay.swift    # Transparent window that plays the 3D scene
   VideoFramePopout.swift    # Lifts the subject of a video frame or page image out in 3D
   ChromeWebArea.swift       # Finds where Chrome's page sits on screen, for the image pop-out
+  PageImageAnimation.swift  # Splits an animated page image into frames so its pop-out keeps playing
+  PictureFlows.swift        # Asks for what flows through a popped-out picture, for "animate this"
   LiveSceneStatusLine.swift # The loading label for each step and its animation
   LiveSceneStatusLabelViews.swift # Draws each loading label and its icon
   LandmarkTiles.swift       # Google's 3D scan of a famous place
@@ -251,12 +255,13 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   VoiceToolCallChip.swift   # The chip that names each tool call
   LiveSceneAssets/scene-tools.js # The scene's tools: turn, zoom, focus, pull apart, cut open
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /v1/3dtiles
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
   src/voiceCommand.ts       # Asks Haiku which voice tools to call
+  src/pictureFlows.ts       # Draws what flows through a popped-out picture
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
