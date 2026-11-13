@@ -456,7 +456,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     func partLabels() async -> [String] {
         guard let liveSceneWebView, pageHasFinishedLoading else { return [] }
         let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
-            "return [...document.querySelectorAll('.scene-label')].map((label) => label.textContent.trim())",
+            // The landmark page styles its place name as a label too, and it is not a part.
+            "return [...document.querySelectorAll('.scene-label:not(#placeName)')].map((label) => label.textContent.trim())",
             arguments: [:],
             in: nil,
             contentWorld: .page

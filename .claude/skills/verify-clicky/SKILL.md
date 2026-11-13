@@ -147,7 +147,7 @@ worker-up [port] [-- wrangler args]
 worker-down               Stop the Workers this script started.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>".
+app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.

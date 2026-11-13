@@ -193,6 +193,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var sceneIsOnScreen: Bool
         var sceneHasLabels: Bool
         var videoIsInFront: Bool
+        /// Caption search reads only YouTube's captions.
+        var videoIsOnYouTube: Bool
         var videoQuizIsRunning: Bool
         /// While a quiz question waits for its answer, every utterance goes to the judge first. A hand-off
         /// to the old path would send it back to the judge, so only view and video tools are offered then.
@@ -210,8 +212,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.sceneIsOnScreen && !context.quizQuestionIsOpen
             case .explainPart:
                 return context.sceneIsOnScreen && context.sceneHasLabels && !context.quizQuestionIsOpen
-            case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed, .findMoment:
+            case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed:
                 return context.videoIsInFront
+            case .findMoment:
+                return context.videoIsInFront && context.videoIsOnYouTube
             case .endQuiz:
                 return context.videoQuizIsRunning
             }

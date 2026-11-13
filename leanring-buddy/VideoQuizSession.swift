@@ -57,7 +57,7 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
 /// The page's answer about its video goes into the model's prompt, and any page can rewrite what its scripts
 /// return, so only the five expected fields pass, each with its expected type, plus the tab title cut short.
 /// Nil when a field is missing or has the wrong type.
-nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tabTitle: String) -> JSONValue? {
+nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tabTitle: String, pageIsOnYouTube: Bool) -> JSONValue? {
     guard let seconds = pageVideoState["seconds"]?.numberValue,
           let durationSeconds = pageVideoState["durationSeconds"]?.numberValue,
           let playbackRate = pageVideoState["playbackRate"]?.numberValue,
@@ -72,7 +72,16 @@ nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tab
         "paused": .bool(paused),
         "playing": .bool(playing),
         "title": .string(String(tabTitle.prefix(120))),
+        // From the tab's URL, which the page cannot rewrite, so the app can offer caption search only on YouTube.
+        "onYouTube": .bool(pageIsOnYouTube),
     ])
+}
+
+/// True for youtube.com and its subdomains, and false for a lookalike such as notyoutube.com.
+nonisolated func urlIsOnYouTube(urlText: String) -> Bool {
+    guard var host = URL(string: urlText)?.host()?.lowercased() else { return false }
+    while host.hasSuffix(".") { host.removeLast() }
+    return host == "youtube.com" || host.hasSuffix(".youtube.com")
 }
 
 /// Caption search hands the front tab's URL to yt-dlp, so it reads only https pages on a public host,
@@ -229,6 +238,8 @@ private enum VideoQuizFailure: Error {
     case chromeScriptFailed(String)
     case captionsToolFailed(String)
     case noCaptions
+    case noCaptionsToSearch
+    case captionSearchNeedsYouTube
     case planFailed(String)
     case lostTheYouTubeTab
 
@@ -253,6 +264,10 @@ private enum VideoQuizFailure: Error {
             return "I couldn't download the captions for this video."
         case .noCaptions:
             return "This video has no captions, so I can't plan a quiz."
+        case .noCaptionsToSearch:
+            return "This video has no captions I can search."
+        case .captionSearchNeedsYouTube:
+            return "I can only search the captions of YouTube videos for now."
         case .planFailed:
             return "I couldn't pick quiz spots for this video."
         case .lostTheYouTubeTab:
@@ -787,7 +802,7 @@ final class VideoQuizSession {
     /// page has none. A video inside a frame from another site cannot be reached by a page script, so it counts as none.
     func frontVideoStateForVoiceCommands() -> JSONValue? {
         guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
-        return try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title)
+        return try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
     }
 
     /// Runs a pause, play, seek, or speed change the learner asked for on the video in front, and returns its state.
@@ -795,7 +810,7 @@ final class VideoQuizSession {
     /// and will not press play on it later.
     func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) throws -> JSONValue {
         let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
-        let videoState = try Self.runLearnerVideoCommand(learnerVideoCommand, in: frontVideoTab, title: frontVideoTab.title)
+        let videoState = try Self.runLearnerVideoCommand(learnerVideoCommand, in: frontVideoTab, title: frontVideoTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontVideoTab.url))
         switch learnerVideoCommand {
         case .pause, .play:
             if let heldVideoTab = videoPausedByClicky?.tab, heldVideoTab.isTheSameTab(as: frontVideoTab) {
@@ -818,23 +833,28 @@ final class VideoQuizSession {
             captionLines = allTranscriptLines
         } else if !captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) {
             throw VideoQuizFailure.noVideoOnThePage
-        } else if !(URL(string: frontVideoTab.url)?.host()?.lowercased().hasSuffix("youtube.com") ?? false) {
+        } else if !urlIsOnYouTube(urlText: frontVideoTab.url) {
             // The captions reader keeps only YouTube's json3 captions, which other sites do not serve.
-            throw VideoQuizFailure.noCaptions
+            throw VideoQuizFailure.captionSearchNeedsYouTube
         } else if let cachedCaptionLines = captionLinesByVideoURL[frontVideoTab.url] {
             captionLines = cachedCaptionLines
         } else {
-            captionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
+            do {
+                captionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
+            } catch VideoQuizFailure.noCaptions {
+                // The quiz's own line talks about planning a quiz, which is not what the learner asked for.
+                throw VideoQuizFailure.noCaptionsToSearch
+            }
             captionLinesByVideoURL[frontVideoTab.url] = captionLines
         }
         return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
     }
 
-    private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String) throws -> JSONValue {
+    private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String, pageIsOnYouTube: Bool) throws -> JSONValue {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab, timeoutSeconds: 2)
         guard javaScriptResult != "no-video",
               let pageVideoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
-              let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title) else {
+              let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title, pageIsOnYouTube: pageIsOnYouTube) else {
             throw VideoQuizFailure.noVideoOnThePage
         }
         return videoState
@@ -920,7 +940,7 @@ private struct ChromeVideoTab {
         }
 
         // Chrome lists windows front to back. Each output line is
-        // windowId|tabId|windowPosition|isActiveTab|url|title
+        // windowId, tabId, windowPosition, isActiveTab, url, and title, split by ASCII 31, which cannot appear in a URL or a title
         // Every Apple Event costs about 17 ms, so each window's tabs are read in three batches rather than
         // one event per tab, which took about 640 ms with 28 tabs open. When only the front tab matters,
         // its URL alone decides, so a page that is not a YouTube video costs two or three events.
@@ -928,16 +948,18 @@ private struct ChromeVideoTab {
         if onlyTheActiveTabOfTheFrontWindow {
             findTabsAppleScript = """
             tell application "Google Chrome"
+                set fieldSeparator to (ASCII character 31)
                 if (count of windows) is 0 then return ""
                 set frontTab to active tab of front window
                 set tabURL to URL of frontTab
                 if tabURL does not contain "youtube.com/watch" then return ""
-                return (id of front window as text) & "|" & (id of frontTab as text) & "|1|true|" & tabURL & "|" & (title of frontTab)
+                return (id of front window as text) & fieldSeparator & (id of frontTab as text) & fieldSeparator & "1" & fieldSeparator & "true" & fieldSeparator & tabURL & fieldSeparator & (title of frontTab)
             end tell
             """
         } else {
             findTabsAppleScript = """
             tell application "Google Chrome"
+                set fieldSeparator to (ASCII character 31)
                 set matchingTabLines to {}
                 repeat with windowPosition from 1 to (count of windows)
                     set chromeWindow to window windowPosition
@@ -951,7 +973,7 @@ private struct ChromeVideoTab {
                         if tabURL contains "youtube.com/watch" then
                             set tabId to item tabIndex of tabIds
                             set tabIsActive to (tabId = activeTabIdOfWindow)
-                            set end of matchingTabLines to (windowId as text) & "|" & (tabId as text) & "|" & (windowPosition as text) & "|" & (tabIsActive as text) & "|" & tabURL & "|" & (item tabIndex of tabTitles)
+                            set end of matchingTabLines to (windowId as text) & fieldSeparator & (tabId as text) & fieldSeparator & (windowPosition as text) & fieldSeparator & (tabIsActive as text) & fieldSeparator & tabURL & fieldSeparator & (item tabIndex of tabTitles)
                         end if
                     end repeat
                 end repeat
@@ -967,7 +989,7 @@ private struct ChromeVideoTab {
             let isActiveTabOfFrontWindow: Bool
         }
         let foundTabs: [FoundTab] = findTabsOutput.split(separator: "\n").compactMap { tabLine in
-            let tabFields = tabLine.split(separator: "|", maxSplits: 5, omittingEmptySubsequences: false)
+            let tabFields = tabLine.split(separator: "\u{1F}", maxSplits: 5, omittingEmptySubsequences: false)
             guard tabFields.count == 6,
                   let windowId = Int(tabFields[0]),
                   let tabId = Int(tabFields[1]) else {

@@ -49,11 +49,18 @@ final class VoiceToolDebugServer {
         }
     }
 
+    /// Connections whose whole request has arrived. A tool such as find_moment can run longer than the
+    /// receive limit, so only a request still arriving is cut off.
+    private var connectionsWithAWholeRequest: Set<ObjectIdentifier> = []
+
     private func serve(_ connection: NWConnection) {
         connection.start(queue: .main)
         receiveRequest(on: connection, bytesSoFar: Data())
         // A sender that never finishes its request would keep the connection open forever.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { connection.cancel() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, !self.connectionsWithAWholeRequest.contains(ObjectIdentifier(connection)) else { return }
+            connection.cancel()
+        }
     }
 
     /// Reads until the headers and the Content-Length body have arrived, then answers once and closes.
@@ -64,8 +71,12 @@ final class VoiceToolDebugServer {
                 var requestBytes = bytesSoFar
                 if let receivedBytes { requestBytes.append(receivedBytes) }
                 if let parsedRequest = DebugHTTPRequest(bytes: requestBytes) {
+                    self.connectionsWithAWholeRequest.insert(ObjectIdentifier(connection))
                     let responseBytes = await self.response(to: parsedRequest)
-                    connection.send(content: responseBytes, completion: .contentProcessed { _ in connection.cancel() })
+                    connection.send(content: responseBytes, completion: .contentProcessed { _ in
+                        connection.cancel()
+                        Task { @MainActor in self.connectionsWithAWholeRequest.remove(ObjectIdentifier(connection)) }
+                    })
                 } else if isComplete || receiveError != nil || requestBytes.count > 1_000_000 {
                     connection.cancel()
                 } else {

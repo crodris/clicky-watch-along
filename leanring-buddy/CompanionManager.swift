@@ -1877,6 +1877,7 @@ final class CompanionManager: ObservableObject {
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
             videoIsInFront: frontVideoState != nil,
+            videoIsOnYouTube: frontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
@@ -2024,7 +2025,7 @@ final class CompanionManager: ObservableObject {
                     .object(["seconds": .number(captionMoment.seconds), "captions": .string(captionMoment.text)])
                 }))
             } catch {
-                return .failed(error: "Could not read this video's captions", state: nil)
+                return .failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil)
             }
         case .endQuiz:
             handleVideoQuizVoiceCommand(.stop)
@@ -2045,10 +2046,12 @@ final class CompanionManager: ObservableObject {
     #if DEBUG
     private func voiceToolsForTheDebugServer() async -> [VoiceToolDescriptor] {
         let pageState = await LiveSceneOverlay.shared.pageVoiceState()
+        let debugFrontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
         let appToolContext = AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
-            videoIsInFront: videoQuizSession.frontVideoStateForVoiceCommands() != nil,
+            videoIsInFront: debugFrontVideoState != nil,
+            videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
         )
@@ -2092,7 +2095,7 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["video"] = frontVideoState
         }
         sceneStateFields["videoQuizIsRunning"] = .bool(videoQuizSession.isRunning)
-        if case .awaitingAnswer = liveScenePhase {
+        if liveScenePhaseIsWaitingForAQuizAnswer {
             sceneStateFields["quizQuestionIsOpen"] = .bool(true)
         }
         return .object(sceneStateFields)

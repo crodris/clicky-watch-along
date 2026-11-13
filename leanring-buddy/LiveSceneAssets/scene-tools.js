@@ -11,6 +11,9 @@
     .map((labelElement) => labelElement.textContent.trim())
     .filter((labelText) => labelText !== "");
 
+  // A primitive returns false when the page refused the change, such as a landmark still loading.
+  const stillLoading = { ok: false, error: "The scene is still loading, so try again in a moment" };
+
   let explodeAmount = 0;
   let insideIsOpen = false;
 
@@ -131,8 +134,8 @@
         const yawDegrees = Number(input.yawDegrees);
         const pitchDegrees = Number(input.pitchDegrees ?? 0);
         if (!Number.isFinite(yawDegrees) || !Number.isFinite(pitchDegrees)) return { ok: false, error: "yawDegrees and pitchDegrees must be numbers" };
-        liveScene().rotateBy(Math.max(-360, Math.min(360, yawDegrees)), Math.max(-80, Math.min(80, pitchDegrees)));
-        return { ok: true };
+        const turned = liveScene().rotateBy(Math.max(-360, Math.min(360, yawDegrees)), Math.max(-80, Math.min(80, pitchDegrees)));
+        return turned === false ? stillLoading : { ok: true };
       },
     },
     {
@@ -148,8 +151,8 @@
         const factor = Number(input.factor);
         if (!Number.isFinite(factor) || factor <= 0) return { ok: false, error: "factor must be a positive number" };
         // zoomBy(amount) scales the camera distance by (1 - amount), so moving factor times closer is 1 - 1 / factor.
-        liveScene().zoomBy(1 - 1 / Math.max(0.3, Math.min(3, factor)));
-        return { ok: true };
+        const zoomed = liveScene().zoomBy(1 - 1 / Math.max(0.3, Math.min(3, factor)));
+        return zoomed === false ? stillLoading : { ok: true };
       },
     },
     {
@@ -174,9 +177,8 @@
       run: () => {
         if (hasParts() && explodeAmount !== 0) explode(0);
         if (hasParts() && insideIsOpen) setInsideOpen(false);
-        if (typeof liveScene().resetView === "function") liveScene().resetView();
-        else liveScene().focusPart("");
-        return { ok: true };
+        const reset = typeof liveScene().resetView === "function" ? liveScene().resetView() : liveScene().focusPart("");
+        return reset === false ? stillLoading : { ok: true };
       },
     },
     {
