@@ -19,6 +19,7 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   Flat illustrations and paintings keep the puffed-up lift.
 - `popout-animation` keeps an animated page image (GIF, animated WebP, or APNG) playing on the lifted subject and on the frame behind it, when the image sits wholly inside the viewport.
   Reduce Motion keeps the still frame.
+- `popout-flows` streams what flows through the picture, like air through an engine, when the learner says "animate this", "make it move", or "make it flow". It uses `/picture-flows`, and Reduce Motion holds the streams still.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.
@@ -77,6 +78,13 @@ Preconditions:
   The log shows `Frame pop-out: playing the page image's 21 animation frames` before `Frame pop-out: lifting the subject`.
   Run `$V shot animated-popout` twice about 0.2 seconds apart, and check that the blades and the arrows moved between the two shots with no white blobs at the engine's edge.
   Scroll so the GIF is cut off at the top of the window and pop it out again, and the log has no animation line.
+- **Flows route.** Build a body like the route step's, with `partLabels` (the labels from a `/video-frame-parts` reply) in place of `subject`, `question`, and `answerLabel`, then `$V post /picture-flows "$RUN/flows-body.json"`.
+  The Turbofan article's schematic and its animated cutaway each return several flows in blue and orange, a heart diagram returns red and blue, and The Starry Night returns `{"flows":[]}`.
+  `node bench/bench.ts worker --label flows --runs 1 --only picture-flows-heart,picture-flows-painting` checks the same on the bench fixtures.
+- **Animate in the app.** With the Turbofan article's lead GIF wholly on screen, run `$V app-launch "animate this"`.
+  The log shows `Frame pop-out: lifting the subject` and then `Frame pop-out: streaming N flows`.
+  Run `$V shot flows` after the tour, and check that blue and orange dashes move through the engine's channels below the labels.
+  Then run `$V app-launch "pop this out|animate this"`, and the second step logs `streaming N flows` without a second `lifting the subject` line.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

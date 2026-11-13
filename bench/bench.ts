@@ -321,6 +321,23 @@ function framePartsCase(
   };
 }
 
+function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[], expectedColors: string[], description: string): BenchCase {
+  return {
+    id,
+    route: "/picture-flows",
+    description,
+    requestBody: () => ({ frameBase64: fixtureBase64(frameFileName), frameWidth: 1280, frameHeight: 720, partLabels }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const flows = Array.isArray(reply?.flows) ? reply.flows : [];
+      const colors = flows.map((flow: unknown) => (typeof flow === "object" && flow !== null && "color" in flow ? String(flow.color) : "none"));
+      // An empty list of expected colors means nothing in the picture flows.
+      const passed = expectedColors.length === 0 ? flows.length === 0 : expectedColors.every((color) => colors.includes(color));
+      return { passed, detail: `${flows.length} flows: ${colors.join(", ") || "none"}` };
+    },
+  };
+}
+
 const benchCases: BenchCase[] = [
   {
     id: "chat-first",
@@ -414,6 +431,14 @@ const benchCases: BenchCase[] = [
   framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", false, false, "Finds the heart in a 1280x720 diagram frame"),
   framePartsCase("frame-parts-painting", "starry-night-frame.jpg", true, false, "Lifts The Starry Night out as a whole picture"),
   framePartsCase("frame-parts-cutaway", "turbofan-cutaway-frame.jpg", false, true, "Marks a 3D cutaway of a turbofan as showing depth"),
+  pictureFlowsCase(
+    "picture-flows-heart",
+    "heart-diagram-frame.jpg",
+    ["Aorta", "Left ventricle", "Right ventricle", "Pulmonary artery"],
+    ["red", "blue"],
+    "Draws blood rich and low in oxygen through a heart diagram",
+  ),
+  pictureFlowsCase("picture-flows-painting", "starry-night-frame.jpg", ["Cypress tree", "Village", "Swirling sky"], [], "Finds nothing flowing in The Starry Night"),
   {
     id: "landmark",
     route: "/landmark",
