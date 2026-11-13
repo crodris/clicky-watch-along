@@ -104,7 +104,7 @@ export async function requestAnthropicReplyText(
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify(messagesRequestBody),
+    body: withCachedSystemPrompt(JSON.stringify(messagesRequestBody)),
   });
 
   if (!anthropicResponse.ok) {
@@ -132,4 +132,29 @@ export async function requestAnthropicReplyText(
     return { ok: false, response: jsonResponse({ error: "Anthropic response had no content list" }, 502) };
   }
   return { ok: true, replyText: firstTextBlock(parsedMessage.data) };
+}
+
+/**
+ * Every route sends the same system prompt on every call, ahead of a screenshot, frame, or answer that never repeats.
+ * A cache breakpoint on the system prompt lets later calls within 5 minutes read it at a tenth of the input price
+ * or less, while the part after it is never written to the cache. Any other body passes through unchanged.
+ */
+export function withCachedSystemPrompt(messagesRequestBodyText: string): string {
+  let messagesRequestBody: unknown;
+  try {
+    messagesRequestBody = JSON.parse(messagesRequestBodyText);
+  } catch {
+    return messagesRequestBodyText;
+  }
+  if (typeof messagesRequestBody !== "object" || messagesRequestBody === null || !("system" in messagesRequestBody)) {
+    return messagesRequestBodyText;
+  }
+  const { system } = messagesRequestBody;
+  if (typeof system !== "string" || system.length === 0) {
+    return messagesRequestBodyText;
+  }
+  return JSON.stringify({
+    ...messagesRequestBody,
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+  });
 }
