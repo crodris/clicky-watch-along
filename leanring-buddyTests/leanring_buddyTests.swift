@@ -643,6 +643,8 @@ struct leanring_buddyTests {
         #expect(!asksToPutTheSceneBack("pop this out"))
         #expect(!asksToPutTheSceneBack("what does the back part do?"))
         #expect(!asksToPutTheSceneBack("putting it back together is hard"))
+        #expect(!asksToPutTheSceneBack("how do they put it back together?"))
+        #expect(!asksToPutTheSceneBack("what if you put the heart back in?"))
     }
 
     @Test func escapeStopsAnAnswerButNotAQuestionStillBeingTranscribed() async throws {

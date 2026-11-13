@@ -91,10 +91,13 @@ struct NavigationBubbleSizePreferenceKey: PreferenceKey {
 /// wraps onto more lines instead of running across the screen.
 let navigationBubbleMaximumTextWidth: CGFloat = 240
 
+/// The bubble's text size, shared by the view and the wrap width so the two measure the same text.
+let navigationBubbleFontSize: CGFloat = 11
+
 /// The width the bubble text wraps at, or nil when the phrase fits on one line and the bubble grows
-/// with it as it types. The font matches the bubble's `.system(size: 11, weight: .medium)`.
+/// with it as it types.
 func navigationBubbleWrapWidth(forPhrase phrase: String) -> CGFloat? {
-    let bubbleFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    let bubbleFont = NSFont.systemFont(ofSize: navigationBubbleFontSize, weight: .medium)
     let phraseWidthOnOneLine = (phrase as NSString).size(withAttributes: [.font: bubbleFont]).width
     return phraseWidthOnOneLine > navigationBubbleMaximumTextWidth ? navigationBubbleMaximumTextWidth : nil
 }
@@ -184,6 +187,8 @@ struct BlueCursorView: View {
     @State private var navigationBubbleSize: CGSize = .zero
     /// Set from the whole phrase before it types, so a long sentence wraps at a steady width.
     @State private var navigationBubbleTextWrapWidth: CGFloat?
+    /// Counts each phrase the bubble starts typing, so typing that a newer phrase replaced stops.
+    @State private var navigationBubbleTypingGeneration = 0
 
     /// The cursor position at the moment navigation started, used to detect
     /// if the user moves the cursor enough to cancel the navigation.
@@ -308,7 +313,7 @@ struct BlueCursorView: View {
             // glow that settles, creating a "materializing" effect.
             if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
                 Text(navigationBubbleText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: navigationBubbleFontSize, weight: .medium))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.leading)
                     // A nil width leaves a short phrase on one line, as before.
@@ -335,7 +340,7 @@ struct BlueCursorView: View {
                     .opacity(navigationBubbleOpacity)
                     // The top edge stays 7 points below the cursor, so extra wrapped lines grow downward
                     // instead of covering the triangle. A one-line bubble sits where it always has.
-                    .position(x: cursorPosition.x + 10 + (navigationBubbleSize.width / 2), y: cursorPosition.y + 7 + (navigationBubbleSize.height / 2))
+                    .position(x: navigationBubbleCenterX, y: cursorPosition.y + 7 + (navigationBubbleSize.height / 2))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.spring(response: 0.4, dampingFraction: 0.6), value: navigationBubbleScale)
                     .animation(.easeOut(duration: 0.5), value: navigationBubbleOpacity)
@@ -418,6 +423,14 @@ struct BlueCursorView: View {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
             companionManager.tearDownOnboardingVideo()
+        }
+        .onChange(of: companionManager.detectedElementBubbleText) { newBubbleText in
+            // A narration holds the buddy on a part and changes the text for each sentence it speaks there.
+            guard buddyNavigationMode == .pointingAtTarget,
+                  currentTargetHoldsUntilReleased,
+                  let newBubbleText else { return }
+            navigationBubbleText = ""
+            typeNavigationBubble(phrase: newBubbleText)
         }
         .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
             // When a UI element location is detected, navigate the buddy to
@@ -641,9 +654,16 @@ struct BlueCursorView: View {
         let pointerPhrase = companionManager.detectedElementBubbleText
             ?? navigationPointerPhrases.randomElement()
             ?? "right here!"
-        navigationBubbleTextWrapWidth = navigationBubbleWrapWidth(forPhrase: pointerPhrase)
+        typeNavigationBubble(phrase: pointerPhrase)
+    }
 
-        streamNavigationBubbleCharacter(phrase: pointerPhrase, characterIndex: 0) {
+    /// Types the phrase into the bubble. A target that is not held flies back 3.5 seconds after the last character.
+    private func typeNavigationBubble(phrase: String) {
+        navigationBubbleTextWrapWidth = navigationBubbleWrapWidth(forPhrase: phrase)
+        navigationBubbleTypingGeneration += 1
+        let typingGeneration = navigationBubbleTypingGeneration
+
+        streamNavigationBubbleCharacter(phrase: phrase, characterIndex: 0, typingGeneration: typingGeneration) {
             // A held target stays until CompanionManager clears the location.
             guard !self.currentTargetHoldsUntilReleased else { return }
             // All characters streamed. Hold for 3 seconds, then fly back.
@@ -657,6 +677,15 @@ struct BlueCursorView: View {
                 }
             }
         }
+    }
+
+    /// The bubble sits right of the cursor, or left of it when a wrapped sentence would run off this screen's right edge.
+    private var navigationBubbleCenterX: CGFloat {
+        let bubbleRightEdgeWhenRightOfCursor = cursorPosition.x + 10 + navigationBubbleSize.width
+        if bubbleRightEdgeWhenRightOfCursor > screenFrame.width {
+            return cursorPosition.x - 10 - (navigationBubbleSize.width / 2)
+        }
+        return cursorPosition.x + 10 + (navigationBubbleSize.width / 2)
     }
 
     /// A held target ends when CompanionManager clears the location, once Clicky stops talking about that part.
@@ -675,9 +704,11 @@ struct BlueCursorView: View {
     private func streamNavigationBubbleCharacter(
         phrase: String,
         characterIndex: Int,
+        typingGeneration: Int,
         onComplete: @escaping () -> Void
     ) {
-        guard buddyNavigationMode == .pointingAtTarget else { return }
+        guard buddyNavigationMode == .pointingAtTarget,
+              typingGeneration == navigationBubbleTypingGeneration else { return }
         guard characterIndex < phrase.count else {
             onComplete()
             return
@@ -696,6 +727,7 @@ struct BlueCursorView: View {
             self.streamNavigationBubbleCharacter(
                 phrase: phrase,
                 characterIndex: characterIndex + 1,
+                typingGeneration: typingGeneration,
                 onComplete: onComplete
             )
         }

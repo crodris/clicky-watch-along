@@ -13,8 +13,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-pauses-video` pauses a playing YouTube video first, with or without a quiz, and plays it again when the pop-out clears, unless the learner had paused it.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
-- `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away").
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
+- `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away"), during the tour or after it.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.

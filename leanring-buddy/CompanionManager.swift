@@ -601,6 +601,11 @@ final class CompanionManager: ObservableObject {
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
             clearDetectedElementLocation()
+            // A cancelled narration or scene line returns without leaving the responding state, and the
+            // dictation binding never replaces responding, so the listening waveform would not show.
+            if voiceState == .responding {
+                voiceState = .idle
+            }
 
             // Dismiss the onboarding prompt if it's showing
             if showOnboardingPrompt {
@@ -779,6 +784,8 @@ final class CompanionManager: ObservableObject {
         // A push-to-talk press only stops Clicky talking, so a scene stays up until the learner asks to put it back.
         // A quiz question on screen is left alone, since the learner is answering it.
         if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+            // The tour's finish task was cancelled above, so a touring scene is put back as if it had finished.
+            liveScenePhase = .allLabelsShowing
             clearFinishedLiveScene()
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -1791,6 +1798,10 @@ final class CompanionManager: ObservableObject {
     private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async {
         guard let partLabel else {
             await speakLiveSceneLine(spokenText)
+            // The buddy stays on the last part it pointed at, and its bubble follows what Clicky says now.
+            if !Task.isCancelled, detectedElementPointingHold == .untilReleased(byNarrationID: narrationID) {
+                detectedElementBubbleText = spokenText
+            }
             await waitForClickyToFinishSpeaking()
             return
         }

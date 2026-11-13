@@ -7,6 +7,7 @@ With a 3D scene or pop-out on screen, Escape keeps its scene behavior instead, a
 ## Sub-features
 
 - `interrupt-escape` stops a plain answer on Escape and logs `Escape: stopped the reply`.
+  An answer that points counts while the cursor flies, before its speech starts, and a question still being transcribed is left alone (`escapeHasAnAnswerToStop`).
 - `interrupt-tap` stops any answer or narration on a push-to-talk press, and a release with no words asks nothing.
 
 ## How to get to it (user POV)
