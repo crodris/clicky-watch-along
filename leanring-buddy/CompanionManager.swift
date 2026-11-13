@@ -657,11 +657,21 @@ final class CompanionManager: ObservableObject {
 
     /// Added to the system prompt for a look-inside request. Without it Claude
     /// answers from the page and tells the learner to scroll while the scene opens.
-    private static let liveSceneExploreVoiceResponseInstructions = """
+    /// A model with labeled parts gets one tagged sentence per part, so the length rule and the tag
+    /// rule come from one place and cannot conflict. A model with no labels gets one short sentence.
+    private static func liveSceneExploreVoiceResponseInstructions(partLabels: [String]) -> String {
+        let lengthAndTagInstructions: String
+        if partLabels.isEmpty {
+            lengthAndTagInstructions = "reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. the only tag you may write is [POINT:none], at the very end."
+        } else {
+            lengthAndTagInstructions = "the model has these exact part names: \(partLabels.joined(separator: ", ")). reply with two to four short, cheerful spoken sentences about what they're seeing inside, at most 20 words each. start each sentence with [PART:name] using one of those exact names. the only other tag you may write is [POINT:none], at the very end."
+        }
+        return """
 
 
-    for this reply only: a labeled 3d model of what they asked about is already opening on their screen, and the camera is moving through it. reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. talk about the model, not the web page. never tell them to scroll, click, or look anywhere else. the only tag you may write is [POINT:none], at the very end.
-    """
+        for this reply only: a labeled 3d model of what they asked about is already opening on their screen, and the camera is moving through it. \(lengthAndTagInstructions) talk about the model, not the web page. never tell them to scroll, click, or look anywhere else.
+        """
+    }
 
     // MARK: - AI Response Pipeline
 
@@ -1126,16 +1136,10 @@ final class CompanionManager: ObservableObject {
     ) async {
         do {
             let partLabels = await LiveSceneOverlay.shared.partLabels()
-            let highlightInstructions = partLabels.isEmpty ? "" : """
-
-
-            the model has these exact part names: \(partLabels.joined(separator: ", ")). start each sentence with [PART:name] using one of those exact names. use two to four short sentences.
-            """
             let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                 images: labeledImages,
                 systemPrompt: Self.companionVoiceResponseSystemPrompt
-                    + Self.liveSceneExploreVoiceResponseInstructions
-                    + highlightInstructions,
+                    + Self.liveSceneExploreVoiceResponseInstructions(partLabels: partLabels),
                 userPrompt: transcript,
                 onTextChunk: { _ in }
             )
