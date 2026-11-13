@@ -645,4 +645,13 @@ struct leanring_buddyTests {
         #expect(!asksToPutTheSceneBack("putting it back together is hard"))
     }
 
+    @Test func pointingBubbleWrapsASpokenSentenceButNotAShortPhrase() async throws {
+        // A pointer phrase or a part label stays on one line and grows as it types.
+        #expect(navigationBubbleWrapWidth(forPhrase: "right here!") == nil)
+        #expect(navigationBubbleWrapWidth(forPhrase: "Fan") == nil)
+        // A narration sentence wraps, so the bubble stays next to the cursor.
+        let narrationSentence = "This giant fan pulls in huge amounts of air, and most of it flows around the engine core to push the plane forward."
+        #expect(navigationBubbleWrapWidth(forPhrase: narrationSentence) == navigationBubbleMaximumTextWidth)
+    }
+
 }

@@ -1778,19 +1778,19 @@ final class CompanionManager: ObservableObject {
         let settledLabelScreenPoints = await settledLabelScreenPointsTask.value
         if !Task.isCancelled,
            let partScreenPoint = settledLabelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == partLabel }) {
-            pointTheBuddy(atLiveScenePart: partScreenPoint, narrationID: narrationID)
+            pointTheBuddy(atLiveScenePart: partScreenPoint, bubbleText: spokenText, narrationID: narrationID)
         }
         await waitForClickyToFinishSpeaking()
     }
 
-    /// The buddy flies on its usual arc to the part's label with the label in its bubble, and stays
-    /// until the narration that pointed it releases it.
-    private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, narrationID: UUID) {
+    /// The buddy flies on its usual arc to the part's label and stays until the narration that pointed it
+    /// releases it. Its bubble shows the sentence Clicky is speaking, since the label already names the part.
+    private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, bubbleText: String, narrationID: UUID) {
         guard let displayFrame = NSScreen.screens.first(where: { screen in
             screen.frame.contains(partScreenPoint.globalPoint)
         })?.frame else { return }
         detectedElementPointingHold = .untilReleased(byNarrationID: narrationID)
-        detectedElementBubbleText = partScreenPoint.label
+        detectedElementBubbleText = bubbleText
         detectedElementDisplayFrame = displayFrame
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }

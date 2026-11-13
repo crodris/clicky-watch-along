@@ -87,6 +87,18 @@ struct NavigationBubbleSizePreferenceKey: PreferenceKey {
     }
 }
 
+/// A narration puts a whole spoken sentence in the pointing bubble, so a phrase wider than this
+/// wraps onto more lines instead of running across the screen.
+let navigationBubbleMaximumTextWidth: CGFloat = 240
+
+/// The width the bubble text wraps at, or nil when the phrase fits on one line and the bubble grows
+/// with it as it types. The font matches the bubble's `.system(size: 11, weight: .medium)`.
+func navigationBubbleWrapWidth(forPhrase phrase: String) -> CGFloat? {
+    let bubbleFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    let phraseWidthOnOneLine = (phrase as NSString).size(withAttributes: [.font: bubbleFont]).width
+    return phraseWidthOnOneLine > navigationBubbleMaximumTextWidth ? navigationBubbleMaximumTextWidth : nil
+}
+
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode {
@@ -170,6 +182,8 @@ struct BlueCursorView: View {
     @State private var navigationBubbleText: String = ""
     @State private var navigationBubbleOpacity: Double = 0.0
     @State private var navigationBubbleSize: CGSize = .zero
+    /// Set from the whole phrase before it types, so a long sentence wraps at a steady width.
+    @State private var navigationBubbleTextWrapWidth: CGFloat?
 
     /// The cursor position at the moment navigation started, used to detect
     /// if the user moves the cursor enough to cancel the navigation.
@@ -296,6 +310,9 @@ struct BlueCursorView: View {
                 Text(navigationBubbleText)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    // A nil width leaves a short phrase on one line, as before.
+                    .frame(width: navigationBubbleTextWrapWidth, alignment: .leading)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
@@ -316,7 +333,9 @@ struct BlueCursorView: View {
                     )
                     .scaleEffect(navigationBubbleScale)
                     .opacity(navigationBubbleOpacity)
-                    .position(x: cursorPosition.x + 10 + (navigationBubbleSize.width / 2), y: cursorPosition.y + 18)
+                    // The top edge stays 7 points below the cursor, so extra wrapped lines grow downward
+                    // instead of covering the triangle. A one-line bubble sits where it always has.
+                    .position(x: cursorPosition.x + 10 + (navigationBubbleSize.width / 2), y: cursorPosition.y + 7 + (navigationBubbleSize.height / 2))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.spring(response: 0.4, dampingFraction: 0.6), value: navigationBubbleScale)
                     .animation(.easeOut(duration: 0.5), value: navigationBubbleOpacity)
@@ -617,11 +636,12 @@ struct BlueCursorView: View {
         navigationBubbleSize = .zero
         navigationBubbleScale = 0.5
 
-        // Use custom bubble text from the companion manager (e.g. onboarding demo)
-        // if available, otherwise fall back to a random pointer phrase
+        // Use custom bubble text from the companion manager (the onboarding demo's comment, or the
+        // sentence a narration is speaking) if available, otherwise fall back to a random pointer phrase
         let pointerPhrase = companionManager.detectedElementBubbleText
             ?? navigationPointerPhrases.randomElement()
             ?? "right here!"
+        navigationBubbleTextWrapWidth = navigationBubbleWrapWidth(forPhrase: pointerPhrase)
 
         streamNavigationBubbleCharacter(phrase: pointerPhrase, characterIndex: 0) {
             // A held target stays until CompanionManager clears the location.
