@@ -14,7 +14,8 @@ Press Escape to skip a question, or say "stop the quiz" to end it.
 **The paused frame pops out in 3D.** Six seconds before each pause, Clicky grabs the video frame and asks Sonnet to find the subject and its parts.
 When it finds one, the subject lifts out of the video in 3D with its parts labeled, and Clicky asks the question once the tour ends.
 Charts and people talking stay voice only.
-You can also say "pop this out" or "pop this heart out" at any time, and Clicky lifts out whatever the video shows, with every label and no question.
+You can also say "pop this out" or "pop this heart out" at any time, and Clicky pauses the video and lifts out whatever it shows, with every label and no question.
+It plays the video again when you close the pop-out, unless you had paused it yourself.
 
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
 You can drag to spin it.

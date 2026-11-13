@@ -749,16 +749,17 @@ final class CompanionManager: ObservableObject {
         liveSceneRequestGeneration += 1
         let requestGeneration = liveSceneRequestGeneration
 
-        // A 3D model only appears when the learner asks. During a video quiz that
-        // pauses the video, and a pending question is set aside for the model.
+        // A 3D model only appears when the learner asks. It pauses the YouTube video in front, quiz or not,
+        // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
         var sceneQuestion = transcript
         let requestedKind = liveSceneKind(for: transcript)
-        if videoQuizSession.isRunning,
-           requestedKind == .explore || requestedKind == .framePopout,
-           videoQuizSession.quizVideoIsTheTabInFront() {
+        if requestedKind == .explore || requestedKind == .framePopout {
+            let quizWatchesTheVideoInFront = videoQuizSession.isRunning && videoQuizSession.quizVideoIsTheTabInFront()
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
-            videoQuizQuestionIsActive = false
-            liveScenePhase = .idle
+            if quizWatchesTheVideoInFront {
+                videoQuizQuestionIsActive = false
+                liveScenePhase = .idle
+            }
             if !heardText.isEmpty {
                 sceneQuestion = "\(transcript) The video just said: \(heardText)"
             }
@@ -1371,6 +1372,8 @@ final class CompanionManager: ObservableObject {
                 liveSceneRequestGeneration += 1
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
                 liveScenePhase = .idle
+                // The scene that would have resumed the video is gone, so nothing else will.
+                videoQuizSession.resumeVideoAfterRequestedScene()
             }
             if videoQuizQuestionIsActive {
                 videoQuizQuestionIsActive = false

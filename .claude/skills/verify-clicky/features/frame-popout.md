@@ -10,7 +10,7 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-voice` triggers on "pop this out", "pop out", or up to 3 words between, as in "pop this heart out".
 - `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels, and `wholePictureIsSubject`.
 - `popout-none` returns `subjectFound: false` for a frame with no clear subject.
-- `popout-in-quiz` pauses a running video quiz first.
+- `popout-pauses-video` pauses a playing YouTube video first, with or without a quiz, and plays it again when the pop-out clears, unless the learner had paused it.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.

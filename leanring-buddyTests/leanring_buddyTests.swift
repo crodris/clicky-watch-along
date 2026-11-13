@@ -69,6 +69,18 @@ struct leanring_buddyTests {
         #expect(videoQuizVoiceCommand(for: "the valves stop blood from flowing back") == nil)
     }
 
+    @Test func clickyHoldsAVideoPauseOnlyWhenItPausedTheVideoOrAlreadyHeldThePause() async throws {
+        #expect(clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: true, clickyAlreadyHoldsThePause: false))
+        #expect(clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: false, clickyAlreadyHoldsThePause: true))
+        #expect(!clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: false, clickyAlreadyHoldsThePause: false))
+    }
+
+    @Test func stoppingTheQuizPlaysTheVideoOnlyForAQuestionPauseClickyHolds() async throws {
+        #expect(shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: .quizQuestion))
+        #expect(!shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: .requestedScene))
+        #expect(!shouldPlayTheVideoWhenTheQuizStops(pauseHeldByClicky: nil))
+    }
+
     @Test func videoQuizAsksAMomentOnlyWhenTheVideoIsJustPastItAndItIsNotAnswered() async throws {
         let pauseAtSecondsPerMoment: [Double] = [30, 90, 150]
 
