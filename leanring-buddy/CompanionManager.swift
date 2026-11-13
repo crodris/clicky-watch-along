@@ -21,6 +21,20 @@ enum CompanionVoiceState {
     case responding
 }
 
+/// Whether Escape, with no scene on screen, has an answer to stop. A question still being transcribed is
+/// left alone, and an answer whose cursor flies to its target counts before its speech starts playing.
+func escapeHasAnAnswerToStop(
+    voiceState: CompanionVoiceState,
+    speechIsPlaying: Bool,
+    dictationIsInProgress: Bool,
+    cursorIsPointingForTheAnswer: Bool
+) -> Bool {
+    if dictationIsInProgress {
+        return false
+    }
+    return voiceState == .processing || voiceState == .responding || speechIsPlaying || cursorIsPointingForTheAnswer
+}
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -538,6 +552,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape closes a finished scene, so the push-to-talk shortcut always means talk.
+    /// With no scene on screen, it stops the answer Clicky is giving.
     private func bindEscapeToCloseLiveScene() {
         escapeKeyCancellable = globalPushToTalkShortcutMonitor
             .escapeKeyPressPublisher
@@ -586,6 +601,11 @@ final class CompanionManager: ObservableObject {
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
             clearDetectedElementLocation()
+            // A cancelled narration or scene line returns without leaving the responding state, and the
+            // dictation binding never replaces responding, so the listening waveform would not show.
+            if voiceState == .responding {
+                voiceState = .idle
+            }
 
             // Dismiss the onboarding prompt if it's showing
             if showOnboardingPrompt {
@@ -760,6 +780,18 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
         liveSceneRequestGeneration += 1
         let requestGeneration = liveSceneRequestGeneration
+
+        // A push-to-talk press only stops Clicky talking, so a scene stays up until the learner asks to put it back.
+        // A quiz question on screen is left alone, since the learner is answering it.
+        if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+            // The tour's finish task was cancelled above, so a touring scene is put back as if it had finished.
+            liveScenePhase = .allLabelsShowing
+            clearFinishedLiveScene()
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
+            print("Live scene: put back on request")
+            return
+        }
 
         // A 3D model only appears when the learner asks. It pauses the YouTube video in front, quiz or not,
         // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
@@ -1211,6 +1243,11 @@ final class CompanionManager: ObservableObject {
         Task {
             await self.speakLiveSceneLine("Okay, back to the video.")
             await self.waitForClickyToFinishSpeaking()
+            // Speaking the line set the voice state to responding, and a quiz asks its next question only when idle.
+            if self.voiceState == .responding {
+                self.voiceState = .idle
+                self.scheduleTransientHideIfNeeded()
+            }
             try? await Task.sleep(nanoseconds: 500_000_000)
             // A frame pop-out lands back in the paused frame before the video moves.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
@@ -1544,6 +1581,7 @@ final class CompanionManager: ObservableObject {
 
     /// Escape ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
+    /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
@@ -1554,12 +1592,44 @@ final class CompanionManager: ObservableObject {
             skipTheVideoQuizQuestion()
             return
         }
+        if case .idle = liveScenePhase {
+            stopTheReplyOnEscape()
+            return
+        }
         guard case .allLabelsShowing = liveScenePhase else { return }
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         voiceState = .idle
         clearFinishedLiveScene()
         scheduleTransientHideIfNeeded()
+    }
+
+    /// A pop-out or explored scene is on screen, touring or finished, with no quiz question waiting on it.
+    private var liveSceneIsUpWithNoQuizQuestion: Bool {
+        guard !videoQuizQuestionIsActive else { return false }
+        switch liveScenePhase {
+        case .allLabelsShowing, .touring(quizToAskAfterTour: nil):
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// With no scene on screen, Escape skips the answer Clicky is thinking about or speaking,
+    /// the same way a push-to-talk press does, without asking anything new.
+    private func stopTheReplyOnEscape() {
+        guard escapeHasAnAnswerToStop(
+            voiceState: voiceState,
+            speechIsPlaying: elevenLabsTTSClient.isPlaying,
+            dictationIsInProgress: buddyDictationManager.isDictationInProgress,
+            cursorIsPointingForTheAnswer: detectedElementScreenLocation != nil
+        ) else { return }
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        clearDetectedElementLocation()
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+        print("Escape: stopped the reply")
     }
 
     private func skipTheVideoQuizQuestion() {
@@ -1728,6 +1798,10 @@ final class CompanionManager: ObservableObject {
     private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async {
         guard let partLabel else {
             await speakLiveSceneLine(spokenText)
+            // The buddy stays on the last part it pointed at, and its bubble follows what Clicky says now.
+            if !Task.isCancelled, detectedElementPointingHold == .untilReleased(byNarrationID: narrationID) {
+                detectedElementBubbleText = spokenText
+            }
             await waitForClickyToFinishSpeaking()
             return
         }
@@ -1740,19 +1814,19 @@ final class CompanionManager: ObservableObject {
         let settledLabelScreenPoints = await settledLabelScreenPointsTask.value
         if !Task.isCancelled,
            let partScreenPoint = settledLabelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == partLabel }) {
-            pointTheBuddy(atLiveScenePart: partScreenPoint, narrationID: narrationID)
+            pointTheBuddy(atLiveScenePart: partScreenPoint, bubbleText: spokenText, narrationID: narrationID)
         }
         await waitForClickyToFinishSpeaking()
     }
 
-    /// The buddy flies on its usual arc to the part's label with the label in its bubble, and stays
-    /// until the narration that pointed it releases it.
-    private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, narrationID: UUID) {
+    /// The buddy flies on its usual arc to the part's label and stays until the narration that pointed it
+    /// releases it. Its bubble shows the sentence Clicky is speaking, since the label already names the part.
+    private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, bubbleText: String, narrationID: UUID) {
         guard let displayFrame = NSScreen.screens.first(where: { screen in
             screen.frame.contains(partScreenPoint.globalPoint)
         })?.frame else { return }
         detectedElementPointingHold = .untilReleased(byNarrationID: narrationID)
-        detectedElementBubbleText = partScreenPoint.label
+        detectedElementBubbleText = bubbleText
         detectedElementDisplayFrame = displayFrame
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }

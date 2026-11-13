@@ -633,4 +633,41 @@ struct leanring_buddyTests {
         #expect(LiveScenePartLabelRectInPage(pageValue: ["label": "Aorta", "left": "100"]) == nil)
     }
 
+    @Test func askingToPutTheSceneBackMatchesOnlyPutBackOrPutAway() async throws {
+        #expect(asksToPutTheSceneBack("put it back"))
+        #expect(asksToPutTheSceneBack("Okay, put that back please"))
+        #expect(asksToPutTheSceneBack("put the engine back"))
+        #expect(asksToPutTheSceneBack("put this away"))
+        #expect(asksToPutTheSceneBack("put it back in the video"))
+        #expect(asksToPutTheSceneBack("put it back into the frame"))
+        #expect(asksToPutTheSceneBack("put it back on the screen"))
+        // A tap with no words, a new pop-out, or a question about a part keeps the scene up.
+        #expect(!asksToPutTheSceneBack(""))
+        #expect(!asksToPutTheSceneBack("pop this out"))
+        #expect(!asksToPutTheSceneBack("what does the back part do?"))
+        #expect(!asksToPutTheSceneBack("putting it back together is hard"))
+        #expect(!asksToPutTheSceneBack("how do they put it back together?"))
+        #expect(!asksToPutTheSceneBack("what if you put the heart back in?"))
+    }
+
+    @Test func escapeStopsAnAnswerButNotAQuestionStillBeingTranscribed() async throws {
+        #expect(!escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        #expect(escapeHasAnAnswerToStop(voiceState: .processing, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        #expect(escapeHasAnAnswerToStop(voiceState: .responding, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        #expect(escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: true, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        // A reply that points sets the voice state to idle before its speech starts, while the cursor flies.
+        #expect(escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: true))
+        // Right after push-to-talk is released, the question is still being transcribed and will be sent.
+        #expect(!escapeHasAnAnswerToStop(voiceState: .processing, speechIsPlaying: false, dictationIsInProgress: true, cursorIsPointingForTheAnswer: false))
+    }
+
+    @Test func pointingBubbleWrapsASpokenSentenceButNotAShortPhrase() async throws {
+        // A pointer phrase or a part label stays on one line and grows as it types.
+        #expect(navigationBubbleWrapWidth(forPhrase: "right here!") == nil)
+        #expect(navigationBubbleWrapWidth(forPhrase: "Fan") == nil)
+        // A narration sentence wraps, so the bubble stays next to the cursor.
+        let narrationSentence = "This giant fan pulls in huge amounts of air, and most of it flows around the engine core to push the plane forward."
+        #expect(navigationBubbleWrapWidth(forPhrase: narrationSentence) == navigationBubbleMaximumTextWidth)
+    }
+
 }

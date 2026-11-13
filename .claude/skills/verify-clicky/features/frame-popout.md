@@ -14,12 +14,13 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
+- `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away"), during the tour or after it.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.
 - `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
   A press that moves more than 4 px is a drag that turns the model, not a click.
-- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the label in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
+- `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the sentence Clicky is speaking typed in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
 
 ## How to get to it (user POV)
 
@@ -43,7 +44,7 @@ Preconditions:
   Then click one label without moving the mouse.
   The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
   Drag across a label instead, and the model turns with no tap line in the log.
-  While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just under that label, drawn over the model, with the label's name in its bubble.
+  While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just under that label, drawn over the model, with the sentence Clicky is speaking in its bubble, wrapped onto more lines when it is long.
 - **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
   Run `$V app-launch "pop this out"`.
   The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.
@@ -56,6 +57,12 @@ Preconditions:
   Dürer's Young Hare, Stag Beetle, and Rhinoceros and a heart diagram return `wholePictureIsSubject: false`.
   In the app, the log shows `Frame pop-out: lifting the whole picture in Sonnet's box` for The Starry Night, and `Vision kept N of M subjects` for the hare.
   Run `$V shot scene-popout` while the painting floats over the page.
+- **A tap keeps the pop-out.** Run `$V app-launch "pop this out"`.
+  About 4 seconds after the narration starts speaking, run `$V key push-to-talk-tap`.
+  The speech stops within a second, the log ends with `Live scene rehearsal: done, phase allLabelsShowing`, and the pop-out stays on screen.
+- **Put it back.** Run `$V app-launch "pop this out|put it back"`.
+  The second step logs `Live scene: put back on request`, and the subject flattens back into its frame.
+  The rehearsal sends the second step as soon as the tour ends, before the narration speaks, so the tap needs the run above.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 
@@ -64,6 +71,8 @@ Preconditions:
 - A full-screen screenshot holds many things, so the route may pick an unexpected subject.
   Crop to one object when the subject matters.
 - `subjectFound: false` on a chart or a talking head is correct behavior, not a failure.
+- AppleScript sends "Google Chrome" commands to whichever Chrome process it finds, and a Playwright-driven Chrome counts.
+  When the app log shows `javaScriptFromAppleEventsIsOff` or `noImageOrVideoToPopOut` on a page with a large image, run `pgrep -fl 'Google Chrome --disable-field-trial-config'`, and close that browser once its owner is done with it.
 - The pop-out lines up with the video's or image's on-screen rect, on the display that shows it, wherever the mouse is.
   Moving or resizing the Chrome window during the run misplaces it.
 - The image rect comes from the web area in Chrome's accessibility tree, so it accounts for page zoom and for side panels, vertical tabs, and docked DevTools.

@@ -1,7 +1,7 @@
 # Live scene
 
 When the learner asks to see something ("show me the inside of a heart", "what does a cell look like", "render this in 3D"), Clicky builds a three.js scene from the question and a screenshot.
-The scene rises out of the video or image it was asked about, a camera tour visits each labeled part while Clicky explains it, and the finished scene stays on screen until Escape.
+The scene rises out of the video or image it was asked about, a camera tour visits each labeled part while Clicky explains it, and the finished scene stays on screen until Escape or until the learner says "put it back".
 Saying "quiz" or "test me" plays the same scene with one label hidden as "?", then asks what that part is and what it does.
 
 ## Sub-features
@@ -55,5 +55,6 @@ Preconditions:
   A quiz request skips that lookup.
 - The rise animation reads the largest video or image in Chrome's front tab.
   With no Chrome window, the scene starts full screen, and that is expected.
-- Drag orbit, pinch zoom, and Escape cannot be driven.
+- Drag orbit and pinch zoom cannot be driven.
   Report them as unverified when a change touches them.
+- Escape on a finished scene is sent with `$V key escape`.

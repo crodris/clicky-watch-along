@@ -25,6 +25,8 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
+  key <escape|push-to-talk-tap>
+                            Press that key through System Events, as the learner would, while the app runs.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
 }
@@ -456,6 +458,31 @@ command_app_quit() {
   rm -f "$state_root/app.pid"
 }
 
+# A real key event reaches the app's listen-only event tap, so this drives Escape and a push-to-talk tap.
+# A tap holds ctrl+option briefly with nothing said, which the app treats as an interruption with no question.
+command_key() {
+  local key_name="$1"
+  case "$key_name" in
+    escape)
+      osascript -e 'tell application "System Events" to key code 53'
+      ;;
+    push-to-talk-tap)
+      osascript -e 'tell application "System Events"
+        key down control
+        key down option
+        delay 0.3
+        key up option
+        key up control
+      end tell'
+      ;;
+    *)
+      echo "key takes escape or push-to-talk-tap" >&2
+      exit 1
+      ;;
+  esac
+  echo "pressed $key_name"
+}
+
 command_shot() {
   local shot_name="$1"
   local run_dir
@@ -488,6 +515,7 @@ main() {
     app-wait) command_app_wait "${1:-240}" ;;
     app-quit) command_app_quit ;;
     shot) command_shot "${1:?shot name}" ;;
+    key) command_key "${1:?key name}" ;;
     cleanup) command_app_quit; command_worker_down ;;
     *) usage; exit 1 ;;
   esac

@@ -31,7 +31,7 @@ Read [`../SKILL.md`](../SKILL.md) first, then use the matching feature file as t
 - An app proof is the rehearsal log lines that name the phase reached, a screenshot with the result visible, and the app usage lines.
 - Cost ceilings are loose limits that catch a dropped effort setting or a broken cache.
   Never assert exact token counts.
-- Report a path this skill cannot drive (push-to-talk, drag, pinch, menu bar panel) as unverified.
+- Report a path this skill cannot drive (push-to-talk with speech, drag, pinch, menu bar panel) as unverified.
   Do not report it as verified through a different path.
 
 ## Feature entry contract
@@ -52,3 +52,4 @@ It then uses exactly four H2 sections in this order.
 - [Video quiz](./video-quiz.md) covers planning quiz moments from a YouTube transcript and pausing the video at each one.
 - [Frame pop-out](./frame-popout.md) covers lifting the subject of a video frame, or of a page image, out in 3D with part labels.
 - [Landmark scan](./landmark.md) covers recognizing a famous place in a video frame and showing Google's 3D scan of it.
+- [Interrupting a reply](./interrupt-reply.md) covers stopping Clicky mid-answer with Escape or a push-to-talk tap.
