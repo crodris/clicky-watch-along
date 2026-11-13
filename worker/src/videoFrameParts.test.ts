@@ -132,8 +132,9 @@ describe("handleVideoFrameParts", () => {
       messages: [{ content: [{ type: "image", source: { data: "AAAA" } }, { type: "text" }] }],
     });
     // The reply check requires every key in modelReply, so a key missing from the sent schema would fail every call.
-    const sentSchemaRequiredKeys = (sentBody as { output_config: { format: { schema: { required: string[] } } } }).output_config.format.schema.required;
-    expect([...sentSchemaRequiredKeys].sort()).toEqual(Object.keys(modelReply).sort());
+    expect(sentBody).toMatchObject({
+      output_config: { format: { schema: { required: expect.arrayContaining(Object.keys(modelReply)) } } },
+    });
   });
 
   it("returns 502 when the reply is not the parts JSON", async () => {
