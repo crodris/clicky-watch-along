@@ -18,6 +18,7 @@ const modelReply = {
     { label: "Left atrium", x: 1200, y: 30 },
   ],
   answerPartIndex: 1,
+  wholePictureIsSubject: false,
 };
 
 function sonnetReply(text: string): Response {
@@ -39,6 +40,7 @@ describe("checkFrameParts", () => {
     expect(frameParts).toEqual({
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      wholePictureIsSubject: false,
       parts: [
         { label: "Aorta", x: 640, y: 125, isQuizAnswer: false },
         { label: "Left atrium", x: 812, y: 91, isQuizAnswer: true },
@@ -62,6 +64,7 @@ describe("checkFrameParts", () => {
     expect(checkFrameParts(labelsFromAPage, 1280, 720)).toEqual({
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      wholePictureIsSubject: false,
       parts: [
         { label: "Front leg", x: 600, y: 300, isQuizAnswer: true },
         { label: "Hind-leg's joint", x: 600, y: 400, isQuizAnswer: false },
@@ -82,10 +85,21 @@ describe("checkFrameParts", () => {
     expect(checkFrameParts(labelsWithPunctuation, 1280, 720)).toEqual({
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      wholePictureIsSubject: false,
       parts: [
         { label: "Achilles' tendon", x: 600, y: 300, isQuizAnswer: false },
         { label: "St. Peter's dome", x: 600, y: 400, isQuizAnswer: false },
       ],
+    });
+  });
+
+  it("returns whether the whole picture is the subject, so the app lifts a painted scene whole", () => {
+    const painting = { ...modelReply, subjectBox: { left: 0, top: 0, right: 1279, bottom: 719 }, wholePictureIsSubject: true };
+
+    expect(checkFrameParts(painting, 1280, 720)).toMatchObject({
+      subjectFound: true,
+      subjectBox: { left: 0, top: 0, right: 1279, bottom: 719 },
+      wholePictureIsSubject: true,
     });
   });
 
