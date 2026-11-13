@@ -3,17 +3,17 @@
 //  leanring-buddy
 //
 //  What Clicky says about a bundled page it put on screen, and the data it
-//  trusts while saying it. A frame pop-out is narrated one part at a time.
-//  The landmark page gets one line built from the /landmark reply. Generated
-//  /live-scene pages are not covered.
+//  trusts while saying it. A frame pop-out is narrated one part at a time, and
+//  a tapped label is explained the same way. The landmark page gets one line
+//  built from the /landmark reply. Generated /live-scene pages are not covered.
 //
 
 import Foundation
 
 /// The bundled page Clicky put on screen, with Clicky's own copy of its data.
-/// Narration reads this, never what the page reports about itself.
+/// Narration and label taps read this, never what the page reports about itself.
 enum LiveScenePageOnScreen {
-    /// A page GPT wrote for /live-scene. It gets none of the bundled-page narration.
+    /// A page GPT wrote for /live-scene. It gets none of the bundled-page narration or taps.
     case generatedPage
     case framePopout(VideoFramePopout)
     case landmark(FamousPlace)
@@ -23,6 +23,43 @@ enum LiveScenePageOnScreen {
 enum LiveSceneNarrationTrigger: Equatable {
     /// The camera tour of a pop-out with no quiz just ended.
     case afterTour
+    /// The learner clicked this part's label after the tour. The label is one from Clicky's own parts list.
+    case partTapped(label: String)
+}
+
+/// A message the page posts to the liveSceneEvent handler, parsed at the page boundary.
+enum LiveScenePageEvent: Equatable {
+    case tourFinished
+    /// The label text comes from the page, so it is untrusted until matched against Clicky's parts list.
+    case partTapped(untrustedLabel: String)
+
+    private static let partTappedPrefix = "partTapped:"
+
+    init?(messageBody: Any) {
+        guard let messageText = messageBody as? String else { return nil }
+        if messageText == "tourFinished" {
+            self = .tourFinished
+            return
+        }
+        guard messageText.hasPrefix(Self.partTappedPrefix) else { return nil }
+        self = .partTapped(untrustedLabel: String(messageText.dropFirst(Self.partTappedPrefix.count)))
+    }
+}
+
+/// The part label a tap asks about, taken from Clicky's own parts list, or nil when the tap is ignored.
+/// Only the bundled frame pop-out takes taps, and only once its tour is over and every label shows.
+func partLabelToExplain(
+    untrustedTappedLabel: String,
+    pageOnScreen: LiveScenePageOnScreen?,
+    liveScenePhase: LiveScenePhase
+) -> String? {
+    guard case .allLabelsShowing = liveScenePhase,
+          case .framePopout(let framePopout) = pageOnScreen else {
+        return nil
+    }
+    return framePopout.parts.first { part in
+        part.label == untrustedTappedLabel
+    }?.label
 }
 
 /// Claude may change the case of a part name in a [PART:name] tag, so it is matched
@@ -49,6 +86,11 @@ func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigge
         return """
         \(partNamesLine)
         say two or three short sentences, one per part, picking the parts an 11-year-old would find most interesting. start each sentence with [PART:name] using one of those exact names.
+        """
+    case .partTapped(let label):
+        return """
+        \(partNamesLine)
+        the learner tapped the \(label) label and asks: what does the \(label) do? answer in one or two short sentences. start the first sentence with [PART:\(label)].
         """
     }
 }

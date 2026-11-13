@@ -221,6 +221,9 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
+        LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
+            self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
         }
@@ -548,6 +551,17 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    /// Cancels a pending transient hide so the overlay stays up. With "Show Clicky" off, it brings the
+    /// cursor back for this one interaction, and scheduleTransientHideIfNeeded fades it out after.
+    private func showTheCursorOverlayForThisInteraction() {
+        transientHideTask?.cancel()
+        transientHideTask = nil
+        guard !isClickyCursorEnabled && !isOverlayVisible else { return }
+        overlayWindowManager.hasShownOverlayBefore = true
+        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+        isOverlayVisible = true
+    }
+
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
@@ -558,16 +572,7 @@ final class CompanionManager: ObservableObject {
             // A new press starts a new request, so the label from the last build is out of date.
             LiveSceneStatusLabel.shared.hide()
 
-            // Cancel any pending transient hide so the overlay stays visible
-            transientHideTask?.cancel()
-            transientHideTask = nil
-
-            // If the cursor is hidden, bring it back transiently for this interaction
-            if !isClickyCursorEnabled && !isOverlayVisible {
-                overlayWindowManager.hasShownOverlayBefore = true
-                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                isOverlayVisible = true
-            }
+            showTheCursorOverlayForThisInteraction()
 
             // Dismiss the menu bar panel so it doesn't cover the screen
             NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
@@ -1624,6 +1629,35 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         LiveSceneOverlay.shared.highlightPart(labelText: "")
+    }
+
+    /// A click on a label after the tour is taken as "what does the <label> do?" and answered through the
+    /// same narration. The page's label text is only used to look up the label in Clicky's own parts list.
+    private func explainTheTappedPart(untrustedTappedLabel: String) {
+        // The explanation and video resume of a quiz question are still running, and a tap must not cancel them.
+        guard !videoQuizQuestionIsActive,
+              let partLabel = partLabelToExplain(
+                  untrustedTappedLabel: untrustedTappedLabel,
+                  pageOnScreen: liveScenePageOnScreen,
+                  liveScenePhase: liveScenePhase
+              ),
+              case .framePopout(let framePopout) = liveScenePageOnScreen else {
+            print("Frame pop-out: ignored a label tap")
+            return
+        }
+        print("Frame pop-out: explaining the tapped \(partLabel) label")
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        showTheCursorOverlayForThisInteraction()
+        // The camera starts toward the part right away, while Claude writes the answer.
+        LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
+        voiceState = .processing
+        currentResponseTask = Task {
+            await self.narrateTheFramePopout(framePopout, narrationTrigger: .partTapped(label: partLabel))
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
     }
 
     /// A nil part label means the sentence names no part on the model, so nothing is highlighted.

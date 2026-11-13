@@ -7,7 +7,8 @@
 //  to their screen: the one under the mouse for generated scenes, and the one
 //  showing the video or image for pop-outs and landmark pages. Each scene is
 //  generated HTML loaded in that window. The page reports tourFinished when
-//  the camera tour ends.
+//  the camera tour ends, and the bundled frame pop-out reports partTapped when
+//  a label is clicked after its tour.
 //
 
 import AppKit
@@ -16,8 +17,27 @@ import WebKit
 /// The overlay window never becomes key, so AppKit would otherwise drop the
 /// click that starts a drag.
 private final class LiveSceneWebView: WKWebView {
+    private var mouseMovedTrackingArea: NSTrackingArea?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    /// WebKit only tracks mouse moves while its window is key, and this one never is.
+    /// Without moves the page sees no hover, so a part label could not show it is clickable.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let mouseMovedTrackingArea {
+            removeTrackingArea(mouseMovedTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        mouseMovedTrackingArea = trackingArea
     }
 }
 
@@ -196,6 +216,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     static let shared = LiveSceneOverlay()
 
     var onTourFinished: (() -> Void)?
+    /// The page posts "partTapped:<label>" when a label is clicked. The label is page text, so it is untrusted.
+    var onPartTapped: ((String) -> Void)?
     /// An uncaught error or rejection in the page. A page that throws mid-tour never posts tourFinished.
     var onPageError: ((String) -> Void)?
 
@@ -274,14 +296,16 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             }
             return
         }
-        guard message.name == "liveSceneEvent" else {
+        guard message.name == "liveSceneEvent",
+              let pageEvent = LiveScenePageEvent(messageBody: message.body) else {
             return
         }
-        // The page posts this string when the camera tour ends.
-        guard let eventName = message.body as? String, eventName == "tourFinished" else {
-            return
+        switch pageEvent {
+        case .tourFinished:
+            onTourFinished?()
+        case .partTapped(let untrustedLabel):
+            onPartTapped?(untrustedLabel)
         }
-        onTourFinished?()
     }
 
     /// False means the page was refused. Generated code must never run without the network block in place.

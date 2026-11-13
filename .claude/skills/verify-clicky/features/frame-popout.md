@@ -16,6 +16,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
+- `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
+  A press that moves more than 4 px is a drag that turns the model, not a click.
 
 ## How to get to it (user POV)
 
@@ -36,6 +38,9 @@ Preconditions:
   The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot popout` while the subject floats over the video.
   When the tour ends, the log shows `Frame pop-out narration: N sentences for afterTour`, and Clicky speaks about the parts while each one turns yellow.
+  Then click one label without moving the mouse.
+  The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
+  Drag across a label instead, and the model turns with no tap line in the log.
 - **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
   Run `$V app-launch "pop this out"`.
   The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.
