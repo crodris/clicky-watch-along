@@ -113,11 +113,12 @@ It prints the relevant log lines and saves the usage lines the 8787 Worker logge
 ## Drive
 
 Each feature in [`features/README.md`](features/README.md) has the exact steps.
-The two drive primitives are:
+The drive primitives are:
 
 ```bash
 $V post <route> <body.json> [port]   # default port 8789, a Worker this script started
 $V shot <name>                       # one PNG per display
+$V key <escape|push-to-talk-tap>     # a real key event through System Events
 ```
 
 `post` saves the response body to the run and prints it.
@@ -161,12 +162,13 @@ A record whose PID now belongs to another process is removed, and that process i
   Rehearsal steps enter the pipeline right after transcription, so the transcription providers (AssemblyAI, OpenAI, Apple Speech) stay unverified.
 - The menu bar panel, the model picker, and the permission prompts.
 - Mouse drag orbit and trackpad pinch.
-  Escape and a push-to-talk tap can be driven with `$V key escape` and `$V key push-to-talk-tap`, which send real key events through System Events.
 - Streamed `/chat` logs no usage line.
   Prove it through the app log line `🌐 Claude streaming request:` and the spoken reply.
 
 Report each of these as unverified when a change touches it.
 Do not report it as verified through a different path.
+
+Escape and a push-to-talk tap with no words can be driven: `$V key escape` and `$V key push-to-talk-tap` send real key events through System Events.
 
 ## Evidence
 

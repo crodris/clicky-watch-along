@@ -633,4 +633,16 @@ struct leanring_buddyTests {
         #expect(LiveScenePartLabelRectInPage(pageValue: ["label": "Aorta", "left": "100"]) == nil)
     }
 
+    @Test func askingToPutTheSceneBackMatchesOnlyPutBackOrPutAway() async throws {
+        #expect(asksToPutTheSceneBack("put it back"))
+        #expect(asksToPutTheSceneBack("Okay, put that back please"))
+        #expect(asksToPutTheSceneBack("put the engine back"))
+        #expect(asksToPutTheSceneBack("put this away"))
+        // A tap with no words, a new pop-out, or a question about a part keeps the scene up.
+        #expect(!asksToPutTheSceneBack(""))
+        #expect(!asksToPutTheSceneBack("pop this out"))
+        #expect(!asksToPutTheSceneBack("what does the back part do?"))
+        #expect(!asksToPutTheSceneBack("putting it back together is hard"))
+    }
+
 }

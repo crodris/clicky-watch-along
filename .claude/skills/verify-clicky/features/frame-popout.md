@@ -13,6 +13,7 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-pauses-video` pauses a playing YouTube video first, with or without a quiz, and plays it again when the pop-out clears, unless the learner had paused it.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
+- `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away").
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
@@ -56,6 +57,12 @@ Preconditions:
   Dürer's Young Hare, Stag Beetle, and Rhinoceros and a heart diagram return `wholePictureIsSubject: false`.
   In the app, the log shows `Frame pop-out: lifting the whole picture in Sonnet's box` for The Starry Night, and `Vision kept N of M subjects` for the hare.
   Run `$V shot scene-popout` while the painting floats over the page.
+- **A tap keeps the pop-out.** Run `$V app-launch "pop this out"`.
+  About 4 seconds after the narration starts speaking, run `$V key push-to-talk-tap`.
+  The speech stops within a second, the log ends with `Live scene rehearsal: done, phase allLabelsShowing`, and the pop-out stays on screen.
+- **Put it back.** Run `$V app-launch "pop this out|put it back"`.
+  The second step logs `Live scene: put back on request`, and the subject flattens back into its frame.
+  The rehearsal sends the second step as soon as the tour ends, before the narration speaks, so the tap needs the run above.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

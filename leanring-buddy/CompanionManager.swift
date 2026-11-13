@@ -761,6 +761,16 @@ final class CompanionManager: ObservableObject {
         liveSceneRequestGeneration += 1
         let requestGeneration = liveSceneRequestGeneration
 
+        // A push-to-talk press only stops Clicky talking, so a scene stays up until the learner asks to put it back.
+        // A quiz question on screen is left alone, since the learner is answering it.
+        if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+            clearFinishedLiveScene()
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
+            print("Live scene: put back on request")
+            return
+        }
+
         // A 3D model only appears when the learner asks. It pauses the YouTube video in front, quiz or not,
         // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
         var sceneQuestion = transcript
@@ -1565,6 +1575,17 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         clearFinishedLiveScene()
         scheduleTransientHideIfNeeded()
+    }
+
+    /// A pop-out or explored scene is on screen, touring or finished, with no quiz question waiting on it.
+    private var liveSceneIsUpWithNoQuizQuestion: Bool {
+        guard !videoQuizQuestionIsActive else { return false }
+        switch liveScenePhase {
+        case .allLabelsShowing, .touring(quizToAskAfterTour: nil):
+            return true
+        default:
+            return false
+        }
     }
 
     /// With no scene on screen, Escape skips the answer Clicky is thinking about or speaking,

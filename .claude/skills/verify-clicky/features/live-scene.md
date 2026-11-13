@@ -55,5 +55,5 @@ Preconditions:
   A quiz request skips that lookup.
 - The rise animation reads the largest video or image in Chrome's front tab.
   With no Chrome window, the scene starts full screen, and that is expected.
-- Drag orbit, pinch zoom, and Escape cannot be driven.
+- Drag orbit and pinch zoom cannot be driven. Escape on a finished scene is sent with `$V key escape`.
   Report them as unverified when a change touches them.

@@ -31,7 +31,7 @@ Read [`../SKILL.md`](../SKILL.md) first, then use the matching feature file as t
 - An app proof is the rehearsal log lines that name the phase reached, a screenshot with the result visible, and the app usage lines.
 - Cost ceilings are loose limits that catch a dropped effort setting or a broken cache.
   Never assert exact token counts.
-- Report a path this skill cannot drive (push-to-talk, drag, pinch, menu bar panel) as unverified.
+- Report a path this skill cannot drive (push-to-talk with speech, drag, pinch, menu bar panel) as unverified.
   Do not report it as verified through a different path.
 
 ## Feature entry contract

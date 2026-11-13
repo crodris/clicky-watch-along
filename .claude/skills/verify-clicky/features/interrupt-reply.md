@@ -2,7 +2,7 @@
 
 While Clicky is thinking about or speaking an answer, Escape or a quick tap of ctrl+option stops it.
 The answer's request is cancelled, its speech stops within a fraction of a second, and nothing new is asked, since a tap with no words sends no transcript.
-With a 3D scene or pop-out on screen, Escape keeps its scene behavior instead (see [Live scene](./live-scene.md) and [Frame pop-out](./frame-popout.md)).
+With a 3D scene or pop-out on screen, Escape keeps its scene behavior instead, and a tap stops the speech but leaves the scene up until the learner says "put it back" (see [Live scene](./live-scene.md) and [Frame pop-out](./frame-popout.md)).
 
 ## Sub-features
 

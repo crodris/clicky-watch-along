@@ -169,6 +169,15 @@ nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     return asksToLookInside ? .explore : nil
 }
 
+/// "Put it back", "put the engine back", or "put that away" sends a pop-out or scene back where it came from.
+/// A push-to-talk press alone only stops Clicky talking, so this is how the learner closes the scene by voice.
+nonisolated func asksToPutTheSceneBack(_ transcript: String) -> Bool {
+    transcript.lowercased().range(
+        of: #"\bput\s+(it|that|this|them|the\s+[\w'-]+)(\s+[\w'-]+)?\s+(back|away)\b"#,
+        options: .regularExpression
+    ) != nil
+}
+
 /// Splits "[PART:Aorta] It carries blood. [PART:Heart] It pumps." into one entry
 /// per tagged sentence. Text with no tags comes back as a single entry.
 nonisolated func liveSceneSpokenParts(from responseText: String) -> [(partLabel: String?, spokenText: String)] {
