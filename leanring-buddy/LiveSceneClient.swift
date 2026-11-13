@@ -15,7 +15,7 @@ struct LiveScenePage: Decodable {
 }
 
 struct LiveSceneJudgedAnswer {
-    let grade: LiveSceneQuizGrade
+    let verdict: LiveSceneJudgeVerdict
     let spokenReply: String
 }
 
@@ -139,20 +139,10 @@ final class LiveSceneClient {
         } catch {
             throw liveSceneAPIError(statusCode: -1, message: "Judge response was missing a verdict")
         }
-        let grade: LiveSceneQuizGrade
-        switch response.verdict {
-        case "correct":
-            grade = .nameAndFunctionWord
-        case "asked_for_help":
-            grade = .askedForHelp
-        case "named_only":
-            grade = .nameOnly
-        case "wrong":
-            grade = .wrong
-        default:
+        guard let verdict = liveSceneJudgeVerdict(workerVerdict: response.verdict) else {
             throw liveSceneAPIError(statusCode: -1, message: "Judge verdict was \(response.verdict)")
         }
-        return LiveSceneJudgedAnswer(grade: grade, spokenReply: response.spokenReply)
+        return LiveSceneJudgedAnswer(verdict: verdict, spokenReply: response.spokenReply)
     }
 
     private func liveSceneAPIError(statusCode: Int, message: String) -> NSError {
@@ -161,5 +151,20 @@ final class LiveSceneClient {
             code: statusCode,
             userInfo: [NSLocalizedDescriptionKey: message]
         )
+    }
+}
+
+/// The Worker's verdict word, or nil for a word this app version does not know.
+nonisolated func liveSceneJudgeVerdict(workerVerdict: String) -> LiveSceneJudgeVerdict? {
+    switch workerVerdict {
+    case "correct": return .answer(.nameAndFunctionWord)
+    case "named_only": return .answer(.nameOnly)
+    case "wrong": return .answer(.wrong)
+    case "asked_for_help": return .answer(.askedForHelp)
+    case "skip_question": return .control(.skipQuestion)
+    case "repeat_question": return .control(.repeatQuestion)
+    case "wants_hint": return .control(.giveHint)
+    case "scene_command": return .control(.sceneCommand)
+    default: return nil
     }
 }

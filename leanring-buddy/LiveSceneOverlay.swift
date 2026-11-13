@@ -663,6 +663,15 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         ))
+        // The voice tools run in the page's own world, because they call the page's window.liveScene.
+        // A generated page could overwrite them, so what they return is treated as untrusted data.
+        if let sceneToolsScript = Self.sceneToolsScriptFromTheBundle {
+            webViewConfiguration.userContentController.addUserScript(WKUserScript(
+                source: sceneToolsScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
 
         let webView = LiveSceneWebView(frame: frame, configuration: webViewConfiguration)
         webView.autoresizingMask = [.width, .height]
@@ -687,6 +696,63 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         print("Live scene: page failed to load: \(error.localizedDescription)")
         pageHasFinishedLoading = false
         onPageError?("page failed to load: \(error.localizedDescription)")
+    }
+
+    // MARK: Voice tools
+
+    private static let sceneToolsScriptFromTheBundle: String? = {
+        let scriptURL = Bundle.main.url(forResource: "scene-tools", withExtension: "js", subdirectory: "LiveSceneAssets")
+            ?? Bundle.main.url(forResource: "scene-tools", withExtension: "js")
+        guard let scriptURL, let sceneToolsScript = try? String(contentsOf: scriptURL, encoding: .utf8) else {
+            print("Live scene: scene-tools.js is not in the app bundle, so scenes take no voice commands")
+            return nil
+        }
+        return sceneToolsScript
+    }()
+
+    /// True while a scene is on screen and not on its way back into the video.
+    var isShowingAScene: Bool {
+        if case .showing = overlayPhase { return pageHasFinishedLoading }
+        return false
+    }
+
+    /// The tools the page on screen offers right now. Empty when no page is showing.
+    func pageVoiceTools() async -> [VoiceToolDescriptor] {
+        guard let pageResult = await callThePageForVoiceTools("return window.clickyTools?.list?.() ?? []") else { return [] }
+        return (pageResult.arrayValue ?? []).compactMap(VoiceToolDescriptor.init(pageToolJSON:))
+    }
+
+    /// The camera pose, labels, and tour state the page reports, or nil when no page is showing.
+    func pageVoiceState() async -> JSONValue? {
+        await callThePageForVoiceTools("return window.clickyTools?.state?.() ?? null")
+    }
+
+    /// Runs one page tool. The page answers { ok, error?, state }.
+    func callPageVoiceTool(named toolName: String, input: [String: JSONValue]) async -> VoiceToolOutcome {
+        guard let pageResult = await callThePageForVoiceTools(
+            "return window.clickyTools.call(toolName, toolInput)",
+            arguments: ["toolName": toolName, "toolInput": JSONValue.object(input).foundationValue]
+        ) else {
+            return .failed(error: "The 3D scene is not on screen anymore", state: nil)
+        }
+        let pageState = pageResult["state"]
+        guard pageResult["ok"]?.boolValue == true else {
+            return .failed(error: pageResult["error"]?.stringValue ?? "The scene could not do that", state: pageState)
+        }
+        return .changed(state: pageState)
+    }
+
+    private func callThePageForVoiceTools(_ functionBody: String, arguments: [String: Any] = [:]) async -> JSONValue? {
+        guard isShowingAScene, let liveSceneWebView else { return nil }
+        do {
+            let pageResult = try await liveSceneWebView.callAsyncJavaScript(functionBody, arguments: arguments, in: nil, contentWorld: .page)
+            // WebKit types a page result as Any. Nil and NSNull both mean the page had nothing.
+            guard let pageResult else { return nil }
+            return JSONValue(foundationValue: pageResult)
+        } catch {
+            print("Live scene: voice tool call failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // arguments uses WebKit's dictionary type. Callers pass JSON values.

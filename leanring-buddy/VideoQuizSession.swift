@@ -54,6 +54,41 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
     return transcriptNamesAVideo && transcriptAsksToBeQuizzed ? .start : nil
 }
 
+/// A change to the YouTube video the learner asked for by voice. The JavaScript only ever embeds numbers
+/// Swift formats, and uses single quotes, because it runs inside a double-quoted AppleScript string.
+nonisolated enum LearnerVideoCommand: Equatable {
+    case readState
+    case pause
+    case play
+    case seekBy(seconds: Double)
+    case seekTo(seconds: Double)
+    case setPlaybackRate(Double)
+
+    var javaScript: String {
+        let change: String
+        switch self {
+        case .readState:
+            change = ""
+        case .pause:
+            change = "video.pause();"
+        case .play:
+            change = "video.play();"
+        case .seekBy(let seconds):
+            change = "video.currentTime = Math.max(0, Math.min(video.duration || 1e9, video.currentTime + \(Self.javaScriptNumber(seconds))));"
+        case .seekTo(let seconds):
+            change = "video.currentTime = Math.max(0, Math.min(video.duration || 1e9, \(Self.javaScriptNumber(seconds))));"
+        case .setPlaybackRate(let playbackRate):
+            change = "video.playbackRate = \(Self.javaScriptNumber(min(2, max(0.25, playbackRate))));"
+        }
+        return "(function () { var video = document.querySelector('video'); if (!video) { return 'no-video'; } \(change) return JSON.stringify({ seconds: Math.round(video.currentTime), durationSeconds: Math.round(video.duration || 0), paused: video.paused, playbackRate: video.playbackRate }); })()"
+    }
+
+    /// NaN and infinity are not JavaScript literals the page can read, so they become 0.
+    private static func javaScriptNumber(_ value: Double) -> String {
+        value.isFinite ? String(value) : "0"
+    }
+}
+
 // MARK: - Transcript and moments
 
 nonisolated struct VideoQuizTranscriptLine: Encodable, Equatable {
@@ -656,6 +691,61 @@ final class VideoQuizSession {
         timeoutTask.cancel()
         print("Video quiz: waited \(String(format: "%.1f", Date().timeIntervalSince(waitStartDate)))s at the pause for the 3D frame")
         return framePopout
+    }
+
+    // MARK: Voice commands for the video in front
+
+    private var captionLinesByVideoURL: [String: [VideoQuizTranscriptLine]] = [:]
+
+    /// The YouTube video in Chrome's front tab, as the voice command model sees it, or nil when none is in front.
+    func frontVideoStateForVoiceCommands() -> JSONValue? {
+        guard let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else { return nil }
+        return try? Self.runLearnerVideoCommand(.readState, in: frontVideoTab, title: frontVideoTab.title)
+    }
+
+    /// Runs a pause, play, seek, or speed change the learner asked for on the video in front, and returns its state.
+    /// A pause or play the learner asks for is theirs, so Clicky drops its own record of a pause on that tab
+    /// and will not press play on it later.
+    func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) throws -> JSONValue {
+        let frontVideoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
+        let videoState = try Self.runLearnerVideoCommand(learnerVideoCommand, in: frontVideoTab, title: frontVideoTab.title)
+        switch learnerVideoCommand {
+        case .pause, .play:
+            if let heldVideoTab = videoPausedByClicky?.tab, heldVideoTab.isTheSameTab(as: frontVideoTab) {
+                videoPausedByClicky = nil
+                print("Video quiz: the learner took over the pause Clicky held")
+            }
+        case .seekBy, .seekTo, .setPlaybackRate, .readState:
+            break
+        }
+        return videoState
+    }
+
+    /// The caption lines that best match the query in the video in front. The quiz's own captions are reused,
+    /// and other videos' captions are read once with yt-dlp and kept for the rest of the session.
+    func captionMomentsInTheFrontVideo(matching query: String) async throws -> [VideoCaptionMoment] {
+        let frontVideoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
+        let captionLines: [VideoQuizTranscriptLine]
+        if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, !allTranscriptLines.isEmpty {
+            captionLines = allTranscriptLines
+        } else if let cachedCaptionLines = captionLinesByVideoURL[frontVideoTab.url] {
+            captionLines = cachedCaptionLines
+        } else {
+            captionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
+            captionLinesByVideoURL[frontVideoTab.url] = captionLines
+        }
+        return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
+    }
+
+    private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String) throws -> JSONValue {
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab)
+        guard javaScriptResult != "no-video",
+              let videoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
+              case .object(var videoStateFields) = videoState else {
+            throw VideoQuizFailure.noVideoOnThePage
+        }
+        videoStateFields["title"] = .string(title)
+        return .object(videoStateFields)
     }
 
     // MARK: Talking to the page

@@ -13,6 +13,9 @@ import SwiftUI
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
     @State private var emailInput: String = ""
+    #if DEBUG
+    @AppStorage(CompanionManager.logsVoiceToolCallJSONDefaultsKey) private var logsVoiceToolCallJSON = false
+    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -31,6 +34,11 @@ struct CompanionPanelView: View {
 
                 modelPickerRow
                     .padding(.horizontal, 16)
+
+                #if DEBUG
+                voiceToolCallLoggingRow
+                    .padding(.horizontal, 16)
+                #endif
             }
 
             if !companionManager.allPermissionsGranted {
@@ -573,6 +581,34 @@ struct CompanionPanelView: View {
         }
         .padding(.vertical, 4)
     }
+
+    #if DEBUG
+    /// Prints the full JSON of every voice command reply and tool result to the app log.
+    private var voiceToolCallLoggingRow: some View {
+        HStack {
+            HStack(spacing: 8) {
+                Image(systemName: "curlybraces")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 16)
+
+                Text("Log tool call JSON")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $logsVoiceToolCallJSON)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .tint(DS.Colors.accent)
+                .scaleEffect(0.8)
+                .pointerCursor()
+        }
+        .padding(.vertical, 4)
+    }
+    #endif
 
     private var speechToTextProviderRow: some View {
         HStack {

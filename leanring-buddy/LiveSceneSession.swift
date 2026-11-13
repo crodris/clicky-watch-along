@@ -35,6 +35,21 @@ enum LiveSceneQuizGrade: Equatable {
     case askedForHelp
 }
 
+/// Something the learner asked for during a quiz question instead of answering it.
+enum LiveSceneQuizControl: Equatable {
+    case skipQuestion
+    case repeatQuestion
+    case giveHint
+    /// They asked to change the view or the video, so the voice command router takes it.
+    case sceneCommand
+}
+
+/// What the judge heard: a graded answer, or a request about the quiz or the view.
+enum LiveSceneJudgeVerdict: Equatable {
+    case answer(LiveSceneQuizGrade)
+    case control(LiveSceneQuizControl)
+}
+
 /// How the quiz label of a frame pop-out resolves after an answer is graded.
 /// The raw value is the string the page's answerMoment receives.
 enum LiveSceneRevealOutcome: String, Equatable {
