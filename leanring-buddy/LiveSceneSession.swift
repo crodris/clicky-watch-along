@@ -171,10 +171,11 @@ nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
 
 /// "Put it back", "put the engine back", or "put that away" sends a pop-out or scene back where it came from.
 /// A push-to-talk press alone only stops Clicky talking, so this is how the learner closes the scene by voice.
-/// "Put it back together" or "put the heart back in" is a question about the subject, so it is left alone.
+/// "Put it back together" or "put the heart back in" is a question about the subject, so it is left alone,
+/// while "put it back in the video" still asks to put the scene back.
 nonisolated func asksToPutTheSceneBack(_ transcript: String) -> Bool {
     transcript.lowercased().range(
-        of: #"\bput\s+(it|that|this|them|the\s+[\w'-]+)(\s+[\w'-]+)?\s+(back|away)\b(?!\s+(together|in|into|on)\b)"#,
+        of: #"\bput\s+(it|that|this|them|the\s+[\w'-]+)(\s+[\w'-]+)?\s+(back|away)\b(?!\s+together\b)(?!\s+(in|into|on)\b(?!\s+(the\s+)?(video|frame|screen|page|picture|image|place)\b))"#,
         options: .regularExpression
     ) != nil
 }

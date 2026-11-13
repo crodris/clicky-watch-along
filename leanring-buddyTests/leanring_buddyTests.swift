@@ -638,6 +638,9 @@ struct leanring_buddyTests {
         #expect(asksToPutTheSceneBack("Okay, put that back please"))
         #expect(asksToPutTheSceneBack("put the engine back"))
         #expect(asksToPutTheSceneBack("put this away"))
+        #expect(asksToPutTheSceneBack("put it back in the video"))
+        #expect(asksToPutTheSceneBack("put it back into the frame"))
+        #expect(asksToPutTheSceneBack("put it back on the screen"))
         // A tap with no words, a new pop-out, or a question about a part keeps the scene up.
         #expect(!asksToPutTheSceneBack(""))
         #expect(!asksToPutTheSceneBack("pop this out"))
