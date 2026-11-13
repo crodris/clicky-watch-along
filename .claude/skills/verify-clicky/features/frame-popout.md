@@ -39,6 +39,9 @@ Preconditions:
   Run `$V shot image-popout` while the subject floats over the image.
 - **Pop out a painted scene.** Post a body built from The Starry Night, as in the route step.
   The result has `wholePictureIsSubject: true` and a `subjectBox` around the whole painting.
+  Do the same for a fresco of several figures, such as The Creation of Adam at the top of `https://finearttutorials.com/guide/famous-paintings/`.
+  Capture only the image's screen rect with `screencapture -x -t jpg -R x,y,w,h`, since the app sends that rect and a full-screen capture adds the page around it.
+  Post it 5 times, since before this fix a figure scene came back as no subject in about half the runs, and every run returns `wholePictureIsSubject: true`.
   Dürer's Young Hare, Stag Beetle, and Rhinoceros and a heart diagram return `wholePictureIsSubject: false`.
   In the app, the log shows `Frame pop-out: lifting the whole picture in Sonnet's box` for The Starry Night, and `Vision kept N of M subjects` for the hare.
   Run `$V shot scene-popout` while the painting floats over the page.
