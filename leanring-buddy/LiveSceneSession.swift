@@ -35,6 +35,30 @@ enum LiveSceneQuizGrade: Equatable {
     case askedForHelp
 }
 
+/// How the quiz label of a frame pop-out resolves after an answer is graded.
+/// The raw value is the string the page's answerMoment receives.
+enum LiveSceneRevealOutcome: String, Equatable {
+    /// A correct name: the label turns green with the real name, a ring bursts, and a chime plays.
+    case celebrateCorrectName
+    /// A first wrong answer: the label shakes once and keeps its "?".
+    case shakeAndKeepTheQuestionMark
+    /// The learner asked for help or ran out of tries: the name shows in the normal color.
+    case revealWithoutCelebration
+
+    /// The one place a grade becomes a reveal outcome. A first wrong answer gets another try,
+    /// and a second wrong answer reveals the name, like asking for help.
+    init(grade: LiveSceneQuizGrade, wrongAnswerCount: Int) {
+        switch grade {
+        case .nameAndFunctionWord, .nameOnly:
+            self = .celebrateCorrectName
+        case .askedForHelp:
+            self = .revealWithoutCelebration
+        case .wrong:
+            self = wrongAnswerCount == 0 ? .shakeAndKeepTheQuestionMark : .revealWithoutCelebration
+        }
+    }
+}
+
 struct LiveSceneQuiz: Decodable {
     let answerLabel: String
     let question: String

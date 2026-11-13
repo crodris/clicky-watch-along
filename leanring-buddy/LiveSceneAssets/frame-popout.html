@@ -3,14 +3,30 @@
 <head>
 <meta charset="utf-8">
 <style>
+:root {
+  /* Mirrors DS.Colors.overlayCursorBlue, the blue of Clicky's cursor. */
+  --clicky-blue: #3380ff;
+  /* Mirrors DS.Colors.success. */
+  --clicky-success-green: #34d399;
+}
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
 canvas { display: block; position: absolute; inset: 0; }
 #backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
 #frameBackground { position: absolute; }
 svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.scene-label { position: absolute; left: 0; top: 0; padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, opacity 0.3s; }
+.scene-label { position: absolute; left: 0; top: 0; padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, color 0.3s, opacity 0.3s; }
 .scene-label.focused { background: #ffe066; }
 .scene-label.quiz-answer { z-index: 2; }
+/* The "?" waiting to be named is larger and Clicky blue. The class comes off when the name shows. */
+.scene-label.quiz-answer.unanswered { background: var(--clicky-blue); color: #fff; font-size: 22px; padding: 7px 16px; border-radius: 11px; }
+.scene-label.quiz-answer.answered-correctly { background: var(--clicky-success-green); color: #04291b; }
+/* translate is its own property, so the shake does not fight the transform that places the label. */
+.scene-label.shaking { animation: label-shake 0.45s ease-in-out 1; }
+@keyframes label-shake { 0%, 100% { translate: 0 0; } 20% { translate: -9px 0; } 40% { translate: 8px 0; } 60% { translate: -6px 0; } 80% { translate: 4px 0; } }
+.answer-burst { position: absolute; width: 44px; height: 44px; margin: -22px 0 0 -22px; box-sizing: border-box; border: 3px solid var(--clicky-success-green); border-radius: 50%; pointer-events: none; opacity: 0; animation: answer-burst 0.7s ease-out 1 forwards; }
+@keyframes answer-burst { from { transform: scale(0.2); opacity: 0.95; } to { transform: scale(2.6); opacity: 0; } }
+/* The return fades labels by hand each frame, so the label's own fade must not lag behind it. */
+body.returning .scene-label { transition: none; }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
 </head>
@@ -30,12 +46,64 @@ let maximumDistance = 0;
 let yaw = 0;
 let pitch = 0;
 let focusMove = null;
+let sceneIsBuilt = false;
+// Set when the return starts. returnFrom holds the pose it eases back from.
+let returnStartedAt = null;
+let returnFrom = null;
+let returnFinishedPosted = false;
+let labelFade = 1;
+const returnSeconds = 0.8;
+
+const postLiveSceneEvent = (eventName) => window.webkit?.messageHandlers?.liveSceneEvent?.postMessage(eventName);
+
+// outcome is celebrateCorrectName, shakeAndKeepTheQuestionMark, or revealWithoutCelebration.
+// The shake and the ring burst are skipped for a viewer who asked for reduced motion, and the color flip stays.
+function showAnswerMoment(outcome) {
+  const entry = labelEntries.find((candidate) => candidate.part.isQuizAnswer);
+  if (!entry) return;
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (outcome === "shakeAndKeepTheQuestionMark") {
+    if (reducedMotion) return;
+    entry.element.classList.remove("shaking");
+    void entry.element.offsetWidth;
+    entry.element.classList.add("shaking");
+    return;
+  }
+  entry.element.textContent = entry.part.label;
+  entry.element.classList.remove("unanswered");
+  if (outcome !== "celebrateCorrectName") return;
+  entry.element.classList.add("answered-correctly");
+  if (reducedMotion || entry.anchorX === undefined) return;
+  for (const delaySeconds of [0, 0.12]) {
+    const burst = document.createElement("div");
+    burst.className = "answer-burst";
+    burst.style.left = `${entry.anchorX}px`;
+    burst.style.top = `${entry.anchorY}px`;
+    burst.style.animationDelay = `${delaySeconds}s`;
+    burst.addEventListener("animationend", () => burst.remove(), { once: true });
+    document.body.appendChild(burst);
+  }
+}
 
 window.liveScene = {
   reveal() {
-    for (const entry of labelEntries) {
-      if (entry.part.isQuizAnswer) entry.element.textContent = entry.part.label;
+    showAnswerMoment("revealWithoutCelebration");
+  },
+  answerMoment: showAnswerMoment,
+  // Labels fade, the camera eases back to its starting pose, and the lifted subject flattens
+  // into the frame over the video. The page posts returnFinished when it has landed.
+  returnToSource() {
+    if (returnStartedAt !== null) return;
+    returnStartedAt = performance.now();
+    if (!sceneIsBuilt) {
+      // Nothing is lifted yet, so there is nothing to put back.
+      returnFinishedPosted = true;
+      postLiveSceneEvent("returnFinished");
+      return;
     }
+    returnFrom = { lift: liftNow, yaw, pitch, cameraDistance, target: target.clone() };
+    for (const entry of labelEntries) entry.opacityAtReturn = parseFloat(entry.element.style.opacity) || 0;
+    document.body.classList.add("returning");
   },
   focusPart(labelText) {
     const wanted = String(labelText).trim().toLowerCase();
@@ -280,7 +348,7 @@ for (const part of popout.parts) {
   const element = document.createElement("div");
   element.className = "scene-label";
   element.textContent = part.isQuizAnswer ? "?" : part.label;
-  if (part.isQuizAnswer) element.classList.add("quiz-answer");
+  if (part.isQuizAnswer) element.classList.add("quiz-answer", "unanswered");
   element.style.opacity = "0";
   document.body.appendChild(element);
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -321,14 +389,28 @@ const finishTour = () => {
   draggedYaw = yaw; draggedPitch = pitch;
   tourDone = true;
   window.__tourFinished = true;
-  window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("tourFinished");
+  postLiveSceneEvent("tourFinished");
 };
 
 const render = (now) => {
   const seconds = (now - tourStartedAt) / 1000;
   const frameMilliseconds = lastFrameTime === undefined ? 0 : now - lastFrameTime;
   lastFrameTime = now;
-  if (!tourDone) {
+  if (returnFrom) {
+    const progress = Math.min(1, Math.max(0, (now - returnStartedAt) / 1000 / returnSeconds));
+    const settle = ease(progress);
+    const lift = returnFrom.lift * (1 - settle);
+    if (lift !== liftNow) applyLift(lift);
+    yaw = returnFrom.yaw * (1 - settle);
+    pitch = returnFrom.pitch * (1 - settle);
+    cameraDistance = returnFrom.cameraDistance + (pageDistance - returnFrom.cameraDistance) * settle;
+    target.lerpVectors(returnFrom.target, new THREE.Vector3(0, 0, 0), settle);
+    labelFade = 1 - Math.min(1, progress / 0.4);
+    if (progress === 1 && !returnFinishedPosted) {
+      returnFinishedPosted = true;
+      postLiveSceneEvent("returnFinished");
+    }
+  } else if (!tourDone) {
     const lift = ease(Math.min(1, Math.max(0, (seconds - 1) / 2)));
     const move = ease(Math.min(1, Math.max(0, (seconds - 1.5) / 3)));
     if (lift !== liftNow) applyLift(lift);
@@ -422,19 +504,26 @@ const render = (now) => {
       entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
     }
     const labelX = pointX + entry.offsetX, labelY = pointY + entry.offsetY;
+    entry.anchorX = pointX; entry.anchorY = pointY;
     // A transform keeps the label at sub-pixel positions like its SVG line. Left and top snap to
     // whole pixels in WebKit, which made labels shimmer against their lines.
     entry.element.style.transform = `translate(${labelX}px, ${labelY}px) translate(-50%, -50%)`;
-    if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
+    // While returning, every label fades from the opacity it had, including a focused or dimmed one.
+    const shownOpacity = returnFrom ? entry.opacityAtReturn * labelFade : labelOpacity;
+    if (returnFrom) entry.element.style.opacity = String(shownOpacity);
+    else if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
     entry.line.setAttribute("x1", pointX); entry.line.setAttribute("y1", pointY);
     entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
-    entry.line.setAttribute("opacity", labelOpacity);
+    entry.line.setAttribute("opacity", shownOpacity);
   }
   renderer.render(scene, camera);
   window.__ready = true;
-  requestAnimationFrame(render);
+  // The landed frame is the last one drawn.
+  if (!returnFinishedPosted) requestAnimationFrame(render);
 };
-requestAnimationFrame(render);
+sceneIsBuilt = true;
+// A clear that arrived while the page was still loading has nothing to draw.
+if (returnStartedAt === null) requestAnimationFrame(render);
 </script>
 </body>
 </html>
