@@ -788,6 +788,11 @@ final class CompanionManager: ObservableObject {
 
         if case .buildingScene = liveScenePhase {
             liveScenePhase = .idle
+            // A plain question cancels the build, so the video Clicky paused for it plays again.
+            // A new scene request keeps the pause for the new scene.
+            if requestedKind == nil {
+                videoQuizSession.resumeVideoAfterRequestedScene()
+            }
         }
 
         if case .allLabelsShowing = liveScenePhase, liveSceneKind(for: transcript) == nil {
