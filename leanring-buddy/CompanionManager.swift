@@ -925,7 +925,7 @@ final class CompanionManager: ObservableObject {
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
                         try await elevenLabsTTSClient.speakText(spokenText)
-                        // speakText returns after player.play() — audio is now playing
+                        // speakText returns once the first streamed audio is playing, so the voice state can switch now
                         voiceState = .responding
                     } catch is CancellationError {
                         // The learner spoke again, so this reply was interrupted on purpose.

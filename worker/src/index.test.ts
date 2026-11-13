@@ -18,20 +18,18 @@ describe("withCachedSystemPrompt", () => {
   it("puts a cache breakpoint on the system prompt and leaves the rest of the request as sent", () => {
     const requestBody = { model: "claude-sonnet-5-5", system: "you're clicky", messages: [{ role: "user", content: "hi" }] };
 
-    const cachedRequestBody: unknown = JSON.parse(withCachedSystemPrompt(JSON.stringify(requestBody)));
-
-    expect(cachedRequestBody).toEqual({
+    expect(withCachedSystemPrompt(requestBody)).toEqual({
       ...requestBody,
       system: [{ type: "text", text: "you're clicky", cache_control: { type: "ephemeral" } }],
     });
   });
 
   it("passes a body with no plain system prompt through unchanged", () => {
-    const blockSystemBody = JSON.stringify({ system: [{ type: "text", text: "already blocks" }], messages: [] });
+    const blockSystemBody = { system: [{ type: "text", text: "already blocks" }], messages: [] };
 
     expect(withCachedSystemPrompt(blockSystemBody)).toBe(blockSystemBody);
-    expect(withCachedSystemPrompt('{"messages":[]}')).toBe('{"messages":[]}');
-    expect(withCachedSystemPrompt("not json")).toBe("not json");
+    expect(withCachedSystemPrompt({ system: "", messages: [] })).toEqual({ system: "", messages: [] });
+    expect(withCachedSystemPrompt({ messages: [] })).toEqual({ messages: [] });
   });
 });
 
@@ -59,15 +57,13 @@ describe("system prompt caching on the Anthropic calls", () => {
     expect(sentSystemPrompt(fetchMock)).toEqual(cachedSystemPrompt);
   });
 
-  it("caches the system prompt of a /chat request the app sends", async () => {
+  it("passes a /chat request through as the app sent it, since the app marks its own cache breakpoint", async () => {
     const fetchMock = stubAnthropic();
+    const chatBodyText = JSON.stringify({ system: "you're clicky", messages: [] });
 
-    await worker.fetch(
-      new Request("http://127.0.0.1:8787/chat", { method: "POST", body: JSON.stringify({ system: "you're clicky", messages: [] }) }),
-      testEnv,
-    );
+    await worker.fetch(new Request("http://127.0.0.1:8787/chat", { method: "POST", body: chatBodyText }), testEnv);
 
-    expect(sentSystemPrompt(fetchMock)).toEqual(cachedSystemPrompt);
+    expect(fetchMock.mock.calls[0]?.[1].body).toBe(chatBodyText);
   });
 });
 

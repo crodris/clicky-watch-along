@@ -57,7 +57,8 @@ type Sample = {
   totalMs: number;
   usageLines: UsageLine[];
   ttsCharacters: number;
-  costUSD: number;
+  /** Null when a model or speech model in the sample has no price. */
+  costUSD: number | null;
   quality: QualityCheck;
   /** The start of a text reply, so a reviewer can read what changed. A live scene page is left out for size. */
   replyPreview: string;
@@ -104,13 +105,15 @@ function usageLineFromUsageObject(route: string, usageObject: Record<string, unk
   };
 }
 
-function costOfUsageLine(usageLine: UsageLine): number {
+/** Null when the model has no price, so one unpriced reply cannot end a run that has already spent money. */
+function costOfUsageLine(usageLine: UsageLine): number | null {
   if (usageLine.model.startsWith("gpt-")) {
     return gptLiveSceneCostPerCallUSD;
   }
   const prices = anthropicPricesPerMillionTokens[usageLine.model];
   if (prices === undefined) {
-    throw new Error(`No price for model ${usageLine.model}. Add it to anthropicPricesPerMillionTokens.`);
+    console.warn(`No price for model ${usageLine.model}, so its cost is recorded as unknown. Add it to anthropicPricesPerMillionTokens.`);
+    return null;
   }
   return (
     (usageLine.inputTokens * prices.input +
@@ -132,6 +135,8 @@ const fixtureBase64 = (fileName: string) => readFileSync(join(fixturesDirectory,
 type AppProfile = {
   chatModel: string;
   chatEffort: string | undefined;
+  /** Newer apps mark the system prompt's cache breakpoint themselves. */
+  chatSystemPromptCached: boolean;
   chatSystemPrompt: string;
   ttsModel: string;
   /** Undefined means the app downloads a whole MP3 before it plays any of it. */
@@ -160,12 +165,14 @@ function readAppProfile(appCheckout: string): AppProfile {
   const chatModel =
     claudeAPISource.match(/sonnetModelID = "([^"]+)"/)?.[1] ??
     requiredMatch(companionManagerSource, /"selectedClaudeModel"\) \?\? "([^"]+)"/, "the default chat model")[1];
-  const streamingBodySource = claudeAPISource.slice(claudeAPISource.indexOf("func analyzeImageStreaming"));
+  // Everything before the unused non-streaming call holds the streamed body, in streamingRequestBody or inline in older apps.
+  const streamingBodySource = claudeAPISource.slice(0, claudeAPISource.indexOf("func analyzeImage("));
   const chatEffort = streamingBodySource.match(/"output_config": \["effort": "(\w+)"\]/)?.[1];
   const samplesPerBuffer = ttsClientSource.match(/samplesPerBuffer = ([\d_]+)/)?.[1];
   return {
     chatModel,
     chatEffort,
+    chatSystemPromptCached: /"cache_control": \["type": "ephemeral"\]/.test(streamingBodySource),
     chatSystemPrompt: appChatSystemPrompt(companionManagerSource),
     ttsModel: requiredMatch(ttsClientSource, /"model_id": "([^"]+)"/, "the TTS model")[1],
     ttsOutputFormat: ttsClientSource.match(/name: "output_format", value: "([^"]+)"/)?.[1],
@@ -204,7 +211,9 @@ function appChatRequestBody(
     max_tokens: 1024,
     stream: true,
     ...(appProfile.chatEffort === undefined ? {} : { output_config: { effort: appProfile.chatEffort } }),
-    system: appProfile.chatSystemPrompt,
+    system: appProfile.chatSystemPromptCached
+      ? [{ type: "text", text: appProfile.chatSystemPrompt, cache_control: { type: "ephemeral" } }]
+      : appProfile.chatSystemPrompt,
     messages: [
       ...historyMessages,
       {
@@ -538,7 +547,8 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
         firstAudioMs = performance.now() - requestStartMs;
       }
     }
-    if (!audioIsStreamedPCM) {
+    // An MP3 plays only once whole, and a PCM line shorter than one buffer plays when the stream ends.
+    if (firstAudioMs === null) {
       firstAudioMs = performance.now() - requestStartMs;
     }
   } else {
@@ -553,11 +563,18 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
   const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest);
 
   let ttsCharacters = 0;
-  let costUSD = usageLines.reduce((runningCost, usageLine) => runningCost + costOfUsageLine(usageLine), 0);
+  const usageLineCosts = usageLines.map(costOfUsageLine);
+  let costUSD = usageLineCosts.includes(null)
+    ? null
+    : usageLineCosts.reduce((runningCost: number, usageLineCost) => runningCost + (usageLineCost ?? 0), 0);
   if (benchCase.route === "/tts") {
     const ttsBody = parseJSONObject(requestBodyText) ?? {};
     ttsCharacters = String(ttsBody.text).length;
-    costUSD = (ttsCharacters / 1000) * (elevenLabsPricePerThousandCharacters[String(ttsBody.model_id)] ?? NaN);
+    const pricePerThousandCharacters = elevenLabsPricePerThousandCharacters[String(ttsBody.model_id)];
+    if (pricePerThousandCharacters === undefined) {
+      console.warn(`No price for speech model ${String(ttsBody.model_id)}, so its cost is recorded as unknown.`);
+    }
+    costUSD = pricePerThousandCharacters === undefined ? null : (ttsCharacters / 1000) * pricePerThousandCharacters;
   }
 
   const quality = response.ok
@@ -687,7 +704,7 @@ function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
     meanCacheWriteTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheWriteTokens)))),
     meanCacheReadTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheReadTokens)))),
     meanOutputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.outputTokens)))),
-    meanCostUSD: Number(mean(samples.map((sample) => sample.costUSD)).toFixed(5)),
+    meanCostUSD: Number(mean(samples.flatMap((sample) => (sample.costUSD === null ? [] : [sample.costUSD]))).toFixed(5)),
   };
 }
 
@@ -756,7 +773,7 @@ async function main() {
         console.log(
           `${side.label} ${benchCase.id} #${runIndex + 1}: HTTP ${sample.httpStatus}, ${Math.round(sample.totalMs)} ms` +
             `${sample.firstTokenMs === null ? "" : `, first token ${Math.round(sample.firstTokenMs)} ms`}, ` +
-            `${sample.usageLines.length} model call(s), $${sample.costUSD.toFixed(4)}, ` +
+            `${sample.usageLines.length} model call(s), ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(4)}`}, ` +
             `${sample.quality.passed ? "PASS" : "FAIL"} ${sample.quality.detail}`,
         );
       }

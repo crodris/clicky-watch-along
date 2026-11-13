@@ -16,7 +16,6 @@
  */
 
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
-import { withCachedSystemPrompt } from "./anthropic";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
 import { handleVideoFrameParts } from "./videoFrameParts";
 import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
@@ -91,7 +90,7 @@ export default {
 };
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
-  const body = withCachedSystemPrompt(await request.text());
+  const body = await request.text();
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",

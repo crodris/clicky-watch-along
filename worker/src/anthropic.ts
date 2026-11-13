@@ -1,7 +1,7 @@
 /**
  * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log,
- * one-line schema errors, and one Anthropic Messages call whose answer is the first text block,
- * as text or parsed as JSON.
+ * one-line schema errors, the system prompt cache breakpoint, and one Anthropic Messages call whose
+ * answer is the first text block, as text or parsed as JSON.
  */
 
 import { z } from "zod";
@@ -104,7 +104,7 @@ export async function requestAnthropicReplyText(
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: withCachedSystemPrompt(JSON.stringify(messagesRequestBody)),
+    body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
   });
 
   if (!anthropicResponse.ok) {
@@ -135,26 +135,17 @@ export async function requestAnthropicReplyText(
 }
 
 /**
- * Every route sends the same system prompt on every call, ahead of a screenshot, frame, or answer that never repeats.
+ * Every route sends the same system prompt on every call, ahead of a frame or answer that never repeats.
  * A cache breakpoint on the system prompt lets later calls within 5 minutes read it at a tenth of the input price
  * or less, while the part after it is never written to the cache. Any other body passes through unchanged.
  */
-export function withCachedSystemPrompt(messagesRequestBodyText: string): string {
-  let messagesRequestBody: unknown;
-  try {
-    messagesRequestBody = JSON.parse(messagesRequestBodyText);
-  } catch {
-    return messagesRequestBodyText;
-  }
+export function withCachedSystemPrompt(messagesRequestBody: unknown): unknown {
   if (typeof messagesRequestBody !== "object" || messagesRequestBody === null || !("system" in messagesRequestBody)) {
-    return messagesRequestBodyText;
+    return messagesRequestBody;
   }
   const { system } = messagesRequestBody;
   if (typeof system !== "string" || system.length === 0) {
-    return messagesRequestBodyText;
+    return messagesRequestBody;
   }
-  return JSON.stringify({
-    ...messagesRequestBody,
-    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-  });
+  return { ...messagesRequestBody, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] };
 }

@@ -441,17 +441,31 @@ struct leanring_buddyTests {
             chunks.append(lastChunk)
         }
 
-        #expect(chunks == [
+        // An explicit type keeps the compiler from timing out on the nested float literals.
+        let expectedChunks: [[Float]] = [
             [0, 1.0 / 32_768],
             [-1.0 / 32_768, 32_767.0 / 32_768],
             [-1],
-        ])
+        ]
+        #expect(chunks == expectedChunks)
     }
 
     @Test func aSavedOlderModelChoiceMovesToTheLatestModelOfItsFamily() async throws {
         #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-opus-4-6") == "claude-opus-5-5")
         #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-sonnet-4-6") == "claude-sonnet-5-5")
         #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: nil) == "claude-sonnet-5-5")
+    }
+
+    @Test func theVoiceReplyRequestCachesItsSystemPromptAndRunsAtLowEffort() async throws {
+        let body = ClaudeAPI.streamingRequestBody(model: ClaudeVoiceModel.sonnetModelID, systemPrompt: "you're clicky", messages: [])
+        let systemBlocks = body["system"] as? [[String: Any]]
+        let cacheControl = systemBlocks?.first?["cache_control"] as? [String: String]
+        let outputConfig = body["output_config"] as? [String: String]
+
+        #expect(systemBlocks?.count == 1)
+        #expect(systemBlocks?.first?["text"] as? String == "you're clicky")
+        #expect(cacheControl == ["type": "ephemeral"])
+        #expect(outputConfig == ["effort": "low"])
     }
 
 }

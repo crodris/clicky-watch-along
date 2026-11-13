@@ -54,7 +54,7 @@ type Sample = {
   firstTokenMs: number | null;
   firstAudioMs?: number | null;
   usageLines: UsageLine[];
-  costUSD: number;
+  costUSD: number | null;
   ttsCharacters?: number;
   quality: { passed: boolean; detail: string };
   replyPreview?: string;
@@ -152,7 +152,7 @@ function main() {
       cache_read_tokens: sumOfLines(sample, (usageLine) => usageLine.cacheReadTokens),
       cache_write_tokens: sumOfLines(sample, (usageLine) => usageLine.cacheWriteTokens),
       output_tokens: sumOfLines(sample, (usageLine) => usageLine.outputTokens),
-      cost_usd: Number(sample.costUSD.toFixed(5)),
+      cost_usd: sample.costUSD === null ? null : Number(sample.costUSD.toFixed(5)),
       spoken_characters: spokenCharacters(sample),
       passed: sample.quality.passed,
       check: sample.quality.detail,

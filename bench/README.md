@@ -7,7 +7,7 @@ Results are JSON files in `results/`, named `<label>-<kind>-<commit>.json`.
 ## Run it
 
 Run every command from the checkout root.
-A worker run sends real requests with Chris's keys, so estimate its cost first.
+A worker run sends real requests with the Worker's API keys, so estimate its cost first.
 At 5 runs per case it costs about $1.60, and the GPT live scene is $1.15 of that.
 
 ```bash

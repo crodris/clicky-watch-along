@@ -106,6 +106,22 @@ class ClaudeAPI {
         }.resume()
     }
 
+    /// The streamed voice reply's request body. The system prompt is the same on every turn and the
+    /// screenshot after it never repeats, so the cache breakpoint sits on the system prompt alone.
+    static func streamingRequestBody(model: String, systemPrompt: String, messages: [[String: Any]]) -> [String: Any] {
+        return [
+            "model": model,
+            "max_tokens": 1024,
+            "stream": true,
+            // Low effort keeps the first spoken word near a second, and a spoken reply needs little thinking.
+            "output_config": ["effort": "low"],
+            "system": [
+                ["type": "text", "text": systemPrompt, "cache_control": ["type": "ephemeral"]]
+            ],
+            "messages": messages
+        ]
+    }
+
     /// Send a vision request to Claude with streaming.
     /// Calls `onTextChunk` on the main actor each time new text arrives so the UI updates progressively.
     /// Returns the full accumulated text and total duration when the stream completes.
@@ -150,15 +166,7 @@ class ClaudeAPI {
         ])
         messages.append(["role": "user", "content": contentBlocks])
 
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 1024,
-            "stream": true,
-            // Low effort keeps the first spoken word near a second, and a spoken reply needs little thinking.
-            "output_config": ["effort": "low"],
-            "system": systemPrompt,
-            "messages": messages
-        ]
+        let body = Self.streamingRequestBody(model: model, systemPrompt: systemPrompt, messages: messages)
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData

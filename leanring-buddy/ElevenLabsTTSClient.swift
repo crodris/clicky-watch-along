@@ -69,6 +69,7 @@ final class ElevenLabsTTSClient {
     private var playbackGeneration = 0
     private var isReceivingStream = false
     private var buffersWaitingToFinishPlaying = 0
+    private var engineConfigurationObserver: NSObjectProtocol?
 
     init(proxyURL: String) {
         var proxyURLComponents = URLComponents(string: proxyURL)!
@@ -82,6 +83,18 @@ final class ElevenLabsTTSClient {
 
         audioEngine.attach(playerNode)
         audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: playbackFormat)
+
+        // The engine stops itself when the output device changes, and the buffers it held then never
+        // report as played, so the line ends here instead of leaving isPlaying true for good.
+        engineConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: audioEngine,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.stopPlayback()
+            }
+        }
     }
 
     /// Sends `text` to ElevenLabs TTS and starts playing it as soon as the first audio arrives.
@@ -123,11 +136,21 @@ final class ElevenLabsTTSClient {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             var errorBodyLines: [String] = []
-            for try await errorBodyLine in audioBytes.lines {
-                errorBodyLines.append(errorBodyLine)
+            do {
+                for try await errorBodyLine in audioBytes.lines {
+                    errorBodyLines.append(errorBodyLine)
+                }
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                throw CancellationError()
             }
             throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
                           userInfo: [NSLocalizedDescriptionKey: "TTS API error (\(httpResponse.statusCode)): \(errorBodyLines.joined(separator: "\n"))"])
+        }
+
+        // A Worker deployed before streaming ignores output_format and sends MP3, which would play as noise if read as PCM.
+        guard httpResponse.mimeType?.contains("pcm") == true else {
+            throw NSError(domain: "ElevenLabsTTS", code: -2,
+                          userInfo: [NSLocalizedDescriptionKey: "TTS returned \(httpResponse.mimeType ?? "no content type") instead of streamed PCM. Deploy the current Worker."])
         }
 
         var audioByteIterator = audioBytes.makeAsyncIterator()
@@ -146,10 +169,15 @@ final class ElevenLabsTTSClient {
         }
 
         try Task.checkCancellation()
-        guard generation == playbackGeneration, let firstChunk else { return }
+        // A newer line or stopPlayback took over while this one loaded, so this line must not report that it is playing.
+        guard generation == playbackGeneration else { throw CancellationError() }
+        guard let firstChunk else {
+            throw NSError(domain: "ElevenLabsTTS", code: -3,
+                          userInfo: [NSLocalizedDescriptionKey: "TTS returned no audio"])
+        }
 
         if !audioEngine.isRunning {
-            // The engine stops when the output device changes, so it starts again here when needed.
+            // The engine is paused between lines and stops after an output device change, so it starts again here.
             try audioEngine.start()
         }
         isReceivingStream = true
@@ -179,6 +207,7 @@ final class ElevenLabsTTSClient {
             }
             if let self, generation == self.playbackGeneration {
                 self.isReceivingStream = false
+                self.pauseEngineWhenTheLineHasFinished()
             }
         }
     }
@@ -196,13 +225,20 @@ final class ElevenLabsTTSClient {
             Task { @MainActor in
                 guard let self, generation == self.playbackGeneration else { return }
                 self.buffersWaitingToFinishPlaying -= 1
+                self.pauseEngineWhenTheLineHasFinished()
             }
         }
     }
 
+    /// A running engine keeps the output device rendering silence, so it pauses once a line has fully played.
+    private func pauseEngineWhenTheLineHasFinished() {
+        guard !isReceivingStream, buffersWaitingToFinishPlaying == 0, audioEngine.isRunning else { return }
+        audioEngine.pause()
+    }
+
     /// Whether TTS audio is currently playing back, or still arriving for a line that has started playing.
     var isPlaying: Bool {
-        isReceivingStream || buffersWaitingToFinishPlaying > 0
+        audioEngine.isRunning && (isReceivingStream || buffersWaitingToFinishPlaying > 0)
     }
 
     /// Stops any in-progress playback immediately.
@@ -213,5 +249,8 @@ final class ElevenLabsTTSClient {
         isReceivingStream = false
         buffersWaitingToFinishPlaying = 0
         playerNode.stop()
+        if audioEngine.isRunning {
+            audioEngine.pause()
+        }
     }
 }
