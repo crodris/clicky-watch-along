@@ -8,7 +8,8 @@
 //  showing the video or image for pop-outs and landmark pages. Each scene is
 //  generated HTML loaded in that window. The page reports tourFinished when
 //  the camera tour ends. A frame pop-out plays a short return into the video
-//  frame when it is cleared, and posts returnFinished when it has landed.
+//  frame when it is cleared, and posts returnFinished when it has landed. After
+//  its tour, the bundled frame pop-out reports partTapped when a label is clicked.
 //
 
 import AppKit
@@ -17,8 +18,27 @@ import WebKit
 /// The overlay window never becomes key, so AppKit would otherwise drop the
 /// click that starts a drag.
 private final class LiveSceneWebView: WKWebView {
+    private var mouseMovedTrackingArea: NSTrackingArea?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+
+    /// WebKit only tracks mouse moves while its window is key, and this one never is.
+    /// Without moves the page sees no hover, so a part label could not show it is clickable.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let mouseMovedTrackingArea {
+            removeTrackingArea(mouseMovedTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        mouseMovedTrackingArea = trackingArea
     }
 }
 
@@ -235,6 +255,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     static let shared = LiveSceneOverlay()
 
     var onTourFinished: (() -> Void)?
+    /// The page posts "partTapped:<label>" when a label is clicked. The label is page text, so it is untrusted.
+    var onPartTapped: ((String) -> Void)?
     /// An uncaught error or rejection in the page, a failed page load, or a lost web content process.
     /// A page that fails any of these mid-tour never posts tourFinished.
     var onPageError: ((String) -> Void)?
@@ -319,18 +341,18 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             }
             return
         }
-        guard message.name == "liveSceneEvent" else {
+        guard message.name == "liveSceneEvent",
+              let pageEvent = LiveScenePageEvent(messageBody: message.body) else {
             return
         }
-        if message.body as? String == "returnFinished" {
+        switch pageEvent {
+        case .tourFinished:
+            onTourFinished?()
+        case .returnFinished:
             finishReturnToSource()
-            return
+        case .partTapped(let untrustedLabel):
+            onPartTapped?(untrustedLabel)
         }
-        // The page posts this string when the camera tour ends.
-        guard let eventName = message.body as? String, eventName == "tourFinished" else {
-            return
-        }
-        onTourFinished?()
     }
 
     /// False means the page was refused. Generated code must never run without the network block in place.
@@ -433,6 +455,28 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         )
         // The page returns a list of strings, and WebKit types it as Any.
         return (pageResult as? [String]) ?? []
+    }
+
+    /// Where each part label sits on screen, read with getBoundingClientRect once the camera has
+    /// finished gliding to the focused part, so the blue cursor can point at it. Only the bundled
+    /// frame pop-out answers. Any other page gives an empty list.
+    func partLabelScreenPointsOnceTheCameraSettles() async -> [LiveScenePartScreenPoint] {
+        guard let liveSceneWebView, pageHasFinishedLoading else { return [] }
+        let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
+            "return await window.liveScene.labelRectsOnceTheCameraSettles?.() ?? []",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        // Read after the wait, since the window covers the screen the scene plays on at that moment.
+        guard let overlayScreenFrame = liveSceneOverlayWindow?.frame else { return [] }
+        // The page returns a list of label boxes, and WebKit types it as Any.
+        let pageLabelRects = (pageResult as? [Any]) ?? []
+        return pageLabelRects
+            .compactMap(LiveScenePartLabelRectInPage.init(pageValue:))
+            .map { labelRect in
+                partScreenPoint(of: labelRect, overlayScreenFrame: overlayScreenFrame)
+            }
     }
 
     /// Safe to call again. A frame pop-out lands back in the video frame first, so the window

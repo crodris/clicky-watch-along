@@ -27,6 +27,9 @@ svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-e
 @keyframes answer-burst { from { transform: scale(0.2); opacity: 0.95; } to { transform: scale(2.6); opacity: 0; } }
 /* The return fades labels by hand each frame, so the label's own fade must not lag behind it. */
 body.returning .scene-label { transition: none; }
+/* Labels catch the mouse only once a pop-out with no quiz has finished its tour, so before that every press turns the model. */
+body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -webkit-user-select: none; user-select: none; transition: background-color 0.3s, opacity 0.3s, box-shadow 0.15s; }
+body.labels-take-clicks .scene-label:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(255, 224, 102, 0.9); }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
 </head>
@@ -95,6 +98,8 @@ window.liveScene = {
   returnToSource() {
     if (returnStartedAt !== null) return;
     returnStartedAt = performance.now();
+    // A label clicked while the subject sinks back would start an explanation for a scene that is leaving.
+    document.body.classList.remove("labels-take-clicks");
     if (!sceneIsBuilt) {
       // Nothing is lifted yet, so there is nothing to put back.
       returnFinishedPosted = true;
@@ -125,6 +130,17 @@ window.liveScene = {
   zoomBy(amount) {
     if (!tourDone) return;
     cameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, cameraDistance * (1 - amount)));
+  },
+  // Clicky's blue cursor points at a label, so the boxes are read only once the camera stops gliding.
+  async labelRectsOnceTheCameraSettles() {
+    const giveUpAt = performance.now() + 3000;
+    while (focusMove && performance.now() < giveUpAt) await new Promise((resolve) => requestAnimationFrame(resolve));
+    // After the camera stops, each label's offset still eases toward its new spot for a few hundred milliseconds.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return labelEntries.map((entry) => {
+      const rect = entry.element.getBoundingClientRect();
+      return { label: entry.part.label, left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    });
   },
 };
 
@@ -370,14 +386,29 @@ const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const tourStartedAt = performance.now();
 
 let dragging = false, lastX = 0, lastY = 0;
+// A press that travels further than this many pixels is a drag to turn the model, not a click on a label.
+const largestClickTravel = 4;
+let pressStartX = 0, pressStartY = 0, pressTravel = 0, pressedLabelEntry = null;
 // A drag sets the angle the camera heads for, and each frame eases the camera toward it.
 // Drag events arrive unevenly (about 51 a second against 60 frames in Clicky's overlay),
 // so snapping to each event left about 1 frame in 6 standing still.
 let draggedYaw = 0, draggedPitch = 0;
-addEventListener("pointerdown", (event) => { dragging = true; lastX = event.clientX; lastY = event.clientY; });
-addEventListener("pointerup", () => { dragging = false; });
+addEventListener("pointerdown", (event) => {
+  dragging = true; lastX = event.clientX; lastY = event.clientY;
+  pressStartX = event.clientX; pressStartY = event.clientY; pressTravel = 0;
+  pressedLabelEntry = labelEntries.find((entry) => entry.element === event.target) ?? null;
+});
+addEventListener("pointerup", () => {
+  dragging = false;
+  const clickedLabelEntry = pressTravel <= largestClickTravel ? pressedLabelEntry : null;
+  pressedLabelEntry = null;
+  if (!clickedLabelEntry || !document.body.classList.contains("labels-take-clicks")) return;
+  window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("partTapped:" + clickedLabelEntry.part.label);
+});
 addEventListener("pointermove", (event) => {
-  if (!dragging || !tourDone) return;
+  if (!dragging) return;
+  pressTravel = Math.max(pressTravel, Math.hypot(event.clientX - pressStartX, event.clientY - pressStartY));
+  if (!tourDone) return;
   draggedYaw -= (event.clientX - lastX) * 0.008;
   draggedPitch = Math.min(1.1, Math.max(-1.1, draggedPitch + (event.clientY - lastY) * 0.005));
   lastX = event.clientX; lastY = event.clientY;
@@ -389,6 +420,8 @@ const finishTour = () => {
   draggedYaw = yaw; draggedPitch = pitch;
   tourDone = true;
   window.__tourFinished = true;
+  // A quiz pop-out keeps its question, so only a pop-out with no quiz explains a clicked label.
+  if (!popout.parts.some((part) => part.isQuizAnswer)) document.body.classList.add("labels-take-clicks");
   postLiveSceneEvent("tourFinished");
 };
 

@@ -22,6 +22,9 @@ With Reduce Motion on, the label still turns green, but it skips the shake and t
 When the question is over, the labels fade and the subject eases back flat into the paused frame, and then the video plays.
 Press Escape again while it settles back to hide it at once.
 You can also say "pop this out" or "pop this heart out" at any time, and Clicky pauses the video and lifts out whatever it shows, with every label and no question.
+When that tour ends, Clicky talks about two or three of the parts, highlighting each one as it names it.
+Click any label after that, and Clicky turns the model to that part and tells you what it does.
+Each time Clicky names a part, its blue triangle flies onto the model, points at that label, and flies back to your mouse when Clicky is done talking.
 It plays the video again when you close the pop-out, unless you had paused it yourself.
 
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
@@ -44,6 +47,7 @@ While a label shows, its icon sits where Clicky's blue triangle usually is, and 
 
 **Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.
 The scan is cut down to the structure and about 130 meters around it, and it floats over the video.
+When the camera stops, Clicky names the place and says how tall it is.
 
 ## Running it
 
