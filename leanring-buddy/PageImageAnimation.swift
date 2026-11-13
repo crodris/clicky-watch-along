@@ -17,26 +17,38 @@ struct PageImageAnimationFrame: Equatable {
 enum PageImageAnimation {
     /// Past this many frames the pop-out keeps its still frame, so a long animation cannot bloat the page.
     nonisolated static let largestFrameCount = 150
+    /// The page names the URL, so a small file that claims a huge canvas is refused before any frame is decoded.
+    nonisolated static let largestPixelCountPerFrame = 4096 * 4096
+    nonisolated static let largestPixelCountForAllFrames = 300_000_000
     /// The download runs while Sonnet reads the frame, which takes about 4 seconds.
     private static let downloadTimeoutSeconds: TimeInterval = 4
-    private static let largestDownloadByteCount = 15_000_000
+    private static let largestDownloadByteCount = 8_000_000
+    /// No cookies, credentials, or cache, since the URL comes from whatever page is open.
+    private static let downloadSession = URLSession(configuration: .ephemeral)
 
-    /// Nil for a still image, a failed download, or anything that is not an http or https URL.
+    /// Nil for a still image, a failed or oversized download, or anything that is not an https URL.
     static func frames(
         atImageURL imageURL: URL,
         frameWidth: Int,
         frameHeight: Int,
         capturedFrameJPEGBase64: String
     ) async -> [PageImageAnimationFrame]? {
-        guard imageURL.scheme == "https" || imageURL.scheme == "http" else { return nil }
-        let imageData: Data
+        guard imageURL.scheme == "https" else { return nil }
+        var imageData = Data()
         do {
-            (imageData, _) = try await URLSession.shared.data(for: URLRequest(url: imageURL, timeoutInterval: downloadTimeoutSeconds))
+            let (imageBytes, response) = try await downloadSession.bytes(
+                for: URLRequest(url: imageURL, timeoutInterval: downloadTimeoutSeconds),
+                delegate: HTTPSOnlyRedirects()
+            )
+            guard response.expectedContentLength <= largestDownloadByteCount else { return nil }
+            for try await byte in imageBytes {
+                imageData.append(byte)
+                guard imageData.count <= largestDownloadByteCount else { return nil }
+            }
         } catch {
             print("Frame pop-out: could not download the page image to animate it: \(error.localizedDescription)")
             return nil
         }
-        guard imageData.count <= largestDownloadByteCount else { return nil }
         // Decoding and encoding every frame takes a moment, so it runs off the main actor.
         return await Task.detached(priority: .userInitiated) {
             frames(
@@ -60,17 +72,29 @@ enum PageImageAnimation {
         guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else { return nil }
         let frameCount = CGImageSourceGetCount(imageSource)
         guard frameCount > 1, frameCount <= largestFrameCount else { return nil }
+        let imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] ?? [:]
+        guard let pixelWidth = imageProperties[kCGImagePropertyPixelWidth] as? Int,
+              let pixelHeight = imageProperties[kCGImagePropertyPixelHeight] as? Int,
+              pixelWidth * pixelHeight <= largestPixelCountPerFrame,
+              pixelWidth * pixelHeight * frameCount <= largestPixelCountForAllFrames else {
+            return nil
+        }
         var frames: [PageImageAnimationFrame] = []
         for frameIndex in 0..<frameCount {
-            // ImageIO hands back each frame already composited over the frames before it.
-            guard let frameImage = CGImageSourceCreateImageAtIndex(imageSource, frameIndex, nil),
-                  let jpegData = jpegData(of: frameImage, width: frameWidth, height: frameHeight, backgroundColor: backgroundColor) else {
-                return nil
+            // Each decoded frame is freed before the next one, so memory holds one frame at a time.
+            let frame: PageImageAnimationFrame? = autoreleasepool {
+                // ImageIO hands back each frame already composited over the frames before it.
+                guard let frameImage = CGImageSourceCreateImageAtIndex(imageSource, frameIndex, nil),
+                      let jpegData = jpegData(of: frameImage, width: frameWidth, height: frameHeight, backgroundColor: backgroundColor) else {
+                    return nil
+                }
+                return PageImageAnimationFrame(
+                    jpegBase64: jpegData.base64EncodedString(),
+                    delaySeconds: browserDelaySeconds(forUnclampedDelaySeconds: unclampedDelaySeconds(of: imageSource, at: frameIndex))
+                )
             }
-            frames.append(PageImageAnimationFrame(
-                jpegBase64: jpegData.base64EncodedString(),
-                delaySeconds: browserDelaySeconds(forUnclampedDelaySeconds: unclampedDelaySeconds(of: imageSource, at: frameIndex))
-            ))
+            guard let frame else { return nil }
+            frames.append(frame)
         }
         return frames
     }
@@ -148,5 +172,17 @@ enum PageImageAnimation {
         frameContext.draw(frameImage, in: wholeFrame)
         guard let drawnFrame = frameContext.makeImage() else { return nil }
         return NSBitmapImageRep(cgImage: drawnFrame).representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+    }
+}
+
+/// A redirect may only move to another https URL.
+private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        request.url?.scheme == "https" ? request : nil
     }
 }
