@@ -710,6 +710,9 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 /// Only a failure of the page load Clicky started ends the scene. A cancelled load is a newer load replacing it.
 /// A generated page's own navigation that the policy refuses fails with WebKit's "frame load interrupted" (102),
 /// and must not tear down a scene that is already showing.
+/// Known gap: a generated page that navigates itself before its first load finishes cancels Clicky's load,
+/// and its own load is not Clicky's, so the scene never becomes ready and no error recovery runs.
+/// Clicky's bundled pages never navigate themselves, so only a generated scene can reach this.
 func pageLoadFailureEndsTheScene(_ error: Error, failedNavigationIsTheLoadClickyStarted: Bool) -> Bool {
     let failure = error as NSError
     let loadWasCancelled = failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled

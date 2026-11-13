@@ -1044,7 +1044,7 @@ final class CompanionManager: ObservableObject {
             await speakLiveSceneLine(failureLine)
             voiceState = .idle
             // No scene opened, so nothing will clear it and resume the video.
-            // A pop-out whose page failed may still be landing back in its frame.
+            // A previous pop-out cleared for this request may still be landing back in its frame.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
             if videoQuizSession.videoIsPausedForRequestedScene {
                 videoQuizSession.resumeVideoAfterRequestedScene()
