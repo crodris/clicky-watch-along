@@ -12,6 +12,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-none` returns `subjectFound: false` for a frame with no clear subject.
 - `popout-in-quiz` pauses a running video quiz first.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
+- `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
+  Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
 
 ## How to get to it (user POV)
 
@@ -35,6 +37,10 @@ Preconditions:
   Run `$V app-launch "pop this out"`.
   The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot image-popout` while the subject floats over the image.
+- **Pop out a painted scene.** Post a body built from The Starry Night, as in the route step.
+  The result has `wholePictureIsSubject: true` and a `subjectBox` around the whole painting.
+  Dürer's Young Hare, Stag Beetle, and Rhinoceros and a heart diagram return `wholePictureIsSubject: false`.
+  In the app, the whole Starry Night lifts out, not only the cypress, and the hare lifts out without its paper.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

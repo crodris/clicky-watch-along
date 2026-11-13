@@ -57,6 +57,8 @@ private struct VideoFramePartsResponse: Decodable {
     let subjectFound: Bool
     let subjectBox: VideoFramePopout.SubjectBox?
     let parts: [VideoFramePopout.Part]?
+    /// True for a painted scene, which lifts out whole instead of as Vision's foreground objects.
+    let wholePictureIsSubject: Bool?
 }
 
 enum VideoFramePopoutClient {
@@ -99,9 +101,14 @@ enum VideoFramePopoutClient {
             return nil
         }
         guard let frameJPEGData = Data(base64Encoded: frameGrab.jpeg) else { return nil }
+        let liftsTheWholePicture = framePartsResponse.wholePictureIsSubject == true
+        let frameWidth = frameGrab.width, frameHeight = frameGrab.height
         // Vision is on-device and takes under half a second, so it runs off the main actor.
         let subjectMask = try await Task.detached(priority: .userInitiated) {
-            try VideoFrameSubjectMask.subjectMask(frameJPEGData: frameJPEGData, sonnetSubjectBox: subjectBox)
+            if liftsTheWholePicture {
+                return VideoFrameSubjectMask.wholePictureMask(frameWidth: frameWidth, frameHeight: frameHeight, pictureBox: subjectBox)
+            }
+            return try VideoFrameSubjectMask.subjectMask(frameJPEGData: frameJPEGData, sonnetSubjectBox: subjectBox)
         }.value
         guard let subjectMask else { return nil }
         return VideoFramePopout(
@@ -176,6 +183,28 @@ enum VideoFrameSubjectMask {
             pngData: pngData,
             boundingBox: VideoFramePopout.SubjectBox(left: left, top: top, right: right, bottom: bottom)
         )
+    }
+
+    /// Vision finds only foreground objects, so in a painted scene it keeps one thing, like the cypress in
+    /// The Starry Night, and drops the sky. A painted scene lifts out as the whole box Sonnet drew around it.
+    nonisolated static func wholePictureMask(
+        frameWidth: Int,
+        frameHeight: Int,
+        pictureBox: VideoFramePopout.SubjectBox
+    ) -> SubjectMask? {
+        guard pictureBox.left >= 0, pictureBox.top >= 0,
+              pictureBox.right < frameWidth, pictureBox.bottom < frameHeight,
+              pictureBox.left < pictureBox.right, pictureBox.top < pictureBox.bottom else {
+            return nil
+        }
+        var maskBytes = [UInt8](repeating: 0, count: frameWidth * frameHeight)
+        for y in pictureBox.top...pictureBox.bottom {
+            for x in pictureBox.left...pictureBox.right {
+                maskBytes[y * frameWidth + x] = 255
+            }
+        }
+        guard let pngData = grayscalePNG(of: maskBytes, width: frameWidth, height: frameHeight) else { return nil }
+        return SubjectMask(pngData: pngData, boundingBox: pictureBox)
     }
 
     /// The scaled mask is one 32-bit float per pixel, 0 outside the subject and 1 inside.

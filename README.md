@@ -19,6 +19,7 @@ You can also say "pop this out" or "pop this heart out" at any time, and Clicky 
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
 You can drag to spin it.
 It works best on 2D illustrations, like engravings and prints.
+A painted scene, like The Starry Night, lifts out whole, sky included, while a drawing of one animal, like Dürer's Young Hare, lifts out only the animal.
 
 **3D models on request.** Say "show me" or "in 3D" over a video, and Clicky pauses it.
 It sends a screenshot and what the video just said to GPT-6.1 Sol, which writes a labeled three.js scene, usually in about 8 to 14 seconds.

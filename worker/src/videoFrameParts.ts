@@ -28,6 +28,7 @@ const modelReplySchema = z.object({
   subjectBox: z.object({ left: z.number(), top: z.number(), right: z.number(), bottom: z.number() }),
   parts: z.array(z.object({ label: z.string().min(1), x: z.number(), y: z.number() })),
   answerPartIndex: z.number().int(),
+  wholePictureIsSubject: z.boolean(),
 });
 
 type ModelReply = z.infer<typeof modelReplySchema>;
@@ -37,6 +38,8 @@ export type FrameParts =
   | {
       subjectFound: true;
       subjectBox: { left: number; top: number; right: number; bottom: number };
+      /** True for a painted scene, which the app lifts out whole instead of cutting out its foreground objects. */
+      wholePictureIsSubject: boolean;
       parts: { label: string; x: number; y: number; isQuizAnswer: boolean }[];
     };
 
@@ -45,7 +48,11 @@ const framePartsSystemPrompt = [
   "Reply with JSON only.",
   "",
   "subjectFound is false when the subject is not drawn or filmed as one object in this frame, for example a chart, a diagram of arrows, or a person talking.",
+  "wholePictureIsSubject is true only for a painting or print of a whole scene, where the sky, land, water, or buildings around the main thing are part of what the artist painted, such as a landscape or a night sky over a town.",
+  "It is false for art that shows one animal, person, plant, or object on a plain or empty background, such as a woodcut of one animal or a botanical drawing on blank paper, and false for teaching diagrams and filmed objects.",
+  "When wholePictureIsSubject is true, subjectFound is true.",
   "subjectBox is the subject's bounding box in pixels. Leave out characters, hands, text, and other drawings.",
+  "When wholePictureIsSubject is true, subjectBox covers the whole painted area and leaves out only a frame, a wall, or a caption around it.",
   "parts names up to 8 parts of the subject a 10-year-old could learn, two or three plain words each, with no parentheses.",
   "x and y are the pixel point inside that part's drawn region where a label line should touch it.",
   "answerPartIndex is the index in parts of the one part whose name is the quiz answer, or -1.",
@@ -98,7 +105,7 @@ export function checkFrameParts(modelReply: ModelReply, frameWidth: number, fram
   if (boxIsTooSmall || parts.length === 0) {
     return { subjectFound: false };
   }
-  return { subjectFound: true, subjectBox, parts };
+  return { subjectFound: true, subjectBox, wholePictureIsSubject: modelReply.wholePictureIsSubject, parts };
 }
 
 function framePartsRequestBody(frameRequest: FrameRequest): unknown {
@@ -136,8 +143,9 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
               },
             },
             answerPartIndex: { type: "integer" },
+            wholePictureIsSubject: { type: "boolean" },
           },
-          required: ["subjectFound", "subjectBox", "parts", "answerPartIndex"],
+          required: ["subjectFound", "subjectBox", "parts", "answerPartIndex", "wholePictureIsSubject"],
         },
       },
     },

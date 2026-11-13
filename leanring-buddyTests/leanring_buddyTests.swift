@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 @testable import Clicky
 
@@ -312,6 +313,22 @@ struct leanring_buddyTests {
 
         let imageOffEveryScreen = ScreenRectInChromeCoordinates(rectX: 9000, rectY: 100, rectWidth: 400, rectHeight: 300)
         #expect(indexOfTheScreenFrameHolding(imageOffEveryScreen, screenFramesInAppKitCoordinates: screenFramesInAppKitCoordinates) == nil)
+    }
+
+    @Test func paintedScenePopoutLiftsTheWholePictureInItsBox() async throws {
+        let pictureBox = VideoFramePopout.SubjectBox(left: 10, top: 20, right: 109, bottom: 69)
+        let pictureMask = try #require(VideoFrameSubjectMask.wholePictureMask(frameWidth: 120, frameHeight: 80, pictureBox: pictureBox))
+        #expect(pictureMask.boundingBox.left == 10 && pictureMask.boundingBox.bottom == 69)
+
+        let maskImageSource = try #require(CGImageSourceCreateWithData(pictureMask.pngData as CFData, nil))
+        let maskImage = try #require(CGImageSourceCreateImageAtIndex(maskImageSource, 0, nil))
+        let maskPixelData = try #require(maskImage.dataProvider?.data) as Data
+        func maskValue(x: Int, y: Int) -> UInt8 { maskPixelData[y * maskImage.bytesPerRow + x] }
+        #expect(maskValue(x: 10, y: 20) == 255 && maskValue(x: 109, y: 69) == 255 && maskValue(x: 60, y: 45) == 255)
+        #expect(maskValue(x: 9, y: 20) == 0 && maskValue(x: 110, y: 69) == 0 && maskValue(x: 10, y: 19) == 0 && maskValue(x: 10, y: 70) == 0)
+
+        let boxPastTheFrame = VideoFramePopout.SubjectBox(left: 10, top: 20, right: 120, bottom: 69)
+        #expect(VideoFrameSubjectMask.wholePictureMask(frameWidth: 120, frameHeight: 80, pictureBox: boxPastTheFrame) == nil)
     }
 
     @Test func renderAloneStartsA3DScene() async throws {
