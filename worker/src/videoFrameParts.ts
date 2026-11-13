@@ -48,7 +48,7 @@ const framePartsSystemPrompt = [
   "Reply with JSON only.",
   "",
   "Unless wholePictureIsSubject is true, subjectFound is false when the subject is not drawn or filmed as one object in this frame, for example a chart, a diagram of arrows, or a person talking.",
-  "wholePictureIsSubject is true only for a painting or print of a whole scene, where the sky, land, water, or buildings around the main thing are part of what the artist painted, such as a landscape or a night sky over a town.",
+  "wholePictureIsSubject is true only for a painting, fresco, or print of a whole scene, where what the artist painted around the main figures is part of the work, such as a landscape, a night sky over a town, or several people painted together.",
   "It is false for art that shows one animal, person, plant, or object on a plain or empty background, such as a woodcut of one animal or a botanical drawing on blank paper, and false for teaching diagrams and filmed objects.",
   "When wholePictureIsSubject is true, subjectFound is true.",
   "subjectBox is the subject's bounding box in pixels. Unless wholePictureIsSubject is true, leave out characters, hands, text, and other drawings.",
@@ -121,7 +121,9 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
         schema: {
           type: "object",
           additionalProperties: false,
+          // The model writes properties in this order, so it decides on a painted scene before it can rule out one object.
           properties: {
+            wholePictureIsSubject: { type: "boolean" },
             subjectFound: { type: "boolean" },
             subjectBox: {
               type: "object",
@@ -144,9 +146,8 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
               },
             },
             answerPartIndex: { type: "integer" },
-            wholePictureIsSubject: { type: "boolean" },
           },
-          required: ["subjectFound", "subjectBox", "parts", "answerPartIndex", "wholePictureIsSubject"],
+          required: ["wholePictureIsSubject", "subjectFound", "subjectBox", "parts", "answerPartIndex"],
         },
       },
     },
