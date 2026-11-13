@@ -8,13 +8,15 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 ## Sub-features
 
 - `popout-voice` triggers on "pop this out", "pop out", or up to 3 words between, as in "pop this heart out".
-- `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels, and `wholePictureIsSubject`.
+- `popout-route` is the `/video-frame-parts` route, which returns the subject box and part points in frame pixels, `wholePictureIsSubject`, and `pictureShowsDepth`.
 - `popout-none` returns `subjectFound: false` for a frame with no clear subject.
 - `popout-pauses-video` pauses a playing YouTube video first, with or without a quiz, and plays it again when the pop-out clears, unless the learner had paused it.
 - `popout-image` lifts the largest visible image when Chrome's front tab is not a YouTube video.
 - `popout-scene` lifts a painted scene out whole, sky included, when the route returns `wholePictureIsSubject: true`.
   Apple's subject lifting cuts out any other subject, including art of one animal on a plain background.
 - `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away"), during the tour or after it.
+- `popout-depth` lifts a picture that already shows depth, such as a 3D cutaway or a photo, as a flat card that only tilts, when the route returns `pictureShowsDepth: true`.
+  Flat illustrations and paintings keep the puffed-up lift.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.
@@ -36,7 +38,7 @@ Preconditions:
 
 - **Route.** Build a body from a screenshot, then post it.
   Run `RUN="$(readlink .verify-clicky/current)" && screencapture -x -t jpg "$RUN/frame.jpg" && python3 -c "import base64,json,subprocess,sys;frame_path=sys.argv[1];frame_width,frame_height=[int(subprocess.check_output(['sips','-g',dimension_key,frame_path]).split()[-1]) for dimension_key in ('pixelWidth','pixelHeight')];print(json.dumps({'frameBase64':base64.b64encode(open(frame_path,'rb').read()).decode(),'frameWidth':frame_width,'frameHeight':frame_height,'subject':'','question':'','answerLabel':''}))" "$RUN/frame.jpg" > "$RUN/frame-body.json"`, then `$V post /video-frame-parts "$RUN/frame-body.json"`.
-  The result is HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, `wholePictureIsSubject` as a boolean, and 1 to 8 `parts`.
+  The result is HTTP 200 with `subjectFound` true, a `subjectBox` inside the frame, `wholePictureIsSubject` and `pictureShowsDepth` as booleans, and 1 to 8 `parts`.
 - **Pop out in the app.** Run `$V app-launch "pop this out"`.
   The log shows `grabbed a WxH frame` then `Frame pop-out: lifting the subject out of the frame with N labels`.
   Run `$V shot popout` while the subject floats over the video.
@@ -63,6 +65,12 @@ Preconditions:
 - **Put it back.** Run `$V app-launch "pop this out|put it back"`.
   The second step logs `Live scene: put back on request`, and the subject flattens back into its frame.
   The rehearsal sends the second step as soon as the tour ends, before the narration speaks, so the tap needs the run above.
+- **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`), a photo of an engine (`https://commons.wikimedia.org/wiki/File:F100_F-15_engine.JPG`), and a photo of a flower (`https://commons.wikimedia.org/wiki/File:Magnolia_grandiflora_-_flower_1.jpg`), 3 times each.
+  Every run returns `pictureShowsDepth: true`.
+  The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
+  In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
+  The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
+  Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

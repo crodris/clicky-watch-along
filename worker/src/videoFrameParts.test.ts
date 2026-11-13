@@ -20,6 +20,7 @@ const modelReply = {
   ],
   answerPartIndex: 1,
   wholePictureIsSubject: false,
+  pictureShowsDepth: false,
 };
 
 function sonnetReply(text: string): Response {
@@ -42,6 +43,7 @@ describe("checkFrameParts", () => {
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
       wholePictureIsSubject: false,
+      pictureShowsDepth: false,
       parts: [
         { label: "Aorta", x: 640, y: 125, isQuizAnswer: false },
         { label: "Left atrium", x: 812, y: 91, isQuizAnswer: true },
@@ -66,6 +68,7 @@ describe("checkFrameParts", () => {
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
       wholePictureIsSubject: false,
+      pictureShowsDepth: false,
       parts: [
         { label: "Front leg", x: 600, y: 300, isQuizAnswer: true },
         { label: "Hind-leg's joint", x: 600, y: 400, isQuizAnswer: false },
@@ -87,6 +90,7 @@ describe("checkFrameParts", () => {
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
       wholePictureIsSubject: false,
+      pictureShowsDepth: false,
       parts: [
         { label: "Achilles' tendon", x: 600, y: 300, isQuizAnswer: false },
         { label: "St. Peter's dome", x: 600, y: 400, isQuizAnswer: false },
@@ -102,6 +106,18 @@ describe("checkFrameParts", () => {
       subjectBox: { left: 0, top: 0, right: 1279, bottom: 719 },
       wholePictureIsSubject: true,
     });
+  });
+
+  it("returns whether the picture already shows depth, so the app lifts a cutaway or a photo as a flat card", () => {
+    const cutaway = { ...modelReply, pictureShowsDepth: true };
+
+    expect(checkFrameParts(cutaway, 1280, 720)).toMatchObject({ subjectFound: true, pictureShowsDepth: true });
+  });
+
+  it("never marks a painted scene as showing depth, so paintings keep their puffed-up lift", () => {
+    const paintingMarkedWithDepth = { ...modelReply, wholePictureIsSubject: true, pictureShowsDepth: true };
+
+    expect(checkFrameParts(paintingMarkedWithDepth, 1280, 720)).toMatchObject({ wholePictureIsSubject: true, pictureShowsDepth: false });
   });
 
   it("keeps a painted scene as found even when the model marks it as no single object", () => {
@@ -134,7 +150,14 @@ describe("handleVideoFrameParts", () => {
     });
     // The reply check requires every key in modelReply, so a key missing from the sent schema would fail every call.
     expect(sentBody).toMatchObject({
-      output_config: { format: { schema: { required: expect.arrayContaining(Object.keys(modelReply)) } } },
+      output_config: {
+        format: {
+          schema: {
+            required: expect.arrayContaining(Object.keys(modelReply)),
+            properties: Object.fromEntries(Object.keys(modelReply).map((key) => [key, expect.anything()])),
+          },
+        },
+      },
     });
   });
 

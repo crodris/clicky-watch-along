@@ -1085,7 +1085,7 @@ final class CompanionManager: ObservableObject {
             }
             return
         }
-        print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels")
+        print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
         liveScenePageOnScreen = .framePopout(framePopout)
         // Idle during the tour so the triangle shows, while the narration is written in the background.
@@ -1507,7 +1507,7 @@ final class CompanionManager: ObservableObject {
            let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
            let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
            LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, isFramePopout: true, overlayScreen: overlayScreen) {
-            print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels")
+            print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
             liveScenePageOnScreen = .framePopout(framePopout)
             return
