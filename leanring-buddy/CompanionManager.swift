@@ -41,6 +41,8 @@ final class CompanionManager: ObservableObject {
     /// Custom speech bubble text for the pointing animation. When set,
     /// BlueCursorView uses this instead of a random pointer phrase.
     @Published var detectedElementBubbleText: String?
+    /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
+    @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -91,6 +93,8 @@ final class CompanionManager: ObservableObject {
     }()
 
     private var liveScenePhase: LiveScenePhase = .idle
+    /// Set each time a page plays, so narration uses Clicky's own data about the page on screen.
+    private var liveScenePageOnScreen: LiveScenePageOnScreen?
     /// Bumped on every new question so a scene request still in flight cannot play late.
     private var liveSceneRequestGeneration = 0
     private var liveSceneRequestTask: Task<Void, Never>?
@@ -221,6 +225,9 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
+        LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
+            self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
         }
@@ -338,6 +345,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = nil
         detectedElementDisplayFrame = nil
         detectedElementBubbleText = nil
+        detectedElementPointingHold = .briefly
     }
 
     func stop() {
@@ -548,6 +556,17 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    /// Cancels a pending transient hide so the overlay stays up. With "Show Clicky" off, it brings the
+    /// cursor back for this one interaction, and scheduleTransientHideIfNeeded fades it out after.
+    private func showTheCursorOverlayForThisInteraction() {
+        transientHideTask?.cancel()
+        transientHideTask = nil
+        guard !isClickyCursorEnabled && !isOverlayVisible else { return }
+        overlayWindowManager.hasShownOverlayBefore = true
+        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+        isOverlayVisible = true
+    }
+
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
@@ -558,16 +577,7 @@ final class CompanionManager: ObservableObject {
             // A new press starts a new request, so the label from the last build is out of date.
             LiveSceneStatusLabel.shared.hide()
 
-            // Cancel any pending transient hide so the overlay stays visible
-            transientHideTask?.cancel()
-            transientHideTask = nil
-
-            // If the cursor is hidden, bring it back transiently for this interaction
-            if !isClickyCursorEnabled && !isOverlayVisible {
-                overlayWindowManager.hasShownOverlayBefore = true
-                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                isOverlayVisible = true
-            }
+            showTheCursorOverlayForThisInteraction()
 
             // Dismiss the menu bar panel so it doesn't cover the screen
             NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
@@ -659,11 +669,21 @@ final class CompanionManager: ObservableObject {
 
     /// Added to the system prompt for a look-inside request. Without it Claude
     /// answers from the page and tells the learner to scroll while the scene opens.
-    private static let liveSceneExploreVoiceResponseInstructions = """
+    /// A model with labeled parts gets one tagged sentence per part, so the length rule and the tag
+    /// rule come from one place and cannot conflict. A model with no labels gets one short sentence.
+    private static func liveSceneExploreVoiceResponseInstructions(partLabels: [String]) -> String {
+        let lengthAndTagInstructions: String
+        if partLabels.isEmpty {
+            lengthAndTagInstructions = "reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. the only tag you may write is [POINT:none], at the very end."
+        } else {
+            lengthAndTagInstructions = "the model has these exact part names: \(partLabels.joined(separator: ", ")). reply with two to four short, cheerful spoken sentences about what they're seeing inside, at most 20 words each. start each sentence with [PART:name] using one of those exact names. the only other tag you may write is [POINT:none], at the very end."
+        }
+        return """
 
 
-    for this reply only: a labeled 3d model of what they asked about is already opening on their screen, and the camera is moving through it. reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. talk about the model, not the web page. never tell them to scroll, click, or look anywhere else. the only tag you may write is [POINT:none], at the very end.
-    """
+        for this reply only: a labeled 3d model of what they asked about is already opening on their screen, and the camera is moving through it. \(lengthAndTagInstructions) talk about the model, not the web page. never tell them to scroll, click, or look anywhere else.
+        """
+    }
 
     // MARK: - AI Response Pipeline
 
@@ -741,16 +761,19 @@ final class CompanionManager: ObservableObject {
         liveSceneRequestGeneration += 1
         let requestGeneration = liveSceneRequestGeneration
 
-        // A 3D model only appears when the learner asks. During a video quiz that
-        // pauses the video, and a pending question is set aside for the model.
+        // A 3D model only appears when the learner asks. It pauses the YouTube video in front, quiz or not,
+        // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
         var sceneQuestion = transcript
         let requestedKind = liveSceneKind(for: transcript)
-        if videoQuizSession.isRunning,
-           requestedKind == .explore || requestedKind == .framePopout,
-           videoQuizSession.quizVideoIsTheTabInFront() {
+        if requestedKind == .explore || requestedKind == .framePopout {
+            let quizWatchesTheVideoInFront = videoQuizSession.isRunning && videoQuizSession.quizVideoIsTheTabInFront()
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
-            videoQuizQuestionIsActive = false
-            liveScenePhase = .idle
+            if quizWatchesTheVideoInFront {
+                videoQuizQuestionIsActive = false
+                liveScenePhase = .idle
+                // The idle phase has no page, so the one on screen goes too. The new scene's own clear resumes the video.
+                clearTheLiveSceneAndReleaseTheBuddy()
+            }
             if !heardText.isEmpty {
                 sceneQuestion = "\(transcript) The video just said: \(heardText)"
             }
@@ -779,6 +802,14 @@ final class CompanionManager: ObservableObject {
 
         if case .buildingScene = liveScenePhase {
             liveScenePhase = .idle
+            // A plain question cancels the build, so the video Clicky paused for it plays again.
+            // A new scene request keeps the pause for the new scene.
+            if requestedKind == nil {
+                Task {
+                    await LiveSceneOverlay.shared.waitForReturnToFinish()
+                    self.videoQuizSession.resumeVideoAfterRequestedScene()
+                }
+            }
         }
 
         if case .allLabelsShowing = liveScenePhase, liveSceneKind(for: transcript) == nil {
@@ -975,6 +1006,7 @@ final class CompanionManager: ObservableObject {
         }
         print("Landmark: showing Google 3D tiles of \(placeInFrame.famousPlace.name)")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .landmark(placeInFrame.famousPlace)
         return true
     }
 
@@ -1009,11 +1041,13 @@ final class CompanionManager: ObservableObject {
         guard let framePopout,
               let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
-              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, overlayScreen: overlayScreen) else {
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
             await speakLiveSceneLine(failureLine)
             voiceState = .idle
             // No scene opened, so nothing will clear it and resume the video.
+            // A previous pop-out cleared for this request may still be landing back in its frame.
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
             if videoQuizSession.videoIsPausedForRequestedScene {
                 videoQuizSession.resumeVideoAfterRequestedScene()
             }
@@ -1021,6 +1055,11 @@ final class CompanionManager: ObservableObject {
         }
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .framePopout(framePopout)
+        // Idle during the tour so the triangle shows, while the narration is written in the background.
+        voiceState = .idle
+        await narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
+        guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
     }
@@ -1094,7 +1133,9 @@ final class CompanionManager: ObservableObject {
             await sayTheSceneCouldNotBeBuilt()
             return
         }
-        if sceneKind == .explore {
+        if case .landmark(let famousPlace) = liveScenePageOnScreen {
+            await speakTheLandmarkLineAfterItsTour(famousPlace)
+        } else if sceneKind == .explore {
             await speakAboutTheLiveSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
         }
         guard !Task.isCancelled else { return }
@@ -1128,16 +1169,10 @@ final class CompanionManager: ObservableObject {
     ) async {
         do {
             let partLabels = await LiveSceneOverlay.shared.partLabels()
-            let highlightInstructions = partLabels.isEmpty ? "" : """
-
-
-            the model has these exact part names: \(partLabels.joined(separator: ", ")). start each sentence with [PART:name] using one of those exact names. use two to four short sentences.
-            """
             let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
                 images: labeledImages,
                 systemPrompt: Self.companionVoiceResponseSystemPrompt
-                    + Self.liveSceneExploreVoiceResponseInstructions
-                    + highlightInstructions,
+                    + Self.liveSceneExploreVoiceResponseInstructions(partLabels: partLabels),
                 userPrompt: transcript,
                 onTextChunk: { _ in }
             )
@@ -1159,15 +1194,26 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
+    /// cancelled narration can stay stuck reading label places from a page that is gone, so the clear releases it.
+    func clearTheLiveSceneAndReleaseTheBuddy() {
+        LiveSceneOverlay.shared.clear()
+        if detectedElementPointingHold.holdsUntilReleased {
+            clearDetectedElementLocation()
+        }
+    }
+
     private func clearFinishedLiveScene(resumesTheVideo: Bool = true) {
         guard case .allLabelsShowing = liveScenePhase else { return }
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         liveScenePhase = .idle
         guard resumesTheVideo, videoQuizSession.videoIsPausedForRequestedScene else { return }
         Task {
             await self.speakLiveSceneLine("Okay, back to the video.")
             await self.waitForClickyToFinishSpeaking()
             try? await Task.sleep(nanoseconds: 500_000_000)
+            // A frame pop-out lands back in the paused frame before the video moves.
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
             self.videoQuizSession.resumeVideoAfterRequestedScene()
         }
     }
@@ -1207,6 +1253,7 @@ final class CompanionManager: ObservableObject {
             )
             guard liveSceneWasAccepted else { return }
             liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
+            liveScenePageOnScreen = .generatedPage
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
@@ -1284,17 +1331,16 @@ final class CompanionManager: ObservableObject {
         quiz: LiveSceneQuiz,
         wrongAnswerCount: Int
     ) -> String {
+        let revealOutcome = LiveSceneRevealOutcome(grade: judgedAnswer.grade, wrongAnswerCount: wrongAnswerCount)
+        LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
         switch judgedAnswer.grade {
         case .nameAndFunctionWord:
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .nameOnly:
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz)
             return judgedAnswer.spokenReply
         case .askedForHelp:
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .wrong:
@@ -1302,7 +1348,6 @@ final class CompanionManager: ObservableObject {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
                 return judgedAnswer.spokenReply
             }
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
         }
@@ -1360,20 +1405,32 @@ final class CompanionManager: ObservableObject {
             videoQuizSession.start()
             spokenLine = "Sure! Let me read through this video."
         case .stop:
+            // A question's block below resets the phase, so whether a scene was building is read first.
+            let aSceneWasBuilding: Bool
+            if case .buildingScene = liveScenePhase { aSceneWasBuilding = true } else { aSceneWasBuilding = false }
+            if videoQuizQuestionIsActive {
+                videoQuizQuestionIsActive = false
+                liveScenePhase = .idle
+                clearTheLiveSceneAndReleaseTheBuddy()
+            }
             videoQuizSession.stop()
             // The scene request runs in its own task, so cancelling the response task above
             // does not reach it. A new generation also keeps a reply already in flight from playing.
-            if case .buildingScene = liveScenePhase {
+            if aSceneWasBuilding {
                 liveSceneRequestTask?.cancel()
                 liveSceneRequestTask = nil
                 liveSceneRequestGeneration += 1
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
                 liveScenePhase = .idle
             }
-            if videoQuizQuestionIsActive {
-                videoQuizQuestionIsActive = false
-                liveScenePhase = .idle
-                LiveSceneOverlay.shared.clear()
+            // A question's pop-out lands back in its frame before the video Clicky paused for it plays.
+            // The scene that would have resumed a video paused for it is gone, so nothing else will.
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                self.videoQuizSession.resumeVideoAfterQuestion()
+                if aSceneWasBuilding {
+                    self.videoQuizSession.resumeVideoAfterRequestedScene()
+                }
             }
             spokenLine = "Okay, I'll stop quizzing. That was fun!"
         }
@@ -1404,14 +1461,18 @@ final class CompanionManager: ObservableObject {
     /// With a frame pop-out, the subject lifts out of the paused video and the question
     /// comes when its tour ends. Without one, Clicky asks by voice right away.
     private func askVideoQuizQuestion(_ quiz: LiveSceneQuiz, framePopout: VideoFramePopout?) {
+        // A narration of the finished pop-out could otherwise go on to highlight and point at the question's labels, the answer included.
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
         clearFinishedLiveScene()
         videoQuizQuestionIsActive = true
         if let framePopout,
            let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
            let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
-           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, overlayScreen: overlayScreen) {
+           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, isFramePopout: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
+            liveScenePageOnScreen = .framePopout(framePopout)
             return
         }
         liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
@@ -1441,8 +1502,9 @@ final class CompanionManager: ObservableObject {
         await speakLiveSceneLine("Okay, back to the video.")
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
-        // A frame pop-out sits over the video, so it goes away before play.
-        LiveSceneOverlay.shared.clear()
+        // A frame pop-out sits over the video, so it lands back in its frame and goes away before play.
+        clearTheLiveSceneAndReleaseTheBuddy()
+        await LiveSceneOverlay.shared.waitForReturnToFinish()
         videoQuizSession.resumeVideoAfterQuestion()
     }
 
@@ -1458,16 +1520,16 @@ final class CompanionManager: ObservableObject {
         liveScenePhase = .idle
         await speakLiveSceneLine("Sorry, I couldn't build that one.")
         voiceState = .idle
-        if videoQuizSession.videoIsPausedForRequestedScene {
-            videoQuizSession.resumeVideoAfterRequestedScene()
-        }
+        // A pop-out whose page failed may still be landing back in its frame.
+        await LiveSceneOverlay.shared.waitForReturnToFinish()
+        videoQuizSession.resumeVideoAfterRequestedScene()
     }
 
     /// A page that throws before its tour ends never posts tourFinished, so Clicky would wait on it forever.
     private func handleLiveScenePageError(_ pageErrorText: String) {
         guard case .touring(let quizToAskAfterTour) = liveScenePhase else { return }
         print("Live scene: giving up on the page after \(pageErrorText)")
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         if quizToAskAfterTour != nil {
             // The question still works by voice, like a quiz moment with no pop-out.
             handleLiveSceneTourFinished()
@@ -1483,6 +1545,11 @@ final class CompanionManager: ObservableObject {
     /// Escape ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     private func closeLiveSceneOnEscape() {
+        // A second Escape while a pop-out lands in its frame hides it at once.
+        if LiveSceneOverlay.shared.isReturningToSource {
+            clearTheLiveSceneAndReleaseTheBuddy()
+            return
+        }
         if videoQuizQuestionIsActive {
             skipTheVideoQuizQuestion()
             return
@@ -1501,11 +1568,14 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
         videoQuizQuestionIsActive = false
         liveScenePhase = .idle
-        LiveSceneOverlay.shared.clear()
+        clearTheLiveSceneAndReleaseTheBuddy()
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Video quiz: skipped the question on Escape")
-        videoQuizSession.resumeVideoAfterQuestion()
+        Task {
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
+            self.videoQuizSession.resumeVideoAfterQuestion()
+        }
     }
 
     private func handleLiveSceneTourFinished() {
@@ -1575,6 +1645,138 @@ final class CompanionManager: ObservableObject {
             ClickyAnalytics.trackTTSError(error: error.localizedDescription)
             print("⚠️ ElevenLabs TTS error: \(error)")
             speakCreditsErrorFallback()
+        }
+    }
+
+    // MARK: - Bundled Page Narration
+
+    /// Says a few sentences about a frame pop-out, one part each, highlighting that part and pointing the
+    /// blue cursor at it as it is named. The Claude call starts right away and the speech waits for the tour,
+    /// so it is ready when the camera stops. The labels come from the pop-out's own parts list, because the
+    /// page may not have loaded yet.
+    private func narrateTheFramePopout(_ framePopout: VideoFramePopout, narrationTrigger: LiveSceneNarrationTrigger) async {
+        let narrationID = UUID()
+        // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
+        defer { releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID) }
+        let knownPartLabels = framePopout.parts.map(\.label)
+        var sourceImagesForNarration: [(data: Data, label: String)] = []
+        if let sourceImageJPEGData = Data(base64Encoded: framePopout.frameGrab.jpeg) {
+            sourceImagesForNarration.append((data: sourceImageJPEGData, label: framePopout.frameGrab.source.narrationImageLabel))
+        }
+        let narrationText: String
+        do {
+            narrationText = try await claudeAPI.analyzeImageStreaming(
+                images: sourceImagesForNarration,
+                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source),
+                userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels),
+                onTextChunk: { _ in }
+            ).text
+        } catch {
+            print("Frame pop-out narration failed: \(error)")
+            return
+        }
+        await waitForTheLiveSceneTourToFinish()
+        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase else { return }
+        let spokenParts = liveSceneSpokenParts(from: narrationText)
+        print("Frame pop-out narration: \(spokenParts.count) sentences for \(narrationTrigger)")
+        for spokenPart in spokenParts {
+            guard !Task.isCancelled else { return }
+            await speakLiveSceneNarrationSentence(
+                spokenPart.spokenText,
+                aboutPartLabel: knownPartLabel(matching: spokenPart.partLabel, knownPartLabels: knownPartLabels),
+                narrationID: narrationID
+            )
+        }
+        guard !Task.isCancelled else { return }
+        LiveSceneOverlay.shared.highlightPart(labelText: "")
+    }
+
+    /// A click on a label after the tour is taken as "what does the <label> do?" and answered through the
+    /// same narration. The page's label text is only used to look up the label in Clicky's own parts list.
+    private func explainTheTappedPart(untrustedTappedLabel: String) {
+        // The explanation and video resume of a quiz question are still running, and a tap must not cancel them.
+        guard !videoQuizQuestionIsActive,
+              let partLabel = partLabelToExplain(
+                  untrustedTappedLabel: untrustedTappedLabel,
+                  pageOnScreen: liveScenePageOnScreen,
+                  liveScenePhase: liveScenePhase
+              ),
+              case .framePopout(let framePopout) = liveScenePageOnScreen else {
+            print("Frame pop-out: ignored a label tap")
+            return
+        }
+        print("Frame pop-out: explaining the tapped \(partLabel) label")
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        showTheCursorOverlayForThisInteraction()
+        // The mouse is on the clicked label, so the buddy flies back there while Claude writes the answer.
+        if detectedElementPointingHold.holdsUntilReleased {
+            clearDetectedElementLocation()
+        }
+        // The camera starts toward the part right away, while Claude writes the answer.
+        LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
+        voiceState = .processing
+        currentResponseTask = Task {
+            await self.narrateTheFramePopout(framePopout, narrationTrigger: .partTapped(label: partLabel))
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// A nil part label means the sentence names no part on the model, so nothing is highlighted or pointed at.
+    private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async {
+        guard let partLabel else {
+            await speakLiveSceneLine(spokenText)
+            await waitForClickyToFinishSpeaking()
+            return
+        }
+        LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
+        // The label's place is read once the camera stops gliding to the part, while the sentence starts playing.
+        let settledLabelScreenPointsTask = Task {
+            await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
+        }
+        await speakLiveSceneLine(spokenText)
+        let settledLabelScreenPoints = await settledLabelScreenPointsTask.value
+        if !Task.isCancelled,
+           let partScreenPoint = settledLabelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == partLabel }) {
+            pointTheBuddy(atLiveScenePart: partScreenPoint, narrationID: narrationID)
+        }
+        await waitForClickyToFinishSpeaking()
+    }
+
+    /// The buddy flies on its usual arc to the part's label with the label in its bubble, and stays
+    /// until the narration that pointed it releases it.
+    private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, narrationID: UUID) {
+        guard let displayFrame = NSScreen.screens.first(where: { screen in
+            screen.frame.contains(partScreenPoint.globalPoint)
+        })?.frame else { return }
+        detectedElementPointingHold = .untilReleased(byNarrationID: narrationID)
+        detectedElementBubbleText = partScreenPoint.label
+        detectedElementDisplayFrame = displayFrame
+        detectedElementScreenLocation = partScreenPoint.globalPoint
+    }
+
+    /// Only the narration that pointed the buddy releases it, so an older narration that finishes
+    /// late cannot send the buddy away from a newer one's part.
+    private func releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID narrationID: UUID) {
+        guard detectedElementPointingHold == .untilReleased(byNarrationID: narrationID) else { return }
+        clearDetectedElementLocation()
+    }
+
+    /// The name and height come from the /landmark reply, so this line needs no model call.
+    private func speakTheLandmarkLineAfterItsTour(_ famousPlace: FamousPlace) async {
+        await waitForTheLiveSceneTourToFinish()
+        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase else { return }
+        let landmarkLine = landmarkNarrationLine(for: famousPlace)
+        print("Landmark: saying \"\(landmarkLine)\"")
+        await speakLiveSceneLine(landmarkLine)
+        await waitForClickyToFinishSpeaking()
+    }
+
+    private func waitForTheLiveSceneTourToFinish() async {
+        while case .touring = liveScenePhase, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 200_000_000)
         }
     }
 
