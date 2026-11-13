@@ -1731,7 +1731,7 @@ final class CompanionManager: ObservableObject {
         clearTheLiveSceneAndReleaseTheBuddy()
         voiceState = .idle
         scheduleTransientHideIfNeeded()
-        print("Video quiz: skipped the question on Escape")
+        print("Video quiz: skipped the question")
         Task {
             await LiveSceneOverlay.shared.waitForReturnToFinish()
             self.videoQuizSession.resumeVideoAfterQuestion()
