@@ -439,4 +439,52 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
+
+    @Test func gradesMapToTheRevealOutcomeTheQuizLabelPlays() async throws {
+        #expect(LiveSceneRevealOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 0) == .celebrateCorrectName)
+        #expect(LiveSceneRevealOutcome(grade: .nameOnly, wrongAnswerCount: 0) == .celebrateCorrectName)
+        // A name that is right on the second try still celebrates.
+        #expect(LiveSceneRevealOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 1) == .celebrateCorrectName)
+        #expect(LiveSceneRevealOutcome(grade: .askedForHelp, wrongAnswerCount: 0) == .revealWithoutCelebration)
+        // The first wrong answer keeps the "?", and the second reveals the name without a celebration.
+        #expect(LiveSceneRevealOutcome(grade: .wrong, wrongAnswerCount: 0) == .shakeAndKeepTheQuestionMark)
+        #expect(LiveSceneRevealOutcome(grade: .wrong, wrongAnswerCount: 1) == .revealWithoutCelebration)
+        // The page receives these exact strings.
+        #expect(LiveSceneRevealOutcome.celebrateCorrectName.rawValue == "celebrateCorrectName")
+        #expect(LiveSceneRevealOutcome.shakeAndKeepTheQuestionMark.rawValue == "shakeAndKeepTheQuestionMark")
+        #expect(LiveSceneRevealOutcome.revealWithoutCelebration.rawValue == "revealWithoutCelebration")
+    }
+
+    @Test func clearingAFramePopoutPlaysTheReturnAndASecondClearHidesAtOnce() async throws {
+        var overlayPhase = LiveSceneOverlayPhase.showing(isFramePopout: true)
+        #expect(overlayPhase.requestClear() == .playReturnThenHide)
+        #expect(overlayPhase == .returningToSource)
+        // A second Escape during the return hides immediately.
+        #expect(overlayPhase.requestClear() == .hideNow)
+        #expect(overlayPhase == .hidden)
+        // A repeated clear does nothing.
+        #expect(overlayPhase.requestClear() == .nothingToClear)
+        #expect(overlayPhase == .hidden)
+    }
+
+    @Test func clearingAnyOtherPageHidesAtOnceWithNoReturn() async throws {
+        var overlayPhase = LiveSceneOverlayPhase.showing(isFramePopout: false)
+        #expect(overlayPhase.requestClear() == .hideNow)
+        #expect(overlayPhase == .hidden)
+    }
+
+    @Test func theReturnHidesTheWindowOnceAndOnlyWhileItIsPlaying() async throws {
+        var overlayPhase = LiveSceneOverlayPhase.showing(isFramePopout: true)
+        #expect(!overlayPhase.finishReturn())
+        _ = overlayPhase.requestClear()
+        #expect(overlayPhase.finishReturn())
+        #expect(overlayPhase == .hidden)
+        // The fallback timer firing after returnFinished finds nothing to do.
+        #expect(!overlayPhase.finishReturn())
+        // A late returnFinished does not hide a scene that replaced the return.
+        var replacedPhase = LiveSceneOverlayPhase.showing(isFramePopout: true)
+        #expect(!replacedPhase.finishReturn())
+        #expect(replacedPhase == .showing(isFramePopout: true))
+    }
+
 }

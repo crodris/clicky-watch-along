@@ -14,6 +14,13 @@ Press Escape to skip a question, or say "stop the quiz" to end it.
 **The paused frame pops out in 3D.** Six seconds before each pause, Clicky grabs the video frame and asks Sonnet to find the subject and its parts.
 When it finds one, the subject lifts out of the video in 3D with its parts labeled, and Clicky asks the question once the tour ends.
 Charts and people talking stay voice only.
+The part you are asked about shows as a large blue "?".
+Name it correctly and the label turns green with the real name, a ring bursts out at the part, and a short chime plays.
+A wrong answer shakes the label once, and it stays a "?" for your second try.
+Asking for help, or missing twice, shows the name in the normal color with no celebration.
+With Reduce Motion on, the label still turns green, but it skips the shake and the ring.
+When the question is over, the labels fade and the subject eases back flat into the paused frame, and then the video plays.
+Press Escape again while it settles back to hide it at once.
 You can also say "pop this out" or "pop this heart out" at any time, and Clicky pauses the video and lifts out whatever it shows, with every label and no question.
 It plays the video again when you close the pop-out, unless you had paused it yourself.
 

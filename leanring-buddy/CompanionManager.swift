@@ -1018,7 +1018,7 @@ final class CompanionManager: ObservableObject {
         guard let framePopout,
               let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
-              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, overlayScreen: overlayScreen) else {
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
             await speakLiveSceneLine(failureLine)
             voiceState = .idle
@@ -1171,6 +1171,8 @@ final class CompanionManager: ObservableObject {
             await self.speakLiveSceneLine("Okay, back to the video.")
             await self.waitForClickyToFinishSpeaking()
             try? await Task.sleep(nanoseconds: 500_000_000)
+            // A frame pop-out lands back in the paused frame before the video moves.
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
             self.videoQuizSession.resumeVideoAfterRequestedScene()
         }
     }
@@ -1287,17 +1289,16 @@ final class CompanionManager: ObservableObject {
         quiz: LiveSceneQuiz,
         wrongAnswerCount: Int
     ) -> String {
+        let revealOutcome = LiveSceneRevealOutcome(grade: judgedAnswer.grade, wrongAnswerCount: wrongAnswerCount)
+        LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
         switch judgedAnswer.grade {
         case .nameAndFunctionWord:
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .nameOnly:
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz)
             return judgedAnswer.spokenReply
         case .askedForHelp:
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .allLabelsShowing
             return judgedAnswer.spokenReply
         case .wrong:
@@ -1305,7 +1306,6 @@ final class CompanionManager: ObservableObject {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
                 return judgedAnswer.spokenReply
             }
-            LiveSceneOverlay.shared.reveal()
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
         }
@@ -1414,7 +1414,7 @@ final class CompanionManager: ObservableObject {
         if let framePopout,
            let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
            let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
-           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, overlayScreen: overlayScreen) {
+           LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, isFramePopout: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
             return
@@ -1446,8 +1446,9 @@ final class CompanionManager: ObservableObject {
         await speakLiveSceneLine("Okay, back to the video.")
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
-        // A frame pop-out sits over the video, so it goes away before play.
+        // A frame pop-out sits over the video, so it lands back in its frame and goes away before play.
         LiveSceneOverlay.shared.clear()
+        await LiveSceneOverlay.shared.waitForReturnToFinish()
         videoQuizSession.resumeVideoAfterQuestion()
     }
 
@@ -1488,6 +1489,11 @@ final class CompanionManager: ObservableObject {
     /// Escape ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     private func closeLiveSceneOnEscape() {
+        // A second Escape while a pop-out lands in its frame hides it at once.
+        if LiveSceneOverlay.shared.isReturningToSource {
+            LiveSceneOverlay.shared.clear()
+            return
+        }
         if videoQuizQuestionIsActive {
             skipTheVideoQuizQuestion()
             return
@@ -1510,7 +1516,10 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Video quiz: skipped the question on Escape")
-        videoQuizSession.resumeVideoAfterQuestion()
+        Task {
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
+            self.videoQuizSession.resumeVideoAfterQuestion()
+        }
     }
 
     private func handleLiveSceneTourFinished() {

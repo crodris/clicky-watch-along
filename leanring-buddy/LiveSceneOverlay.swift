@@ -7,7 +7,8 @@
 //  to their screen: the one under the mouse for generated scenes, and the one
 //  showing the video or image for pop-outs and landmark pages. Each scene is
 //  generated HTML loaded in that window. The page reports tourFinished when
-//  the camera tour ends.
+//  the camera tour ends. A frame pop-out plays a short return into the video
+//  frame when it is cleared, and posts returnFinished when it has landed.
 //
 
 import AppKit
@@ -191,6 +192,44 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 }
 
+/// What the overlay window is doing, so a clear request knows whether to play the
+/// return, hide at once, or do nothing.
+enum LiveSceneOverlayPhase: Equatable {
+    case hidden
+    case showing(isFramePopout: Bool)
+    /// A frame pop-out is flattening back into the video frame. The window hides when it lands.
+    case returningToSource
+
+    enum ClearStep: Equatable {
+        case nothingToClear
+        case playReturnThenHide
+        case hideNow
+    }
+
+    /// A frame pop-out plays its return first. A second clear during the return, and any
+    /// other page, hides at once. Clearing a hidden overlay does nothing, so a clear can repeat.
+    mutating func requestClear() -> ClearStep {
+        switch self {
+        case .hidden:
+            return .nothingToClear
+        case .showing(isFramePopout: true):
+            self = .returningToSource
+            return .playReturnThenHide
+        case .showing(isFramePopout: false), .returningToSource:
+            self = .hidden
+            return .hideNow
+        }
+    }
+
+    /// True when the return was still playing, so the window should hide now.
+    /// A late returnFinished or a late fallback timer finds nothing to do.
+    mutating func finishReturn() -> Bool {
+        guard self == .returningToSource else { return false }
+        self = .hidden
+        return true
+    }
+}
+
 // A class, not an enum: WKNavigationDelegate has to be an NSObject.
 final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     static let shared = LiveSceneOverlay()
@@ -254,6 +293,11 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     private var liveSceneWebView: WKWebView?
     private var networkBlockRuleList: WKContentRuleList?
     private var liveSceneShowsEveryLabel = false
+    private var overlayPhase = LiveSceneOverlayPhase.hidden
+    /// The page normally posts returnFinished. This hides the window if it never does.
+    private var returnFallbackWorkItem: DispatchWorkItem?
+    private var waitersForReturnToFinish: [CheckedContinuation<Void, Never>] = []
+    private static let secondsToWaitForTheReturn = 1.5
     private var networkBlockRuleListHasFinishedCompiling = false
     private var pageHasFinishedLoading = false
     private var queuedPageLoad: QueuedLiveScenePage?
@@ -278,6 +322,10 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         guard message.name == "liveSceneEvent" else {
             return
         }
+        if message.body as? String == "returnFinished" {
+            finishReturnToSource()
+            return
+        }
         // The page posts this string when the camera tour ends.
         guard let eventName = message.body as? String, eventName == "tourFinished" else {
             return
@@ -287,12 +335,18 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     /// False means the page was refused. Generated code must never run without the network block in place.
     /// rendersMapTiles is only for the bundled landmark page, never for generated HTML.
+    /// isFramePopout is only for the bundled frame pop-out page, which plays a return when cleared.
     /// `overlayScreen` must be the screen the page's coordinates were computed for.
-    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false, overlayScreen: NSScreen) -> Bool {
+    func playLiveScene(html: String, hidesQuizLabel: Bool, rendersMapTiles: Bool = false, isFramePopout: Bool = false, overlayScreen: NSScreen) -> Bool {
         guard networkBlockRuleList != nil else {
             print("Live scene: refused a live page because its network block is missing")
             return false
         }
+        // A new scene replaces a return still playing, so whoever waits for the return stops waiting.
+        returnFallbackWorkItem?.cancel()
+        returnFallbackWorkItem = nil
+        overlayPhase = .showing(isFramePopout: isFramePopout)
+        releaseWaitersForReturnToFinish()
         discardThePreviousWebView()
         placeOverlay(on: overlayScreen)
         liveSceneOverlayWindow?.ignoresMouseEvents = true
@@ -314,6 +368,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// A window that catches the mouse blocks every click on the screen, so
     /// this stays off until the scene is finished and clear() turns it off.
     func letLearnerDragTheModel() {
+        // A window that is returning or hidden must not catch the mouse.
+        guard case .showing = overlayPhase else { return }
         liveSceneOverlayWindow?.ignoresMouseEvents = false
         if liveSceneShowsEveryLabel {
             reveal()
@@ -334,6 +390,21 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     func reveal() {
         evaluateOnThePage("window.liveScene.reveal()")
+    }
+
+    /// Resolves the "?" label once an answer is graded. Only the bundled frame pop-out page plays
+    /// the answer moment. A generated page still just reveals the name, and keeps its "?" after a first wrong answer.
+    func revealQuizLabel(outcome: LiveSceneRevealOutcome) {
+        guard case .showing(isFramePopout: true) = overlayPhase else {
+            if outcome != .shakeAndKeepTheQuestionMark {
+                reveal()
+            }
+            return
+        }
+        evaluateOnThePage("window.liveScene.answerMoment(outcome)", arguments: ["outcome": outcome.rawValue])
+        if outcome == .celebrateCorrectName {
+            NSSound(named: NSSound.Name("Glass"))?.play()
+        }
     }
 
     /// A generated page imports three.js, so window.liveScene can appear after
@@ -364,10 +435,66 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         return (pageResult as? [String]) ?? []
     }
 
+    /// Safe to call again. A frame pop-out lands back in the video frame first, so the window
+    /// hides when the page posts returnFinished or after a fallback delay. Any other call hides at once.
     func clear() {
         queuedPageLoad = nil
         liveSceneOverlayWindow?.ignoresMouseEvents = true
+        switch overlayPhase.requestClear() {
+        case .nothingToClear:
+            return
+        case .hideNow:
+            hideWindow()
+        case .playReturnThenHide:
+            guard pageHasFinishedLoading else {
+                hideWindow()
+                return
+            }
+            evaluateOnThePage("window.liveScene.returnToSource?.()")
+            let fallbackWorkItem = DispatchWorkItem { [weak self] in
+                self?.finishReturnToSource()
+            }
+            returnFallbackWorkItem = fallbackWorkItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.secondsToWaitForTheReturn,
+                execute: fallbackWorkItem
+            )
+        }
+    }
+
+    var isReturningToSource: Bool {
+        overlayPhase == .returningToSource
+    }
+
+    /// Returns at once unless a return is playing. Callers that resume a video wait here,
+    /// so the video moves only after the subject has landed back in its frame.
+    func waitForReturnToFinish() async {
+        guard overlayPhase == .returningToSource else { return }
+        await withCheckedContinuation { continuation in
+            waitersForReturnToFinish.append(continuation)
+        }
+    }
+
+    private func finishReturnToSource() {
+        guard overlayPhase.finishReturn() else { return }
+        hideWindow()
+    }
+
+    private func hideWindow() {
+        overlayPhase = .hidden
+        returnFallbackWorkItem?.cancel()
+        returnFallbackWorkItem = nil
+        liveSceneOverlayWindow?.ignoresMouseEvents = true
         liveSceneOverlayWindow?.orderOut(nil)
+        releaseWaitersForReturnToFinish()
+    }
+
+    private func releaseWaitersForReturnToFinish() {
+        let waiters = waitersForReturnToFinish
+        waitersForReturnToFinish = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
