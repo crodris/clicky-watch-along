@@ -17,6 +17,10 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away"), during the tour or after it.
 - `popout-depth` lifts a picture that already shows depth, such as a 3D cutaway or a photo, as a flat card that only tilts, when the route returns `pictureShowsDepth: true`.
   Flat illustrations and paintings keep the puffed-up lift.
+- `popout-animation` keeps an animated page image (GIF, animated WebP, or APNG) playing on the lifted subject and on the frame behind it, when the image sits wholly inside the viewport.
+  Reduce Motion keeps the still frame.
+- `popout-flows` streams what flows through the picture, like air through an engine, when the learner says "animate this", "make it move", or "make it flow".
+  It uses `/picture-flows`, and Reduce Motion holds the streams still.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.
@@ -65,12 +69,23 @@ Preconditions:
 - **Put it back.** Run `$V app-launch "pop this out|put it back"`.
   The second step logs `Live scene: put back on request`, and the subject flattens back into its frame.
   The rehearsal sends the second step as soon as the tour ends, before the narration speaks, so the tap needs the run above.
-- **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`), a photo of an engine (`https://commons.wikimedia.org/wiki/File:F100_F-15_engine.JPG`), and a photo of a flower (`https://commons.wikimedia.org/wiki/File:Magnolia_grandiflora_-_flower_1.jpg`), 3 times each.
+- **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`), a photo of an engine (`https://commons.wikimedia.org/wiki/Special:FilePath/F100_F-15_engine.JPG?width=960`), and a photo of a flower (`https://commons.wikimedia.org/wiki/Special:FilePath/Magnolia_grandiflora_-_flower_1.jpg?width=960`), 3 times each.
   Every run returns `pictureShowsDepth: true`.
   The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
   In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
   The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
   Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
+- **Pop out an animated image.** With `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and the lead GIF wholly on screen, run `$V app-launch "pop this out"`.
+  The log shows `Frame pop-out: playing the page image's 21 animation frames` before `Frame pop-out: lifting the subject`.
+  Run `$V shot animated-popout` twice about 0.2 seconds apart, and check that the blades and the arrows moved between the two shots with no white blobs at the engine's edge.
+  Scroll so the GIF is cut off at the top of the window and pop it out again, and the log has no animation line.
+- **Flows route.** Build a body like the route step's, with `partLabels` (the labels from a `/video-frame-parts` reply) in place of `subject`, `question`, and `answerLabel`, then `$V post /picture-flows "$RUN/flows-body.json"`.
+  The Turbofan article's schematic and its animated cutaway each return several flows in blue and orange, a heart diagram returns red and blue, and The Starry Night returns `{"flows":[]}`.
+  `node bench/bench.ts worker --label flows --runs 1 --only picture-flows-heart,picture-flows-painting` checks the same on the bench fixtures.
+- **Animate in the app.** With the Turbofan article's lead GIF wholly on screen, run `$V app-launch "animate this"`.
+  The log shows `Frame pop-out: lifting the subject` and then `Frame pop-out: streaming N flows`.
+  Run `$V shot flows` after the tour, and check that blue and orange dashes move through the engine's channels below the labels.
+  Then run `$V app-launch "pop this out|animate this"`, and the second step logs `streaming N flows` without a second `lifting the subject` line.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 
