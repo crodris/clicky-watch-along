@@ -23,9 +23,11 @@ Preconditions:
 
 - **Escape.** Run `$V app-launch "how does air move through this engine from front to back?"`.
   Once `🔊 ElevenLabs TTS: playing` appears in `$RUN/app.log`, run `$V key escape`.
-  The log shows `Escape: stopped the reply`, then `Live scene rehearsal: done` within about half a second, because the rehearsal finishes only once no speech plays.
+  The log shows `Escape: stopped the reply` within about half a second of the key.
+  `Live scene rehearsal: done` follows within about 2 seconds, because the rehearsal waits 1.5 seconds after a step finishes.
 - **Push-to-talk tap.** Run `$V app-quit`, launch the same question again, and once speech starts run `$V key push-to-talk-tap`.
-  `Live scene rehearsal: done` follows within about half a second, and no `🗣️ Companion received transcript` line appears.
+  When the answer has not printed `Live scene rehearsal: finished` yet, that line follows within about half a second of the key, and `done` within about 2 seconds.
+  No `🗣️ Companion received transcript` line appears.
 - **Control.** The same question with no key runs about 30 seconds of speech on Sonnet 5.5 before `Live scene rehearsal: done`.
   Measured 2026-11-13: Escape stopped speech 0.26 s after the key, the tap 0.05 s after it, and the uninterrupted answer spoke for 34 s.
 

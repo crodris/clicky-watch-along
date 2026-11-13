@@ -71,6 +71,8 @@ Preconditions:
 - A full-screen screenshot holds many things, so the route may pick an unexpected subject.
   Crop to one object when the subject matters.
 - `subjectFound: false` on a chart or a talking head is correct behavior, not a failure.
+- AppleScript sends "Google Chrome" commands to whichever Chrome process it finds, and a Playwright-driven Chrome counts.
+  When the app log shows `javaScriptFromAppleEventsIsOff` or `noImageOrVideoToPopOut` on a page with a large image, run `pgrep -fl 'Google Chrome --disable-field-trial-config'`, and close that browser once its owner is done with it.
 - The pop-out lines up with the video's or image's on-screen rect, on the display that shows it, wherever the mouse is.
   Moving or resizing the Chrome window during the run misplaces it.
 - The image rect comes from the web area in Chrome's accessibility tree, so it accounts for page zoom and for side panels, vertical tabs, and docked DevTools.

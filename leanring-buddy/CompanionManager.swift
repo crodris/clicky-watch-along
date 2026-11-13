@@ -21,6 +21,20 @@ enum CompanionVoiceState {
     case responding
 }
 
+/// Whether Escape, with no scene on screen, has an answer to stop. A question still being transcribed is
+/// left alone, and an answer whose cursor flies to its target counts before its speech starts playing.
+func escapeHasAnAnswerToStop(
+    voiceState: CompanionVoiceState,
+    speechIsPlaying: Bool,
+    dictationIsInProgress: Bool,
+    cursorIsPointingForTheAnswer: Bool
+) -> Bool {
+    if dictationIsInProgress {
+        return false
+    }
+    return voiceState == .processing || voiceState == .responding || speechIsPlaying || cursorIsPointingForTheAnswer
+}
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -538,6 +552,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape closes a finished scene, so the push-to-talk shortcut always means talk.
+    /// With no scene on screen, it stops the answer Clicky is giving.
     private func bindEscapeToCloseLiveScene() {
         escapeKeyCancellable = globalPushToTalkShortcutMonitor
             .escapeKeyPressPublisher
@@ -1591,7 +1606,12 @@ final class CompanionManager: ObservableObject {
     /// With no scene on screen, Escape skips the answer Clicky is thinking about or speaking,
     /// the same way a push-to-talk press does, without asking anything new.
     private func stopTheReplyOnEscape() {
-        guard voiceState == .processing || voiceState == .responding || elevenLabsTTSClient.isPlaying else { return }
+        guard escapeHasAnAnswerToStop(
+            voiceState: voiceState,
+            speechIsPlaying: elevenLabsTTSClient.isPlaying,
+            dictationIsInProgress: buddyDictationManager.isDictationInProgress,
+            cursorIsPointingForTheAnswer: detectedElementScreenLocation != nil
+        ) else { return }
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         clearDetectedElementLocation()

@@ -645,6 +645,17 @@ struct leanring_buddyTests {
         #expect(!asksToPutTheSceneBack("putting it back together is hard"))
     }
 
+    @Test func escapeStopsAnAnswerButNotAQuestionStillBeingTranscribed() async throws {
+        #expect(!escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        #expect(escapeHasAnAnswerToStop(voiceState: .processing, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        #expect(escapeHasAnAnswerToStop(voiceState: .responding, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        #expect(escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: true, dictationIsInProgress: false, cursorIsPointingForTheAnswer: false))
+        // A reply that points sets the voice state to idle before its speech starts, while the cursor flies.
+        #expect(escapeHasAnAnswerToStop(voiceState: .idle, speechIsPlaying: false, dictationIsInProgress: false, cursorIsPointingForTheAnswer: true))
+        // Right after push-to-talk is released, the question is still being transcribed and will be sent.
+        #expect(!escapeHasAnAnswerToStop(voiceState: .processing, speechIsPlaying: false, dictationIsInProgress: true, cursorIsPointingForTheAnswer: false))
+    }
+
     @Test func pointingBubbleWrapsASpokenSentenceButNotAShortPhrase() async throws {
         // A pointer phrase or a part label stays on one line and grows as it types.
         #expect(navigationBubbleWrapWidth(forPhrase: "right here!") == nil)
