@@ -655,9 +655,10 @@ struct leanring_buddyTests {
         #expect(firstFrame.width == 8 && firstFrame.height == 6)
         // The 4x4 frame is stretched over the whole 8x6 capture, so even the top-right corner shows its magenta.
         var firstFramePixelBytes = [UInt8](repeating: 0, count: 8 * 6 * 4)
+        let sRGBColorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
         let pixelReadContext = try #require(CGContext(
             data: &firstFramePixelBytes, width: 8, height: 6, bitsPerComponent: 8, bytesPerRow: 8 * 4,
-            space: try #require(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            space: sRGBColorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ))
         pixelReadContext.draw(firstFrame, in: CGRect(x: 0, y: 0, width: 8, height: 6))
         let topRightPixelGreen = firstFramePixelBytes[7 * 4 + 1]
