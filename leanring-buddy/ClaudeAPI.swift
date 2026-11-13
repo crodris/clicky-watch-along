@@ -200,8 +200,7 @@ class ClaudeAPI {
                 )
             }
 
-            // Parse SSE stream — each event is "data: {json}\n\n"
-
+            // Parse SSE stream: each event is "data: {json}\n\n"
             for try await line in byteStream.lines {
                 // SSE lines look like: "data: {...}"
                 guard line.hasPrefix("data: ") else { continue }

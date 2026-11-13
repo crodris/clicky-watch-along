@@ -564,7 +564,12 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
 
   let ttsCharacters = 0;
   const usageLineCosts = usageLines.map(costOfUsageLine);
-  let costUSD = usageLineCosts.includes(null)
+  // A model route that answered but logged no usage line spent an unknown amount, which must not read as zero.
+  const usageLineIsMissing = benchCase.route !== "/tts" && response.ok && usageLines.length === 0;
+  if (usageLineIsMissing) {
+    console.warn(`${benchCase.route} answered without a usage line, so its cost is recorded as unknown.`);
+  }
+  let costUSD = usageLineIsMissing || usageLineCosts.includes(null)
     ? null
     : usageLineCosts.reduce((runningCost: number, usageLineCost) => runningCost + (usageLineCost ?? 0), 0);
   if (benchCase.route === "/tts") {
