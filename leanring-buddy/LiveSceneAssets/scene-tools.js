@@ -177,8 +177,13 @@
       run: () => {
         if (hasParts() && explodeAmount !== 0) explode(0);
         if (hasParts() && insideIsOpen) setInsideOpen(false);
-        const reset = typeof liveScene().resetView === "function" ? liveScene().resetView() : liveScene().focusPart("");
-        return reset === false ? stillLoading : { ok: true };
+        // Only resetView reports a refusal. focusPart("") may return false on a generated page after it restored the view.
+        if (typeof liveScene().resetView === "function") {
+          if (liveScene().resetView() === false) return stillLoading;
+        } else {
+          liveScene().focusPart("");
+        }
+        return { ok: true };
       },
     },
     {

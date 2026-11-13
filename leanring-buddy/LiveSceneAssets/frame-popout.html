@@ -153,14 +153,15 @@ window.liveScene = {
       .filter((flow) => flow.points.length >= 2 && flow.length > 0);
     flowsStartedAt = null;
   },
+  // Returns false when it changes nothing, so a voice tool can say so instead of confirming.
   zoomBy(amount) {
-    if (!tourDone) return;
+    if (!tourDone || returnStartedAt !== null) return false;
     restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
     if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance;
   },
   // Positive yaw moves the camera right around the subject, positive pitch moves it up, like a drag does.
   rotateBy(yawDegrees, pitchDegrees) {
-    if (!sceneIsBuilt || returnStartedAt !== null) return;
+    if (!sceneIsBuilt || returnStartedAt !== null) return false;
     window.liveScene.endTour();
     // The same limits as a drag, so a picture that already shows depth never turns to its paper-thin edge.
     draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw + THREE.MathUtils.degToRad(yawDegrees)));
@@ -175,7 +176,7 @@ window.liveScene = {
     finishTour();
   },
   resetView() {
-    if (!sceneIsBuilt || returnStartedAt !== null) return;
+    if (!sceneIsBuilt || returnStartedAt !== null) return false;
     window.liveScene.endTour();
     window.liveScene.focusPart("");
     draggedYaw = 0.6;
