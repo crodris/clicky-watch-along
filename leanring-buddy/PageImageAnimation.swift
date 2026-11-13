@@ -20,14 +20,24 @@ enum PageImageAnimation {
     /// The page names the URL, so a small file that claims a huge canvas is refused before any frame is decoded.
     nonisolated static let largestPixelCountPerFrame = 4096 * 4096
     nonisolated static let largestPixelCountForAllFrames = 300_000_000
+    /// Every frame is drawn at the capture's size and decoded at once in the page, so this caps the page's memory.
+    nonisolated static let largestOutputPixelCountForAllFrames = 60_000_000
     /// The download runs while Sonnet reads the frame, which takes about 4 seconds.
-    private static let downloadTimeoutSeconds: TimeInterval = 4
-    private static let largestDownloadByteCount = 8_000_000
+    nonisolated private static let downloadTimeoutSeconds: TimeInterval = 4
+    nonisolated private static let largestDownloadByteCount = 8_000_000
     /// No cookies, credentials, or cache, since the URL comes from whatever page is open.
-    private static let downloadSession = URLSession(configuration: .ephemeral)
+    nonisolated private static let downloadSession: URLSession = {
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.httpCookieStorage = nil
+        sessionConfiguration.httpShouldSetCookies = false
+        sessionConfiguration.urlCache = nil
+        sessionConfiguration.urlCredentialStorage = nil
+        return URLSession(configuration: sessionConfiguration)
+    }()
 
-    /// Nil for a still image, a failed or oversized download, or anything that is not an https URL.
-    static func frames(
+    /// Nil for a still image, a failed, oversized, or cancelled download, or anything that is not an https URL.
+    /// It runs off the main actor, since the download reads up to 8 MB one byte at a time.
+    @concurrent nonisolated static func frames(
         atImageURL imageURL: URL,
         frameWidth: Int,
         frameHeight: Int,
@@ -49,20 +59,18 @@ enum PageImageAnimation {
             print("Frame pop-out: could not download the page image to animate it: \(error.localizedDescription)")
             return nil
         }
-        // Decoding and encoding every frame takes a moment, so it runs off the main actor.
-        return await Task.detached(priority: .userInitiated) {
-            frames(
-                ofImageData: imageData,
-                frameWidth: frameWidth,
-                frameHeight: frameHeight,
-                backgroundColor: cornerColor(ofJPEGBase64: capturedFrameJPEGBase64)
-            )
-        }.value
+        return frames(
+            ofImageData: imageData,
+            frameWidth: frameWidth,
+            frameHeight: frameHeight,
+            backgroundColor: cornerColor(ofJPEGBase64: capturedFrameJPEGBase64)
+        )
     }
 
     /// Each frame drawn at the captured frame's size over `backgroundColor`, since the page stretches
     /// the image to its element box and the screen capture is that box.
-    /// Nil for a still image or one with more than `largestFrameCount` frames.
+    /// Nil for a still image, one with more than `largestFrameCount` frames, one whose frames at the capture's size
+    /// pass `largestOutputPixelCountForAllFrames`, or a cancelled task.
     nonisolated static func frames(
         ofImageData imageData: Data,
         frameWidth: Int,
@@ -71,7 +79,10 @@ enum PageImageAnimation {
     ) -> [PageImageAnimationFrame]? {
         guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else { return nil }
         let frameCount = CGImageSourceGetCount(imageSource)
-        guard frameCount > 1, frameCount <= largestFrameCount else { return nil }
+        guard frameCount > 1, frameCount <= largestFrameCount,
+              frameCount * frameWidth * frameHeight <= largestOutputPixelCountForAllFrames else {
+            return nil
+        }
         let imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] ?? [:]
         guard let pixelWidth = imageProperties[kCGImagePropertyPixelWidth] as? Int,
               let pixelHeight = imageProperties[kCGImagePropertyPixelHeight] as? Int,
@@ -81,6 +92,8 @@ enum PageImageAnimation {
         }
         var frames: [PageImageAnimationFrame] = []
         for frameIndex in 0..<frameCount {
+            // A pop-out that no longer waits for the frames stops the work here.
+            if Task.isCancelled { return nil }
             // Each decoded frame is freed before the next one, so memory holds one frame at a time.
             let frame: PageImageAnimationFrame? = autoreleasepool {
                 // ImageIO hands back each frame already composited over the frames before it.

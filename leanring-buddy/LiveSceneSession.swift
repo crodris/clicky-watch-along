@@ -140,13 +140,13 @@ enum LiveSceneAnswerJudge {
     }
 }
 
-/// The scene this transcript asks for, or nil when it asks for none. A quiz
-/// request wins, because "show me inside and quiz me" wants the quiz.
+/// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out,
+/// then a quiz, because "show me inside and quiz me" wants the quiz.
 nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
-    // "Animate" alone counts, but "animation" does not, so a question about animation software builds nothing.
+    // "Animate" needs an object, so "how do I animate text" and "animation" build nothing.
     let asksToAnimateThePicture = lowercaseTranscript.range(
-        of: #"\b(animate|make (it|this|that|them) (move|flow))\b"#,
+        of: #"\b(animate (it|this|that|them)|make (it|this|that|them) (move|flow))\b"#,
         options: .regularExpression
     ) != nil
     if asksToAnimateThePicture {

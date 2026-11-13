@@ -89,6 +89,7 @@ private final class AppleSpeechTranscriptionSession: NSObject, BuddyStreamingTra
         // Clicky's own commands, so the on-device model leans toward them ("render" was heard as "run").
         recognitionRequest.contextualStrings = [
             "quiz", "quiz me", "Clicky", "stop the quiz", "render", "render this in 3D", "in 3D", "pop this out", "show me",
+            "put it back", "animate this", "make it move", "make it flow",
         ]
 
         if speechRecognizer.supportsOnDeviceRecognition {

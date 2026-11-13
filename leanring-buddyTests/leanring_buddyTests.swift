@@ -184,6 +184,8 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "pop this out and make it move") == .animatedFramePopout)
         #expect(liveSceneKind(for: "make that flow") == .animatedFramePopout)
         #expect(liveSceneKind(for: "what animation software made this") == nil)
+        #expect(liveSceneKind(for: "how do I animate text in keynote") == nil)
+        #expect(liveSceneKind(for: "can you make it bigger") == nil)
     }
 
     @Test func pictureFlowsSayWhyNothingMovesOnlyWhenNothingIsShowing() async throws {

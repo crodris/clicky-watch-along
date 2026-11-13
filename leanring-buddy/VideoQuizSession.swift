@@ -546,7 +546,7 @@ final class VideoQuizSession {
     /// for a pop-out the learner asked for. Nil when Sonnet or Vision finds no single subject in it.
     static func framePopoutOfTheVisibleFrame(workerBaseURL: String) async throws -> VideoFramePopout? {
         let frameGrab: VideoFrameGrab
-        // An animated page image downloads while Sonnet reads the frame, so it adds no wait.
+        // An animated page image downloads while Sonnet reads the frame, and the pop-out waits for it only briefly after that.
         var pageImageAnimationTask: Task<[PageImageAnimationFrame]?, Never>?
         do {
             // Only the video in front is the one the learner pointed at.
@@ -562,7 +562,9 @@ final class VideoQuizSession {
                 }
                 frameGrab = screenGrab
                 // A capture cut off at a display edge no longer matches the image's own frames.
-                if let imageSourceURL = media.imageSourceURL, screenGrab.screenRect == media.screenRect {
+                // With Reduce Motion the page keeps the still frame, so nothing is downloaded.
+                if let imageSourceURL = media.imageSourceURL, screenGrab.screenRect == media.screenRect,
+                   !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                     pageImageAnimationTask = Task {
                         await PageImageAnimation.frames(
                             atImageURL: imageSourceURL,
@@ -587,20 +589,43 @@ final class VideoQuizSession {
             print("Video quiz: captured a \(frameGrab.width)x\(frameGrab.height) image from the screen for a requested pop-out")
         }
         // No question is being asked, so no label gets the quiz mark.
-        guard var framePopout = try await VideoFramePopoutClient.requestPopout(
-            workerBaseURL: workerBaseURL,
-            frameGrab: frameGrab,
-            subject: "",
-            question: "",
-            answerLabel: ""
-        ) else {
+        let foundFramePopout: VideoFramePopout?
+        do {
+            foundFramePopout = try await VideoFramePopoutClient.requestPopout(
+                workerBaseURL: workerBaseURL,
+                frameGrab: frameGrab,
+                subject: "",
+                question: "",
+                answerLabel: ""
+            )
+        } catch {
+            pageImageAnimationTask?.cancel()
+            throw error
+        }
+        guard var framePopout = foundFramePopout else {
+            pageImageAnimationTask?.cancel()
             return nil
         }
-        if let animationFrames = await pageImageAnimationTask?.value {
+        if let pageImageAnimationTask,
+           let animationFrames = await animationFramesReadyInTime(from: pageImageAnimationTask) {
             framePopout.animationFrames = animationFrames
             print("Frame pop-out: playing the page image's \(animationFrames.count) animation frames")
         }
         return framePopout
+    }
+
+    /// A slow image host must not hold the pop-out, so the frames get this long after Sonnet answers, and then the still frame plays.
+    private static let secondsToWaitForAnimationFramesAfterThePopout: Double = 1.5
+
+    private static func animationFramesReadyInTime(
+        from pageImageAnimationTask: Task<[PageImageAnimationFrame]?, Never>
+    ) async -> [PageImageAnimationFrame]? {
+        let deadlineTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(secondsToWaitForAnimationFramesAfterThePopout * 1_000_000_000))
+            pageImageAnimationTask.cancel()
+        }
+        defer { deadlineTask.cancel() }
+        return await pageImageAnimationTask.value
     }
 
     /// Grabs the frame while the video plays, a few seconds before the next pause.
@@ -793,7 +818,8 @@ private struct ChromeVideoTab {
     /// (not loaded, hidden, or fully transparent) are skipped. A loaded image with no natural width is skipped
     /// too, except an SVG, which can have only a viewBox and so no natural width. Returns the window's and
     /// the element's raw page geometry as JSON, or 'none' under 160x90 visible. An image wholly inside the
-    /// viewport and stretched to its box also returns its URL, since only then do its own frames line up with the capture. The page measures in CSS pixels and the window in
+    /// viewport and stretched to its box also returns its URL, since only then do its own frames line up with the capture.
+    /// Only a short https URL comes back, so a large data: URL never travels through AppleScript. The page measures in CSS pixels and the window in
     /// screen points, so `screenRectInChromeCoordinates` turns them into one screen rect, using Chrome's
     /// accessibility web area when it can, and the page zoom and the screen Chrome is on when it cannot.
     private static let largestVisibleMediaJavaScript = [
@@ -814,7 +840,7 @@ private struct ChromeVideoTab {
         "var visibleArea = (right - left) * (bottom - top);",
         "var score = visibleArea * (isVideo ? 4 : 1);",
         "var isWhollyVisible = rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight;",
-        "var imageSourceURL = !isVideo && isWhollyVisible && style.objectFit === 'fill' ? element.currentSrc : null;",
+        "var imageSourceURL = !isVideo && isWhollyVisible && style.objectFit === 'fill' && /^https:/i.test(element.currentSrc) && element.currentSrc.length < 2048 ? element.currentSrc : null;",
         "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea, imageSourceURL: imageSourceURL }; }",
         "}",
         "if (!best || best.visibleArea < 160 * 90) { return 'none'; }",

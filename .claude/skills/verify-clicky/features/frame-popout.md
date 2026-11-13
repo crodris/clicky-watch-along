@@ -19,7 +19,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   Flat illustrations and paintings keep the puffed-up lift.
 - `popout-animation` keeps an animated page image (GIF, animated WebP, or APNG) playing on the lifted subject and on the frame behind it, when the image sits wholly inside the viewport.
   Reduce Motion keeps the still frame.
-- `popout-flows` streams what flows through the picture, like air through an engine, when the learner says "animate this", "make it move", or "make it flow". It uses `/picture-flows`, and Reduce Motion holds the streams still.
+- `popout-flows` streams what flows through the picture, like air through an engine, when the learner says "animate this", "make it move", or "make it flow".
+  It uses `/picture-flows`, and Reduce Motion holds the streams still.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.

@@ -139,7 +139,10 @@ window.liveScene = {
       .map((flow) => {
         const points = flow.points.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
         const lengths = [0];
-        for (let i = 1; i < points.length; i++) lengths.push(lengths[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
+        for (let pointIndex = 1; pointIndex < points.length; pointIndex++) {
+          const previousPoint = points[pointIndex - 1], point = points[pointIndex];
+          lengths.push(lengths[pointIndex - 1] + Math.hypot(point[0] - previousPoint[0], point[1] - previousPoint[1]));
+        }
         return { color: flowColors[flow.color], points, lengths, length: lengths[lengths.length - 1] };
       })
       .filter((flow) => flow.points.length >= 2 && flow.length > 0);
@@ -386,8 +389,8 @@ const showsTheBackgroundColor = (data, index) =>
   (data[index] - backgroundRed) ** 2 + (data[index + 1] - backgroundGreen) ** 2 + (data[index + 2] - backgroundBlue) ** 2 < 40 * 40;
 const capturedFrameShowedTheBackground = new Uint8Array(boxW * boxH);
 if (animationFrames.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-  for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
-    capturedFrameShowedTheBackground[y * boxW + x] = showsTheBackgroundColor(pixels, ((y + y0) * W + (x + x0)) * 4) ? 1 : 0;
+  for (let rowInBox = 0; rowInBox < boxH; rowInBox++) for (let columnInBox = 0; columnInBox < boxW; columnInBox++) {
+    capturedFrameShowedTheBackground[rowInBox * boxW + columnInBox] = showsTheBackgroundColor(pixels, ((rowInBox + y0) * W + (columnInBox + x0)) * 4) ? 1 : 0;
   }
   // The scene starts on the captured frame and picks up the animation once every frame has decoded.
   Promise.all(animationFrames.map((animationFrame) => {
@@ -403,9 +406,9 @@ const showAnimationFrame = (frameImage) => {
   cutoutContext.drawImage(frameImage, x0, y0, boxW, boxH, 0, 0, boxW, boxH);
   cutoutContext.globalCompositeOperation = "source-over";
   const cutoutData = cutoutContext.getImageData(0, 0, boxW, boxH);
-  for (let i = 0; i < subjectMask.length; i++) {
-    const uncoveredBackground = !capturedFrameShowedTheBackground[i] && showsTheBackgroundColor(cutoutData.data, i * 4);
-    cutoutData.data[i * 4 + 3] = subjectMask[i] && !uncoveredBackground ? 255 : 0;
+  for (let maskIndex = 0; maskIndex < subjectMask.length; maskIndex++) {
+    const uncoveredBackground = !capturedFrameShowedTheBackground[maskIndex] && showsTheBackgroundColor(cutoutData.data, maskIndex * 4);
+    cutoutData.data[maskIndex * 4 + 3] = subjectMask[maskIndex] && !uncoveredBackground ? 255 : 0;
   }
   cutoutContext.putImageData(cutoutData, 0, 0);
   subjectTexture.needsUpdate = true;
@@ -467,11 +470,12 @@ const flowPointOnPage = (frameX, frameY) => {
   return [(projected.x + 1) / 2 * pageWidth, (1 - projected.y) / 2 * pageHeight];
 };
 const pointAlongFlow = (flow, distanceAlong) => {
-  for (let i = 1; i < flow.points.length; i++) {
-    if (distanceAlong <= flow.lengths[i] || i === flow.points.length - 1) {
-      const segmentLength = flow.lengths[i] - flow.lengths[i - 1];
-      const t = segmentLength === 0 ? 0 : Math.min(1, (distanceAlong - flow.lengths[i - 1]) / segmentLength);
-      return [flow.points[i - 1][0] + (flow.points[i][0] - flow.points[i - 1][0]) * t, flow.points[i - 1][1] + (flow.points[i][1] - flow.points[i - 1][1]) * t];
+  for (let pointIndex = 1; pointIndex < flow.points.length; pointIndex++) {
+    if (distanceAlong <= flow.lengths[pointIndex] || pointIndex === flow.points.length - 1) {
+      const segmentStart = flow.points[pointIndex - 1], segmentEnd = flow.points[pointIndex];
+      const segmentLength = flow.lengths[pointIndex] - flow.lengths[pointIndex - 1];
+      const fractionAlongSegment = segmentLength === 0 ? 0 : Math.min(1, (distanceAlong - flow.lengths[pointIndex - 1]) / segmentLength);
+      return [segmentStart[0] + (segmentEnd[0] - segmentStart[0]) * fractionAlongSegment, segmentStart[1] + (segmentEnd[1] - segmentStart[1]) * fractionAlongSegment];
     }
   }
   return flow.points[flow.points.length - 1];

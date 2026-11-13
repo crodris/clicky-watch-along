@@ -236,15 +236,18 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   LiveSceneOverlay.swift    # Transparent window that plays the 3D scene
   VideoFramePopout.swift    # Lifts the subject of a video frame or page image out in 3D
   ChromeWebArea.swift       # Finds where Chrome's page sits on screen, for the image pop-out
+  PageImageAnimation.swift  # Splits an animated page image into frames so its pop-out keeps playing
+  PictureFlows.swift        # Asks for what flows through a popped-out picture, for "animate this"
   LiveSceneStatusLine.swift # The loading label for each step and its animation
   LiveSceneStatusLabelViews.swift # Draws each loading label and its icon
   LandmarkTiles.swift       # Google's 3D scan of a famous place
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan, /video-frame-parts, /landmark, /v1/3dtiles
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
+  src/pictureFlows.ts       # Draws what flows through a popped-out picture
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
