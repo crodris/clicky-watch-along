@@ -103,6 +103,7 @@ While a quiz question is open the hand-off tools are left out, because the old p
 The video tools act on the largest video on the front tab's page (`ChromeVideoTab.frontTabOfTheFrontWindow`), so they work on Vimeo, Coursera, or a Wikimedia file as well as YouTube, but not on a video inside a frame from another site, which a page script cannot reach. The quiz, the pop-out frame grab, and the landmark scan stay on YouTube, because they copy the frame through a page canvas, which Chrome blocks for a video served from another site.
 Finding a YouTube tab reads each window's tabs in three batched Apple Events, and the front-tab check reads only the front tab, because one event per tab took about 640 ms with 28 tabs open.
 A voice pause or play on a tab Clicky paused drops Clicky's pause record, so Clicky never presses play on it later.
+A voice play counts only once the video is not paused and holds data to play (`playing` in the video state), checked for about 1.6 seconds (`learnerVideoPlayOutcome`), because Chrome refuses a video with sound on a page never clicked, and some pages show an empty placeholder video until their own play button is clicked. The failure goes back to the model, which tells the learner to click the play button once.
 `find_moment` scores the captions (the quiz's, or yt-dlp's, kept per video for the session) and returns the best 3 lines, and the model then calls `seek_to_time`.
 Each call shows `VoiceToolCallChip` under the cursor with the call, such as `rotate_model(yawDegrees: -45)`, for 1.4 seconds with a fade only.
 When every tool changed the screen, Clicky speaks the confirmations the model put in the calls, after the change (`voiceCommandNextStep`).
@@ -176,6 +177,7 @@ The pop-out lands back in the frame, then clears before the video plays again. S
 | `worker/src/liveSceneReply.ts` | ~71 | Zod and plain checks for a live scene model reply: required page markers, no external URL, and a quiz JSON block. Tested in `worker/src/liveSceneReply.test.ts`. |
 | `worker/src/anthropic.ts` | ~160 | Shared Worker helpers: JSON responses, request body parsing, the token usage log (which names the model), `zodIssuesOnOneLine` for schema errors that must stay on one log line, `withCachedSystemPrompt`, `requestAnthropicMessage` (the one fetch path, returning the whole message), and one Anthropic Messages call that returns the first text block parsed as JSON. |
 | `bench/bench.ts` | ~803 | Benchmark of every Worker route the demo uses, on fixed fixtures in `bench/fixtures/`: latency, tokens, cost, and a quality check per call, with results in `bench/results/`. Each side of a comparison sends what its own app version sends. See `bench/README.md`. |
+| `tools/swift-check.sh` | ~35 | Builds the app's Swift sources and runs `leanring-buddyTests` without xcodebuild, in a throwaway Swift package that links the sources in place, with the stand-ins and settings in `tools/swift-check/`. Its `Package.swift` mirrors the Xcode target's Swift settings, so change both together. |
 | `bench/report.ts` | ~185 | Turns benchmark result files into the CSV tables a chart page reads. CI runs it on every committed result. |
 
 ## Build & Run
@@ -187,6 +189,11 @@ open leanring-buddy.xcodeproj
 # Select the leanring-buddy scheme, set signing team, Cmd+R to build and run
 
 # Cmd+U runs leanring-buddyTests (Swift Testing) hosted in Clicky.app. CI runs the same tests.
+
+# Without Xcode: build the sources and run leanring-buddyTests in about 15 seconds, in a throwaway
+# Swift package with stand-ins for PostHog and Sparkle (never xcodebuild, see below)
+tools/swift-check.sh
+tools/swift-check.sh --filter voiceCommand
 
 # Known non-blocking warnings: Swift 6 concurrency warnings,
 # deprecated onChange warning in OverlayWindow.swift. Do NOT attempt to fix these.
