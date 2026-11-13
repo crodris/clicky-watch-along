@@ -44,6 +44,10 @@ const labelEntries = [];
 let focusedEntry = null;
 let tourDone = false;
 let cameraDistance = 0;
+// After the tour the camera eases toward this distance, so a voice zoom glides instead of jumping.
+let restingCameraDistance = 0;
+let tourEndedEarlyAt = null;
+const reducedMotionQuery = matchMedia("(prefers-reduced-motion: reduce)");
 let minimumDistance = 0;
 let maximumDistance = 0;
 let yaw = 0;
@@ -129,7 +133,46 @@ window.liveScene = {
   },
   zoomBy(amount) {
     if (!tourDone) return;
-    cameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, cameraDistance * (1 - amount)));
+    restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
+    if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance;
+  },
+  // Positive yaw moves the camera right around the subject, positive pitch moves it up, like a drag does.
+  rotateBy(yawDegrees, pitchDegrees) {
+    if (!sceneIsBuilt || returnStartedAt !== null) return;
+    window.liveScene.endTour();
+    draggedYaw += THREE.MathUtils.degToRad(yawDegrees);
+    draggedPitch = Math.min(1.1, Math.max(-1.1, draggedPitch + THREE.MathUtils.degToRad(pitchDegrees)));
+    if (reducedMotionQuery.matches) { yaw = draggedYaw; pitch = draggedPitch; }
+  },
+  // A voice command during the tour stops it where it is, and the camera glides to the subject from there.
+  endTour() {
+    if (!sceneIsBuilt || tourDone || returnStartedAt !== null) return;
+    tourEndedEarlyAt = performance.now();
+    focusMove = { startedAt: performance.now(), from: null };
+    finishTour();
+  },
+  resetView() {
+    if (!sceneIsBuilt || returnStartedAt !== null) return;
+    window.liveScene.endTour();
+    window.liveScene.focusPart("");
+    draggedYaw = 0.6;
+    draggedPitch = 0.18;
+    restingCameraDistance = endDistance;
+    focusMove = { startedAt: performance.now(), from: null };
+    if (reducedMotionQuery.matches) { yaw = draggedYaw; pitch = draggedPitch; cameraDistance = restingCameraDistance; }
+  },
+  getState() {
+    const zoomRange = maximumDistance - minimumDistance;
+    // During the tour the camera is still moving, so the pose it has right now is the truth.
+    const shownDistance = tourDone ? restingCameraDistance : cameraDistance;
+    return {
+      yawDegrees: Math.round(THREE.MathUtils.radToDeg(tourDone ? draggedYaw : yaw)),
+      pitchDegrees: Math.round(THREE.MathUtils.radToDeg(tourDone ? draggedPitch : pitch)),
+      zoom: zoomRange > 0 ? Math.round(Math.min(1, Math.max(0, (maximumDistance - shownDistance) / zoomRange)) * 100) / 100 : 0,
+      // The label's own text, so a quiz answer still reads "?".
+      focusedLabel: focusedEntry ? focusedEntry.element.textContent : "",
+      tourFinished: tourDone,
+    };
   },
   // Clicky's blue cursor points at a label, so the boxes are read only once the camera stops gliding.
   // A subject sinking back has nothing to point at, and its window may hide, which stops animation frames, so this waits on timers.
@@ -427,6 +470,7 @@ let lastFrameTime;
 
 const finishTour = () => {
   draggedYaw = yaw; draggedPitch = pitch;
+  restingCameraDistance = endDistance;
   tourDone = true;
   window.__tourFinished = true;
   // A quiz pop-out keeps its question, so only a pop-out with no quiz explains a clicked label.
@@ -466,9 +510,10 @@ const render = (now) => {
     const easeToDrag = 1 - Math.exp(-frameMilliseconds / 50);
     yaw += (draggedYaw - yaw) * easeToDrag;
     pitch += (draggedPitch - pitch) * easeToDrag;
+    cameraDistance += (restingCameraDistance - cameraDistance) * easeToDrag;
     const restingTarget = focusedEntry ? partPoint(focusedEntry) : subjectCenter();
     if (focusMove) {
-      const progress = Math.min(1, (now - focusMove.startedAt) / 1500);
+      const progress = reducedMotionQuery.matches ? 1 : Math.min(1, (now - focusMove.startedAt) / 1500);
       if (!focusMove.from) focusMove.from = target.clone();
       target.lerpVectors(focusMove.from, restingTarget, ease(progress));
       if (progress === 1) focusMove = null;
@@ -486,7 +531,8 @@ const render = (now) => {
   // are projected before renderer.render refreshes it. Without this, labels shook while turning.
   camera.updateMatrixWorld();
 
-  const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6));
+  const labelFadeInAfterAnEarlyEnd = tourEndedEarlyAt === null ? 0 : (now - tourEndedEarlyAt) / 600;
+  const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6, labelFadeInAfterAnEarlyEnd));
   const centerOnPage = subjectCenter().project(camera);
   const centerX = (centerOnPage.x + 1) / 2 * pageWidth, centerY = (1 - centerOnPage.y) / 2 * pageHeight;
   const reach = Math.min(pageWidth, pageHeight) * 0.14;
