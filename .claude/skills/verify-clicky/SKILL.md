@@ -25,7 +25,9 @@ $V            # prints usage
 - Never run `xcodebuild` on this Mac as Chris's user.
   It resets the app's TCC permissions.
   Chris builds the Debug app in Xcode (Cmd+B).
-  CI builds it on this Mac only as the separate `clicky-ci` user, into a temp folder, so it never replaces the app Chris's grants belong to.
+  CI builds it on this Mac as the separate `clicky-ci` user, into a temp folder.
+  That build never replaces the app Chris's grants belong to.
+  Fork pull requests build on GitHub's `macos-latest`.
 - Never stop, quit, or drive a Worker or a Clicky instance this script did not start.
   Doctor names the owner of each, and the helper refuses to drive one it did not start.
 - Never run `wrangler deploy`.
