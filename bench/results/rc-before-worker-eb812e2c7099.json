@@ -1,0 +1,184 @@
+{
+  "label": "rc-before",
+  "benchKind": "worker",
+  "commitSHA": "eb812e2c7099",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-13T18:55:46.132Z",
+  "runCount": 5,
+  "port": 8790,
+  "interleavedWith": [
+    "rc-after"
+  ],
+  "summary": [
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 25093,
+        "p95": 48462,
+        "min": 19628,
+        "max": 48462
+      },
+      "firstByteMs": {
+        "p50": 25092,
+        "p95": 48460,
+        "min": 19627,
+        "max": 48460
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 14,
+      "meanCacheWriteTokens": 686,
+      "meanCacheReadTokens": 3432,
+      "meanOutputTokens": 3748,
+      "meanCostUSD": 0.03957
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 48459.597959,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 48462.272667,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 3432,
+          "cacheReadTokens": 0,
+          "outputTokens": 3032
+        },
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 50,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 3353
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0728812,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 108, 204, 276, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks first appeared more than four hundred million years ago. Which famous animals came along after them?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"earlier\",\"ancient\"],\"explanation\":\"Dinosaurs came after sharks. Sharks first showed up more than four hundred million years ago, long before the dinosaurs.\",\"sourceLineSeconds\":24,\"subject\":\"ancient prehistoric shark swimming in an old ocean\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Most fish use a swim bladder to float, but sharks do not. What organ he"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 24970.924084000006,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 24971.737583999995,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 3243
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.032781199999999996,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 96, 204, 276, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks swam the oceans long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"ancient\",\"earlier\"],\"explanation\":\"Sharks first appeared more than four hundred million years ago, long before the dinosaurs. That makes them truly ancient survivors.\",\"sourceLineSeconds\":24,\"subject\":\"prehistoric shark swimming beside a dinosaur silhouette\"},{\"pauseAtSeconds\":96,\"question\":\"Let's pause here! Sharks have no swim bladder. Which body part filled with oil helps them float instead?\",\"answer"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 25091.60316700001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 25092.984416999985,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 3230
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0326512,
+      "quality": {
+        "passed": true,
+        "detail": "7 moments at 36, 108, 192, 276, 360, 432, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for over four hundred million years. Which famous prehistoric animals came along after sharks?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"ancient\"],\"explanation\":\"Sharks first appeared long before the dinosaurs. That makes them truly ancient ocean survivors.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Sharks have no gas-filled swim bladder to help them float. Which body part works like a built"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 19627.376290999993,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 19628.158790999994,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2603
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0263812,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 96, 204, 288, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for over four hundred million years. Which famous prehistoric animals came after them?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"older\",\"ancient\"],\"explanation\":\"Sharks first appeared more than four hundred million years ago. That was long before the dinosaurs.\",\"sourceLineSeconds\":24,\"subject\":\"prehistoric shark swimming in an ancient ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Let's pause here! Most fish use a swim bladder to float, but sharks do not have one. Which organ helps a "
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 25406.68083300002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 25407.81575000001,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 3278
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0331312,
+      "quality": {
+        "passed": true,
+        "detail": "7 moments at 36, 108, 216, 288, 384, 444, 552"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for over 400 million years, so they showed up long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"older\",\"long\"],\"explanation\":\"The answer is dinosaurs. Sharks first appeared more than 400 million years ago, long before the dinosaurs.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Sharks have no swim bladder, so which big organ helps them float?\",\"answerLabe"
+    }
+  ]
+}

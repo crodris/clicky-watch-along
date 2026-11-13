@@ -26,6 +26,7 @@ Case IDs are the `id` fields in `benchCases`.
 
 Run the two Workers side by side and let the benchmark alternate between them, so drift in upstream latency hits both sides equally.
 Each side is `label:port:checkout`.
+Each side sends what its own app version sends: the benchmark reads the chat model, effort, system prompt, speech model, and speech format from that checkout's Swift source, and prints them as the side's app profile.
 The second checkout is a git worktree at the other commit, with its own `worker/.dev.vars` and its own `verify-clicky.sh worker-up <port>`.
 
 ```bash
@@ -44,10 +45,21 @@ Swift `print()` lines carry no timestamps, so the benchmark watches `app.log` ev
 
 It needs a Worker this checkout started on port 8787, Chrome's front tab showing a page with one large image, and nobody using the Mac, because the app speaks and draws over the screen.
 
+## Charts
+
+`report.ts` turns result files into CSV tables for a chart page: `routes.csv` (one row per case and side), `samples.csv` (one row per request), and `app.csv` (app timings).
+
+```bash
+node bench/report.ts --out /tmp/clicky-report bench/results/before-worker-*.json bench/results/after-worker-*.json bench/results/*-app-*.json
+```
+
+CI runs it on every committed result, so a result file that no longer parses fails the build.
+
 ## What each number means
 
-- `totalMs` is request start to the last byte. The app waits for the whole body on every route, including `/tts`.
+- `totalMs` is request start to the last byte. The app waits for the whole body on every route except streamed `/tts`.
 - `firstTokenMs` is request start to the first text token of a streamed `/chat` reply.
+- `firstAudioMs` is when the app could start speaking a `/tts` reply: the first buffer of streamed PCM, or the whole body for an MP3, which the older app downloads in full before it plays.
 - Tokens come from the Worker's `[/route] usage {...}` log lines, one per model call, so two lines for one request mean one retry.
   Streamed `/chat` logs no usage line, so its tokens come from the stream's `message_start` and `message_delta` events.
 - `costUSD` prices each usage line by the model it names. `/tts` is priced per character. A GPT live scene uses the repo's $0.23 estimate.

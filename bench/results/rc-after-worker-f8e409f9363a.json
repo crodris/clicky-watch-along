@@ -1,0 +1,176 @@
+{
+  "label": "rc-after",
+  "benchKind": "worker",
+  "commitSHA": "f8e409f9363a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-13T18:55:46.152Z",
+  "runCount": 5,
+  "port": 8789,
+  "interleavedWith": [
+    "rc-before"
+  ],
+  "summary": [
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 21122,
+        "p95": 28475,
+        "min": 15284,
+        "max": 28475
+      },
+      "firstByteMs": {
+        "p50": 21121,
+        "p95": 28474,
+        "min": 15283,
+        "max": 28474
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3432,
+      "meanOutputTokens": 2807,
+      "meanCostUSD": 0.02843
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 15282.533124999994,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 15283.924791999998,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2043
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0207812,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 108, 204, 288, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for over four hundred million years, so they showed up long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"ancient\",\"older\"],\"explanation\":\"Sharks appeared long before the dinosaurs. They have been around for more than four hundred million years.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Sharks have no swim bladder to help them float. Which organ filled"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 19797.333709,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 19798.21549999999,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2603
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0263812,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 120, 204, 288, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been around more than four hundred million years, so they were swimming before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"ancient\",\"older\"],\"explanation\":\"Sharks appeared before the dinosaurs. They first showed up in the oceans more than four hundred million years ago.\",\"sourceLineSeconds\":24,\"subject\":\"prehistoric shark swimming in an ancient ocean\"},{\"pauseAtSeconds\":120,\"question\":\"Let's pause here! Sharks have no swim bladder, so which body part works like their"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 21121.285375000007,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21121.766166000016,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2727
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.027621200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 108, 204, 288, 444, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for more than four hundred million years, since long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"ancient\",\"earlier\"],\"explanation\":\"Sharks first appeared long before the dinosaurs. That makes them truly ancient animals.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming near a dinosaur-era seabed\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Sharks have no swim bladder, so which oil-filled organ works like a built-in float?\",\"answerLabe"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 28474.235583,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 28475.058375000022,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 3801
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0383612,
+      "quality": {
+        "passed": true,
+        "detail": "7 moments at 36, 96, 204, 276, 384, 444, 552"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks first showed up in the oceans more than 400 million years ago. Which famous prehistoric animals came along much later?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"older\",\"ancient\"],\"explanation\":\"Sharks appeared long before the dinosaurs. That makes sharks incredibly ancient animals.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Let's pause here! Sharks have no swim bladder. Which organ filled with oil works like a built-in float?\",\"ans"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 21571.927082999988,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21573.932792000007,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2863
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.028981200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 96, 204, 288, 444, 552"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks first appeared in the oceans over four hundred million years ago, long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"ancient\"],\"explanation\":\"Sharks were swimming in the oceans long before the dinosaurs. That makes them one of the oldest animal groups still alive.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Let's pause here! Sharks have no swim bladder, so which oil-filled organ helps them float?\","
+    }
+  ]
+}
