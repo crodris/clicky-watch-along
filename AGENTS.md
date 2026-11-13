@@ -204,8 +204,12 @@ pnpm 12 refuses to install a dependency with an unapproved build script.
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main.
 The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
 The `bench` job typechecks `bench/` and checks that the committed results in `bench/results/` still parse.
-The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
-Running xcodebuild there is fine, since the runner has no TCC permissions to lose.
+The `app` job builds the `leanring-buddy` scheme with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
+Pushes and same-repo pull requests run it on the self-hosted runner `clicky-mac` on Chris's Mac, because GitHub's macOS queue can take over 10 minutes.
+That runner runs as the separate `clicky-ci` macOS user from the LaunchDaemon `/Library/LaunchDaemons/com.crodris.clicky-ci-runner.plist`, and TCC permissions are stored per user, so its xcodebuild runs cannot reset Chris's grants for Clicky.
+The `clicky-ci` password is in Chris's login keychain under `clicky-ci-macos-user`.
+While the Mac sleeps, these jobs wait until it wakes.
+Fork pull requests run on GitHub's `macos-latest`, and the repo requires approval before an outside contributor's workflow runs, since a fork can change `runs-on`.
 
 ## Verification
 

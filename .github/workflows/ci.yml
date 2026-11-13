@@ -60,14 +60,17 @@ jobs:
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
 
   app:
-    runs-on: macos-latest
+    # Pushes and same-repo PRs run on the self-hosted runner on Chris's Mac, as the clicky-ci user, because GitHub's macOS queue can take over 10 minutes.
+    # Fork PRs stay on GitHub's runner, and the repo requires approval before an outside contributor's workflow runs, since a fork can edit this line.
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'clicky-mac' || 'macos-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Match the Xcode Chris builds with locally, so a newer runner default cannot break the build unnoticed.
-      - run: sudo xcode-select -s /Applications/Xcode_26.5.app
+      # Match the Xcode Chris builds with locally, so a newer runner default cannot break the build unnoticed. The Mac runner already uses that Xcode.
+      - if: runner.environment == 'github-hosted'
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app
       - run: >
           xcodebuild build
           -project leanring-buddy.xcodeproj
