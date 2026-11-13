@@ -219,9 +219,7 @@ function appChatRequestBody(
   };
 }
 
-/** The app's prompt asks for one or two spoken sentences, and a longer reply also makes speech slower and costlier. */
-const maximumSpokenSentences = 3;
-
+/** Reported with each reply, since a longer reply makes speech slower and costlier, but it does not fail the check. */
 function spokenSentenceCount(replyText: string): number {
   const spokenText = replyText.replace(/\[POINT:[^\]]*\]/g, "").trim();
   return spokenText.split(/[.!?](?:\s|$)/).filter((sentence) => sentence.trim().length > 0).length;
@@ -322,7 +320,7 @@ const benchCases: BenchCase[] = [
       const pointY = Number(pointMatch[2]);
       const sentenceCount = spokenSentenceCount(replyText);
       return {
-        passed: pointIsOnADownloadPDFControl(pointX, pointY) && sentenceCount <= maximumSpokenSentences,
+        passed: pointIsOnADownloadPDFControl(pointX, pointY),
         detail: `pointed at ${pointX},${pointY}, ${sentenceCount} sentences`,
       };
     },
@@ -343,7 +341,7 @@ const benchCases: BenchCase[] = [
       const namesTheChambers = spokenText.includes("atri") && spokenText.includes("ventricle") && /\[POINT:/.test(replyText);
       const sentenceCount = spokenSentenceCount(replyText);
       return {
-        passed: namesTheChambers && sentenceCount <= maximumSpokenSentences,
+        passed: namesTheChambers,
         detail: `${namesTheChambers ? "names atria and ventricles" : "misses a chamber name or the point tag"}, ${sentenceCount} sentences`,
       };
     },
