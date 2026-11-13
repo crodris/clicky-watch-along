@@ -153,21 +153,27 @@ report_usage_lines_since() {
 }
 
 # Xcode keeps one DerivedData folder per project path, and other repos can leave Clicky.app builds too.
-# Only builds of this repository's checkouts count, and the newest executable wins.
+# The build of this checkout wins, because several worktrees build at once and the newest build may be
+# another branch's. Only when this checkout has no build does the newest build of any checkout count.
 debug_app_path() {
-  local checkout_project_paths derived_data_folder newest_binary=""
+  local checkout_project_paths this_checkout_project derived_data_folder newest_binary="" this_checkout_binary=""
   checkout_project_paths="$(git -C "$checkout_root" worktree list --porcelain | sed -n 's/^worktree //p' | sed 's#$#/leanring-buddy.xcodeproj#')"
+  this_checkout_project="$checkout_root/leanring-buddy.xcodeproj"
   for derived_data_folder in "$HOME"/Library/Developer/Xcode/DerivedData/leanring-buddy-*; do
     local built_binary="$derived_data_folder/Build/Products/Debug/Clicky.app/Contents/MacOS/Clicky"
     [[ -f "$built_binary" ]] || continue
     local workspace_path
     workspace_path="$(plutil -extract WorkspacePath raw "$derived_data_folder/info.plist" 2>/dev/null || true)"
     grep -qxF "$workspace_path" <<<"$checkout_project_paths" || continue
+    if [[ "$workspace_path" == "$this_checkout_project" ]] && [[ -z "$this_checkout_binary" || "$built_binary" -nt "$this_checkout_binary" ]]; then
+      this_checkout_binary="$built_binary"
+    fi
     if [[ -z "$newest_binary" || "$built_binary" -nt "$newest_binary" ]]; then
       newest_binary="$built_binary"
     fi
   done
-  [[ -n "$newest_binary" ]] && echo "${newest_binary%/Contents/MacOS/Clicky}"
+  local chosen_binary="${this_checkout_binary:-$newest_binary}"
+  [[ -n "$chosen_binary" ]] && echo "${chosen_binary%/Contents/MacOS/Clicky}"
   return 0
 }
 
