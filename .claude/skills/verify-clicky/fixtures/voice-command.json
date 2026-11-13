@@ -1,0 +1,89 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "<scene_state>{\"page\":\"framePopout\",\"yawDegrees\":79,\"pitchDegrees\":10,\"zoom\":0.4,\"labels\":[\"wing\",\"tail\",\"engine\"],\"tourFinished\":true,\"video\":{\"seconds\":212,\"paused\":true}}</scene_state>\n<recent_actions>\nrotate_model {\"yawDegrees\":45} -> ok\n</recent_actions>\nLearner said: \"no, turn it the other way\""
+        }
+    ],
+    "tools": [
+        {
+            "name": "rotate_model",
+            "description": "Orbit the camera around the model on screen. Positive yawDegrees moves the camera to the right around the model, negative to the left. Positive pitchDegrees moves the camera up to look down on it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "yawDegrees": {
+                        "type": "number"
+                    },
+                    "pitchDegrees": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "yawDegrees"
+                ]
+            }
+        },
+        {
+            "name": "zoom",
+            "description": "Move the camera closer or farther. factor 1.3 is 30 percent closer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "factor": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "factor"
+                ]
+            }
+        },
+        {
+            "name": "zoom_to_part",
+            "description": "Move the camera to one labeled part.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "label"
+                ]
+            }
+        },
+        {
+            "name": "reset_view",
+            "description": "Show the whole model again.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "answer_with_screen",
+            "description": "Answer a question about what is on screen, with a screenshot. Use for questions, not changes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "seek_relative",
+            "description": "Move the YouTube video forward (positive) or back (negative) by seconds.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "seconds": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "seconds"
+                ]
+            }
+        }
+    ]
+}
