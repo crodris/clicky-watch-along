@@ -1,0 +1,1764 @@
+{
+  "label": "baseline",
+  "benchKind": "worker",
+  "commitSHA": "eb812e2c7099",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-13T18:03:17.652Z",
+  "runCount": 5,
+  "port": 8789,
+  "summary": [
+    {
+      "caseId": "chat-first",
+      "route": "/chat",
+      "description": "First push-to-talk question with one 1280x800 screenshot, streamed",
+      "models": [
+        "claude-sonnet-4-6"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2723,
+        "p95": 3357,
+        "min": 2565,
+        "max": 3357
+      },
+      "firstByteMs": {
+        "p50": 965,
+        "p95": 1669,
+        "min": 892,
+        "max": 1669
+      },
+      "firstTokenMs": {
+        "p50": 966,
+        "p95": 1670,
+        "min": 893,
+        "max": 1670
+      },
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2419,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 54,
+      "meanCostUSD": 0.00806
+    },
+    {
+      "caseId": "chat-followup",
+      "route": "/chat",
+      "description": "Second question in the same conversation, with one exchange of history",
+      "models": [
+        "claude-sonnet-4-6"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2362,
+        "p95": 3414,
+        "min": 2160,
+        "max": 3414
+      },
+      "firstByteMs": {
+        "p50": 1200,
+        "p95": 2334,
+        "min": 1081,
+        "max": 2334
+      },
+      "firstTokenMs": {
+        "p50": 1200,
+        "p95": 2335,
+        "min": 1082,
+        "max": 2335
+      },
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2456,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 49,
+      "meanCostUSD": 0.0081
+    },
+    {
+      "caseId": "tts",
+      "route": "/tts",
+      "description": "Speaks a 155-character reply with the app's ElevenLabs settings",
+      "models": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 929,
+        "p95": 1146,
+        "min": 743,
+        "max": 1146
+      },
+      "firstByteMs": {
+        "p50": 904,
+        "p95": 1039,
+        "min": 718,
+        "max": 1039
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 0,
+      "meanInputTokens": 0,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 0,
+      "meanCostUSD": 0.0124
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 13909,
+        "p95": 19538,
+        "min": 13034,
+        "max": 19538
+      },
+      "firstByteMs": {
+        "p50": 13908,
+        "p95": 19537,
+        "min": 13034,
+        "max": 19537
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 2246,
+      "meanOutputTokens": 1985,
+      "meanCostUSD": 0.02008
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "route": "/video-frame-parts",
+      "description": "Finds the heart in a 1280x720 diagram frame",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1776,
+        "p95": 2014,
+        "min": 1697,
+        "max": 2014
+      },
+      "firstByteMs": {
+        "p50": 1775,
+        "p95": 2013,
+        "min": 1697,
+        "max": 2013
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2417,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 245,
+      "meanCostUSD": 0.00728
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "route": "/video-frame-parts",
+      "description": "Lifts The Starry Night out as a whole picture",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2044,
+        "p95": 2513,
+        "min": 1740,
+        "max": 2513
+      },
+      "firstByteMs": {
+        "p50": 2044,
+        "p95": 2512,
+        "min": 1739,
+        "max": 2512
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2417,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 217,
+      "meanCostUSD": 0.00701
+    },
+    {
+      "caseId": "landmark",
+      "route": "/landmark",
+      "description": "Recognizes the Eiffel Tower in a 1280x720 frame",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1119,
+        "p95": 2314,
+        "min": 1083,
+        "max": 2314
+      },
+      "firstByteMs": {
+        "p50": 1119,
+        "p95": 2313,
+        "min": 1082,
+        "max": 2313
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1849,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 65,
+      "meanCostUSD": 0.00435
+    },
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 14472,
+        "p95": 17865,
+        "min": 10852,
+        "max": 17865
+      },
+      "firstByteMs": {
+        "p50": 14472,
+        "p95": 17864,
+        "min": 10851,
+        "max": 17864
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2061,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1646,
+      "meanOutputTokens": 3986,
+      "meanCostUSD": 0.23
+    },
+    {
+      "caseId": "judge-correct",
+      "route": "/judge-answer",
+      "description": "Grades \"that's the left ventricle, it pumps blood out to the whole body\" and expects correct",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1698,
+        "p95": 1885,
+        "min": 1491,
+        "max": 1885
+      },
+      "firstByteMs": {
+        "p50": 1697,
+        "p95": 1884,
+        "min": 1491,
+        "max": 1884
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 907,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 62,
+      "meanCostUSD": 0.00243
+    },
+    {
+      "caseId": "judge-named-only",
+      "route": "/judge-answer",
+      "description": "Grades \"the left ventricle\" and expects named_only",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1660,
+        "p95": 1950,
+        "min": 1559,
+        "max": 1950
+      },
+      "firstByteMs": {
+        "p50": 1659,
+        "p95": 1949,
+        "min": 1558,
+        "max": 1949
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 892,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 46,
+      "meanCostUSD": 0.00224
+    },
+    {
+      "caseId": "judge-wrong",
+      "route": "/judge-answer",
+      "description": "Grades \"is it the lungs?\" and expects wrong",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1189,
+        "p95": 1511,
+        "min": 1131,
+        "max": 1511
+      },
+      "firstByteMs": {
+        "p50": 1188,
+        "p95": 1510,
+        "min": 1130,
+        "max": 1510
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 893,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 68,
+      "meanCostUSD": 0.00247
+    },
+    {
+      "caseId": "judge-help",
+      "route": "/judge-answer",
+      "description": "Grades \"i don't know, can you tell me?\" and expects asked_for_help",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1868,
+        "p95": 3043,
+        "min": 1722,
+        "max": 3043
+      },
+      "firstByteMs": {
+        "p50": 1867,
+        "p95": 3042,
+        "min": 1722,
+        "max": 3042
+      },
+      "firstTokenMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 897,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 86,
+      "meanCostUSD": 0.00265
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "chat-first",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 964.864834,
+      "firstTokenMs": 965.9322090000001,
+      "totalMs": 2723.33775,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 59
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008142,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371"
+      }
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 892.1127500000002,
+      "firstTokenMs": 892.9179999999997,
+      "totalMs": 2734.0474999999997,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 58
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008127,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371"
+      }
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1669.1841249999998,
+      "firstTokenMs": 1669.653792,
+      "totalMs": 3357.011542,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 52
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008037,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371"
+      }
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 980.1220840000005,
+      "firstTokenMs": 980.256292,
+      "totalMs": 2565.1175000000003,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 48
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007977,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371"
+      }
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 904.5146250000016,
+      "firstTokenMs": 904.6205829999999,
+      "totalMs": 2646.8144170000014,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 52
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008037,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371"
+      }
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2334.2757920000004,
+      "firstTokenMs": 2334.5686669999996,
+      "totalMs": 3414.1822500000017,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 51
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008133,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles"
+      }
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1754.087875000001,
+      "firstTokenMs": 1754.2978330000005,
+      "totalMs": 2713.9646660000035,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 41
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007983,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles"
+      }
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1169.2042920000022,
+      "firstTokenMs": 1169.3244169999998,
+      "totalMs": 2239.6031250000015,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 50
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008118,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles"
+      }
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1081.2020409999968,
+      "firstTokenMs": 1081.5929579999975,
+      "totalMs": 2159.631624999998,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 52
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008148,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles"
+      }
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1199.5765830000018,
+      "firstTokenMs": 1199.6536659999983,
+      "totalMs": 2362.3510410000017,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 50
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008118,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles"
+      }
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1038.6564160000016,
+      "firstTokenMs": null,
+      "totalMs": 1146.0983330000017,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 180 KB"
+      }
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 912.8247080000001,
+      "firstTokenMs": null,
+      "totalMs": 934.3405829999974,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 156 KB"
+      }
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 891.9368749999994,
+      "firstTokenMs": null,
+      "totalMs": 908.2202919999982,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 158 KB"
+      }
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 904.2217920000039,
+      "firstTokenMs": null,
+      "totalMs": 928.5053750000006,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 164 KB"
+      }
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 717.6626250000045,
+      "firstTokenMs": null,
+      "totalMs": 743.2747080000045,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 163 KB"
+      }
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 19536.708124999997,
+      "firstTokenMs": null,
+      "totalMs": 19538.028625,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 2478
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0250126,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      }
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 13033.981249999997,
+      "firstTokenMs": null,
+      "totalMs": 13034.349499999997,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1712
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0173526,
+      "quality": {
+        "passed": true,
+        "detail": "4 moments"
+      }
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 13687.457374999998,
+      "firstTokenMs": null,
+      "totalMs": 13689.213667000004,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1849
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0187226,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      }
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 14747.787375,
+      "firstTokenMs": null,
+      "totalMs": 14748.831208000003,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1939
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019622599999999997,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      }
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 13908.228208999994,
+      "firstTokenMs": null,
+      "totalMs": 13908.562666999991,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1946
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019692599999999998,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      }
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2013.32920800001,
+      "firstTokenMs": null,
+      "totalMs": 2013.8400830000028,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 246
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007294,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1806.1140000000014,
+      "firstTokenMs": null,
+      "totalMs": 1807.0750829999888,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007274,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1775.0677080000023,
+      "firstTokenMs": null,
+      "totalMs": 1775.5651669999934,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 246
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007294,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1708.4906670000055,
+      "firstTokenMs": null,
+      "totalMs": 1709.1348330000037,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007274,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1696.705375000005,
+      "firstTokenMs": null,
+      "totalMs": 1696.9413340000028,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007274,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2512.494041999991,
+      "firstTokenMs": null,
+      "totalMs": 2513.350749999998,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2044.013957999996,
+      "firstTokenMs": null,
+      "totalMs": 2044.492750000005,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 218
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007014,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2047.4428749999934,
+      "firstTokenMs": null,
+      "totalMs": 2048.5648329999967,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1738.9342079999915,
+      "firstTokenMs": null,
+      "totalMs": 1739.9449999999779,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 218
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007014,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      }
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1774.006417000026,
+      "firstTokenMs": null,
+      "totalMs": 1777.84375,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      }
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2313.367249999981,
+      "firstTokenMs": null,
+      "totalMs": 2314.355708999996,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      }
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1156.3439159999834,
+      "firstTokenMs": null,
+      "totalMs": 1156.5688749999972,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      }
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1092.2918749999953,
+      "firstTokenMs": null,
+      "totalMs": 1092.632249999995,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      }
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1082.3253330000152,
+      "firstTokenMs": null,
+      "totalMs": 1082.524792000011,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      }
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1118.6135420000064,
+      "firstTokenMs": null,
+      "totalMs": 1118.8530420000025,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      }
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 12050.149417000008,
+      "firstTokenMs": null,
+      "totalMs": 12050.504375000019,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 3827
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Valve"
+      }
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 16941.712332999974,
+      "firstTokenMs": null,
+      "totalMs": 16942.322124999977,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 3931
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      }
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 14471.851624999981,
+      "firstTokenMs": null,
+      "totalMs": 14472.087291999982,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 4369
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Valve"
+      }
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 17863.96754099999,
+      "firstTokenMs": null,
+      "totalMs": 17864.72858299999,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 4323
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Valve"
+      }
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 10851.360958000005,
+      "firstTokenMs": null,
+      "totalMs": 10852.443375000003,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 3479
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Valve"
+      }
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1884.4927499999758,
+      "firstTokenMs": null,
+      "totalMs": 1885.3791249999776,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002464,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      }
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1490.8729170000006,
+      "firstTokenMs": null,
+      "totalMs": 1491.407709000021,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002414,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      }
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1738.0238329999847,
+      "firstTokenMs": null,
+      "totalMs": 1738.8082080000022,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002464,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      }
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1696.5942919999943,
+      "firstTokenMs": null,
+      "totalMs": 1697.5752499999944,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002414,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      }
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1549.788291999983,
+      "firstTokenMs": null,
+      "totalMs": 1550.5904579999915,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002414,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      }
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1618.7630409999983,
+      "firstTokenMs": null,
+      "totalMs": 1619.1977079999924,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 46
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002244,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      }
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1659.3398750000051,
+      "firstTokenMs": null,
+      "totalMs": 1660.1792079999868,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 44
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002224,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      }
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1558.1427919999987,
+      "firstTokenMs": null,
+      "totalMs": 1559.0963340000017,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 44
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002224,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      }
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1854.9882919999945,
+      "firstTokenMs": null,
+      "totalMs": 1855.7182080000057,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 49
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002274,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      }
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1949.0690829999803,
+      "firstTokenMs": null,
+      "totalMs": 1949.8472499999916,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 46
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002244,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      }
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1130.4269589999749,
+      "firstTokenMs": null,
+      "totalMs": 1130.8084589999926,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 66
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002446,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      }
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1368.1820420000004,
+      "firstTokenMs": null,
+      "totalMs": 1369.6319999999832,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 71
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002496,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      }
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1139.9395000000077,
+      "firstTokenMs": null,
+      "totalMs": 1140.3845830000064,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 64
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002426,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      }
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1509.8216250000114,
+      "firstTokenMs": null,
+      "totalMs": 1510.580083000008,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 78
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002566,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      }
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1187.733333000011,
+      "firstTokenMs": null,
+      "totalMs": 1188.5651249999937,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002406,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      }
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1867.3606250000012,
+      "firstTokenMs": null,
+      "totalMs": 1868.3918750000012,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002664,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      }
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1842.9059999999881,
+      "firstTokenMs": null,
+      "totalMs": 1843.4202909999876,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002664,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      }
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3042.492459000001,
+      "firstTokenMs": null,
+      "totalMs": 3043.344374999986,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 83
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002624,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      }
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 2376.5707500000135,
+      "firstTokenMs": null,
+      "totalMs": 2376.7561250000144,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002664,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      }
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1721.7499169999792,
+      "firstTokenMs": null,
+      "totalMs": 1722.2049999999872,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 86
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002654,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      }
+    }
+  ]
+}

@@ -439,6 +439,46 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
+    @Test func streamedSpeechBytesBecomeWholeChunksOfSamplesInAnySplit() async throws {
+        // 0, 1, -1, 32767, and -32768 as little-endian 16-bit PCM, then one stray byte.
+        let streamedBytes: [UInt8] = [0x00, 0x00, 0x01, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x80, 0x42]
+        var pcmChunker = PCM16StreamChunker(samplesPerChunk: 2)
+        var chunks: [[Float]] = []
+        for streamedByte in streamedBytes {
+            if let chunk = pcmChunker.append(streamedByte) {
+                chunks.append(chunk)
+            }
+        }
+        if let lastChunk = pcmChunker.flush() {
+            chunks.append(lastChunk)
+        }
+
+        // An explicit type keeps the compiler from timing out on the nested float literals.
+        let expectedChunks: [[Float]] = [
+            [0, 1.0 / 32_768],
+            [-1.0 / 32_768, 32_767.0 / 32_768],
+            [-1],
+        ]
+        #expect(chunks == expectedChunks)
+    }
+
+    @Test func aSavedOlderModelChoiceMovesToTheLatestModelOfItsFamily() async throws {
+        #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-opus-4-6") == "claude-opus-5-5")
+        #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-sonnet-4-6") == "claude-sonnet-5-5")
+        #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: nil) == "claude-sonnet-5-5")
+    }
+
+    @Test func theVoiceReplyRequestCachesItsSystemPromptAndRunsAtLowEffort() async throws {
+        let body = ClaudeAPI.streamingRequestBody(model: ClaudeVoiceModel.sonnetModelID, systemPrompt: "you're clicky", messages: [])
+        let systemBlocks = body["system"] as? [[String: Any]]
+        let cacheControl = systemBlocks?.first?["cache_control"] as? [String: String]
+        let outputConfig = body["output_config"] as? [String: String]
+
+        #expect(systemBlocks?.count == 1)
+        #expect(systemBlocks?.first?["text"] as? String == "you're clicky")
+        #expect(cacheControl == ["type": "ephemeral"])
+        #expect(outputConfig == ["effort": "low"])
+    }
 
     @Test func gradesMapToTheRevealOutcomeTheQuizLabelPlays() async throws {
         #expect(LiveSceneRevealOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 0) == .celebrateCorrectName)

@@ -151,18 +151,21 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
   const body = await request.text();
   const voiceId = env.ELEVENLABS_VOICE_ID;
 
-  const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-    {
-      method: "POST",
-      headers: {
-        "xi-api-key": env.ELEVENLABS_API_KEY,
-        "content-type": "application/json",
-        accept: "audio/mpeg",
-      },
-      body,
-    }
-  );
+  // The stream endpoint sends audio as it is generated, so the app can start speaking before the line is done.
+  const elevenLabsURL = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`);
+  const requestedOutputFormat = new URL(request.url).searchParams.get("output_format");
+  if (requestedOutputFormat !== null && /^(mp3|pcm)_\d+(_\d+)?$/.test(requestedOutputFormat)) {
+    elevenLabsURL.searchParams.set("output_format", requestedOutputFormat);
+  }
+
+  const response = await fetch(elevenLabsURL, {
+    method: "POST",
+    headers: {
+      "xi-api-key": env.ELEVENLABS_API_KEY,
+      "content-type": "application/json",
+    },
+    body,
+  });
 
   if (!response.ok) {
     const errorBody = await response.text();

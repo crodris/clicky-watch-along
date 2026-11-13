@@ -11,3 +11,4 @@ xcuserdata/
 worker/.wrangler/
 *.profraw
 .verify-clicky/
+bench/node_modules/

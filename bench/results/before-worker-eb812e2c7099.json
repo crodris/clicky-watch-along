@@ -1,0 +1,2544 @@
+{
+  "label": "before",
+  "benchKind": "worker",
+  "commitSHA": "eb812e2c7099",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-13T18:50:57.494Z",
+  "runCount": 5,
+  "port": 8790,
+  "interleavedWith": [
+    "after"
+  ],
+  "summary": [
+    {
+      "caseId": "chat-first",
+      "route": "/chat",
+      "description": "First push-to-talk question with one 1280x800 screenshot, streamed",
+      "models": [
+        "claude-sonnet-4-6"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2615,
+        "p95": 3093,
+        "min": 2453,
+        "max": 3093
+      },
+      "firstByteMs": {
+        "p50": 940,
+        "p95": 1380,
+        "min": 817,
+        "max": 1380
+      },
+      "firstTokenMs": {
+        "p50": 941,
+        "p95": 1381,
+        "min": 817,
+        "max": 1381
+      },
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2419,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 58,
+      "meanCostUSD": 0.00812
+    },
+    {
+      "caseId": "chat-followup",
+      "route": "/chat",
+      "description": "Second question in the same conversation, with one exchange of history",
+      "models": [
+        "claude-sonnet-4-6"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1971,
+        "p95": 2354,
+        "min": 1828,
+        "max": 2354
+      },
+      "firstByteMs": {
+        "p50": 1009,
+        "p95": 1186,
+        "min": 905,
+        "max": 1186
+      },
+      "firstTokenMs": {
+        "p50": 1009,
+        "p95": 1187,
+        "min": 905,
+        "max": 1187
+      },
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2456,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 44,
+      "meanCostUSD": 0.00803
+    },
+    {
+      "caseId": "tts",
+      "route": "/tts",
+      "description": "Speaks a 155-character reply with the app's ElevenLabs settings",
+      "models": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 939,
+        "p95": 1154,
+        "min": 787,
+        "max": 1154
+      },
+      "firstByteMs": {
+        "p50": 912,
+        "p95": 1047,
+        "min": 723,
+        "max": 1047
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": {
+        "p50": 939,
+        "p95": 1154,
+        "min": 787,
+        "max": 1154
+      },
+      "modelCallsPerRequest": 0,
+      "meanInputTokens": 0,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 0,
+      "meanCostUSD": 0.0124
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 13904,
+        "p95": 15477,
+        "min": 12136,
+        "max": 15477
+      },
+      "firstByteMs": {
+        "p50": 13903,
+        "p95": 15475,
+        "min": 12135,
+        "max": 15475
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 449,
+      "meanCacheReadTokens": 1797,
+      "meanOutputTokens": 1902,
+      "meanCostUSD": 0.02033
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 20567,
+        "p95": 27543,
+        "min": 18690,
+        "max": 27543
+      },
+      "firstByteMs": {
+        "p50": 20567,
+        "p95": 27542,
+        "min": 18689,
+        "max": 27542
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 360,
+      "meanCacheReadTokens": 3072,
+      "meanOutputTokens": 3010,
+      "meanCostUSD": 0.03132
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "route": "/video-frame-parts",
+      "description": "Finds the heart in a 1280x720 diagram frame",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1824,
+        "p95": 2223,
+        "min": 1707,
+        "max": 2223
+      },
+      "firstByteMs": {
+        "p50": 1823,
+        "p95": 2222,
+        "min": 1706,
+        "max": 2222
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2417,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 245,
+      "meanCostUSD": 0.00728
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "route": "/video-frame-parts",
+      "description": "Lifts The Starry Night out as a whole picture",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2120,
+        "p95": 2577,
+        "min": 2088,
+        "max": 2577
+      },
+      "firstByteMs": {
+        "p50": 2119,
+        "p95": 2576,
+        "min": 2087,
+        "max": 2576
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2417,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 217,
+      "meanCostUSD": 0.00701
+    },
+    {
+      "caseId": "landmark",
+      "route": "/landmark",
+      "description": "Recognizes the Eiffel Tower in a 1280x720 frame",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1576,
+        "p95": 1964,
+        "min": 1419,
+        "max": 1964
+      },
+      "firstByteMs": {
+        "p50": 1576,
+        "p95": 1964,
+        "min": 1418,
+        "max": 1964
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1849,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 65,
+      "meanCostUSD": 0.00435
+    },
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 12695,
+        "p95": 14947,
+        "min": 10828,
+        "max": 14947
+      },
+      "firstByteMs": {
+        "p50": 12695,
+        "p95": 14947,
+        "min": 10826,
+        "max": 14947
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2061,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1646,
+      "meanOutputTokens": 4080,
+      "meanCostUSD": 0.23
+    },
+    {
+      "caseId": "judge-correct",
+      "route": "/judge-answer",
+      "description": "Grades \"that's the left ventricle, it pumps blood out to the whole body\" and expects correct",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1490,
+        "p95": 1729,
+        "min": 1394,
+        "max": 1729
+      },
+      "firstByteMs": {
+        "p50": 1490,
+        "p95": 1728,
+        "min": 1393,
+        "max": 1728
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 907,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 63,
+      "meanCostUSD": 0.00244
+    },
+    {
+      "caseId": "judge-named-only",
+      "route": "/judge-answer",
+      "description": "Grades \"the left ventricle\" and expects named_only",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1574,
+        "p95": 1928,
+        "min": 1356,
+        "max": 1928
+      },
+      "firstByteMs": {
+        "p50": 1573,
+        "p95": 1928,
+        "min": 1355,
+        "max": 1928
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 892,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 47,
+      "meanCostUSD": 0.00226
+    },
+    {
+      "caseId": "judge-wrong",
+      "route": "/judge-answer",
+      "description": "Grades \"is it the lungs?\" and expects wrong",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1231,
+        "p95": 1445,
+        "min": 1146,
+        "max": 1445
+      },
+      "firstByteMs": {
+        "p50": 1231,
+        "p95": 1444,
+        "min": 1145,
+        "max": 1444
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 893,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 72,
+      "meanCostUSD": 0.00251
+    },
+    {
+      "caseId": "judge-help",
+      "route": "/judge-answer",
+      "description": "Grades \"i don't know, can you tell me?\" and expects asked_for_help",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2044,
+        "p95": 4881,
+        "min": 1689,
+        "max": 4881
+      },
+      "firstByteMs": {
+        "p50": 2043,
+        "p95": 4880,
+        "min": 1689,
+        "max": 4880
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 897,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 87,
+      "meanCostUSD": 0.00267
+    },
+    {
+      "caseId": "judge-function-only",
+      "route": "/judge-answer",
+      "description": "Grades \"it squeezes blood out to the rest of the body\" and expects correct",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1115,
+        "p95": 1174,
+        "min": 1104,
+        "max": 1174
+      },
+      "firstByteMs": {
+        "p50": 1114,
+        "p95": 1174,
+        "min": 1104,
+        "max": 1174
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 901,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 61,
+      "meanCostUSD": 0.00242
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "route": "/judge-answer",
+      "description": "Grades \"its fins give it lift like a plane wing while it swims\" and expects correct",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1400,
+        "p95": 1544,
+        "min": 1149,
+        "max": 1544
+      },
+      "firstByteMs": {
+        "p50": 1399,
+        "p95": 1543,
+        "min": 1148,
+        "max": 1543
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 999,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 59,
+      "meanCostUSD": 0.00259
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "route": "/judge-answer",
+      "description": "Grades \"it has a swim bladder full of air\" and expects wrong",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1968,
+        "p95": 2073,
+        "min": 1661,
+        "max": 2073
+      },
+      "firstByteMs": {
+        "p50": 1967,
+        "p95": 2072,
+        "min": 1660,
+        "max": 2072
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 993,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 60,
+      "meanCostUSD": 0.00259
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "chat-first",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1379.733042,
+      "firstTokenMs": 1381.139584,
+      "firstAudioMs": null,
+      "totalMs": 3092.7995,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 59
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008142,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371, 2 sentences"
+      },
+      "replyPreview": "you've got two options right there — there's a \"download as pdf\" link in the left sidebar, and also a big \"download pdf\" button in the top right corner. either one will do it.\n\n[POINT:72,371:download as PDF]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 940.2025410000006,
+      "firstTokenMs": 940.6604160000006,
+      "firstAudioMs": null,
+      "totalMs": 2652.756375,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 59
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008142,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371, 2 sentences"
+      },
+      "replyPreview": "you've got two options right there — there's a \"download as pdf\" link in the left sidebar, and also a big \"download pdf\" button in the top right corner. either one will do it.\n\n[POINT:72,371:download as PDF]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 816.5545839999995,
+      "firstTokenMs": 816.8267500000002,
+      "firstAudioMs": null,
+      "totalMs": 2452.873625,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 59
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008142,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371, 2 sentences"
+      },
+      "replyPreview": "you've got two options right there — there's a \"download as pdf\" link in the left sidebar, and also a big \"download pdf\" button in the top right corner. either one will do it.\n\n[POINT:72,371:download as PDF]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 933.9172080000008,
+      "firstTokenMs": 934.3747500000009,
+      "firstAudioMs": null,
+      "totalMs": 2611.2401250000003,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 59
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008142,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371, 2 sentences"
+      },
+      "replyPreview": "you've got two options right there — there's a \"download as pdf\" link in the left sidebar, and also a big \"download pdf\" button in the top right corner. either one will do it.\n\n[POINT:72,371:download as PDF]"
+    },
+    {
+      "caseId": "chat-first",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 963.2419169999994,
+      "firstTokenMs": 963.780708000002,
+      "firstAudioMs": null,
+      "totalMs": 2614.9037080000016,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2419,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 52
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008037,
+      "quality": {
+        "passed": true,
+        "detail": "pointed at 72,371, 1 sentences"
+      },
+      "replyPreview": "you've got two options right there — there's a \"download as pdf\" link in the left sidebar, or that big blue button in the top right corner does the same thing. [POINT:72,371:download as PDF]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 983.7781250000007,
+      "firstTokenMs": 983.9000410000008,
+      "firstAudioMs": null,
+      "totalMs": 1900.9722500000025,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 41
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007983,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 1 sentences"
+      },
+      "replyPreview": "the four chambers are the left and right atria, which are the upper chambers, and the left and right ventricles, which are the lower ones. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1186.4415000000008,
+      "firstTokenMs": 1186.5819169999995,
+      "firstAudioMs": null,
+      "totalMs": 2107.4848329999986,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 41
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007983,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 1 sentences"
+      },
+      "replyPreview": "the four chambers are the left and right atria, which are the upper chambers, and the left and right ventricles, which are the lower ones. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 905.0391669999954,
+      "firstTokenMs": 905.224166999993,
+      "firstAudioMs": null,
+      "totalMs": 1828.3659579999949,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 41
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007983,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 1 sentences"
+      },
+      "replyPreview": "the four chambers are the left and right atria, which are the upper chambers, and the left and right ventricles, which are the lower ones. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1009.3899579999998,
+      "firstTokenMs": 1009.482207999994,
+      "firstAudioMs": null,
+      "totalMs": 1971.000791999999,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 41
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007983,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 1 sentences"
+      },
+      "replyPreview": "the four chambers are the left and right atria, which are the upper chambers, and the left and right ventricles, which are the lower ones. [POINT:none]"
+    },
+    {
+      "caseId": "chat-followup",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1166.989625000002,
+      "firstTokenMs": 1167.0765420000025,
+      "firstAudioMs": null,
+      "totalMs": 2354.340083000003,
+      "usageLines": [
+        {
+          "route": "/chat",
+          "model": "claude-sonnet-4-6",
+          "inputTokens": 2456,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 57
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008223,
+      "quality": {
+        "passed": true,
+        "detail": "names atria and ventricles, 2 sentences"
+      },
+      "replyPreview": "the heart has two atria — left and right — and two ventricles, also left and right. the atria are the upper chambers that receive blood, and the ventricles are the lower ones that pump it out.\n\n[POINT:none]"
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1047.1112920000014,
+      "firstTokenMs": null,
+      "firstAudioMs": 1153.5829589999994,
+      "totalMs": 1153.5832500000033,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 170 KB"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 723.3242500000051,
+      "firstTokenMs": null,
+      "firstAudioMs": 787.2808330000043,
+      "totalMs": 787.2810830000017,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 162 KB"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 932.3455000000031,
+      "firstTokenMs": null,
+      "firstAudioMs": 963.5250830000004,
+      "totalMs": 963.5255410000027,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 159 KB"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 771.7251670000041,
+      "firstTokenMs": null,
+      "firstAudioMs": 866.9750830000048,
+      "totalMs": 866.9755000000005,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 171 KB"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "tts",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 911.7178330000024,
+      "firstTokenMs": null,
+      "firstAudioMs": 939.0052910000013,
+      "totalMs": 939.0057499999966,
+      "usageLines": [],
+      "ttsCharacters": 155,
+      "costUSD": 0.0124,
+      "quality": {
+        "passed": true,
+        "detail": "audio/mpeg, 163 KB"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 15475.353000000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 15476.77075000001,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 2246,
+          "cacheReadTokens": 0,
+          "outputTokens": 2149
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.027113,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"top\",\"chambers\"],\"explanation\":\"The two upper chambers of the heart are called the atria. The heart has four chambers in all, and the atria are the top two.\",\"sourceLineSeconds\":24,\"subject\":\"human heart showing the two upper atria chambers\"},{\"pauseAtSeconds\":84,\"question\":\"Let's pause here! Which vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 13903.216249999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13903.880374999993,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1922
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019452599999999997,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"top\",\"chambers\"],\"explanation\":\"The two upper chambers of the heart are called the atria. They sit on top of the two lower chambers, the ventricles.\",\"sourceLineSeconds\":24,\"subject\":\"human heart atria upper chambers\"},{\"pauseAtSeconds\":84,\"question\":\"Nice work so far! Which vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps\"],\"explanation\":\"The ri"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 13867.924375000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13868.409290999989,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1922
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019452599999999997,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"top\",\"chambers\"],\"explanation\":\"The two upper chambers of the heart are called the atria. The heart has four chambers in all, and the atria are the ones on top.\",\"sourceLineSeconds\":24,\"subject\":\"human heart with the two upper atria highlighted\"},{\"pauseAtSeconds\":84,\"question\":\"Let's pause here! Which vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"pumps\",\"car"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 12134.957542000018,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12135.504250000027,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1620
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0164326,
+      "quality": {
+        "passed": true,
+        "detail": "4 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"chambers\",\"top\"],\"explanation\":\"The two upper chambers of the heart are called the atria. They sit above the ventricles, which do most of the pumping.\",\"sourceLineSeconds\":24,\"subject\":\"human heart showing the two upper atria chambers\"},{\"pauseAtSeconds\":84,\"question\":\"Let's pause here! Which vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps\"],\"ex"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 14130.989333999984,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 14131.315999999992,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2246,
+          "outputTokens": 1895
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019182599999999998,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"chambers\",\"top\"],\"explanation\":\"The two upper chambers of the heart are called the atria. They sit on top of the two lower chambers.\",\"sourceLineSeconds\":24,\"subject\":\"human heart with the two upper atria chambers highlighted\"},{\"pauseAtSeconds\":84,\"question\":\"Let's pause here! Which vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps\"],\"explanation"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 24566.014166999987,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 24567.005166999996,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 1802,
+          "cacheReadTokens": 1630,
+          "outputTokens": 3321
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.037886,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 108, 204, 276, 432, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks appeared more than four hundred million years ago, long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"ancient\",\"older\"],\"explanation\":\"The answer is dinosaurs. Sharks showed up in the oceans more than four hundred million years ago, long before them.\",\"sourceLineSeconds\":24,\"subject\":\"shark swimming past a dinosaur skeleton\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Sharks have no swim bladder. What big organ filled with oil helps them float?\",\"answerLabel"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 20567.218250000034,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 20567.47791700001,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2823
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0285812,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 96, 156, 276, 444, 552"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks showed up in the oceans more than 400 million years ago. Long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"ancient\",\"older\"],\"explanation\":\"Sharks appeared long before the dinosaurs. They have been in the oceans for more than 400 million years.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming beside a prehistoric dinosaur silhouette\"},{\"pauseAtSeconds\":96,\"question\":\"Let's pause here! Most fish have a swim bladder to float, but sharks do not. Which oil-filled organ h"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 18689.170166999975,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 18689.503041999997,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2509
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0254412,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 120, 204, 288, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for more than four hundred million years, so they appeared long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"earlier\",\"older\",\"ancient\"],\"explanation\":\"The answer is dinosaurs. Sharks first appeared in the oceans long before the dinosaurs did.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":120,\"question\":\"Let's pause here! Sharks have no swim bladder to help them float. Which organ filled with oil w"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 20404.778875000018,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 20406.22554200003,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 2694
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0272912,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 96, 204, 276, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks have been in the oceans for over four hundred million years. Which famous prehistoric animals came along after sharks?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"ancient\",\"earlier\"],\"explanation\":\"Sharks appeared long before the dinosaurs. That makes them one of the oldest animal groups in the ocean.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Let's pause here! Sharks have no swim bladder to help them float. Which big organ filled with"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 27542.161166999955,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 27542.618707999995,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3432,
+          "outputTokens": 3705
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.037401199999999996,
+      "quality": {
+        "passed": true,
+        "detail": "7 moments at 36, 108, 216, 288, 384, 444, 552"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Let's pause here! Sharks swam the oceans long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"ancient\",\"earlier\"],\"explanation\":\"Sharks first appeared more than four hundred million years ago, long before the dinosaurs. That makes sharks incredibly ancient animals.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":108,\"question\":\"Let's pause here! Sharks have no swim bladder, so which organ works like a built-in float?\",\"answerLabel\":\"Liver\",\"fu"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2222.3080419999897,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2223.1749999999884,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 246
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007294,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":408,\"top\":38,\"right\":890,\"bottom\":662},\"wholePictureIsSubject\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":640,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":497,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":700,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":505,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":790,\"y\":420,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":640,\"y\":520,\"isQuizAnswer\":false},{\"label\":\"Inferior vena cava\",\"x\":492,\"y\":590,\"isQuizAnswer\":false},{\"label\":\"Pulmonary vein\",\"x\":83"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1813.460916000011,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1814.2413750000414,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007274,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":408,\"top\":38,\"right\":890,\"bottom\":662},\"wholePictureIsSubject\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":600,\"y\":120,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":500,\"y\":120,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":700,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":410,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":800,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":620,\"y\":540,\"isQuizAnswer\":false},{\"label\":\"Mitral valve\",\"x\":715,\"y\":355,\"isQuizAnswer\":false},{\"label\":\"Inferior vena cava\",\"x\":492,"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1826.244458000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1826.696667000011,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007274,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":38,\"right\":890,\"bottom\":662},\"wholePictureIsSubject\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":640,\"y\":120,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":497,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":700,\"y\":200,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":660,\"y\":560,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":820,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Inferior vena cava\",\"x\":490,\"y\":590,\"isQuizAnswer\":false},{\"label\":\"Mitral valve\",\"x\":725,"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1706.4749159999774,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1707.1927909999504,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 244
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007274,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":408,\"top\":38,\"right\":891,\"bottom\":661},\"wholePictureIsSubject\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":600,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":500,\"y\":140,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":700,\"y\":190,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":800,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":640,\"y\":560,\"isQuizAnswer\":false},{\"label\":\"Mitral valve\",\"x\":740,\"y\":350,\"isQuizAnswer\":false},{\"label\":\"Inferior vena cava\",\"x\":495,"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1822.8742920000223,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1824.1374589999905,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 246
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007294,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":38,\"right\":890,\"bottom\":662},\"wholePictureIsSubject\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":640,\"y\":105,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":500,\"y\":120,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":700,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":640,\"y\":560,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":800,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Inferior vena cava\",\"x\":490,\"y\":600,\"isQuizAnswer\":false},{\"label\":\"Pulmonary vein\",\"x\":83"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2110.304333999986,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2110.8450000000303,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 218
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007014,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":187,\"top\":0,\"right\":1093,\"bottom\":719},\"wholePictureIsSubject\":true,\"parts\":[{\"label\":\"Crescent moon\",\"x\":1008,\"y\":128,\"isQuizAnswer\":false},{\"label\":\"Cypress tree\",\"x\":370,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Church steeple\",\"x\":703,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"Swirling sky\",\"x\":640,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Bright star\",\"x\":507,\"y\":382,\"isQuizAnswer\":false},{\"label\":\"Blue mountains\",\"x\":960,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Village houses\",\"x\":850,\"y\":660,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2576.485166999977,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2577.1154589999933,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":187,\"top\":0,\"right\":1093,\"bottom\":719},\"wholePictureIsSubject\":true,\"parts\":[{\"label\":\"Crescent moon\",\"x\":1008,\"y\":128,\"isQuizAnswer\":false},{\"label\":\"Cypress tree\",\"x\":370,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Church steeple\",\"x\":703,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"Swirling sky\",\"x\":640,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Bright star\",\"x\":507,\"y\":382,\"isQuizAnswer\":false},{\"label\":\"Distant hills\",\"x\":960,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Village houses\",\"x\":880,\"y\":650,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2118.978749999951,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2119.7661249999655,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":187,\"top\":0,\"right\":1093,\"bottom\":719},\"wholePictureIsSubject\":true,\"parts\":[{\"label\":\"Crescent moon\",\"x\":1008,\"y\":128,\"isQuizAnswer\":false},{\"label\":\"Cypress tree\",\"x\":370,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Church steeple\",\"x\":703,\"y\":540,\"isQuizAnswer\":false},{\"label\":\"Swirling sky\",\"x\":640,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Bright star\",\"x\":507,\"y\":382,\"isQuizAnswer\":false},{\"label\":\"Blue hills\",\"x\":950,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Village houses\",\"x\":880,\"y\":650,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 2087.4616249999963,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2087.9951670000446,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":187,\"top\":0,\"right\":1093,\"bottom\":719},\"wholePictureIsSubject\":true,\"parts\":[{\"label\":\"Crescent moon\",\"x\":1010,\"y\":130,\"isQuizAnswer\":false},{\"label\":\"Cypress tree\",\"x\":370,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Church steeple\",\"x\":703,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"Swirling sky\",\"x\":640,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Bright star\",\"x\":507,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"Blue hills\",\"x\":950,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Village houses\",\"x\":880,\"y\":650,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 2329.3526250000577,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2330.0883750000503,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 2417,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 217
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007004,
+      "quality": {
+        "passed": true,
+        "detail": "wholePictureIsSubject true, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":187,\"top\":0,\"right\":1093,\"bottom\":719},\"wholePictureIsSubject\":true,\"parts\":[{\"label\":\"Crescent moon\",\"x\":1008,\"y\":128,\"isQuizAnswer\":false},{\"label\":\"Cypress tree\",\"x\":370,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"Church steeple\",\"x\":702,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"Swirling sky\",\"x\":640,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Bright star\",\"x\":507,\"y\":382,\"isQuizAnswer\":false},{\"label\":\"Distant hills\",\"x\":960,\"y\":470,\"isQuizAnswer\":false},{\"label\":\"Village houses\",\"x\":850,\"y\":650,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1963.5690000000177,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1964.0241249999963,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1418.3407080000034,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1418.8535000000848,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1575.9874999999302,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1576.2450829999289,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1514.1446250000736,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1514.3233750000363,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1906.2852499999572,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1906.6536669998895,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1849,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004348,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 14947.037250000052,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 14947.440042000031,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 3922
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 12694.57491700002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12695.064999999944,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 4277
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 10825.851249999949,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 10827.882083999924,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 3797
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 13368.970583000104,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13369.496083000093,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 4373
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 12380.930416999967,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12382.068166999961,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "inputTokens": 2061,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2058,
+          "outputTokens": 4029
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.23,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1727.9026669999585,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1728.700458999956,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002464,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, the strong chamber that pumps oxygen-rich blood out to the whole body through the aorta!\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1434.0936249999795,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1434.8080829998944,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002414,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, and it pumps oxygen-rich blood out to the whole body through the aorta!\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1489.6826660000952,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1490.4918750000652,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002464,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, the strong chamber that pumps oxygen-rich blood out to the whole body through the aorta!\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1575.5124579999829,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1576.4899170000572,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 65
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002464,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, the strong chamber that pumps oxygen-rich blood out to the whole body through the aorta!\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1393.391500000027,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1393.9572920000646,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 907,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002414,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, and it pumps oxygen-rich blood out to the whole body through the aorta!\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1573.202290999936,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1573.6506659999723,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 49
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002274,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"Yes, that's the left ventricle, so now tell me what job it does for the heart!\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1354.9940420000348,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1355.8118330000434,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 44
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002224,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"Yes, that's the left ventricle, so what does it do for the body?\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1499.3898749999935,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1500.1262919999426,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 47
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002254,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"Yes, that's the left ventricle, so now tell me what it does for the body!\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1682.4584170000162,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1682.934499999974,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 47
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002254,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"Yes, that's the left ventricle, so now tell me what it does for the body!\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1927.6169170000358,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1928.3710420000134,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 892,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 49
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002274,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"Yes, that's the left ventricle, so now tell me what job it does for the heart!\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1188.669666999951,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1189.7421249999898,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 63
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002416,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good guess, but the lungs are a separate organ and not a part inside the heart, so look at the heart's own chambers and try again!\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1444.3196669999743,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1444.669750000001,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002626,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good guess, but the lungs are a separate organ outside the heart, and this question is about one of the heart's own chambers, so look closely at which chamber is highlighted and think about where its blood goes next.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1145.3780419999966,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1145.7850000000326,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 78
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002566,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good guess, but the lungs are a separate organ and not a chamber inside the heart, so look closely at the heart's own chambers and think about which one has the thickest muscular wall.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1427.2247499999357,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1427.9915829999372,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002546,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good guess, but the lungs are a separate organ and not a chamber inside the heart, so look closely at the heart's own chambers and think about which one has the thickest muscle.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1230.78216599999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1231.202249999973,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 893,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 61
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002396,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good guess, but the lungs aren't part of the heart itself, so look closely at the chambers inside the heart and try again!\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1688.5045420000097,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1688.8772500000196,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 92
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002714,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries! This is the left ventricle, the heart's strongest chamber, and it pumps oxygen-rich blood out through the aorta to the whole body, which matters because every part of you needs that oxygen to work.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2042.8597079999745,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2043.721583000035,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002634,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries! This is the left ventricle, the strong chamber that pumps oxygen-rich blood out through the aorta to the whole body, which matters because every part of you needs that blood to work.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 4880.369833000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4880.781500000041,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002614,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries, this is the left ventricle, and it pumps oxygen-rich blood out to your body through the aorta, which matters because every part of you needs that blood to get energy and work well.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 2357.122665999923,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2357.5797079999465,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002664,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries! This is the left ventricle, and it squeezes hard to pump oxygen-rich blood out through the aorta to the whole body, which matters because every part of you needs that oxygen to work.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 2041.9120000000112,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2042.6952919999603,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 897,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 92
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002714,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries! This is the left ventricle, the heart's strongest chamber, and it pumps oxygen-rich blood out through the aorta to the whole body, which matters because every part of you needs that oxygen to work.\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1114.406457999954,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1114.717624999932,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 901,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 59
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002392,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, which pumps oxygen-rich blood out to the whole body through the aorta!\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1122.077709000092,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1123.0673340000212,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 901,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002422,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, which squeezes oxygen-rich blood out through the aorta to the rest of the body!\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1103.5054579999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1103.855916999979,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 901,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002422,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, which squeezes oxygen-rich blood out through the aorta to the rest of the body!\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1174.2311660000123,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1174.4094999999506,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 901,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002422,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, which squeezes oxygen-rich blood out through the aorta to the rest of the body!\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1105.8605420000385,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1106.2455830000108,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 901,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002422,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, that's the left ventricle, which squeezes oxygen-rich blood out through the aorta to the rest of the body!\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1399.0781669999706,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1399.9530420000665,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 999,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002598,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, a shark's fins work like plane wings and give it lift as it swims forward, which helps keep it from sinking!\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1148.2085840000072,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1148.70229200006,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 999,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 58
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002578,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, a shark's fins work like plane wings, giving it lift as it swims forward so it doesn't sink!\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1197.4887919999892,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1198.2399580000201,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 999,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002598,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, a shark's fins work like plane wings and give it lift as it swims forward, which helps keep it from sinking!\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1523.561417000019,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1523.750166999991,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 999,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 56
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002558,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, you remembered the video: a shark's fins work like plane wings and give it lift as it swims forward!\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1543.3660829999717,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1544.4425419999752,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 999,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 60
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002598,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"Yes, a shark's fins work like plane wings and give it lift as it swims forward, which helps keep it from sinking!\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2072.1772920000367,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2072.972792000044,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 993,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002606,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good thinking about floating, but the video said sharks don't have that air-filled part, so think about what else it told us helps them stay up.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1848.079999999958,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1848.8053330000257,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 993,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 58
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002566,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good thinking about floating, but the video said sharks don't have that air-filled part, so listen again for what they use instead.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1966.9612920000218,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1967.8035000000382,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 993,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 64
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002626,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good thinking about floating, but the video said sharks don't have that air-filled part, so think about what else it told us helps a shark stay up.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1660.2447500000708,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1660.7867079999996,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 993,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 56
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002546,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good thinking about floating, but listen again, because the video said sharks are missing that air sac that most other fish use.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1980.5246669999324,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1981.9149579999503,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 993,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 61
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.002596,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Good thinking about floating, but the video said sharks don't have that air-filled part, so think about what else they have inside or how they move.\"}"
+    }
+  ]
+}

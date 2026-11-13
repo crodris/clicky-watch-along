@@ -5,6 +5,17 @@
 
 import Foundation
 
+/// The Claude models the panel offers for voice replies, always the latest of each family.
+enum ClaudeVoiceModel {
+    static let sonnetModelID = "claude-sonnet-5-5"
+    static let opusModelID = "claude-opus-5-5"
+
+    /// A choice saved by an older version names an older model, so it maps to the latest model of the same family.
+    static func latestModelID(forStoredModelID storedModelID: String?) -> String {
+        storedModelID?.contains("opus") == true ? opusModelID : sonnetModelID
+    }
+}
+
 /// Claude API helper with streaming for progressive text display.
 class ClaudeAPI {
     private static let tlsWarmupLock = NSLock()
@@ -14,7 +25,7 @@ class ClaudeAPI {
     var model: String
     private let session: URLSession
 
-    init(proxyURL: String, model: String = "claude-sonnet-4-6") {
+    init(proxyURL: String, model: String = ClaudeVoiceModel.sonnetModelID) {
         self.apiURL = URL(string: proxyURL)!
         self.model = model
 
@@ -95,6 +106,22 @@ class ClaudeAPI {
         }.resume()
     }
 
+    /// The streamed voice reply's request body. The system prompt is the same on every turn and the
+    /// screenshot after it never repeats, so the cache breakpoint sits on the system prompt alone.
+    static func streamingRequestBody(model: String, systemPrompt: String, messages: [[String: Any]]) -> [String: Any] {
+        return [
+            "model": model,
+            "max_tokens": 1024,
+            "stream": true,
+            // Low effort keeps the first spoken word near a second, and a spoken reply needs little thinking.
+            "output_config": ["effort": "low"],
+            "system": [
+                ["type": "text", "text": systemPrompt, "cache_control": ["type": "ephemeral"]]
+            ],
+            "messages": messages
+        ]
+    }
+
     /// Send a vision request to Claude with streaming.
     /// Calls `onTextChunk` on the main actor each time new text arrives so the UI updates progressively.
     /// Returns the full accumulated text and total duration when the stream completes.
@@ -139,72 +166,71 @@ class ClaudeAPI {
         ])
         messages.append(["role": "user", "content": contentBlocks])
 
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 1024,
-            "stream": true,
-            "system": systemPrompt,
-            "messages": messages
-        ]
+        let body = Self.streamingRequestBody(model: model, systemPrompt: systemPrompt, messages: messages)
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
         print("🌐 Claude streaming request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
-        // Use bytes streaming for SSE (Server-Sent Events)
-        let (byteStream, response) = try await session.bytes(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(
-                domain: "ClaudeAPI",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]
-            )
-        }
-
-        // If non-2xx status, read the full body as error text
-        guard (200...299).contains(httpResponse.statusCode) else {
-            var errorBodyChunks: [String] = []
-            for try await line in byteStream.lines {
-                errorBodyChunks.append(line)
-            }
-            let errorBody = errorBodyChunks.joined(separator: "\n")
-            throw NSError(
-                domain: "ClaudeAPI",
-                code: httpResponse.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: "API Error (\(httpResponse.statusCode)): \(errorBody)"]
-            )
-        }
-
-        // Parse SSE stream — each event is "data: {json}\n\n"
         var accumulatedResponseText = ""
+        do {
+            // Use bytes streaming for SSE (Server-Sent Events)
+            let (byteStream, response) = try await session.bytes(for: request)
 
-        for try await line in byteStream.lines {
-            // SSE lines look like: "data: {...}"
-            guard line.hasPrefix("data: ") else { continue }
-            let jsonString = String(line.dropFirst(6)) // Drop "data: " prefix
-
-            // End of stream marker
-            guard jsonString != "[DONE]" else { break }
-
-            guard let jsonData = jsonString.data(using: .utf8),
-                  let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                  let eventType = eventPayload["type"] as? String else {
-                continue
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NSError(
+                    domain: "ClaudeAPI",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid HTTP response"]
+                )
             }
 
-            // We care about content_block_delta events that contain text chunks
-            if eventType == "content_block_delta",
-               let delta = eventPayload["delta"] as? [String: Any],
-               let deltaType = delta["type"] as? String,
-               deltaType == "text_delta",
-               let textChunk = delta["text"] as? String {
-                accumulatedResponseText += textChunk
-                // Send the accumulated text so far to the UI for progressive rendering
-                let currentAccumulatedText = accumulatedResponseText
-                await onTextChunk(currentAccumulatedText)
+            // If non-2xx status, read the full body as error text
+            guard (200...299).contains(httpResponse.statusCode) else {
+                var errorBodyChunks: [String] = []
+                for try await line in byteStream.lines {
+                    errorBodyChunks.append(line)
+                }
+                let errorBody = errorBodyChunks.joined(separator: "\n")
+                throw NSError(
+                    domain: "ClaudeAPI",
+                    code: httpResponse.statusCode,
+                    userInfo: [NSLocalizedDescriptionKey: "API Error (\(httpResponse.statusCode)): \(errorBody)"]
+                )
             }
+
+            // Parse SSE stream: each event is "data: {json}\n\n"
+            for try await line in byteStream.lines {
+                // SSE lines look like: "data: {...}"
+                guard line.hasPrefix("data: ") else { continue }
+                let jsonString = String(line.dropFirst(6)) // Drop "data: " prefix
+
+                // End of stream marker
+                guard jsonString != "[DONE]" else { break }
+
+                guard let jsonData = jsonString.data(using: .utf8),
+                      let eventPayload = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                      let eventType = eventPayload["type"] as? String else {
+                    continue
+                }
+
+                // We care about content_block_delta events that contain text chunks
+                if eventType == "content_block_delta",
+                   let delta = eventPayload["delta"] as? [String: Any],
+                   let deltaType = delta["type"] as? String,
+                   deltaType == "text_delta",
+                   let textChunk = delta["text"] as? String {
+                    accumulatedResponseText += textChunk
+                    // Send the accumulated text so far to the UI for progressive rendering
+                    let currentAccumulatedText = accumulatedResponseText
+                    await onTextChunk(currentAccumulatedText)
+                }
+            }
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // A newer question cancelled this reply. Callers stay quiet on CancellationError,
+            // so this must not reach them as a failure that plays the lost-voice line.
+            throw CancellationError()
         }
 
         let duration = Date().timeIntervalSince(startTime)
@@ -253,6 +279,8 @@ class ClaudeAPI {
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 256,
+            // Thinking counts toward max_tokens, so low effort leaves room for the answer.
+            "output_config": ["effort": "low"],
             "system": systemPrompt,
             "messages": messages
         ]

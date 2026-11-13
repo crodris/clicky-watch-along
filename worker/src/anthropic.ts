@@ -1,7 +1,7 @@
 /**
  * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log,
- * one-line schema errors, and one Anthropic Messages call whose answer is the first text block,
- * as text or parsed as JSON.
+ * one-line schema errors, the system prompt cache breakpoint, and one Anthropic Messages call whose
+ * answer is the first text block, as text or parsed as JSON.
  */
 
 import { z } from "zod";
@@ -15,13 +15,17 @@ const anthropicMessageSchema = z.object({
   ),
 });
 
-const modelUsageSchema = z.object({ usage: z.unknown() });
+const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()) });
 
-/** Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends. */
+/**
+ * Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends.
+ * The line also names the model, because the benchmark prices each line by it.
+ */
 export function logModelUsage(routeName: string, modelResponseJSON: unknown): void {
   const parsedResponse = modelUsageSchema.safeParse(modelResponseJSON);
-  if (parsedResponse.success && parsedResponse.data.usage !== undefined) {
-    console.log(`[${routeName}] usage ${JSON.stringify(parsedResponse.data.usage)}`);
+  if (parsedResponse.success) {
+    const { model, usage } = parsedResponse.data;
+    console.log(`[${routeName}] usage ${JSON.stringify({ model, ...usage })}`);
   }
 }
 
@@ -100,7 +104,7 @@ export async function requestAnthropicReplyText(
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify(messagesRequestBody),
+    body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
   });
 
   if (!anthropicResponse.ok) {
@@ -128,4 +132,20 @@ export async function requestAnthropicReplyText(
     return { ok: false, response: jsonResponse({ error: "Anthropic response had no content list" }, 502) };
   }
   return { ok: true, replyText: firstTextBlock(parsedMessage.data) };
+}
+
+/**
+ * Every route sends the same system prompt on every call, ahead of a frame or answer that never repeats.
+ * A cache breakpoint on the system prompt lets later calls within 5 minutes read it at a tenth of the input price
+ * or less, while the part after it is never written to the cache. Any other body passes through unchanged.
+ */
+export function withCachedSystemPrompt(messagesRequestBody: unknown): unknown {
+  if (typeof messagesRequestBody !== "object" || messagesRequestBody === null || !("system" in messagesRequestBody)) {
+    return messagesRequestBody;
+  }
+  const { system } = messagesRequestBody;
+  if (typeof system !== "string" || system.length === 0) {
+    return messagesRequestBody;
+  }
+  return { ...messagesRequestBody, system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] };
 }

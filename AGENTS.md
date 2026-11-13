@@ -5,7 +5,7 @@
 
 ## Overview
 
-macOS menu bar companion app. Lives entirely in the macOS status bar (no dock icon, no main window). Clicking the menu bar icon opens a custom floating panel with companion voice controls. Uses push-to-talk (ctrl+option) to capture voice input, transcribes it with Apple Speech (this fork's provider; AssemblyAI streaming and OpenAI are the alternatives), and sends the transcript + a screenshot of the user's screen to Claude. Claude responds with text (streamed via SSE) and voice (ElevenLabs TTS). A blue cursor overlay can fly to and point at UI elements Claude references on any connected monitor.
+macOS menu bar companion app. Lives entirely in the macOS status bar (no dock icon, no main window). Clicking the menu bar icon opens a custom floating panel with companion voice controls. Uses push-to-talk (ctrl+option) to capture voice input, transcribes it with Apple Speech (this fork's provider; AssemblyAI streaming and OpenAI are the alternatives), and sends the transcript + a screenshot of the user's screen to Claude. Claude responds with text (streamed via SSE) and voice (ElevenLabs TTS, played as it streams in). A blue cursor overlay can fly to and point at UI elements Claude references on any connected monitor.
 
 All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in the app.
 
@@ -14,9 +14,10 @@ All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in th
 - **App Type**: Menu bar-only (`LSUIElement=true`), no dock icon or main window
 - **Framework**: SwiftUI (macOS native) with AppKit bridging for menu bar panel and cursor overlay
 - **Pattern**: MVVM with `@StateObject` / `@Published` state management
-- **AI Chat**: Claude (Sonnet 4.6 default, Opus 4.6 optional) via Cloudflare Worker proxy with SSE streaming
+- **AI Chat**: Claude (Sonnet 5.5 default, Opus 5.5 optional, both at low effort) via Cloudflare Worker proxy with SSE streaming. `ClaudeVoiceModel` in `ClaudeAPI.swift` holds the model IDs, and a choice saved by an older version moves to the latest model of its family. Use only the latest model of each family.
+- **Prompt caching**: the app marks a cache breakpoint on the `/chat` system prompt (`ClaudeAPI.streamingRequestBody`), and the Worker puts one on the system prompt of every route that calls Anthropic, so later calls within 5 minutes read it at a tenth of the input price
 - **Speech-to-Text**: Apple Speech, selected by `VoiceTranscriptionProvider` = `apple` in Info.plist. Setting it to `assemblyai` (real-time streaming over a websocket, `u3-rt-pro` model) or `openai` (upload on release) switches providers
-- **Text-to-Speech**: ElevenLabs (`eleven_multilingual_v2` model) via Cloudflare Worker proxy
+- **Text-to-Speech**: ElevenLabs `eleven_v4_turbo` via Cloudflare Worker proxy, streamed as 24 kHz PCM and played as it arrives, so speech starts about 0.25 seconds after the request instead of after the whole line is generated
 - **Screen Capture**: ScreenCaptureKit (macOS 14.2+), multi-monitor support
 - **Voice Input**: Push-to-talk via `AVAudioEngine` + pluggable transcription-provider layer. System-wide keyboard shortcut via listen-only CGEvent tap.
 - **Element Pointing**: Claude embeds `[POINT:x,y:label:screenN]` tags in responses. The overlay parses these, maps coordinates to the correct monitor, and animates the blue cursor along a bezier arc to the target.
@@ -30,7 +31,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | Route | Upstream | Purpose |
 |-------|----------|---------|
 | `POST /chat` | `api.anthropic.com/v1/messages` | Claude vision + streaming chat |
-| `POST /tts` | `api.elevenlabs.io/v1/text-to-speech/{voiceId}` | ElevenLabs TTS audio |
+| `POST /tts` | `api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream` | ElevenLabs TTS audio, streamed. An `output_format` query such as `pcm_24000` passes through, and without one the audio is MP3 |
 | `POST /transcribe-token` | `streaming.assemblyai.com/v3/token` | Fetches a short-lived (480s) AssemblyAI websocket token |
 | `POST /live-scene` | `api.openai.com/v1/responses` | GPT-6.1 Sol Ultrafast writes a three.js page and a quiz from the question and screenshot |
 | `POST /judge-answer` | `api.anthropic.com/v1/messages` | Sonnet grades a spoken answer as correct, named only, wrong, or a request for help |
@@ -128,23 +129,25 @@ The pop-out lands back in the frame, then clears before the video plays again. S
 | `AppleSpeechTranscriptionProvider.swift` | ~147 | Local fallback transcription provider backed by Apple's Speech framework. |
 | `BuddyAudioConversionSupport.swift` | ~108 | Audio conversion helpers. Converts live mic buffers to PCM16 mono audio and builds WAV payloads for upload-based providers. |
 | `GlobalPushToTalkShortcutMonitor.swift` | ~132 | System-wide push-to-talk monitor. Owns the listen-only `CGEvent` tap and publishes press/release transitions. |
-| `ClaudeAPI.swift` | ~291 | Claude vision API client with streaming (SSE) and non-streaming modes. TLS warmup optimization, image MIME detection, conversation history support. |
+| `ClaudeAPI.swift` | ~314 | Claude vision API client with streaming (SSE) and non-streaming modes. `ClaudeVoiceModel` holds the latest Sonnet and Opus IDs, and `streamingRequestBody` builds the voice reply's request at low effort with the system prompt cached. TLS warmup optimization, image MIME detection, conversation history support. |
 | `OpenAIAPI.swift` | ~142 | OpenAI GPT vision API client. |
-| `ElevenLabsTTSClient.swift` | ~81 | ElevenLabs TTS client. Sends text to the Worker proxy, plays back audio via `AVAudioPlayer`. Exposes `isPlaying` for transient cursor scheduling. |
+| `ElevenLabsTTSClient.swift` | ~256 | ElevenLabs TTS client. Asks the Worker for streamed 24 kHz PCM and plays it through an `AVAudioEngine` player node in fifth-of-a-second buffers as it arrives. `speakText` returns once audio is playing, and `isPlaying` stays true while audio plays or is still arriving. The engine pauses between lines, an output device change ends a line that is already playing, and a reply that is not PCM, such as MP3 from a Worker deployed before streaming, throws. `PCM16StreamChunker` turns the streamed bytes into samples. |
 | `ElementLocationDetector.swift` | ~335 | Detects UI element locations in screenshots for cursor pointing. |
 | `DesignSystem.swift` | ~920 | Design system tokens — colors (including the status line palettes), corner radii, shared styles. All UI references `DS.Colors`, `DS.CornerRadius`, etc. |
 | `ClickyAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~28 | Runtime configuration reader for keys stored in the app bundle Info.plist. |
-| `leanring-buddyTests/leanring_buddyTests.swift` | ~590 | Swift Testing unit tests for voice-command parsing, quiz grading, the reveal outcome and overlay clear transitions, narration label matching, page event parsing, the narration prompt for a page image, label-tap acceptance, the page load failures that end a scene, the cursor release on a scene clear, the part label's page-to-screen conversion, the live scene trigger and rise script, the image pop-out's rect and screen choice, the status label's animation and line ownership, and the permission gate. They import `Clicky` and run on the main actor, hosted in `Clicky.app`. |
-| `worker/src/index.ts` | ~165 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/live-scene` (generated page), `/judge-answer` (spoken grade), `/video-quiz-plan` (video quiz moments), `/video-frame-parts` (subject and labels in a frame). |
+| `leanring-buddyTests/leanring_buddyTests.swift` | ~636 | Swift Testing unit tests for voice-command parsing, quiz grading, the reveal outcome and overlay clear transitions, narration label matching, page event parsing, the narration prompt for a page image, label-tap acceptance, the page load failures that end a scene, the cursor release on a scene clear, the part label's page-to-screen conversion, the live scene trigger and rise script, the image pop-out's rect and screen choice, the status label's animation and line ownership, the permission gate, the streamed speech chunker, the saved model choice mapping, and the voice reply's request body. They import `Clicky` and run on the main actor, hosted in `Clicky.app`. |
+| `worker/src/index.ts` | ~185 | Cloudflare Worker proxy. Routes: `/chat` (Claude), `/tts` (ElevenLabs), `/transcribe-token` (AssemblyAI temp token), `/live-scene` (generated page), `/judge-answer` (spoken grade), `/video-quiz-plan` (video quiz moments), `/video-frame-parts` (subject and labels in a frame). The `/chat` pass-through and the `/tts` output format are tested in `worker/src/index.test.ts`. |
 | `worker/src/videoQuizPlan.ts` | ~281 | `POST /video-quiz-plan`. Sonnet returns the plan as schema-checked JSON and decides how many moments to pick. `parseVideoQuizPlan` moves a pause between two transcript lines to the next line start, moves a source time to the line playing then, lowercases function words, and checks the rest (tested in `worker/src/videoQuizPlan.test.ts`). Up to 2 retries name the broken rule, and each rejection logs "[/video-quiz-plan] attempt N rejected". |
 | `worker/src/liveScene.ts` | ~350 | `POST /live-scene` asks GPT-6.1 Sol Ultrafast for a page and a quiz, checks the reply, and retries once. `POST /judge-answer` asks Sonnet for a verdict and one spoken sentence as schema-checked JSON. |
 | `worker/src/videoFrameParts.ts` | ~185 | `POST /video-frame-parts`. Sonnet returns the subject box and part points as schema-checked JSON, and `checkFrameParts` clamps them into the frame, drops labels that are not short plain names, and keeps a painted scene (`wholePictureIsSubject`) found even when the model marks it as no single object (tested in `worker/src/videoFrameParts.test.ts`). |
 | `worker/src/landmark.ts` | ~105 | `POST /landmark`, with `checkLandmark` rejecting coordinates off the globe (tested in `landmark.test.ts`). |
 | `worker/src/mapTiles.ts` | ~45 | `GET /v1/3dtiles/...`, which forwards Google 3D Tiles requests with the key (tested in `mapTiles.test.ts`). |
 | `worker/src/liveSceneReply.ts` | ~71 | Zod and plain checks for a live scene model reply: required page markers, no external URL, and a quiz JSON block. Tested in `worker/src/liveSceneReply.test.ts`. |
-| `worker/src/anthropic.ts` | ~130 | Shared Worker helpers: JSON responses, request body parsing, the token usage log, `zodIssuesOnOneLine` for schema errors that must stay on one log line, and one Anthropic Messages call that returns the first text block parsed as JSON. |
+| `worker/src/anthropic.ts` | ~160 | Shared Worker helpers: JSON responses, request body parsing, the token usage log (which names the model), `zodIssuesOnOneLine` for schema errors that must stay on one log line, `withCachedSystemPrompt`, and one Anthropic Messages call that returns the first text block parsed as JSON. |
+| `bench/bench.ts` | ~803 | Benchmark of every Worker route the demo uses, on fixed fixtures in `bench/fixtures/`: latency, tokens, cost, and a quality check per call, with results in `bench/results/`. Each side of a comparison sends what its own app version sends. See `bench/README.md`. |
+| `bench/report.ts` | ~185 | Turns benchmark result files into the CSV tables a chart page reads. CI runs it on every committed result. |
 
 ## Build & Run
 
@@ -200,6 +203,7 @@ pnpm 12 refuses to install a dependency with an unapproved build script.
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main.
 The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
+The `bench` job typechecks `bench/` and checks that the committed results in `bench/results/` still parse.
 The `app` job builds the `leanring-buddy` scheme on a GitHub macOS runner with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 Running xcodebuild there is fine, since the runner has no TCC permissions to lose.
 
