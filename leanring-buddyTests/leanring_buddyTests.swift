@@ -225,7 +225,7 @@ struct leanring_buddyTests {
             ChromePageGeometry(
                 screenX: 100, screenY: 50, outerWidth: 1400, outerHeight: 900,
                 innerWidth: innerWidth, innerHeight: innerHeight, devicePixelRatio: devicePixelRatio,
-                left: left, top: top, width: 400, height: 200
+                left: left, top: top, width: 400, height: 200, imageSourceURL: nil
             )
         }
 
@@ -260,7 +260,7 @@ struct leanring_buddyTests {
             ChromePageGeometry(
                 screenX: 100, screenY: 50, outerWidth: 1400, outerHeight: 900,
                 innerWidth: innerWidth, innerHeight: innerHeight, devicePixelRatio: devicePixelRatio,
-                left: 80, top: 40, width: 400, height: 200
+                left: 80, top: 40, width: 400, height: 200, imageSourceURL: nil
             )
         }
 
@@ -602,6 +602,50 @@ struct leanring_buddyTests {
             let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
             #expect(popoutPageHTML.contains("\"pictureShowsDepth\":\(pictureShowsDepth)"))
         }
+    }
+
+    @Test func animatedPageImageGivesEveryFrameAtTheCapturedSizeAndBrowserTiming() async throws {
+        func gifData(delaySecondsForEachFrame: [Double]) throws -> Data {
+            let gifData = NSMutableData()
+            let destination = try #require(CGImageDestinationCreateWithData(gifData, "com.compuserve.gif" as CFString, delaySecondsForEachFrame.count, nil))
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            for (frameIndex, delaySeconds) in delaySecondsForEachFrame.enumerated() {
+                let frameContext = try #require(CGContext(
+                    data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
+                    space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ))
+                frameContext.setFillColor(CGColor(srgbRed: frameIndex.isMultiple(of: 2) ? 1 : 0, green: 0, blue: 1, alpha: 1))
+                frameContext.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+                let gifProperties = [kCGImagePropertyGIFUnclampedDelayTime: delaySeconds, kCGImagePropertyGIFDelayTime: delaySeconds]
+                CGImageDestinationAddImage(destination, try #require(frameContext.makeImage()), [kCGImagePropertyGIFDictionary: gifProperties] as CFDictionary)
+            }
+            #expect(CGImageDestinationFinalize(destination))
+            return gifData as Data
+        }
+        let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+
+        let animationFrames = try #require(PageImageAnimation.frames(
+            ofImageData: try gifData(delaySecondsForEachFrame: [0.05, 0, 0.2]),
+            frameWidth: 8, frameHeight: 6, backgroundColor: white
+        ))
+        // A delay of 10 ms or less plays as 100 ms in a browser, so the pop-out matches the page.
+        #expect(animationFrames.map(\.delaySeconds) == [0.05, 0.1, 0.2])
+        let firstFrameJPEGData = try #require(Data(base64Encoded: animationFrames[0].jpegBase64))
+        let firstFrameSource = try #require(CGImageSourceCreateWithData(firstFrameJPEGData as CFData, nil))
+        let firstFrame = try #require(CGImageSourceCreateImageAtIndex(firstFrameSource, 0, nil))
+        #expect(firstFrame.width == 8 && firstFrame.height == 6)
+        // The 4x4 frame is stretched over the whole 8x6 capture, so even the top-right corner shows its magenta.
+        var firstFramePixelBytes = [UInt8](repeating: 0, count: 8 * 6 * 4)
+        let pixelReadContext = try #require(CGContext(
+            data: &firstFramePixelBytes, width: 8, height: 6, bitsPerComponent: 8, bytesPerRow: 8 * 4,
+            space: try #require(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        pixelReadContext.draw(firstFrame, in: CGRect(x: 0, y: 0, width: 8, height: 6))
+        let topRightPixelGreen = firstFramePixelBytes[7 * 4 + 1]
+        #expect(topRightPixelGreen < 100)
+
+        // A still image keeps the captured frame.
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(delaySecondsForEachFrame: [0.1]), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
     }
 
     @Test func narrationOfAPageImageNeverCallsItAVideo() async throws {

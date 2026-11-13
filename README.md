@@ -31,6 +31,7 @@ It plays the video again when you close the pop-out, unless you had paused it yo
 You can drag to spin it.
 It works best on 2D illustrations, like engravings and prints.
 A picture that already shows depth, like a 3D cutaway of an engine or a photo, lifts out as a flat card that tilts, so its drawn perspective stays sharp.
+An animated GIF keeps playing after it pops out.
 Clicky talks about its parts the same way, and calls it a picture, not a video.
 A painted scene, like The Starry Night, lifts out whole, sky included, while a drawing of one animal, like Dürer's Young Hare, lifts out only the animal.
 

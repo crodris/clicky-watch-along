@@ -17,6 +17,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
 - `popout-put-back` keeps the pop-out up through a push-to-talk tap, and sends it back into its frame when the learner says "put it back" (or "put that away"), during the tour or after it.
 - `popout-depth` lifts a picture that already shows depth, such as a 3D cutaway or a photo, as a flat card that only tilts, when the route returns `pictureShowsDepth: true`.
   Flat illustrations and paintings keep the puffed-up lift.
+- `popout-animation` keeps an animated page image (GIF, animated WebP, or APNG) playing on the lifted subject and on the frame behind it, when the image sits wholly inside the viewport.
+  Reduce Motion keeps the still frame.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.
@@ -71,6 +73,10 @@ Preconditions:
   In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
   The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
   Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
+- **Pop out an animated image.** With `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and the lead GIF wholly on screen, run `$V app-launch "pop this out"`.
+  The log shows `Frame pop-out: playing the page image's 21 animation frames` before `Frame pop-out: lifting the subject`.
+  Run `$V shot animated-popout` twice about 0.2 seconds apart, and check that the blades and the arrows moved between the two shots with no white blobs at the engine's edge.
+  Scroll so the GIF is cut off at the top of the window and pop it out again, and the log has no animation line.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

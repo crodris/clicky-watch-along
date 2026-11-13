@@ -546,6 +546,8 @@ final class VideoQuizSession {
     /// for a pop-out the learner asked for. Nil when Sonnet or Vision finds no single subject in it.
     static func framePopoutOfTheVisibleFrame(workerBaseURL: String) async throws -> VideoFramePopout? {
         let frameGrab: VideoFrameGrab
+        // An animated page image downloads while Sonnet reads the frame, so it adds no wait.
+        var pageImageAnimationTask: Task<[PageImageAnimationFrame]?, Never>?
         do {
             // Only the video in front is the one the learner pointed at.
             let videoTab = try ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true)
@@ -554,11 +556,22 @@ final class VideoQuizSession {
         } catch VideoQuizFailure.noYouTubeTabFound {
             // A cross-origin image cannot be read from a page canvas, so the screen under it is captured instead.
             do {
-                guard let mediaRect = try ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTabOrNone(),
-                      let screenGrab = try await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(mediaRect) else {
+                guard let media = try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone(),
+                      let screenGrab = try await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(media.screenRect) else {
                     throw VideoQuizFailure.noImageOrVideoToPopOut
                 }
                 frameGrab = screenGrab
+                // A capture cut off at a display edge no longer matches the image's own frames.
+                if let imageSourceURL = media.imageSourceURL, screenGrab.screenRect == media.screenRect {
+                    pageImageAnimationTask = Task {
+                        await PageImageAnimation.frames(
+                            atImageURL: imageSourceURL,
+                            frameWidth: screenGrab.width,
+                            frameHeight: screenGrab.height,
+                            capturedFrameJPEGBase64: screenGrab.jpeg
+                        )
+                    }
+                }
             } catch {
                 print("Video quiz: could not capture an image for a requested pop-out: \(error)")
                 switch error {
@@ -574,13 +587,20 @@ final class VideoQuizSession {
             print("Video quiz: captured a \(frameGrab.width)x\(frameGrab.height) image from the screen for a requested pop-out")
         }
         // No question is being asked, so no label gets the quiz mark.
-        return try await VideoFramePopoutClient.requestPopout(
+        guard var framePopout = try await VideoFramePopoutClient.requestPopout(
             workerBaseURL: workerBaseURL,
             frameGrab: frameGrab,
             subject: "",
             question: "",
             answerLabel: ""
-        )
+        ) else {
+            return nil
+        }
+        if let animationFrames = await pageImageAnimationTask?.value {
+            framePopout.animationFrames = animationFrames
+            print("Frame pop-out: playing the page image's \(animationFrames.count) animation frames")
+        }
+        return framePopout
     }
 
     /// Grabs the frame while the video plays, a few seconds before the next pause.
@@ -772,7 +792,8 @@ private struct ChromeVideoTab {
     /// the largest visible video or image, with a video counting four times its area. Images that show nothing
     /// (not loaded, hidden, or fully transparent) are skipped. A loaded image with no natural width is skipped
     /// too, except an SVG, which can have only a viewBox and so no natural width. Returns the window's and
-    /// the element's raw page geometry as JSON, or 'none' under 160x90 visible. The page measures in CSS pixels and the window in
+    /// the element's raw page geometry as JSON, or 'none' under 160x90 visible. An image wholly inside the
+    /// viewport and stretched to its box also returns its URL, since only then do its own frames line up with the capture. The page measures in CSS pixels and the window in
     /// screen points, so `screenRectInChromeCoordinates` turns them into one screen rect, using Chrome's
     /// accessibility web area when it can, and the page zoom and the screen Chrome is on when it cannot.
     private static let largestVisibleMediaJavaScript = [
@@ -792,10 +813,12 @@ private struct ChromeVideoTab {
         "if (right <= left || bottom <= top) { continue; }",
         "var visibleArea = (right - left) * (bottom - top);",
         "var score = visibleArea * (isVideo ? 4 : 1);",
-        "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea }; }",
+        "var isWhollyVisible = rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight;",
+        "var imageSourceURL = !isVideo && isWhollyVisible && style.objectFit === 'fill' ? element.currentSrc : null;",
+        "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea, imageSourceURL: imageSourceURL }; }",
         "}",
         "if (!best || best.visibleArea < 160 * 90) { return 'none'; }",
-        "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height });",
+        "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL });",
         "})()",
     ].joined(separator: " ")
 
@@ -806,16 +829,16 @@ private struct ChromeVideoTab {
             return nil
         }
         do {
-            return try screenRectOfTheLargestVisibleMediaInFrontTabOrNone()
+            return try largestVisibleMediaInFrontTabOrNone()?.screenRect
         } catch {
             print("Live scene: could not read the media rect from Chrome: \(error)")
             return nil
         }
     }
 
-    /// The same rect for a pop-out, which says out loud why Chrome refused, such as JavaScript
+    /// The same media for a pop-out, which says out loud why Chrome refused, such as JavaScript
     /// from Apple Events being off. Nil when no media is big enough.
-    static func screenRectOfTheLargestVisibleMediaInFrontTabOrNone() throws -> ScreenRectInChromeCoordinates? {
+    static func largestVisibleMediaInFrontTabOrNone() throws -> LargestVisibleMediaInFrontTab? {
         let javaScriptResult = try runAppleScript("""
         tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
         """)
@@ -829,14 +852,16 @@ private struct ChromeVideoTab {
             matchingWebAreaFrames: ChromeWebArea.webAreaFramesOfChromesFocusedWindow()
         ) {
             print("Media rect: placed from Chrome's accessibility web area")
-            return rectFromWebArea
+            return LargestVisibleMediaInFrontTab(screenRect: rectFromWebArea, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
         }
         let rectFromPageGeometry = screenRectInChromeCoordinates(
             from: pageGeometry,
             backingScaleFactor: backingScaleFactorOfTheScreenHoldingTheWindow(of: pageGeometry)
         )
         print("Media rect: no matching web area, \(rectFromPageGeometry == nil ? "the page geometry gave no rect either" : "placed from the page geometry")")
-        return rectFromPageGeometry
+        return rectFromPageGeometry.map { screenRect in
+            LargestVisibleMediaInFrontTab(screenRect: screenRect, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
+        }
     }
 
     /// The pixel density of the screen that holds the largest part of Chrome's window, which the page zoom is

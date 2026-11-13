@@ -340,11 +340,62 @@ const subjectGeometry = new THREE.BufferGeometry();
 subjectGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
 subjectGeometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 subjectGeometry.setIndex(indices);
-const subjectMesh = new THREE.Mesh(subjectGeometry, new THREE.MeshStandardMaterial({ map: asTexture(cutout), alphaTest: 0.5, roughness: 0.75, side: THREE.DoubleSide }));
+const subjectTexture = asTexture(cutout);
+const subjectMesh = new THREE.Mesh(subjectGeometry, new THREE.MeshStandardMaterial({ map: subjectTexture, alphaTest: 0.5, roughness: 0.75, side: THREE.DoubleSide }));
 scene.add(subjectMesh);
 scene.add(new THREE.AmbientLight(0xffffff, 1.5));
 const keyLight = new THREE.DirectionalLight(0xffffff, 1.6); keyLight.position.set(-2, 3, 4); scene.add(keyLight);
 const rimLight = new THREE.DirectionalLight(0xffffff, 0.9); rimLight.position.set(2, -1, -4); scene.add(rimLight);
+
+// An animated page image keeps playing on the lifted subject and on the frame behind it. Every frame
+// reuses the subject mask of the captured frame, so the outline holds still while what is inside it moves.
+const animationFrames = popout.animationFrames ?? [];
+let animationFrameImages = null;
+let shownAnimationFrameIndex = 0;
+let secondsOnShownAnimationFrame = 0;
+// Swift draws the frames over the captured frame's top-left color, which is the page behind the image.
+// A part that moves away, like an arrow, leaves that color inside the mask, and it shows as a blob on the subject
+// unless it is cut out. Spots that showed that color in the captured frame, like a white numbered circle, stay.
+const backgroundRed = pixels[0], backgroundGreen = pixels[1], backgroundBlue = pixels[2];
+const showsTheBackgroundColor = (data, index) =>
+  (data[index] - backgroundRed) ** 2 + (data[index + 1] - backgroundGreen) ** 2 + (data[index + 2] - backgroundBlue) ** 2 < 40 * 40;
+const capturedFrameShowedTheBackground = new Uint8Array(boxW * boxH);
+if (animationFrames.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
+    capturedFrameShowedTheBackground[y * boxW + x] = showsTheBackgroundColor(pixels, ((y + y0) * W + (x + x0)) * 4) ? 1 : 0;
+  }
+  // The scene starts on the captured frame and picks up the animation once every frame has decoded.
+  Promise.all(animationFrames.map((animationFrame) => {
+    const frameImage = new Image();
+    frameImage.src = animationFrame.dataURL;
+    return frameImage.decode().then(() => frameImage);
+  })).then((decodedImages) => { animationFrameImages = decodedImages; }, () => {});
+}
+const showAnimationFrame = (frameImage) => {
+  frameBackground.getContext("2d").drawImage(frameImage, 0, 0, W, H);
+  const cutoutContext = cutout.getContext("2d");
+  cutoutContext.globalCompositeOperation = "copy";
+  cutoutContext.drawImage(frameImage, x0, y0, boxW, boxH, 0, 0, boxW, boxH);
+  cutoutContext.globalCompositeOperation = "source-over";
+  const cutoutData = cutoutContext.getImageData(0, 0, boxW, boxH);
+  for (let i = 0; i < subjectMask.length; i++) {
+    const uncoveredBackground = !capturedFrameShowedTheBackground[i] && showsTheBackgroundColor(cutoutData.data, i * 4);
+    cutoutData.data[i * 4 + 3] = subjectMask[i] && !uncoveredBackground ? 255 : 0;
+  }
+  cutoutContext.putImageData(cutoutData, 0, 0);
+  subjectTexture.needsUpdate = true;
+};
+const advanceAnimation = (frameMilliseconds) => {
+  if (!animationFrameImages) return;
+  secondsOnShownAnimationFrame += frameMilliseconds / 1000;
+  const indexBefore = shownAnimationFrameIndex;
+  // Swift keeps every delay above zero, so this ends. A long stall skips frames instead of replaying them.
+  while (secondsOnShownAnimationFrame >= animationFrames[shownAnimationFrameIndex].delaySeconds) {
+    secondsOnShownAnimationFrame -= animationFrames[shownAnimationFrameIndex].delaySeconds;
+    shownAnimationFrameIndex = (shownAnimationFrameIndex + 1) % animationFrames.length;
+  }
+  if (shownAnimationFrameIndex !== indexBefore) showAnimationFrame(animationFrameImages[shownAnimationFrameIndex]);
+};
 
 const maximumLift = 0.375 * shownHeight;
 let liftNow = -1;
@@ -438,6 +489,7 @@ const render = (now) => {
   const seconds = (now - tourStartedAt) / 1000;
   const frameMilliseconds = lastFrameTime === undefined ? 0 : now - lastFrameTime;
   lastFrameTime = now;
+  advanceAnimation(frameMilliseconds);
   if (returnFrom) {
     const progress = Math.min(1, Math.max(0, (now - returnStartedAt) / 1000 / returnSeconds));
     const settle = ease(progress);
