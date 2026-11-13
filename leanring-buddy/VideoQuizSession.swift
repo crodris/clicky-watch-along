@@ -54,7 +54,40 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
     return transcriptNamesAVideo && transcriptAsksToBeQuizzed ? .start : nil
 }
 
-/// A change to the YouTube video the learner asked for by voice. The JavaScript only ever embeds numbers
+/// The page's answer about its video goes into the model's prompt, and any page can rewrite what its scripts
+/// return, so only the four expected fields pass, each with its expected type, plus the tab title cut short.
+/// Nil when a field is missing or has the wrong type.
+nonisolated func learnerVideoStateTheModelMayRead(pageVideoState: JSONValue, tabTitle: String) -> JSONValue? {
+    guard let seconds = pageVideoState["seconds"]?.numberValue,
+          let durationSeconds = pageVideoState["durationSeconds"]?.numberValue,
+          let playbackRate = pageVideoState["playbackRate"]?.numberValue,
+          let paused = pageVideoState["paused"]?.boolValue else {
+        return nil
+    }
+    return .object([
+        "seconds": .number(seconds),
+        "durationSeconds": .number(durationSeconds),
+        "playbackRate": .number(playbackRate),
+        "paused": .bool(paused),
+        "title": .string(String(tabTitle.prefix(120))),
+    ])
+}
+
+/// Caption search hands the front tab's URL to yt-dlp, so it reads only https pages on a public host,
+/// never a page on this Mac or on the local network.
+nonisolated func captionSearchMayReadTheVideoPage(urlText: String) -> Bool {
+    guard let pageURL = URL(string: urlText), pageURL.scheme == "https", let host = pageURL.host()?.lowercased() else {
+        return false
+    }
+    if host == "localhost" || host.hasSuffix(".local") || host.hasSuffix(".localhost") || host.hasSuffix(".internal") {
+        return false
+    }
+    // A bare IP address is either local or not a video site the learner browses to, so none is read.
+    let hostIsAnIPAddress = host.contains(":") || host.split(separator: ".").allSatisfy { Int($0) != nil }
+    return !hostIsAnIPAddress
+}
+
+/// A change to the video the learner asked for by voice. The JavaScript only ever embeds numbers
 /// Swift formats, and uses single quotes, because it runs inside a double-quoted AppleScript string.
 nonisolated enum LearnerVideoCommand: Equatable {
     case readState
@@ -734,6 +767,8 @@ final class VideoQuizSession {
         let captionLines: [VideoQuizTranscriptLine]
         if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, !allTranscriptLines.isEmpty {
             captionLines = allTranscriptLines
+        } else if !captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) {
+            throw VideoQuizFailure.noVideoOnThePage
         } else if let cachedCaptionLines = captionLinesByVideoURL[frontVideoTab.url] {
             captionLines = cachedCaptionLines
         } else {
@@ -746,12 +781,11 @@ final class VideoQuizSession {
     private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String) throws -> JSONValue {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab)
         guard javaScriptResult != "no-video",
-              let videoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
-              case .object(var videoStateFields) = videoState else {
+              let pageVideoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
+              let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title) else {
             throw VideoQuizFailure.noVideoOnThePage
         }
-        videoStateFields["title"] = .string(title)
-        return .object(videoStateFields)
+        return videoState
     }
 
     // MARK: Talking to the page
@@ -1068,6 +1102,10 @@ private enum VideoCaptionsDownloader {
             "--sub-langs", "en",
             "--sub-format", "json3",
             "-o", captionsDirectory.appendingPathComponent("%(id)s.%(ext)s").path,
+            // The voice tools pass whatever page is in front, so only sites yt-dlp knows are read, never a crawl of any page.
+            "--use-extractors", "default,-generic",
+            // Everything after this is the URL, even if it starts with a dash.
+            "--",
             videoURL,
         ]
         ytDlpProcess.standardOutput = FileHandle.nullDevice
