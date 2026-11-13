@@ -704,7 +704,10 @@ function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
     meanCacheWriteTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheWriteTokens)))),
     meanCacheReadTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheReadTokens)))),
     meanOutputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.outputTokens)))),
-    meanCostUSD: Number(mean(samples.flatMap((sample) => (sample.costUSD === null ? [] : [sample.costUSD]))).toFixed(5)),
+    // One unpriced sample makes the mean unknown, so an unknown cost never reads as zero.
+    meanCostUSD: samples.some((sample) => sample.costUSD === null)
+      ? null
+      : Number(mean(samples.flatMap((sample) => (sample.costUSD === null ? [] : [sample.costUSD]))).toFixed(5)),
   };
 }
 

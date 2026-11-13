@@ -59,8 +59,8 @@ CI runs it on every committed result, so a result file that no longer parses fai
 
 - `totalMs` is request start to the last byte. The app waits for the whole body on every route except streamed `/tts`.
 - `firstTokenMs` is request start to the first text token of a streamed `/chat` reply.
-- `firstAudioMs` is when the app could start speaking a `/tts` reply: the first buffer of streamed PCM, or the whole body for an MP3, which the older app downloads in full before it plays.
+- `firstAudioMs` is when the app could start speaking a `/tts` reply: the first buffer of streamed PCM, or the whole body for an MP3, which the older app downloads in full before it plays. A PCM line shorter than one buffer is timed at the end of its stream.
 - Tokens come from the Worker's `[/route] usage {...}` log lines, one per model call, so two lines for one request mean one retry.
   Streamed `/chat` logs no usage line, so its tokens come from the stream's `message_start` and `message_delta` events.
-- `costUSD` prices each usage line by the model it names. `/tts` is priced per character. A GPT live scene uses the repo's $0.23 estimate. A model or speech model with no price records `costUSD` as null and prints a warning, so the run goes on.
+- `costUSD` prices each usage line by the model it names. `/tts` is priced per character. A GPT live scene uses the repo's $0.23 estimate. A model or speech model with no price records `costUSD` as null and prints a warning, so the run goes on, and the case's mean cost is then null too.
 - `quality` is a per-case check of the reply, such as the pointer landing on a "Download PDF" control or the landmark within 0.003 degrees of the Eiffel Tower.

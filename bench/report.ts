@@ -41,7 +41,7 @@ type CaseSummary = {
   meanCacheWriteTokens: number;
   meanCacheReadTokens: number;
   meanOutputTokens: number;
-  meanCostUSD: number;
+  meanCostUSD: number | null;
 };
 
 type UsageLine = { inputTokens: number; cacheWriteTokens: number; cacheReadTokens: number; outputTokens: number };

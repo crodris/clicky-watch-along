@@ -85,14 +85,16 @@ final class ElevenLabsTTSClient {
         audioEngine.connect(playerNode, to: audioEngine.mainMixerNode, format: playbackFormat)
 
         // The engine stops itself when the output device changes, and the buffers it held then never
-        // report as played, so the line ends here instead of leaving isPlaying true for good.
+        // report as played, so a line already playing ends here instead of leaving isPlaying true for good.
+        // A line still waiting for its first audio is left alone, since speakText starts the engine again.
         engineConfigurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: audioEngine,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.stopPlayback()
+                guard let self, self.isReceivingStream || self.buffersWaitingToFinishPlaying > 0 else { return }
+                self.stopPlayback()
             }
         }
     }
