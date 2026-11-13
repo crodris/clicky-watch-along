@@ -465,4 +465,19 @@ struct leanring_buddyTests {
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: nil, liveScenePhase: .allLabelsShowing) == nil)
     }
 
+    @Test func partLabelBoxBecomesTheGlobalPointUnderItsBottomEdge() async throws {
+        let labelRect = LiveScenePartLabelRectInPage(label: "Aorta", left: 100, top: 200, width: 60, height: 24)
+        // A main display 1512 x 982 points: the page's y of 224 is 224 points down from its top.
+        let onMainDisplay = partScreenPoint(of: labelRect, overlayScreenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
+        #expect(onMainDisplay == LiveScenePartScreenPoint(label: "Aorta", globalPoint: CGPoint(x: 130, y: 758)))
+        // A second display to the left of the main one and lower, so its frame starts at negative x and positive y.
+        let onSecondDisplay = partScreenPoint(of: labelRect, overlayScreenFrame: CGRect(x: -1920, y: -300, width: 1920, height: 1080))
+        #expect(onSecondDisplay.globalPoint == CGPoint(x: -1790, y: 556))
+
+        // WebKit hands numbers back as NSNumber, and anything else is dropped.
+        let pageValue: [String: Any] = ["label": "Aorta", "left": NSNumber(value: 100), "top": NSNumber(value: 200.5), "width": NSNumber(value: 60), "height": NSNumber(value: 24)]
+        #expect(LiveScenePartLabelRectInPage(pageValue: pageValue) == LiveScenePartLabelRectInPage(label: "Aorta", left: 100, top: 200.5, width: 60, height: 24))
+        #expect(LiveScenePartLabelRectInPage(pageValue: ["label": "Aorta", "left": "100"]) == nil)
+    }
+
 }

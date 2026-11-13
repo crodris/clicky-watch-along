@@ -387,6 +387,28 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         return (pageResult as? [String]) ?? []
     }
 
+    /// Where each part label sits on screen, read with getBoundingClientRect once the camera has
+    /// finished gliding to the focused part, so the blue cursor can point at it. Only the bundled
+    /// frame pop-out answers. Any other page gives an empty list.
+    func partLabelScreenPointsOnceTheCameraSettles() async -> [LiveScenePartScreenPoint] {
+        guard let liveSceneWebView, pageHasFinishedLoading else { return [] }
+        let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
+            "return await window.liveScene.labelRectsOnceTheCameraSettles?.() ?? []",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        // Read after the wait, since the window covers the screen the scene plays on at that moment.
+        guard let overlayScreenFrame = liveSceneOverlayWindow?.frame else { return [] }
+        // The page returns a list of label boxes, and WebKit types it as Any.
+        let pageLabelRects = (pageResult as? [Any]) ?? []
+        return pageLabelRects
+            .compactMap(LiveScenePartLabelRectInPage.init(pageValue:))
+            .map { labelRect in
+                partScreenPoint(of: labelRect, overlayScreenFrame: overlayScreenFrame)
+            }
+    }
+
     func clear() {
         queuedPageLoad = nil
         liveSceneOverlayWindow?.ignoresMouseEvents = true

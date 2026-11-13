@@ -41,6 +41,8 @@ final class CompanionManager: ObservableObject {
     /// Custom speech bubble text for the pointing animation. When set,
     /// BlueCursorView uses this instead of a random pointer phrase.
     @Published var detectedElementBubbleText: String?
+    /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
+    @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -341,6 +343,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = nil
         detectedElementDisplayFrame = nil
         detectedElementBubbleText = nil
+        detectedElementPointingHold = .briefly
     }
 
     func stop() {
@@ -1595,10 +1598,14 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Bundled Page Narration
 
-    /// Says a few sentences about a frame pop-out, one part each, highlighting that part as it is named.
-    /// The Claude call starts right away and the speech waits for the tour, so it is ready when the camera stops.
-    /// The labels come from the pop-out's own parts list, because the page may not have loaded yet.
+    /// Says a few sentences about a frame pop-out, one part each, highlighting that part and pointing the
+    /// blue cursor at it as it is named. The Claude call starts right away and the speech waits for the tour,
+    /// so it is ready when the camera stops. The labels come from the pop-out's own parts list, because the
+    /// page may not have loaded yet.
     private func narrateTheFramePopout(_ framePopout: VideoFramePopout, narrationTrigger: LiveSceneNarrationTrigger) async {
+        let narrationID = UUID()
+        // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
+        defer { releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID) }
         let knownPartLabels = framePopout.parts.map(\.label)
         var pausedFrameImages: [(data: Data, label: String)] = []
         if let pausedFrameJPEGData = Data(base64Encoded: framePopout.frameGrab.jpeg) {
@@ -1624,7 +1631,8 @@ final class CompanionManager: ObservableObject {
             guard !Task.isCancelled else { return }
             await speakLiveSceneNarrationSentence(
                 spokenPart.spokenText,
-                aboutPartLabel: knownPartLabel(matching: spokenPart.partLabel, knownPartLabels: knownPartLabels)
+                aboutPartLabel: knownPartLabel(matching: spokenPart.partLabel, knownPartLabels: knownPartLabels),
+                narrationID: narrationID
             )
         }
         guard !Task.isCancelled else { return }
@@ -1649,6 +1657,10 @@ final class CompanionManager: ObservableObject {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         showTheCursorOverlayForThisInteraction()
+        // The mouse is on the clicked label, so the buddy flies back there while Claude writes the answer.
+        if detectedElementPointingHold.holdsUntilReleased {
+            clearDetectedElementLocation()
+        }
         // The camera starts toward the part right away, while Claude writes the answer.
         LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
         voiceState = .processing
@@ -1660,13 +1672,44 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// A nil part label means the sentence names no part on the model, so nothing is highlighted.
-    private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?) async {
-        if let partLabel {
-            LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
+    /// A nil part label means the sentence names no part on the model, so nothing is highlighted or pointed at.
+    private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async {
+        guard let partLabel else {
+            await speakLiveSceneLine(spokenText)
+            await waitForClickyToFinishSpeaking()
+            return
+        }
+        LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
+        // The label's place is read once the camera stops gliding to the part, while the sentence starts playing.
+        let settledLabelScreenPointsTask = Task {
+            await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
         }
         await speakLiveSceneLine(spokenText)
+        let settledLabelScreenPoints = await settledLabelScreenPointsTask.value
+        if !Task.isCancelled,
+           let partScreenPoint = settledLabelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == partLabel }) {
+            pointTheBuddy(atLiveScenePart: partScreenPoint, narrationID: narrationID)
+        }
         await waitForClickyToFinishSpeaking()
+    }
+
+    /// The buddy flies on its usual arc to the part's label with the label in its bubble, and stays
+    /// until the narration that pointed it releases it.
+    private func pointTheBuddy(atLiveScenePart partScreenPoint: LiveScenePartScreenPoint, narrationID: UUID) {
+        guard let displayFrame = NSScreen.screens.first(where: { screen in
+            screen.frame.contains(partScreenPoint.globalPoint)
+        })?.frame else { return }
+        detectedElementPointingHold = .untilReleased(byNarrationID: narrationID)
+        detectedElementBubbleText = partScreenPoint.label
+        detectedElementDisplayFrame = displayFrame
+        detectedElementScreenLocation = partScreenPoint.globalPoint
+    }
+
+    /// Only the narration that pointed the buddy releases it, so an older narration that finishes
+    /// late cannot send the buddy away from a newer one's part.
+    private func releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID narrationID: UUID) {
+        guard detectedElementPointingHold == .untilReleased(byNarrationID: narrationID) else { return }
+        clearDetectedElementLocation()
     }
 
     /// The name and height come from the /landmark reply, so this line needs no model call.

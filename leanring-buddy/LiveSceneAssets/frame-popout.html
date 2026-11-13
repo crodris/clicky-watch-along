@@ -61,6 +61,17 @@ window.liveScene = {
     if (!tourDone) return;
     cameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, cameraDistance * (1 - amount)));
   },
+  // Clicky's blue cursor points at a label, so the boxes are read only once the camera stops gliding.
+  async labelRectsOnceTheCameraSettles() {
+    const giveUpAt = performance.now() + 3000;
+    while (focusMove && performance.now() < giveUpAt) await new Promise((resolve) => requestAnimationFrame(resolve));
+    // After the camera stops, each label's offset still eases toward its new spot for a few hundred milliseconds.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return labelEntries.map((entry) => {
+      const rect = entry.element.getBoundingClientRect();
+      return { label: entry.part.label, left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    });
+  },
 };
 
 import * as THREE from "three";

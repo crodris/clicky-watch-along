@@ -17,6 +17,7 @@ Charts and people talking stay voice only.
 You can also say "pop this out" or "pop this heart out" at any time, and Clicky lifts out whatever the video shows, with every label and no question.
 When that tour ends, Clicky talks about two or three of the parts, highlighting each one as it names it.
 Click any label after that, and Clicky turns the model to that part and tells you what it does.
+Each time Clicky names a part, its blue triangle flies onto the model, points at that label, and flies back to your mouse when Clicky is done talking.
 
 **Pop out any image.** Say "pop this out" with any other page open in Chrome, and Clicky lifts the largest image on it out in 3D with its parts labeled.
 You can drag to spin it.

@@ -4,10 +4,12 @@
 //
 //  What Clicky says about a bundled page it put on screen, and the data it
 //  trusts while saying it. A frame pop-out is narrated one part at a time, and
-//  a tapped label is explained the same way. The landmark page gets one line
-//  built from the /landmark reply. Generated /live-scene pages are not covered.
+//  a tapped label is explained the same way, with the blue cursor pointing at
+//  each part as Clicky names it. The landmark page gets one line built from
+//  the /landmark reply. Generated /live-scene pages are not covered.
 //
 
+import CoreGraphics
 import Foundation
 
 /// The bundled page Clicky put on screen, with Clicky's own copy of its data.
@@ -104,4 +106,59 @@ func landmarkNarrationLine(for famousPlace: FamousPlace) -> String {
         return "This is \(famousPlace.name), in real 3D. It stands about \(roundedHeightMeters) meters tall."
     }
     return "This is \(famousPlace.name), in real 3D. It stands about \(roundedHeightMeters) meters tall, as high as a \(buildingFloorCount)-story building."
+}
+
+// MARK: - Pointing the blue cursor at a part
+
+/// A part label's box as the page measures it with getBoundingClientRect, in CSS pixels
+/// from the top left of the overlay page. The overlay page is not zoomed, so a CSS pixel is a point.
+struct LiveScenePartLabelRectInPage: Equatable {
+    let label: String
+    let left: Double
+    let top: Double
+    let width: Double
+    let height: Double
+
+    init(label: String, left: Double, top: Double, width: Double, height: Double) {
+        self.label = label
+        self.left = left
+        self.top = top
+        self.width = width
+        self.height = height
+    }
+
+    /// Nil when the page sent something other than a label and four numbers.
+    init?(pageValue: Any) {
+        guard let rectFields = pageValue as? [String: Any],
+              let label = rectFields["label"] as? String,
+              let left = rectFields["left"] as? Double,
+              let top = rectFields["top"] as? Double,
+              let width = rectFields["width"] as? Double,
+              let height = rectFields["height"] as? Double else {
+            return nil
+        }
+        self.init(label: label, left: left, top: top, width: width, height: height)
+    }
+}
+
+/// Where the blue cursor points for one part label, in global AppKit points
+/// (origin at the bottom left of the main display), the space OverlayWindow animates in.
+struct LiveScenePartScreenPoint: Equatable {
+    let label: String
+    let globalPoint: CGPoint
+}
+
+/// The middle of the label's bottom edge. The cursor lands just below and right of its target
+/// and points up and left, so it sits under the label pointing at it.
+/// The overlay page fills `overlayScreenFrame`, and the page's y grows down while AppKit's grows up.
+func partScreenPoint(of labelRect: LiveScenePartLabelRectInPage, overlayScreenFrame: CGRect) -> LiveScenePartScreenPoint {
+    let pointXInPage = labelRect.left + labelRect.width / 2
+    let pointYInPage = labelRect.top + labelRect.height
+    return LiveScenePartScreenPoint(
+        label: labelRect.label,
+        globalPoint: CGPoint(
+            x: overlayScreenFrame.minX + pointXInPage,
+            y: overlayScreenFrame.maxY - pointYInPage
+        )
+    )
 }
