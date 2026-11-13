@@ -5,6 +5,17 @@
 
 import Foundation
 
+/// The Claude models the panel offers for voice replies, always the latest of each family.
+enum ClaudeVoiceModel {
+    static let sonnetModelID = "claude-sonnet-5-5"
+    static let opusModelID = "claude-opus-5-5"
+
+    /// A choice saved by an older version names an older model, so it maps to the latest model of the same family.
+    static func latestModelID(forStoredModelID storedModelID: String?) -> String {
+        storedModelID?.contains("opus") == true ? opusModelID : sonnetModelID
+    }
+}
+
 /// Claude API helper with streaming for progressive text display.
 class ClaudeAPI {
     private static let tlsWarmupLock = NSLock()
@@ -14,7 +25,7 @@ class ClaudeAPI {
     var model: String
     private let session: URLSession
 
-    init(proxyURL: String, model: String = "claude-sonnet-4-6") {
+    init(proxyURL: String, model: String = ClaudeVoiceModel.sonnetModelID) {
         self.apiURL = URL(string: proxyURL)!
         self.model = model
 
@@ -143,6 +154,8 @@ class ClaudeAPI {
             "model": model,
             "max_tokens": 1024,
             "stream": true,
+            // Low effort keeps the first spoken word near a second, and a spoken reply needs little thinking.
+            "output_config": ["effort": "low"],
             "system": systemPrompt,
             "messages": messages
         ]
@@ -253,6 +266,8 @@ class ClaudeAPI {
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 256,
+            // Thinking counts toward max_tokens, so low effort leaves room for the answer.
+            "output_config": ["effort": "low"],
             "system": systemPrompt,
             "messages": messages
         ]

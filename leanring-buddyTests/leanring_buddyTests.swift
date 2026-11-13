@@ -427,4 +427,31 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
+    @Test func streamedSpeechBytesBecomeWholeChunksOfSamplesInAnySplit() async throws {
+        // 0, 1, -1, 32767, and -32768 as little-endian 16-bit PCM, then one stray byte.
+        let streamedBytes: [UInt8] = [0x00, 0x00, 0x01, 0x00, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x80, 0x42]
+        var pcmChunker = PCM16StreamChunker(samplesPerChunk: 2)
+        var chunks: [[Float]] = []
+        for streamedByte in streamedBytes {
+            if let chunk = pcmChunker.append(streamedByte) {
+                chunks.append(chunk)
+            }
+        }
+        if let lastChunk = pcmChunker.flush() {
+            chunks.append(lastChunk)
+        }
+
+        #expect(chunks == [
+            [0, 1.0 / 32_768],
+            [-1.0 / 32_768, 32_767.0 / 32_768],
+            [-1],
+        ])
+    }
+
+    @Test func aSavedOlderModelChoiceMovesToTheLatestModelOfItsFamily() async throws {
+        #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-opus-4-6") == "claude-opus-5-5")
+        #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-sonnet-4-6") == "claude-sonnet-5-5")
+        #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: nil) == "claude-sonnet-5-5")
+    }
+
 }
