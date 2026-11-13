@@ -323,7 +323,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     private var networkBlockRuleListHasFinishedCompiling = false
     private var pageHasFinishedLoading = false
     private var queuedPageLoad: QueuedLiveScenePage?
-    /// A new load cancels the previous one. Only the navigation that started last may play.
+    /// The navigation Clicky's own load returned. A new load cancels the previous one, and a navigation the generated page starts never replaces it.
     private var navigationWeAreWaitingFor: WKNavigation?
 
     private override init() {
@@ -541,10 +541,6 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         }
     }
 
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        navigationWeAreWaitingFor = navigation
-    }
-
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let navigationWeAreWaitingFor, navigation === navigationWeAreWaitingFor else {
             return
@@ -616,7 +612,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         guard let livePageURL = URL(string: LiveSceneAssetSchemeHandler.livePageURLString) else { return }
         threeAssetSchemeHandler.livePageHTMLData = Data(queuedPageLoad.html.utf8)
         threeAssetSchemeHandler.livePageRendersMapTiles = queuedPageLoad.rendersMapTiles
-        liveSceneWebView?.load(URLRequest(url: livePageURL))
+        // Only this load counts as Clicky's. A navigation the generated page starts itself gets another WKNavigation.
+        navigationWeAreWaitingFor = liveSceneWebView?.load(URLRequest(url: livePageURL))
     }
 
     private func beginReplacingTheDocument() {

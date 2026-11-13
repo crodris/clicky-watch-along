@@ -803,7 +803,10 @@ final class CompanionManager: ObservableObject {
             // A plain question cancels the build, so the video Clicky paused for it plays again.
             // A new scene request keeps the pause for the new scene.
             if requestedKind == nil {
-                videoQuizSession.resumeVideoAfterRequestedScene()
+                Task {
+                    await LiveSceneOverlay.shared.waitForReturnToFinish()
+                    self.videoQuizSession.resumeVideoAfterRequestedScene()
+                }
             }
         }
 
@@ -1041,6 +1044,8 @@ final class CompanionManager: ObservableObject {
             await speakLiveSceneLine(failureLine)
             voiceState = .idle
             // No scene opened, so nothing will clear it and resume the video.
+            // A pop-out whose page failed may still be landing back in its frame.
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
             if videoQuizSession.videoIsPausedForRequestedScene {
                 videoQuizSession.resumeVideoAfterRequestedScene()
             }
@@ -1398,27 +1403,32 @@ final class CompanionManager: ObservableObject {
             videoQuizSession.start()
             spokenLine = "Sure! Let me read through this video."
         case .stop:
+            // A question's block below resets the phase, so whether a scene was building is read first.
+            let aSceneWasBuilding: Bool
+            if case .buildingScene = liveScenePhase { aSceneWasBuilding = true } else { aSceneWasBuilding = false }
             if videoQuizQuestionIsActive {
                 videoQuizQuestionIsActive = false
                 liveScenePhase = .idle
                 clearTheLiveSceneAndReleaseTheBuddy()
             }
             videoQuizSession.stop()
-            // A question's pop-out lands back in its frame before the video Clicky paused for it plays.
-            Task {
-                await LiveSceneOverlay.shared.waitForReturnToFinish()
-                self.videoQuizSession.resumeVideoAfterQuestion()
-            }
             // The scene request runs in its own task, so cancelling the response task above
             // does not reach it. A new generation also keeps a reply already in flight from playing.
-            if case .buildingScene = liveScenePhase {
+            if aSceneWasBuilding {
                 liveSceneRequestTask?.cancel()
                 liveSceneRequestTask = nil
                 liveSceneRequestGeneration += 1
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
                 liveScenePhase = .idle
-                // The scene that would have resumed the video is gone, so nothing else will.
-                videoQuizSession.resumeVideoAfterRequestedScene()
+            }
+            // A question's pop-out lands back in its frame before the video Clicky paused for it plays.
+            // The scene that would have resumed a video paused for it is gone, so nothing else will.
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                self.videoQuizSession.resumeVideoAfterQuestion()
+                if aSceneWasBuilding {
+                    self.videoQuizSession.resumeVideoAfterRequestedScene()
+                }
             }
             spokenLine = "Okay, I'll stop quizzing. That was fun!"
         }

@@ -199,6 +199,12 @@ nonisolated enum ClickyVideoPauseReason: Equatable {
     case requestedScene
 }
 
+/// A question may be asked only while its own pause is still held. A requested scene that took the pause
+/// over, or a video that has already played on, means the question would run under the scene or the video.
+nonisolated func quizQuestionMayStillBeAsked(heldPauseReason: ClickyVideoPauseReason?) -> Bool {
+    heldPauseReason == .quizQuestion
+}
+
 /// Whether Clicky holds the video's pause once a pop-out or 3D model was requested over it.
 /// It holds the pause when it pauses a playing video itself, or already held this video's pause
 /// for a quiz question. A video the learner paused stays theirs, so it is not held and not resumed.
@@ -505,6 +511,10 @@ final class VideoQuizSession {
             secondsWaitedForClickyToBeFree += Self.secondsBetweenBusyChecks
         }
         guard isRunning, !Task.isCancelled else { return }
+        guard quizQuestionMayStillBeAsked(heldPauseReason: videoPausedByClicky?.reason) else {
+            print("Video quiz: skipping the question for moment \(momentIndex + 1), its pause is no longer held")
+            return
+        }
         askQuestion(moment.quiz, framePopout)
     }
 
