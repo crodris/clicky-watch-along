@@ -1111,7 +1111,10 @@ final class CompanionManager: ObservableObject {
         await narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
         guard !Task.isCancelled else { return }
         // A missing animation is said after the narration, so the two never talk over each other.
-        if let spokenLine = await pictureFlowsTask?.value.spokenLineWhenNotShowing {
+        let pictureFlowsOutcome = await pictureFlowsTask?.value
+        // A tap while waiting cancels this task, and a line spoken now would cut off the tap's own narration.
+        guard !Task.isCancelled else { return }
+        if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
             await speakLiveSceneLine(spokenLine)
         }
         voiceState = .idle
@@ -1143,6 +1146,13 @@ final class CompanionManager: ObservableObject {
             return Task.isCancelled ? .superseded : .failed
         }
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return .superseded }
+        // Escape clears the scene without a new request, so flows that arrive after it have no pop-out to go on.
+        switch liveScenePhase {
+        case .touring, .allLabelsShowing:
+            break
+        default:
+            return .superseded
+        }
         // A video quiz question can replace the page without a new request, so the flows go only on their own pop-out.
         guard case .framePopout(let framePopoutOnScreen) = liveScenePageOnScreen,
               framePopoutOnScreen.frameGrab.jpeg == framePopout.frameGrab.jpeg else {

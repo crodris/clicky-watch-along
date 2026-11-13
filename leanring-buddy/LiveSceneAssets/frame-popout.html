@@ -133,7 +133,8 @@ window.liveScene = {
   },
   // Swift sends only palette color names and frame points, and anything else is dropped here.
   showFlows(flows) {
-    if (!Array.isArray(flows)) return;
+    // A subject already sinking back into its frame gets no new flows.
+    if (!Array.isArray(flows) || returnStartedAt !== null) return;
     flowsToDraw = flows
       .filter((flow) => flowColors[flow?.color] && Array.isArray(flow.points))
       .map((flow) => {

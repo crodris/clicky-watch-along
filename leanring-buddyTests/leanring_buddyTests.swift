@@ -186,6 +186,8 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "what animation software made this") == nil)
         #expect(liveSceneKind(for: "how do I animate text in keynote") == nil)
         #expect(liveSceneKind(for: "can you make it bigger") == nil)
+        #expect(liveSceneKind(for: "how do I animate this in keynote") == nil)
+        #expect(liveSceneKind(for: "how can I make it move") == nil)
     }
 
     @Test func pictureFlowsSayWhyNothingMovesOnlyWhenNothingIsShowing() async throws {
@@ -665,6 +667,9 @@ struct leanring_buddyTests {
         pixelReadContext.draw(firstFrame, in: CGRect(x: 0, y: 0, width: 8, height: 6))
         let topRightPixelGreen = firstFramePixelBytes[7 * 4 + 1]
         #expect(topRightPixelGreen < 100)
+
+        // Frames drawn this large would pass the page's memory cap, so the pop-out keeps the still frame.
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(delaySecondsForEachFrame: [0.1, 0.1]), frameWidth: 6000, frameHeight: 6000, backgroundColor: white) == nil)
 
         // A still image keeps the captured frame.
         #expect(PageImageAnimation.frames(ofImageData: try gifData(delaySecondsForEachFrame: [0.1]), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)

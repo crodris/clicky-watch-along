@@ -140,16 +140,19 @@ enum LiveSceneAnswerJudge {
     }
 }
 
-/// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out,
-/// then a quiz, because "show me inside and quiz me" wants the quiz.
+/// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out, then a quiz.
+/// A quiz wins over a 3D scene, because "show me inside and quiz me" wants the quiz.
 nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
     // "Animate" needs an object, so "how do I animate text" and "animation" build nothing.
-    let asksToAnimateThePicture = lowercaseTranscript.range(
-        of: #"\b(animate (it|this|that|them)|make (it|this|that|them) (move|flow))\b"#,
+    let animatePhrase = #"\b(animate (it|this|that|them)|make (it|this|that|them) (move|flow))\b"#
+    let asksToAnimateThePicture = lowercaseTranscript.range(of: animatePhrase, options: .regularExpression) != nil
+    // "How do I animate this in Keynote" asks how to do it in another app, so it gets an answer, not an animation.
+    let asksHowToAnimateSomethingElsewhere = lowercaseTranscript.range(
+        of: #"\bhow (do|can|would|should|could|to)\b.*"# + animatePhrase,
         options: .regularExpression
     ) != nil
-    if asksToAnimateThePicture {
+    if asksToAnimateThePicture && !asksHowToAnimateSomethingElsewhere {
         return .animatedFramePopout
     }
     let asksForAFramePopout = lowercaseTranscript.range(
