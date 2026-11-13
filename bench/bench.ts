@@ -28,6 +28,8 @@ const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrit
 const gptLiveSceneCostPerCallUSD = 0.23;
 // https://elevenlabs.io/pricing/api (fetched 2026-11-13): multilingual v2 costs $0.08 per 1,000 characters, Flash and Turbo $0.04.
 const elevenLabsPricePerThousandCharacters: Record<string, number> = {
+  eleven_v4: 0.08,
+  eleven_v4_turbo: 0.04,
   eleven_multilingual_v2: 0.08,
   eleven_flash_v2_5: 0.04,
   eleven_turbo_v2_5: 0.04,
@@ -50,18 +52,24 @@ type Sample = {
   httpStatus: number;
   firstByteMs: number;
   firstTokenMs: number | null;
+  /** /tts only: when the app would start playing, which is the whole body for an MP3 and the first buffer for streamed PCM. */
+  firstAudioMs: number | null;
   totalMs: number;
   usageLines: UsageLine[];
   ttsCharacters: number;
   costUSD: number;
   quality: QualityCheck;
+  /** The start of a text reply, so a reviewer can read what changed. A live scene page is left out for size. */
+  replyPreview: string;
 };
 
 type BenchCase = {
   id: string;
   route: string;
   description: string;
-  requestBody: () => unknown;
+  requestBody: (appProfile: AppProfile) => unknown;
+  /** The query the app adds to the route, if any. */
+  requestQuery?: (appProfile: AppProfile) => string;
   checkReply: (replyText: string, contentType: string, replyBytes: number) => QualityCheck;
 };
 
@@ -117,9 +125,56 @@ function costOfUsageLine(usageLine: UsageLine): number {
 
 const fixtureBase64 = (fileName: string) => readFileSync(join(fixturesDirectory, fileName)).toString("base64");
 
+/**
+ * What one checkout's app sends to the Worker, read from its Swift source. Two sides of a comparison
+ * can run different app versions, so each side's requests mirror its own app, not this file's guesses.
+ */
+type AppProfile = {
+  chatModel: string;
+  chatEffort: string | undefined;
+  chatSystemPrompt: string;
+  ttsModel: string;
+  /** Undefined means the app downloads a whole MP3 before it plays any of it. */
+  ttsOutputFormat: string | undefined;
+  /** Bytes of streamed audio the app collects before it starts playing. */
+  ttsFirstBufferBytes: number;
+};
+
+function swiftSource(appCheckout: string, fileName: string): string {
+  return readFileSync(join(appCheckout, "leanring-buddy", fileName), "utf8");
+}
+
+function requiredMatch(sourceText: string, pattern: RegExp, whatIsMissing: string): RegExpMatchArray {
+  const sourceMatch = sourceText.match(pattern);
+  if (sourceMatch === null) {
+    throw new Error(`The benchmark could not read ${whatIsMissing} from the app source. Update readAppProfile.`);
+  }
+  return sourceMatch;
+}
+
+function readAppProfile(appCheckout: string): AppProfile {
+  const claudeAPISource = swiftSource(appCheckout, "ClaudeAPI.swift");
+  const companionManagerSource = swiftSource(appCheckout, "CompanionManager.swift");
+  const ttsClientSource = swiftSource(appCheckout, "ElevenLabsTTSClient.swift");
+  // Newer app versions name the default model in ClaudeVoiceModel, and older ones in CompanionManager's selectedModel.
+  const chatModel =
+    claudeAPISource.match(/sonnetModelID = "([^"]+)"/)?.[1] ??
+    requiredMatch(companionManagerSource, /"selectedClaudeModel"\) \?\? "([^"]+)"/, "the default chat model")[1];
+  const streamingBodySource = claudeAPISource.slice(claudeAPISource.indexOf("func analyzeImageStreaming"));
+  const chatEffort = streamingBodySource.match(/"output_config": \["effort": "(\w+)"\]/)?.[1];
+  const samplesPerBuffer = ttsClientSource.match(/samplesPerBuffer = ([\d_]+)/)?.[1];
+  return {
+    chatModel,
+    chatEffort,
+    chatSystemPrompt: appChatSystemPrompt(companionManagerSource),
+    ttsModel: requiredMatch(ttsClientSource, /"model_id": "([^"]+)"/, "the TTS model")[1],
+    ttsOutputFormat: ttsClientSource.match(/name: "output_format", value: "([^"]+)"/)?.[1],
+    ttsFirstBufferBytes: samplesPerBuffer === undefined ? 0 : Number(samplesPerBuffer.replaceAll("_", "")) * 2,
+  };
+}
+
 /** Reads the app's own chat system prompt, so the benchmark sends what the app sends even after the prompt changes. */
-function appChatSystemPrompt(): string {
-  const companionManagerSource = readFileSync(join(checkoutRoot, "leanring-buddy/CompanionManager.swift"), "utf8");
+function appChatSystemPrompt(companionManagerSource: string): string {
   const promptMatch = companionManagerSource.match(
     /companionVoiceResponseSystemPrompt = """\n([\s\S]*?)\n( *)"""/,
   );
@@ -135,16 +190,21 @@ function appChatSystemPrompt(): string {
 }
 
 /** The /chat body ClaudeAPI.analyzeImageStreaming builds for one screen. */
-function appChatRequestBody(transcript: string, conversationHistory: { userTranscript: string; assistantResponse: string }[]) {
+function appChatRequestBody(
+  appProfile: AppProfile,
+  transcript: string,
+  conversationHistory: { userTranscript: string; assistantResponse: string }[],
+) {
   const historyMessages = conversationHistory.flatMap((exchange) => [
     { role: "user", content: exchange.userTranscript },
     { role: "assistant", content: exchange.assistantResponse },
   ]);
   return {
-    model: "claude-sonnet-4-6",
+    model: appProfile.chatModel,
     max_tokens: 1024,
     stream: true,
-    system: appChatSystemPrompt(),
+    ...(appProfile.chatEffort === undefined ? {} : { output_config: { effort: appProfile.chatEffort } }),
+    system: appProfile.chatSystemPrompt,
     messages: [
       ...historyMessages,
       {
@@ -159,6 +219,14 @@ function appChatRequestBody(transcript: string, conversationHistory: { userTrans
   };
 }
 
+/** The app's prompt asks for one or two spoken sentences, and a longer reply also makes speech slower and costlier. */
+const maximumSpokenSentences = 3;
+
+function spokenSentenceCount(replyText: string): number {
+  const spokenText = replyText.replace(/\[POINT:[^\]]*\]/g, "").trim();
+  return spokenText.split(/[.!?](?:\s|$)/).filter((sentence) => sentence.trim().length > 0).length;
+}
+
 /** The screen fixture draws "Download PDF" as a button at the top right and a sidebar link at the bottom left. */
 function pointIsOnADownloadPDFControl(pointX: number, pointY: number): boolean {
   const topRightButton = pointX >= 1140 && pointX <= 1280 && pointY >= 38 && pointY <= 80;
@@ -169,21 +237,46 @@ function pointIsOnADownloadPDFControl(pointX: number, pointY: number): boolean {
 const spokenReplyForSpeech =
   "the heart has four chambers. the two atria on top collect blood, and the two ventricles underneath pump it out, the left one sending it to your whole body.";
 
-function judgeCase(caseSuffix: string, learnerTranscript: string, expectedVerdict: string): BenchCase {
+type JudgeQuiz = { question: string; answerLabel: string; explanation: string; heardTranscript?: string };
+
+const heartQuiz: JudgeQuiz = {
+  question: "What is this part of the heart, and what does it do?",
+  answerLabel: "left ventricle",
+  explanation: "The left ventricle pumps oxygen-rich blood out to the body through the aorta.",
+};
+
+/** A video quiz sends the captions the learner heard, and an answer they support counts even when it differs from the explanation. */
+const sharkVideoQuiz: JudgeQuiz = {
+  question: "Let's pause here! What keeps a shark from sinking, and how?",
+  answerLabel: "liver",
+  explanation: "A shark's big liver is full of oil, which is lighter than water, so it helps the shark float.",
+  heardTranscript:
+    "Sharks have no swim bladder, the air sac most fish use to float. Instead a shark keeps swimming, and its fins act like the wings of a plane, giving it lift as it moves forward. Its liver is also huge and full of oil.",
+};
+
+function judgeCase(judgeCaseSpec: {
+  caseSuffix: string;
+  quiz: JudgeQuiz;
+  learnerTranscript: string;
+  expectedVerdict: string;
+  /** A reply that grades a wrong or name-only answer must not give the answer away. */
+  wordsTheReplyMustNotSay?: string[];
+}): BenchCase {
+  const { caseSuffix, quiz, learnerTranscript, expectedVerdict, wordsTheReplyMustNotSay = [] } = judgeCaseSpec;
   return {
     id: `judge-${caseSuffix}`,
     route: "/judge-answer",
     description: `Grades "${learnerTranscript}" and expects ${expectedVerdict}`,
-    requestBody: () => ({
-      question: "What is this part of the heart, and what does it do?",
-      answerLabel: "left ventricle",
-      explanation: "The left ventricle pumps oxygen-rich blood out to the body through the aorta.",
-      transcript: learnerTranscript,
-    }),
+    requestBody: () => ({ ...quiz, transcript: learnerTranscript }),
     checkReply: (replyText) => {
       const reply = parseJSONObject(replyText);
       const verdict = reply?.verdict;
-      return { passed: verdict === expectedVerdict, detail: `verdict ${String(verdict)}` };
+      const spokenReply = String(reply?.spokenReply ?? "").toLowerCase();
+      const giveaways = wordsTheReplyMustNotSay.filter((giveaway) => spokenReply.includes(giveaway));
+      return {
+        passed: verdict === expectedVerdict && giveaways.length === 0,
+        detail: `verdict ${String(verdict)}${giveaways.length > 0 ? `, reply gives away ${giveaways.join(", ")}` : ""}`,
+      };
     },
   };
 }
@@ -219,7 +312,7 @@ const benchCases: BenchCase[] = [
     id: "chat-first",
     route: "/chat",
     description: "First push-to-talk question with one 1280x800 screenshot, streamed",
-    requestBody: () => appChatRequestBody("how do i download this page as a pdf?", []),
+    requestBody: (appProfile) => appChatRequestBody(appProfile, "how do i download this page as a pdf?", []),
     checkReply: (replyText) => {
       const pointMatch = replyText.match(/\[POINT:(\d+),(\d+)/);
       if (pointMatch === null) {
@@ -227,15 +320,19 @@ const benchCases: BenchCase[] = [
       }
       const pointX = Number(pointMatch[1]);
       const pointY = Number(pointMatch[2]);
-      return { passed: pointIsOnADownloadPDFControl(pointX, pointY), detail: `pointed at ${pointX},${pointY}` };
+      const sentenceCount = spokenSentenceCount(replyText);
+      return {
+        passed: pointIsOnADownloadPDFControl(pointX, pointY) && sentenceCount <= maximumSpokenSentences,
+        detail: `pointed at ${pointX},${pointY}, ${sentenceCount} sentences`,
+      };
     },
   },
   {
     id: "chat-followup",
     route: "/chat",
     description: "Second question in the same conversation, with one exchange of history",
-    requestBody: () =>
-      appChatRequestBody("what are the four chambers called?", [
+    requestBody: (appProfile) =>
+      appChatRequestBody(appProfile, "what are the four chambers called?", [
         {
           userTranscript: "how do i download this page as a pdf?",
           assistantResponse: "see that blue download pdf button up in the top right? click that and it'll save the whole article for you.",
@@ -243,17 +340,22 @@ const benchCases: BenchCase[] = [
       ]),
     checkReply: (replyText) => {
       const spokenText = replyText.toLowerCase();
-      const passed = spokenText.includes("atri") && spokenText.includes("ventricle") && /\[POINT:/.test(replyText);
-      return { passed, detail: passed ? "names atria and ventricles" : `reply: ${replyText.slice(0, 120)}` };
+      const namesTheChambers = spokenText.includes("atri") && spokenText.includes("ventricle") && /\[POINT:/.test(replyText);
+      const sentenceCount = spokenSentenceCount(replyText);
+      return {
+        passed: namesTheChambers && sentenceCount <= maximumSpokenSentences,
+        detail: `${namesTheChambers ? "names atria and ventricles" : "misses a chamber name or the point tag"}, ${sentenceCount} sentences`,
+      };
     },
   },
   {
     id: "tts",
     route: "/tts",
     description: `Speaks a ${spokenReplyForSpeech.length}-character reply with the app's ElevenLabs settings`,
-    requestBody: () => ({
+    requestQuery: (appProfile) => (appProfile.ttsOutputFormat === undefined ? "" : `?output_format=${appProfile.ttsOutputFormat}`),
+    requestBody: (appProfile) => ({
       text: spokenReplyForSpeech,
-      model_id: "eleven_multilingual_v2",
+      model_id: appProfile.ttsModel,
       voice_settings: { stability: 0.35, similarity_boost: 0.75, style: 0.4 },
     }),
     checkReply: (_replyText, contentType, replyBytes) => ({
@@ -271,6 +373,28 @@ const benchCases: BenchCase[] = [
       const reply = parseJSONObject(replyText);
       const moments = Array.isArray(reply?.moments) ? reply.moments : [];
       return { passed: moments.length >= 1, detail: `${moments.length} moments` };
+    },
+  },
+  {
+    id: "video-quiz-plan-long",
+    route: "/video-quiz-plan",
+    description: "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+    requestBody: () => JSON.parse(readFileSync(join(fixturesDirectory, "video-quiz-plan-sharks.json"), "utf8")),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const moments = (Array.isArray(reply?.moments) ? reply.moments : []).filter(isRecord);
+      // The sponsor read is the lines at 216 and 228 seconds, and the subscribe request is the line at 576.
+      const pauseTimes = moments.map((moment) => numberField(moment, "pauseAtSeconds"));
+      const sourceTimes = moments.map((moment) => numberField(moment, "sourceLineSeconds"));
+      const brokenRules = [
+        ...pauseTimes.filter((pauseTime) => pauseTime > 216 && pauseTime <= 240).map((pauseTime) => `pause ${pauseTime} in the sponsor read`),
+        ...sourceTimes.filter((sourceTime) => sourceTime === 216 || sourceTime === 228).map((sourceTime) => `asks about the sponsor line ${sourceTime}`),
+        ...pauseTimes.filter((pauseTime) => pauseTime > 576).map((pauseTime) => `pause ${pauseTime} after the subscribe request`),
+      ];
+      return {
+        passed: moments.length >= 2 && brokenRules.length === 0,
+        detail: `${moments.length} moments at ${pauseTimes.join(", ")}${brokenRules.length > 0 ? `; ${brokenRules.join("; ")}` : ""}`,
+      };
     },
   },
   framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", false, "Finds the heart in a 1280x720 diagram frame"),
@@ -311,18 +435,21 @@ const benchCases: BenchCase[] = [
       return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
     },
   },
-  judgeCase("correct", "that's the left ventricle, it pumps blood out to the whole body", "correct"),
-  judgeCase("named-only", "the left ventricle", "named_only"),
-  judgeCase("wrong", "is it the lungs?", "wrong"),
-  judgeCase("help", "i don't know, can you tell me?", "asked_for_help"),
+  judgeCase({ caseSuffix: "correct", quiz: heartQuiz, learnerTranscript: "that's the left ventricle, it pumps blood out to the whole body", expectedVerdict: "correct" }),
+  judgeCase({ caseSuffix: "named-only", quiz: heartQuiz, learnerTranscript: "the left ventricle", expectedVerdict: "named_only", wordsTheReplyMustNotSay: ["pump", "aorta"] }),
+  judgeCase({ caseSuffix: "wrong", quiz: heartQuiz, learnerTranscript: "is it the lungs?", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["ventricle", "pump"] }),
+  judgeCase({ caseSuffix: "help", quiz: heartQuiz, learnerTranscript: "i don't know, can you tell me?", expectedVerdict: "asked_for_help" }),
+  judgeCase({ caseSuffix: "function-only", quiz: heartQuiz, learnerTranscript: "it squeezes blood out to the rest of the body", expectedVerdict: "correct" }),
+  judgeCase({ caseSuffix: "caption-supported", quiz: sharkVideoQuiz, learnerTranscript: "its fins give it lift like a plane wing while it swims", expectedVerdict: "correct" }),
+  judgeCase({ caseSuffix: "caption-wrong", quiz: sharkVideoQuiz, learnerTranscript: "it has a swim bladder full of air", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["liver", "oil"] }),
 ];
 
 // ---------- Worker runs ----------
 
-function workerLogPath(port: number): string {
-  const logPathRecord = join(verifyClickyStateDirectory, `worker-${port}.logpath`);
+function workerLogPath(workerCheckout: string, port: number): string {
+  const logPathRecord = join(workerCheckout, ".verify-clicky", `worker-${port}.logpath`);
   if (!existsSync(logPathRecord)) {
-    throw new Error(`No Worker started by verify-clicky on port ${port}. Run: ${verifyClickyScript} worker-up ${port}`);
+    throw new Error(`No Worker started by verify-clicky in ${workerCheckout} on port ${port}. Run its verify-clicky.sh worker-up ${port}`);
   }
   return readFileSync(logPathRecord, "utf8").trim();
 }
@@ -379,11 +506,15 @@ async function readChatStream(response: Response, requestStartMs: number) {
   return { replyText, firstTokenMs, usageLine: usageLineFromUsageObject("/chat", usageObject) };
 }
 
-async function runOneSample(benchCase: BenchCase, runIndex: number, port: number, logPath: string): Promise<Sample> {
-  const requestBodyText = JSON.stringify(benchCase.requestBody());
+type BenchSide = { label: string; port: number; workerCheckout: string; logPath: string; appProfile: AppProfile; samples: Sample[] };
+
+async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchSide): Promise<Sample> {
+  const { port, logPath, appProfile } = side;
+  const requestBodyText = JSON.stringify(benchCase.requestBody(appProfile));
   const logOffsetBeforeRequest = statSync(logPath).size;
   const requestStartMs = performance.now();
-  const response = await fetch(`http://127.0.0.1:${port}${benchCase.route}`, {
+  const requestQuery = benchCase.requestQuery?.(appProfile) ?? "";
+  const response = await fetch(`http://127.0.0.1:${port}${benchCase.route}${requestQuery}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: requestBodyText,
@@ -394,12 +525,24 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, port: number
   let replyText = "";
   let replyBytes = 0;
   let firstTokenMs: number | null = null;
+  let firstAudioMs: number | null = null;
   let streamedUsageLines: UsageLine[] = [];
   if (benchCase.route === "/chat" && response.ok) {
     const chatStream = await readChatStream(response, requestStartMs);
     replyText = chatStream.replyText;
     firstTokenMs = chatStream.firstTokenMs;
     streamedUsageLines = [chatStream.usageLine];
+  } else if (benchCase.route === "/tts" && response.ok && response.body !== null) {
+    const audioIsStreamedPCM = contentType.includes("pcm");
+    for await (const audioChunk of response.body) {
+      replyBytes += audioChunk.length;
+      if (audioIsStreamedPCM && firstAudioMs === null && replyBytes >= appProfile.ttsFirstBufferBytes) {
+        firstAudioMs = performance.now() - requestStartMs;
+      }
+    }
+    if (!audioIsStreamedPCM) {
+      firstAudioMs = performance.now() - requestStartMs;
+    }
   } else {
     const replyBuffer = Buffer.from(await response.arrayBuffer());
     replyBytes = replyBuffer.length;
@@ -428,11 +571,13 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, port: number
     httpStatus: response.status,
     firstByteMs,
     firstTokenMs,
+    firstAudioMs,
     totalMs,
     usageLines,
     ttsCharacters,
     costUSD,
     quality,
+    replyPreview: benchCase.route === "/live-scene" ? "" : replyText.slice(0, 600),
   };
 }
 
@@ -458,10 +603,9 @@ const appSteps: AppStep[] = [
 type AppSample = { stepId: string; runIndex: number; elapsedMs: number | null };
 
 async function runAppBenchmark(runCount: number): Promise<AppSample[]> {
-  const rehearsalTranscripts: string[] = [];
-  for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
-    rehearsalTranscripts.push(...appSteps.map((appStep) => appStep.transcript));
-  }
+  // Each step's runs go together, because a finished pop-out stays up and sends the next question down another path.
+  const rehearsalSteps = appSteps.flatMap((appStep) => Array.from({ length: runCount }, (_, runIndex) => ({ appStep, runIndex })));
+  const rehearsalTranscripts = rehearsalSteps.map((rehearsalStep) => rehearsalStep.appStep.transcript);
   execFileSync(verifyClickyScript, ["app-launch", rehearsalTranscripts.join("|")], { stdio: "inherit" });
   const appLogPath = join(realpathSync(join(verifyClickyStateDirectory, "current")), "app.log");
 
@@ -488,14 +632,14 @@ async function runAppBenchmark(runCount: number): Promise<AppSample[]> {
     stampedLine.text.startsWith("Live scene rehearsal: saying") ? [lineIndex] : [],
   );
   stepStartIndexes.forEach((stepStartIndex, stepNumber) => {
-    const appStep = appSteps[stepNumber % appSteps.length];
+    const { appStep, runIndex } = rehearsalSteps[stepNumber];
     const nextStepStartIndex = stepStartIndexes[stepNumber + 1] ?? stampedLines.length;
     const doneLine = stampedLines
       .slice(stepStartIndex, nextStepStartIndex)
       .find((stampedLine) => appStep.doneLinePattern.test(stampedLine.text));
     appSamples.push({
       stepId: appStep.id,
-      runIndex: Math.floor(stepNumber / appSteps.length),
+      runIndex,
       elapsedMs: doneLine === undefined ? null : doneLine.atMs - stampedLines[stepStartIndex].atMs,
     });
   });
@@ -528,6 +672,7 @@ function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
   const sumOverLines = (sample: Sample, pickTokens: (usageLine: UsageLine) => number) =>
     sample.usageLines.reduce((runningSum, usageLine) => runningSum + pickTokens(usageLine), 0);
   const firstTokenTimes = samples.flatMap((sample) => (sample.firstTokenMs === null ? [] : [sample.firstTokenMs]));
+  const firstAudioTimes = samples.flatMap((sample) => (sample.firstAudioMs === null ? [] : [sample.firstAudioMs]));
   return {
     caseId: benchCase.id,
     route: benchCase.route,
@@ -538,6 +683,7 @@ function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
     totalMs: latencySummary(samples.map((sample) => sample.totalMs)),
     firstByteMs: latencySummary(samples.map((sample) => sample.firstByteMs)),
     firstTokenMs: firstTokenTimes.length > 0 ? latencySummary(firstTokenTimes) : null,
+    firstAudioMs: firstAudioTimes.length > 0 ? latencySummary(firstAudioTimes) : null,
     modelCallsPerRequest: mean(samples.map((sample) => sample.usageLines.length)),
     meanInputTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.inputTokens)))),
     meanCacheWriteTokens: Math.round(mean(samples.map((sample) => sumOverLines(sample, (usageLine) => usageLine.cacheWriteTokens)))),
@@ -554,10 +700,10 @@ function commandLineOption(optionName: string): string | undefined {
   return optionIndex === -1 ? undefined : process.argv[optionIndex + 1];
 }
 
-function writeResultFile(label: string, benchKind: string, result: unknown): string {
-  const commitSHA = execFileSync("git", ["-C", checkoutRoot, "rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).trim();
+function writeResultFile(label: string, benchKind: string, measuredCheckout: string, result: unknown): string {
+  const commitSHA = execFileSync("git", ["-C", measuredCheckout, "rev-parse", "--short=12", "HEAD"], { encoding: "utf8" }).trim();
   const workingTreeIsDirty =
-    execFileSync("git", ["-C", checkoutRoot, "status", "--porcelain", "--", "worker", "leanring-buddy"], { encoding: "utf8" }).trim() !== "";
+    execFileSync("git", ["-C", measuredCheckout, "status", "--porcelain", "--", "worker", "leanring-buddy"], { encoding: "utf8" }).trim() !== "";
   const resultsDirectory = join(benchDirectory, "results");
   mkdirSync(resultsDirectory, { recursive: true });
   const resultPath = join(resultsDirectory, `${label}-${benchKind}-${commitSHA}.json`);
@@ -570,7 +716,7 @@ async function main() {
   const benchKind = process.argv[2];
   const label = commandLineOption("label");
   if ((benchKind !== "worker" && benchKind !== "app") || label === undefined) {
-    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789]");
+    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789] [--side label:port:checkout ...]");
     process.exit(1);
   }
   const runCount = Number(commandLineOption("runs") ?? (benchKind === "worker" ? 5 : 3));
@@ -582,42 +728,61 @@ async function main() {
       return { stepId: appStep.id, description: appStep.description, runs: stepTimes.length, elapsedMs: latencySummary(stepTimes) };
     });
     console.table(appSummary.map((stepSummary) => ({ step: stepSummary.stepId, runs: stepSummary.runs, ...stepSummary.elapsedMs })));
-    console.log(`saved ${writeResultFile(label, "app", { runCount, summary: appSummary, samples: appSamples })}`);
+    console.log(`saved ${writeResultFile(label, "app", checkoutRoot, { runCount, summary: appSummary, samples: appSamples })}`);
     return;
   }
 
-  const port = Number(commandLineOption("port") ?? 8789);
-  const logPath = workerLogPath(port);
+  // Each --side is label:port:checkout. Two sides alternate request by request, so drift in upstream latency hits both.
+  const sideSpecs = process.argv.flatMap((argument, argumentIndex) => (process.argv[argumentIndex - 1] === "--side" ? [argument] : []));
+  const sides = (sideSpecs.length > 0 ? sideSpecs : [`${label}:${commandLineOption("port") ?? 8789}:${checkoutRoot}`]).map((sideSpec) => {
+    const [sideLabel, sidePort, ...checkoutPathParts] = sideSpec.split(":");
+    const workerCheckout = checkoutPathParts.join(":") || checkoutRoot;
+    const side: BenchSide = {
+      label: sideLabel,
+      port: Number(sidePort),
+      workerCheckout,
+      logPath: workerLogPath(workerCheckout, Number(sidePort)),
+      appProfile: readAppProfile(workerCheckout),
+      samples: [],
+    };
+    console.log(`${side.label}: app profile ${JSON.stringify({ ...side.appProfile, chatSystemPrompt: `${side.appProfile.chatSystemPrompt.length} characters` })}`);
+    return side;
+  });
   const onlyCaseIds = commandLineOption("only")?.split(",");
   const selectedCases = benchCases.filter((benchCase) => onlyCaseIds === undefined || onlyCaseIds.includes(benchCase.id));
-  const samples: Sample[] = [];
   for (const benchCase of selectedCases) {
     for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
-      const sample = await runOneSample(benchCase, runIndex, port, logPath);
-      samples.push(sample);
-      console.log(
-        `${benchCase.id} #${runIndex + 1}: HTTP ${sample.httpStatus}, ${Math.round(sample.totalMs)} ms` +
-          `${sample.firstTokenMs === null ? "" : `, first token ${Math.round(sample.firstTokenMs)} ms`}, ` +
-          `${sample.usageLines.length} model call(s), $${sample.costUSD.toFixed(4)}, ` +
-          `${sample.quality.passed ? "PASS" : "FAIL"} ${sample.quality.detail}`,
-      );
+      for (const side of sides) {
+        const sample = await runOneSample(benchCase, runIndex, side);
+        side.samples.push(sample);
+        console.log(
+          `${side.label} ${benchCase.id} #${runIndex + 1}: HTTP ${sample.httpStatus}, ${Math.round(sample.totalMs)} ms` +
+            `${sample.firstTokenMs === null ? "" : `, first token ${Math.round(sample.firstTokenMs)} ms`}, ` +
+            `${sample.usageLines.length} model call(s), $${sample.costUSD.toFixed(4)}, ` +
+            `${sample.quality.passed ? "PASS" : "FAIL"} ${sample.quality.detail}`,
+        );
+      }
     }
   }
-  const summary = selectedCases.map((benchCase) => summarizeCase(benchCase, samples.filter((sample) => sample.caseId === benchCase.id)));
-  console.table(
-    summary.map((caseSummary) => ({
-      case: caseSummary.caseId,
-      pass: `${caseSummary.qualityPassed}/${caseSummary.runs}`,
-      p50: caseSummary.totalMs.p50,
-      p95: caseSummary.totalMs.p95,
-      ttft: caseSummary.firstTokenMs?.p50 ?? "",
-      in: caseSummary.meanInputTokens,
-      cached: caseSummary.meanCacheReadTokens,
-      out: caseSummary.meanOutputTokens,
-      usd: caseSummary.meanCostUSD,
-    })),
-  );
-  console.log(`saved ${writeResultFile(label, "worker", { runCount, port, summary, samples })}`);
+  for (const side of sides) {
+    const summary = selectedCases.map((benchCase) => summarizeCase(benchCase, side.samples.filter((sample) => sample.caseId === benchCase.id)));
+    console.log(side.label);
+    console.table(
+      summary.map((caseSummary) => ({
+        case: caseSummary.caseId,
+        pass: `${caseSummary.qualityPassed}/${caseSummary.runs}`,
+        p50: caseSummary.totalMs.p50,
+        p95: caseSummary.totalMs.p95,
+        ttft: caseSummary.firstTokenMs?.p50 ?? caseSummary.firstAudioMs?.p50 ?? "",
+        in: caseSummary.meanInputTokens,
+        cached: caseSummary.meanCacheReadTokens,
+        out: caseSummary.meanOutputTokens,
+        usd: caseSummary.meanCostUSD,
+      })),
+    );
+    const interleavedWith = sides.filter((otherSide) => otherSide !== side).map((otherSide) => otherSide.label);
+    console.log(`saved ${writeResultFile(side.label, "worker", side.workerCheckout, { runCount, port: side.port, interleavedWith, summary, samples: side.samples })}`);
+  }
 }
 
 await main();
