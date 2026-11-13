@@ -56,6 +56,63 @@ describe("handleJudgeAnswer", () => {
     expect(consoleLogSpy).toHaveBeenCalledWith('[/judge-answer] usage {"input_tokens":812,"output_tokens":64}');
   });
 
+  it.each(["skip_question", "repeat_question", "scene_command"])(
+    "returns %s with an empty spoken reply, because the app speaks its own line",
+    async (verdict) => {
+      vi.stubGlobal("fetch", vi.fn(async () => verdictReply(JSON.stringify({ verdict, spokenReply: "" }))));
+
+      const response = await handleJudgeAnswer(requestWithBody({ ...judgeRequest, transcript: "turn it left" }), "key");
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ verdict, spokenReply: "" });
+    },
+  );
+
+  it("returns a hint verdict with its hint sentence", async () => {
+    const verdict = { verdict: "wants_hint", spokenReply: "Think about what stops blood from flowing backward." };
+    vi.stubGlobal("fetch", vi.fn(async () => verdictReply(JSON.stringify(verdict))));
+
+    const response = await handleJudgeAnswer(requestWithBody({ ...judgeRequest, transcript: "give me a hint" }), "key");
+
+    expect(await response.json()).toEqual(verdict);
+  });
+
+  it.each(["correct", "named_only", "wrong", "asked_for_help", "wants_hint"])(
+    "returns 502 when a %s verdict has no spoken reply",
+    async (verdict) => {
+      vi.stubGlobal("fetch", vi.fn(async () => verdictReply(JSON.stringify({ verdict, spokenReply: "" }))));
+
+      const response = await handleJudgeAnswer(requestWithBody(judgeRequest), "key");
+
+      expect(response.status).toBe(502);
+    },
+  );
+
+  it("lists every verdict in the reply schema and the prompt", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      verdictReply(JSON.stringify({ verdict: "wrong", spokenReply: "Not quite." })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleJudgeAnswer(requestWithBody(judgeRequest), "key");
+
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    const verdictsInSchema = sentBody.output_config.format.schema.properties.verdict.enum;
+    expect(verdictsInSchema).toEqual([
+      "correct",
+      "named_only",
+      "wrong",
+      "asked_for_help",
+      "skip_question",
+      "repeat_question",
+      "wants_hint",
+      "scene_command",
+    ]);
+    for (const verdict of verdictsInSchema) {
+      expect(sentBody.system[0].text).toContain(`"${verdict}"`);
+    }
+  });
+
   it("returns 502 when the reply text is not a verdict", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => verdictReply("Sure! They named the valves.")));
 
@@ -107,6 +164,19 @@ describe("handleLiveScene model setting", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.anthropic.com/v1/messages");
     const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
     expect(sentBody).toMatchObject({ model: "claude-sonnet-5-5" });
+  });
+
+  it("tells the model about the camera and part tools the app drives after the tour", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    const systemText: string = sentBody.system[0].text;
+    for (const marker of ["rotateBy(", "endTour()", "getState()", "isOuterShell", "renderer.localClippingEnabled = true"]) {
+      expect(systemText).toContain(marker);
+    }
   });
 
   it("refuses an unknown LIVE_SCENE_MODEL without calling a model", async () => {

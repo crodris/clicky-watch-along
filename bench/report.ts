@@ -20,6 +20,7 @@ const caseLabels: Record<string, string> = {
   "picture-flows-painting": "Picture flows, painting",
   landmark: "Landmark lookup",
   "live-scene": "3D live scene",
+  "voice-command": "Voice command, turn the model",
   "judge-correct": "Grade: correct answer",
   "judge-named-only": "Grade: name only",
   "judge-wrong": "Grade: wrong answer",

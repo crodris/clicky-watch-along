@@ -45,6 +45,16 @@ Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
+**Talk to what's already on screen.** Once a 3D model is up, or a video is playing in Chrome on any site, short commands change it right away instead of building something new.
+Say "turn it to the left", "zoom in on the wing", "pull it apart", or "show me inside", and the model moves in about a second.
+Say "no, the other way" and Clicky undoes its last turn.
+Over a video on YouTube or most other sites, say "go back ten seconds", "play it at 1.5 speed", or "skip to where they talk about the engine".
+Each change shows a small chip under your cursor naming what Clicky did, like `rotate_model(yawDegrees: -45)`, and Clicky says a few words once the screen has changed.
+Press Control + Option while it talks, and it stops right away.
+During a quiz question you can ask for a hint, ask to hear the question again, or skip it.
+Asking for a different model still builds a new scene.
+This follows Wes Bos's WebMCP demo, where a fast model calls small tools on a 3D page.
+
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
 That covers popping out an image, reading your screen, building a 3D scene, reading a video's transcript, and picking quiz spots.
 While a label shows, its icon sits where Clicky's blue triangle usually is, and the triangle comes back when the step is done.
@@ -241,12 +251,16 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   LiveSceneStatusLine.swift # The loading label for each step and its animation
   LiveSceneStatusLabelViews.swift # Draws each loading label and its icon
   LandmarkTiles.swift       # Google's 3D scan of a famous place
+  VoiceCommandTools.swift   # Voice tools: what the model can call and what happens next
+  VoiceToolCallChip.swift   # The chip that names each tool call
+  LiveSceneAssets/scene-tools.js # The scene's tools: turn, zoom, focus, pull apart, cut open
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /v1/3dtiles
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
+  src/voiceCommand.ts       # Asks Haiku which voice tools to call
   src/pictureFlows.ts       # Draws what flows through a popped-out picture
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
 CLAUDE.md                # Full architecture doc (agents read this)

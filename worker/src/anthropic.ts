@@ -1,7 +1,7 @@
 /**
  * Helpers the Worker routes share: JSON responses, request body parsing, the token usage log,
  * one-line schema errors, the system prompt cache breakpoint, and one Anthropic Messages call whose
- * answer is the first text block, as text or parsed as JSON.
+ * answer is the whole reply, the first text block as text, or that text parsed as JSON.
  */
 
 import { z } from "zod";
@@ -97,6 +97,23 @@ export async function requestAnthropicReplyText(
   routeName: string,
   messagesRequestBody: unknown,
 ): Promise<{ ok: true; replyText: string | undefined } | { ok: false; response: Response }> {
+  const anthropicMessage = await requestAnthropicMessage(anthropicAPIKey, routeName, messagesRequestBody);
+  if (!anthropicMessage.ok) {
+    return anthropicMessage;
+  }
+  const parsedMessage = anthropicMessageSchema.parse(anthropicMessage.messageJSON);
+  return { ok: true, replyText: firstTextBlock(parsedMessage) };
+}
+
+/**
+ * One non-streaming Anthropic Messages call. A successful result carries the whole reply JSON, which is
+ * known to hold a content list, so a caller that needs tool_use blocks or the stop reason can read them.
+ */
+export async function requestAnthropicMessage(
+  anthropicAPIKey: string,
+  routeName: string,
+  messagesRequestBody: unknown,
+): Promise<{ ok: true; messageJSON: unknown } | { ok: false; response: Response }> {
   const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -127,11 +144,10 @@ export async function requestAnthropicReplyText(
   }
   logModelUsage(routeName, anthropicJSON);
 
-  const parsedMessage = anthropicMessageSchema.safeParse(anthropicJSON);
-  if (!parsedMessage.success) {
+  if (!anthropicMessageSchema.safeParse(anthropicJSON).success) {
     return { ok: false, response: jsonResponse({ error: "Anthropic response had no content list" }, 502) };
   }
-  return { ok: true, replyText: firstTextBlock(parsedMessage.data) };
+  return { ok: true, messageJSON: anthropicJSON };
 }
 
 /**

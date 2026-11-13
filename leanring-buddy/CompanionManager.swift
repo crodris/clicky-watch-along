@@ -106,6 +106,22 @@ final class CompanionManager: ObservableObject {
         LiveSceneClient(workerBaseURL: Self.workerBaseURL)
     }()
 
+    private lazy var voiceCommandClient = VoiceCommandClient(workerBaseURL: Self.workerBaseURL)
+    /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
+    private var recentVoiceToolActionLines: [String] = []
+
+    #if DEBUG
+    private lazy var voiceToolDebugServer = VoiceToolDebugServer(
+        listTools: { [weak self] in
+            await self?.voiceToolsForTheDebugServer() ?? []
+        },
+        callTool: { [weak self] toolName, toolInput in
+            await self?.runVoiceToolFromTheDebugServer(toolName: toolName, toolInput: toolInput)
+                ?? .failed(error: "Clicky is shutting down", state: nil)
+        }
+    )
+    #endif
+
     private var liveScenePhase: LiveScenePhase = .idle
     /// Set each time a page plays, so narration uses Clicky's own data about the page on screen.
     private var liveScenePageOnScreen: LiveScenePageOnScreen?
@@ -236,6 +252,12 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        #if DEBUG
+        // Off unless asked for, since any process on this Mac can reach a loopback port.
+        if CommandLine.arguments.contains("--voice-tool-debug-server") {
+            voiceToolDebugServer.start()
+        }
+        #endif
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
@@ -774,6 +796,46 @@ final class CompanionManager: ObservableObject {
             return
         }
 
+        // "Put it back" has its own tested phrase match, which keeps "put it back together" for the router.
+        if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+            respondToTranscript(transcript: transcript, requestedSceneKind: nil)
+            return
+        }
+        // "Animate this" has no voice tool, so its keyword path animates the pop-out on screen or pops one out.
+        if liveSceneKind(for: transcript) == .animatedFramePopout {
+            respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
+            return
+        }
+
+        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
+        var sceneIsBuilding = false
+        if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
+        // Read once here and handed to the router, because each read is a round trip to Chrome.
+        let frontVideoState = phaseIsWaitingForAQuizAnswer || sceneIsBuilding ? nil : videoQuizSession.frontVideoStateForVoiceCommands()
+        let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            videoIsInFront: frontVideoState != nil,
+            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
+            sceneIsBuilding: sceneIsBuilding
+        )
+        if routerTakesTheTranscript {
+            startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
+            return
+        }
+        respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
+    }
+
+    private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
+        switch liveScenePhase {
+        case .awaitingAnswer, .awaitingFollowUpOnWhatThePartDoes: return true
+        case .idle, .buildingScene, .touring, .allLabelsShowing: return false
+        }
+    }
+
+    /// The path every request took before voice tools: a quiz answer, a scene build, a pop-out, or a
+    /// screenshot answer. requestedSceneKind comes from the transcript's keywords, or from the voice
+    /// command model when it decides the request needs a new scene.
+    private func respondToTranscript(transcript: String, requestedSceneKind: LiveSceneKind?) {
         currentResponseTask?.cancel()
         liveSceneRequestTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
@@ -796,7 +858,7 @@ final class CompanionManager: ObservableObject {
         // A 3D model only appears when the learner asks. It pauses the YouTube video in front, quiz or not,
         // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
         var sceneQuestion = transcript
-        let requestedKind = liveSceneKind(for: transcript)
+        let requestedKind = requestedSceneKind
         // "Animate this" over a finished pop-out animates the picture already on screen instead of popping it out again.
         if requestedKind == .animatedFramePopout,
            case .allLabelsShowing = liveScenePhase,
@@ -853,7 +915,7 @@ final class CompanionManager: ObservableObject {
             }
         }
 
-        if case .allLabelsShowing = liveScenePhase, liveSceneKind(for: transcript) == nil {
+        if case .allLabelsShowing = liveScenePhase, requestedKind == nil {
             currentResponseTask = Task {
                 await self.answerAboutTheLiveSceneOnScreen(transcript: transcript)
             }
@@ -872,13 +934,13 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        if let requestedSceneKind = liveSceneKind(for: transcript) {
+        if let requestedKind {
             clearFinishedLiveScene(resumesTheVideo: false)
             liveScenePhase = .buildingScene
             currentResponseTask = Task {
                 await self.buildLiveSceneWithStatusLabel(
                     transcript: sceneQuestion,
-                    sceneKind: requestedSceneKind,
+                    sceneKind: requestedKind,
                     requestGeneration: requestGeneration
                 )
             }
@@ -1400,28 +1462,37 @@ final class CompanionManager: ObservableObject {
             switch wordMatchGrade {
             case .nameAndFunctionWord:
                 judgedAnswer = LiveSceneJudgedAnswer(
-                    grade: wordMatchGrade,
+                    verdict: .answer(wordMatchGrade),
                     spokenReply: spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: true)
                 )
             case .nameOnly:
                 judgedAnswer = LiveSceneJudgedAnswer(
-                    grade: wordMatchGrade,
+                    verdict: .answer(wordMatchGrade),
                     spokenReply: "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
                 )
             case .askedForHelp:
                 judgedAnswer = LiveSceneJudgedAnswer(
-                    grade: wordMatchGrade,
+                    verdict: .answer(wordMatchGrade),
                     spokenReply: spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
                 )
             case .wrong:
                 judgedAnswer = LiveSceneJudgedAnswer(
-                    grade: wordMatchGrade,
+                    verdict: .answer(wordMatchGrade),
                     spokenReply: "Ooh, not quite! Take another look."
                 )
             }
         }
+        let grade: LiveSceneQuizGrade
+        switch judgedAnswer.verdict {
+        case .control(let quizControl):
+            await respondToQuizControl(quizControl, transcript: transcript, quiz: quiz, judgeSpokenReply: judgedAnswer.spokenReply)
+            return
+        case .answer(let answerGrade):
+            grade = answerGrade
+        }
         let spokenLine = applyJudgedLiveSceneAnswer(
-            judgedAnswer: judgedAnswer,
+            grade: grade,
+            judgeSpokenReply: judgedAnswer.spokenReply,
             quiz: quiz,
             wrongAnswerCount: wrongAnswerCount
         )
@@ -1435,30 +1506,63 @@ final class CompanionManager: ObservableObject {
     /// The first wrong answer keeps the model's sentence, which does not give the answer away.
     /// A second wrong answer uses the closing line, so the learner hears what the part does.
     private func applyJudgedLiveSceneAnswer(
-        judgedAnswer: LiveSceneJudgedAnswer,
+        grade: LiveSceneQuizGrade,
+        judgeSpokenReply: String,
         quiz: LiveSceneQuiz,
         wrongAnswerCount: Int
     ) -> String {
-        let revealOutcome = LiveSceneRevealOutcome(grade: judgedAnswer.grade, wrongAnswerCount: wrongAnswerCount)
+        let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
-        switch judgedAnswer.grade {
+        switch grade {
         case .nameAndFunctionWord:
             liveScenePhase = .allLabelsShowing
-            return judgedAnswer.spokenReply
+            return judgeSpokenReply
         case .nameOnly:
             liveScenePhase = .awaitingFollowUpOnWhatThePartDoes(quiz)
-            return judgedAnswer.spokenReply
+            return judgeSpokenReply
         case .askedForHelp:
             liveScenePhase = .allLabelsShowing
-            return judgedAnswer.spokenReply
+            return judgeSpokenReply
         case .wrong:
             if wrongAnswerCount == 0 {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-                return judgedAnswer.spokenReply
+                return judgeSpokenReply
             }
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
         }
+    }
+
+    /// The learner asked to skip, repeat, get a hint, or change the view instead of answering.
+    /// The question stays open for a repeat, a hint, or a view change.
+    private func respondToQuizControl(
+        _ quizControl: LiveSceneQuizControl,
+        transcript: String,
+        quiz: LiveSceneQuiz,
+        judgeSpokenReply: String
+    ) async {
+        switch quizControl {
+        case .skipQuestion:
+            if videoQuizQuestionIsActive {
+                skipTheVideoQuizQuestion()
+                return
+            }
+            liveScenePhase = .allLabelsShowing
+            LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration)
+            await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false))
+        case .repeatQuestion:
+            await speakLiveSceneLine(quiz.question)
+        case .giveHint:
+            // The camera turns to the part still labeled "?", which is the hint the eyes get.
+            LiveSceneOverlay.shared.highlightPart(labelText: quiz.answerLabel)
+            await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply)
+        case .sceneCommand:
+            startVoiceCommand(transcript: transcript, frontVideoState: videoQuizSession.frontVideoStateForVoiceCommands())
+            return
+        }
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     private func respondToLiveSceneFollowUpOnWhatThePartDoes(
@@ -1475,7 +1579,12 @@ final class CompanionManager: ObservableObject {
                 transcript: transcript,
                 heardTranscript: quiz.heardTranscript
             )
-            if judgedAnswer.grade == .nameAndFunctionWord {
+            if case .control(let quizControl) = judgedAnswer.verdict {
+                // A hint, a repeat, a skip, or a view command is not an answer, so the follow-up stays open.
+                await respondToQuizControl(quizControl, transcript: transcript, quiz: quiz, judgeSpokenReply: judgedAnswer.spokenReply)
+                return
+            }
+            if judgedAnswer.verdict == .answer(.nameAndFunctionWord) {
                 spokenLine = judgedAnswer.spokenReply
             } else {
                 spokenLine = spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
@@ -1712,7 +1821,7 @@ final class CompanionManager: ObservableObject {
         clearTheLiveSceneAndReleaseTheBuddy()
         voiceState = .idle
         scheduleTransientHideIfNeeded()
-        print("Video quiz: skipped the question on Escape")
+        print("Video quiz: skipped the question")
         Task {
             await LiveSceneOverlay.shared.waitForReturnToFinish()
             self.videoQuizSession.resumeVideoAfterQuestion()
@@ -1743,6 +1852,264 @@ final class CompanionManager: ObservableObject {
             self.scheduleTransientHideIfNeeded()
         }
     }
+
+    // MARK: - Voice Commands
+
+    /// A follow-up command while a scene is on screen or a video plays in Chrome's front tab. A fast model picks tools the page
+    /// and the app offer, the screen changes, and Clicky says the model's short confirmation after that.
+    /// A request that needs a new scene or a screenshot answer hands off to respondToTranscript.
+    private func startVoiceCommand(transcript: String, frontVideoState: JSONValue?) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        voiceState = .processing
+        currentResponseTask = Task {
+            await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
+        }
+    }
+
+    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
+        let commandStartedAt = Date()
+        // The two page reads wait on WebKit, not on each other.
+        async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
+        async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
+        let (pageTools, pageState) = await (pageToolsRead, pageStateRead)
+        let appToolContext = AppVoiceTool.Context(
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
+            videoIsInFront: frontVideoState != nil,
+            videoIsOnYouTube: frontVideoState?["onYouTube"]?.boolValue == true,
+            videoQuizIsRunning: videoQuizSession.isRunning,
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
+        )
+        let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
+        let offeredToolNames = Set(tools.map(\.name))
+        let userMessageText = voiceCommandUserMessageText(
+            transcript: transcript,
+            sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState),
+            recentActionLines: recentVoiceToolActionLines
+        )
+        var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
+
+        // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
+        for _ in 0..<3 {
+            let reply: VoiceCommandReply
+            do {
+                reply = try await voiceCommandClient.requestToolCalls(messages: messages, tools: tools)
+            } catch is CancellationError {
+                return
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                // During a quiz question the keyword path is the judge, which sent this command here,
+                // so handing it back would loop between the two on every failure.
+                if liveScenePhaseIsWaitingForAQuizAnswer {
+                    print("Voice command: the router failed during a quiz question: \(error)")
+                    await speakLiveSceneLine("Sorry, I couldn't do that one.")
+                    break
+                }
+                print("Voice command: the router failed, so the keyword path takes it: \(error)")
+                respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
+                return
+            }
+            guard !Task.isCancelled else { return }
+            logVoiceCommandJSONIfEnabled("reply", reply.assistantContent)
+
+            var outcomes: [VoiceToolOutcome] = []
+            var toolResultBlocks: [JSONValue] = []
+            for toolCall in reply.toolCalls {
+                // A push-to-talk press cancels this command, so its remaining calls must not run.
+                guard !Task.isCancelled else { return }
+                VoiceToolCallChip.shared.show(toolCall.chipText)
+                let toolStartedAt = Date()
+                let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
+                print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
+                logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
+                outcomes.append(outcome)
+                recentVoiceToolActionLines.append(voiceToolActionLine(toolCall: toolCall, outcome: outcome))
+                recentVoiceToolActionLines = Array(recentVoiceToolActionLines.suffix(5))
+                if outcome == .handedOff { break }
+                toolResultBlocks.append(.object([
+                    "type": .string("tool_result"),
+                    "tool_use_id": .string(toolCall.id),
+                    "content": .string(outcome.toolResultText),
+                    "is_error": .bool(outcome.isFailure),
+                ]))
+            }
+
+            switch voiceCommandNextStep(toolCalls: reply.toolCalls, outcomes: outcomes, replyText: reply.text) {
+            case .finishSilently:
+                // A hand-off that started its own reply cancelled this task. One that did nothing, such as
+                // closing a scene with no video to resume, leaves the spinner up unless this clears it.
+                guard !Task.isCancelled else { return }
+                voiceState = .idle
+                scheduleTransientHideIfNeeded()
+                return
+            case .askTheModelAgain:
+                messages.append(.object(["role": .string("assistant"), "content": .array(reply.assistantContent)]))
+                messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
+                continue
+            case .speak(let spokenLine):
+                if !spokenLine.isEmpty {
+                    await speakLiveSceneLine(spokenLine)
+                }
+            }
+            break
+        }
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
+    }
+
+    /// Runs only a tool this turn offered, so a model, a page, or a debug caller cannot reach one the
+    /// current state left out, such as a hand-off during a quiz question.
+    private func runVoiceTool(_ toolCall: VoiceToolCall, offeredToolNames: Set<String>, transcript: String) async -> VoiceToolOutcome {
+        guard offeredToolNames.contains(toolCall.name) else {
+            return .failed(error: "\(toolCall.name) is not available right now", state: nil)
+        }
+        guard let appVoiceTool = AppVoiceTool(rawValue: toolCall.name) else {
+            return await LiveSceneOverlay.shared.callPageVoiceTool(named: toolCall.name, input: toolCall.inputWithoutConfirmation)
+        }
+        return await runAppVoiceTool(appVoiceTool, input: toolCall.inputWithoutConfirmation, transcript: transcript)
+    }
+
+    private func runAppVoiceTool(_ appVoiceTool: AppVoiceTool, input: [String: JSONValue], transcript: String) async -> VoiceToolOutcome {
+        switch appVoiceTool {
+        case .answerWithScreen:
+            respondToTranscript(transcript: transcript, requestedSceneKind: nil)
+            return .handedOff
+        case .buildNewScene:
+            respondToTranscript(transcript: transcript, requestedSceneKind: input["asQuiz"]?.boolValue == true ? .quiz : .explore)
+            return .handedOff
+        case .popOut:
+            respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
+            return .handedOff
+        case .closeScene:
+            closeTheSceneByVoice()
+            return .handedOff
+        case .explainPart:
+            let requestedLabel = input["label"]?.stringValue ?? ""
+            if partLabelToExplain(untrustedTappedLabel: requestedLabel, pageOnScreen: liveScenePageOnScreen, liveScenePhase: liveScenePhase) != nil {
+                explainTheTappedPart(untrustedTappedLabel: requestedLabel)
+            } else {
+                respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
+            }
+            return .handedOff
+        case .pauseVideo:
+            return runLearnerVideoCommand(.pause)
+        case .playVideo:
+            let playOutcome = runLearnerVideoCommand(.play)
+            guard case .changed = playOutcome else { return playOutcome }
+            // play() only asks. Chrome may refuse it, and a video that loads its data only now needs a moment,
+            // so the state is read a few times over about 1.6 seconds before a play counts as failed.
+            var videoStateAfterPlay: JSONValue?
+            for _ in 0..<4 {
+                try? await Task.sleep(for: .milliseconds(400))
+                videoStateAfterPlay = videoQuizSession.frontVideoStateForVoiceCommands()
+                if videoStateAfterPlay?["playing"]?.boolValue == true { break }
+            }
+            return learnerVideoPlayOutcome(videoStateAfterPlay: videoStateAfterPlay)
+        case .seekRelative:
+            guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
+            return runLearnerVideoCommand(.seekBy(seconds: seconds))
+        case .seekToTime:
+            guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
+            return runLearnerVideoCommand(.seekTo(seconds: seconds))
+        case .setSpeed:
+            guard let playbackRate = input["rate"]?.numberValue else { return .failed(error: "rate must be a number", state: nil) }
+            return runLearnerVideoCommand(.setPlaybackRate(playbackRate))
+        case .findMoment:
+            do {
+                let captionMoments = try await videoQuizSession.captionMomentsInTheFrontVideo(matching: input["query"]?.stringValue ?? "")
+                return .lookedUp(result: .array(captionMoments.map { captionMoment in
+                    .object(["seconds": .number(captionMoment.seconds), "captions": .string(captionMoment.text)])
+                }))
+            } catch {
+                return .failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil)
+            }
+        case .endQuiz:
+            handleVideoQuizVoiceCommand(.stop)
+            return .handedOff
+        }
+    }
+
+    private func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) -> VoiceToolOutcome {
+        do {
+            let videoState = try videoQuizSession.runLearnerVideoCommand(learnerVideoCommand)
+            return .changed(state: .object(["video": videoState]))
+        } catch {
+            // The quiz's failure lines say what the learner can fix, such as turning on JavaScript from Apple Events.
+            return .failed(error: (error as? LocalizedError)?.errorDescription ?? "No video is in Chrome's front tab", state: nil)
+        }
+    }
+
+    #if DEBUG
+    private func voiceToolsForTheDebugServer() async -> [VoiceToolDescriptor] {
+        let pageState = await LiveSceneOverlay.shared.pageVoiceState()
+        let debugFrontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
+        let appToolContext = AppVoiceTool.Context(
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
+            videoIsInFront: debugFrontVideoState != nil,
+            videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
+            videoQuizIsRunning: videoQuizSession.isRunning,
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
+        )
+        let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
+        return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
+    }
+
+    private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
+        let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
+        let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
+        VoiceToolCallChip.shared.show(toolCall.chipText)
+        return await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
+    }
+    #endif
+
+    /// Like Escape, without cancelling the voice command that asked for it.
+    private func closeTheSceneByVoice() {
+        liveSceneTourFinishedTask?.cancel()
+        if videoQuizQuestionIsActive {
+            skipTheVideoQuizQuestion()
+            return
+        }
+        if case .touring = liveScenePhase {
+            liveScenePhase = .allLabelsShowing
+        }
+        clearFinishedLiveScene()
+    }
+
+    /// What the model reads about the screen: which page shows, its camera pose and labels, and the video in front.
+    private func voiceCommandSceneState(pageState: JSONValue?, frontVideoState: JSONValue?) -> JSONValue {
+        var sceneStateFields = pageState?.objectValue ?? [:]
+        let pageName: String
+        switch liveScenePageOnScreen {
+        case _ where !LiveSceneOverlay.shared.isShowingAScene: pageName = "none"
+        case .framePopout: pageName = "framePopout"
+        case .landmark: pageName = "landmark"
+        case .generatedPage, nil: pageName = "generated3DScene"
+        }
+        sceneStateFields["page"] = .string(pageName)
+        if let frontVideoState {
+            sceneStateFields["video"] = frontVideoState
+        }
+        sceneStateFields["videoQuizIsRunning"] = .bool(videoQuizSession.isRunning)
+        if liveScenePhaseIsWaitingForAQuizAnswer {
+            sceneStateFields["quizQuestionIsOpen"] = .bool(true)
+        }
+        return .object(sceneStateFields)
+    }
+
+    /// The debug setting in the panel prints the full JSON of every voice command reply and tool result.
+    private func logVoiceCommandJSONIfEnabled(_ what: String, _ jsonValues: [JSONValue]) {
+        #if DEBUG
+        guard UserDefaults.standard.bool(forKey: Self.logsVoiceToolCallJSONDefaultsKey) else { return }
+        print("Voice command JSON \(what): \(JSONValue.array(jsonValues).compactJSONText)")
+        #endif
+    }
+
+    static let logsVoiceToolCallJSONDefaultsKey = "logsVoiceToolCallJSON"
 
     /// The tour can finish while Claude is still thinking, and isPlaying is
     /// false until the voice answer actually starts. Wait through that, and

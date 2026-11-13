@@ -53,7 +53,7 @@ It reports:
   A new worktree has none, so copy it from the main checkout:
   `cp "$(git worktree list --porcelain | sed -n '1s/^worktree //p')/worker/.dev.vars" worker/`.
 - Ports 8787 and 8789, each with its listener PID, whether this script started it, and which checkout it serves.
-- The newest Debug `Clicky.app` that Xcode built from a checkout of this repository, with its bundle ID, build time, and the checkout it came from.
+- The Debug `Clicky.app` Xcode built from this checkout, or the newest one from any checkout of this repository when this one has none, with its bundle ID, build time, and the checkout it came from.
   It says when the build is older than the last commit under `leanring-buddy/`, and whether the binary contains `--live-scene-rehearsal`.
 - Running Clicky PIDs and whether this script launched them.
 - Chrome's front tab host, and whether it is a YouTube video page, which the video features read.
@@ -147,7 +147,7 @@ worker-up [port] [-- wrangler args]
 worker-down               Stop the Workers this script started.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>".
+app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.

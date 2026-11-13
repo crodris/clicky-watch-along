@@ -475,6 +475,24 @@ const benchCases: BenchCase[] = [
       return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
     },
   },
+  {
+    id: "voice-command",
+    route: "/voice-command",
+    description: 'Turns a frame pop-out the other way after "no, turn it the other way", with a recent rotate_model of 45 degrees',
+    // The body is the one the app builds: its scene state JSON, its recent actions, and the tools a pop-out offers.
+    requestBody: () => JSON.parse(readFileSync(join(fixturesDirectory, "voice-command.json"), "utf8")),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const toolCalls = (Array.isArray(reply?.content) ? reply.content : []).filter(isRecord).filter((block) => block.type === "tool_use");
+      const rotation = toolCalls.find((toolCall) => toolCall.name === "rotate_model");
+      const yawDegrees = isRecord(rotation?.input) ? numberField(rotation.input, "yawDegrees") : 0;
+      const confirmation = isRecord(rotation?.input) ? String(rotation.input.confirmation ?? "") : "";
+      return {
+        passed: toolCalls.length === 1 && yawDegrees < 0 && confirmation.length > 0,
+        detail: `${toolCalls.map((toolCall) => String(toolCall.name)).join(", ") || "no tool"}, yaw ${yawDegrees}, says "${confirmation}"`,
+      };
+    },
+  },
   judgeCase({ caseSuffix: "correct", quiz: heartQuiz, learnerTranscript: "that's the left ventricle, it pumps blood out to the whole body", expectedVerdict: "correct" }),
   judgeCase({ caseSuffix: "named-only", quiz: heartQuiz, learnerTranscript: "the left ventricle", expectedVerdict: "named_only", wordsTheReplyMustNotSay: ["pump", "aorta"] }),
   judgeCase({ caseSuffix: "wrong", quiz: heartQuiz, learnerTranscript: "is it the lungs?", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["ventricle", "pump"] }),

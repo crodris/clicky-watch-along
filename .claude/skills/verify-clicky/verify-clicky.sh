@@ -21,7 +21,7 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down               Stop the Workers this script started.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>".
+  app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
@@ -153,21 +153,27 @@ report_usage_lines_since() {
 }
 
 # Xcode keeps one DerivedData folder per project path, and other repos can leave Clicky.app builds too.
-# Only builds of this repository's checkouts count, and the newest executable wins.
+# The build of this checkout wins, because several worktrees build at once and the newest build may be
+# another branch's. Only when this checkout has no build does the newest build of any checkout count.
 debug_app_path() {
-  local checkout_project_paths derived_data_folder newest_binary=""
+  local checkout_project_paths this_checkout_project derived_data_folder newest_binary="" this_checkout_binary=""
   checkout_project_paths="$(git -C "$checkout_root" worktree list --porcelain | sed -n 's/^worktree //p' | sed 's#$#/leanring-buddy.xcodeproj#')"
+  this_checkout_project="$checkout_root/leanring-buddy.xcodeproj"
   for derived_data_folder in "$HOME"/Library/Developer/Xcode/DerivedData/leanring-buddy-*; do
     local built_binary="$derived_data_folder/Build/Products/Debug/Clicky.app/Contents/MacOS/Clicky"
     [[ -f "$built_binary" ]] || continue
     local workspace_path
     workspace_path="$(plutil -extract WorkspacePath raw "$derived_data_folder/info.plist" 2>/dev/null || true)"
     grep -qxF "$workspace_path" <<<"$checkout_project_paths" || continue
+    if [[ "$workspace_path" == "$this_checkout_project" ]] && [[ -z "$this_checkout_binary" || "$built_binary" -nt "$this_checkout_binary" ]]; then
+      this_checkout_binary="$built_binary"
+    fi
     if [[ -z "$newest_binary" || "$built_binary" -nt "$newest_binary" ]]; then
       newest_binary="$built_binary"
     fi
   done
-  [[ -n "$newest_binary" ]] && echo "${newest_binary%/Contents/MacOS/Clicky}"
+  local chosen_binary="${this_checkout_binary:-$newest_binary}"
+  [[ -n "$chosen_binary" ]] && echo "${chosen_binary%/Contents/MacOS/Clicky}"
   return 0
 }
 
@@ -412,7 +418,7 @@ command_app_launch() {
   worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
-    --args --live-scene-rehearsal "$rehearsal_steps"
+    --args --voice-tool-debug-server --live-scene-rehearsal "$rehearsal_steps"
   for _ in $(seq 1 20); do
     local launched_pid
     launched_pid="$(running_clicky_pids | head -1)"
