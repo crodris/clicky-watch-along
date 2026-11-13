@@ -67,7 +67,7 @@ Preconditions:
   The rehearsal sends the second step as soon as the tour ends, before the narration speaks, so the tap needs the run above.
 - **Pop out a picture that shows depth.** Post bodies built from the Turbofan article's lead image (`https://upload.wikimedia.org/wikipedia/commons/e/e5/Turbofan3_Labelled.gif`, converted to JPEG with `sips`) and from a photo of an engine, 3 times each.
   Every run returns `pictureShowsDepth: true`.
-  The flower diagram (`Mature_flower_diagram.svg` on Commons), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
+  The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
   In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
   The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
   Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
