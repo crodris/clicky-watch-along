@@ -341,6 +341,8 @@ final class VideoQuizSession {
         videoPausedByClicky?.reason == .requestedScene
     }
     private var allTranscriptLines: [VideoQuizTranscriptLine] = []
+    /// The questions the learner finished, per video, for the study guide. Kept after the quiz stops.
+    private var studyGuideQuizLog = StudyGuideQuizLog()
     private var consecutiveFailedPlaybackReadCount = 0
     private var framePopoutTasksByMomentIndex: [Int: Task<VideoFramePopout?, Never>] = [:]
 
@@ -381,6 +383,7 @@ final class VideoQuizSession {
             framePopoutTask.cancel()
         }
         framePopoutTasksByMomentIndex = [:]
+        studyGuideQuizLog.discardTheOpenQuestion()
         // A failure or a stop during planning would otherwise leave the planning label up.
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
         print("Video quiz: stopped")
@@ -607,7 +610,20 @@ final class VideoQuizSession {
             print("Video quiz: skipping the question for moment \(momentIndex + 1), its pause is no longer held")
             return
         }
+        studyGuideQuizLog.questionIsAsked(
+            videoURL: videoTab.url,
+            question: moment.quiz.question,
+            answerLabel: moment.quiz.answerLabel,
+            explanation: moment.quiz.explanation,
+            askedAtSeconds: moment.pauseAtSeconds
+        )
         askQuestion(moment.quiz, framePopout)
+    }
+
+    /// Counts the open video quiz question as answered or skipped for the study guide. Only the first outcome
+    /// of a question counts, so a follow-up grade on the same question adds nothing.
+    func recordTheOpenQuestionOutcome(_ outcome: StudyGuideQuizOutcome) {
+        studyGuideQuizLog.closeTheOpenQuestion(with: outcome)
     }
 
     // MARK: Lifting the subject out of the frame
@@ -824,31 +840,58 @@ final class VideoQuizSession {
         return videoState
     }
 
-    /// The caption lines that best match the query in the video in front. The quiz's own captions are reused,
-    /// and another YouTube video's captions are read once with yt-dlp and kept for the rest of the session.
-    /// Any other site throws, since the captions reader keeps only YouTube's format, and the model hears the search failed.
+    /// The caption lines that best match the query in the video in front.
     func captionMomentsInTheFrontVideo(matching query: String) async throws -> [VideoCaptionMoment] {
         let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
-        let captionLines: [VideoQuizTranscriptLine]
-        if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, !allTranscriptLines.isEmpty {
-            captionLines = allTranscriptLines
+        let captionLines = try await captionLines(ofTheVideoIn: frontVideoTab)
+        return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
+    }
+
+    /// The URL of the active tab of Chrome's front window, or nil when Chrome has none to read.
+    func frontTabURLOfTheFrontWindow() -> String? {
+        try? ChromeVideoTab.frontTabOfTheFrontWindow().url
+    }
+
+    /// The YouTube video in Chrome's front tab with its captions and the quiz results Clicky holds for it, for a study guide.
+    /// The URL is read once here, so the guide is filed under the video its captions came from even if the learner switches tabs meanwhile.
+    /// Throws the same errors as the caption search, such as a page that is not on YouTube or a video with no captions.
+    func frontVideoForStudyGuide() async throws -> StudyGuideVideo {
+        let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        let captionLines = try await captionLines(ofTheVideoIn: frontVideoTab)
+        guard !captionLines.isEmpty else { throw VideoQuizFailure.noCaptionsToSearch }
+        return StudyGuideVideo(
+            title: frontVideoTab.title,
+            url: frontVideoTab.url,
+            transcriptLines: captionLines,
+            quizResults: Array((studyGuideQuizLog.resultsByVideoURL[frontVideoTab.url] ?? []).suffix(mostStudyGuideQuizResults))
+        )
+    }
+
+    /// The quiz's own captions are reused when it runs on this very video, and another YouTube video's captions are
+    /// read once with yt-dlp and kept for the rest of the session.
+    /// Any other site throws, since the captions reader keeps only YouTube's format, and the model hears the search failed.
+    private func captionLines(ofTheVideoIn frontVideoTab: ChromeVideoTab) async throws -> [VideoQuizTranscriptLine] {
+        // The tab's ids stay the same when the learner moves to another video inside it, so the URL must match too.
+        if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, currentVideoTab?.url == frontVideoTab.url, !allTranscriptLines.isEmpty {
+            return allTranscriptLines
         } else if !captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) {
             throw VideoQuizFailure.noVideoOnThePage
         } else if !urlIsOnYouTube(urlText: frontVideoTab.url) {
             // The captions reader keeps only YouTube's json3 captions, which other sites do not serve.
             throw VideoQuizFailure.captionSearchNeedsYouTube
         } else if let cachedCaptionLines = captionLinesByVideoURL[frontVideoTab.url] {
-            captionLines = cachedCaptionLines
+            return cachedCaptionLines
         } else {
+            let downloadedCaptionLines: [VideoQuizTranscriptLine]
             do {
-                captionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
+                downloadedCaptionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
             } catch VideoQuizFailure.noCaptions {
                 // The quiz's own line talks about planning a quiz, which is not what the learner asked for.
                 throw VideoQuizFailure.noCaptionsToSearch
             }
-            captionLinesByVideoURL[frontVideoTab.url] = captionLines
+            captionLinesByVideoURL[frontVideoTab.url] = downloadedCaptionLines
+            return downloadedCaptionLines
         }
-        return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
     }
 
     private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String, pageIsOnYouTube: Bool) throws -> JSONValue {

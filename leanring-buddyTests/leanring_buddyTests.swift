@@ -1096,4 +1096,139 @@ struct leanring_buddyTests {
         // A URL with no v parameter, such as youtu.be, never matches.
         #expect(!debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://youtu.be/heOiSg21Lx8"))
     }
+
+    // MARK: - Study guide
+
+    @Test func studyGuideToolsAreOfferedOnlyWhereTheyCanWork() async throws {
+        func context(onYouTube: Bool = true, questionOpen: Bool = false, guideExists: Bool = false) -> AppVoiceTool.Context {
+            AppVoiceTool.Context(
+                sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: onYouTube,
+                videoQuizIsRunning: false, quizQuestionIsOpen: questionOpen, studyGuideExistsForTheFrontVideo: guideExists
+            )
+        }
+        let studyGuideTools: [AppVoiceTool] = [.makeStudyGuide, .reviseStudyGuide, .openStudyGuide]
+
+        #expect(AppVoiceTool.available(in: context()).contains(.makeStudyGuide))
+        #expect(!AppVoiceTool.available(in: context()).contains(.reviseStudyGuide))
+        #expect(!AppVoiceTool.available(in: context()).contains(.openStudyGuide))
+        #expect(AppVoiceTool.available(in: context(guideExists: true)).contains(.reviseStudyGuide))
+        #expect(AppVoiceTool.available(in: context(guideExists: true)).contains(.openStudyGuide))
+        for studyGuideTool in studyGuideTools {
+            #expect(!AppVoiceTool.available(in: context(onYouTube: false, guideExists: true)).contains(studyGuideTool))
+            #expect(!AppVoiceTool.available(in: context(questionOpen: true, guideExists: true)).contains(studyGuideTool))
+            // None of them reads the spoken request, so the debug MCP endpoint offers them too.
+            #expect(!studyGuideTool.needsTheSpokenRequest)
+        }
+        let noVideoInFront = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false, studyGuideExistsForTheFrontVideo: true)
+        for studyGuideTool in studyGuideTools {
+            #expect(!AppVoiceTool.available(in: noVideoInFront).contains(studyGuideTool))
+        }
+    }
+
+    @Test func studyGuideToolsSayWhatTheyDoInTheChip() async throws {
+        func call(_ name: String) -> VoiceToolCall { VoiceToolCall(id: "test", name: name, input: [:]) }
+
+        #expect(call("make_study_guide").chipPhrase == "Starting your study guide")
+        #expect(call("revise_study_guide").chipPhrase == "Updating your study guide")
+        #expect(call("open_study_guide").chipPhrase == "Opening your study guide")
+        #expect(call("make_study_guide").chipPhraseToShow(at: .afterTheCall(.changed(state: nil))) == "Starting your study guide")
+        #expect(call("make_study_guide").chipPhraseToShow(at: .afterTheCall(.failed(error: "A study guide is still being written", state: nil))) == nil)
+    }
+
+    @Test func aQuizAnswerCountsTowardTheStudyGuideOnlyOnceTheQuestionIsDecided() async throws {
+        #expect(studyGuideQuizOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 0) == .gotIt)
+        #expect(studyGuideQuizOutcome(grade: .nameOnly, wrongAnswerCount: 0) == .gotIt)
+        #expect(studyGuideQuizOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 1) == .missed)
+        #expect(studyGuideQuizOutcome(grade: .nameOnly, wrongAnswerCount: 1) == .missed)
+        #expect(studyGuideQuizOutcome(grade: .askedForHelp, wrongAnswerCount: 0) == .missed)
+        #expect(studyGuideQuizOutcome(grade: .wrong, wrongAnswerCount: 0) == nil)
+        #expect(studyGuideQuizOutcome(grade: .wrong, wrongAnswerCount: 1) == .missed)
+    }
+
+    @Test func theQuizLogKeepsOneResultPerQuestionPerVideo() async throws {
+        var quizLog = StudyGuideQuizLog()
+        quizLog.closeTheOpenQuestion(with: .skipped)
+        #expect(quizLog.resultsByVideoURL.isEmpty)
+
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=a", question: "What pumps the blood?", answerLabel: "Heart", explanation: "It pumps blood.", askedAtSeconds: 42)
+        quizLog.closeTheOpenQuestion(with: .gotIt)
+        // The follow-up grade and an Escape after the answer must not add a second result.
+        quizLog.closeTheOpenQuestion(with: .missed)
+        quizLog.closeTheOpenQuestion(with: .skipped)
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=a", question: "What is the valve?", answerLabel: "Aorta", explanation: "It carries blood out.", askedAtSeconds: 90)
+        quizLog.closeTheOpenQuestion(with: .skipped)
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=b", question: "Other video", answerLabel: "Wing", explanation: "It lifts.", askedAtSeconds: 5)
+        quizLog.discardTheOpenQuestion()
+        quizLog.closeTheOpenQuestion(with: .gotIt)
+
+        let resultsForFirstVideo = try #require(quizLog.resultsByVideoURL["https://www.youtube.com/watch?v=a"])
+        #expect(resultsForFirstVideo.map(\.result) == [.gotIt, .skipped])
+        #expect(resultsForFirstVideo.map(\.askedAtSeconds) == [42, 90])
+        #expect(quizLog.resultsByVideoURL["https://www.youtube.com/watch?v=b"] == nil)
+    }
+
+    @Test func studyGuideRequestHasExactlyTheWorkersKeys() async throws {
+        func encodedObject(_ studyGuideRequest: StudyGuideRequest) throws -> [String: Any] {
+            let encodedData = try JSONEncoder().encode(studyGuideRequest)
+            return try #require(try JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        }
+        let quizResults = [
+            StudyGuideQuizResult(question: "q1", answerLabel: "a1", explanation: "e1", askedAtSeconds: 12.5, result: .gotIt),
+            StudyGuideQuizResult(question: "q2", answerLabel: "a2", explanation: "e2", askedAtSeconds: 30, result: .missed),
+            StudyGuideQuizResult(question: "q3", answerLabel: "a3", explanation: "e3", askedAtSeconds: 60, result: .skipped),
+        ]
+        let newGuide = StudyGuideRequest(
+            videoTitle: "How engines work",
+            videoURL: "https://www.youtube.com/watch?v=abc",
+            transcriptLines: [VideoQuizTranscriptLine(seconds: 1.5, text: "hello")],
+            quizResults: quizResults,
+            focus: nil,
+            revision: nil
+        )
+        let newGuideObject = try encodedObject(newGuide)
+        #expect(Set(newGuideObject.keys) == ["videoTitle", "videoURL", "transcriptLines", "quizResults"])
+        let transcriptLineObject = try #require((newGuideObject["transcriptLines"] as? [[String: Any]])?.first)
+        #expect(Set(transcriptLineObject.keys) == ["seconds", "text"])
+        let quizResultObjects = try #require(newGuideObject["quizResults"] as? [[String: Any]])
+        #expect(Set(try #require(quizResultObjects.first).keys) == ["question", "answerLabel", "explanation", "askedAtSeconds", "result"])
+        #expect(quizResultObjects.compactMap { $0["result"] as? String } == ["gotIt", "missed", "skipped"])
+
+        let revisedGuide = StudyGuideRequest(
+            videoTitle: newGuide.videoTitle,
+            videoURL: newGuide.videoURL,
+            transcriptLines: newGuide.transcriptLines,
+            quizResults: [],
+            focus: "only the engine",
+            revision: StudyGuideRevision(pageId: "page-1", previousGuide: .object(["title": .string("Engines")]), instruction: "make it shorter")
+        )
+        let revisedGuideObject = try encodedObject(revisedGuide)
+        #expect(Set(revisedGuideObject.keys) == ["videoTitle", "videoURL", "transcriptLines", "quizResults", "focus", "revision"])
+        #expect(revisedGuideObject["focus"] as? String == "only the engine")
+        let revisionObject = try #require(revisedGuideObject["revision"] as? [String: Any])
+        #expect(Set(revisionObject.keys) == ["pageId", "previousGuide", "instruction"])
+        #expect((revisionObject["previousGuide"] as? [String: Any])?["title"] as? String == "Engines")
+    }
+
+    @Test func studyGuideWishIsTrimmedAndCutToWhatTheWorkerAccepts() async throws {
+        #expect(studyGuideWish(fromModelText: nil) == nil)
+        #expect(studyGuideWish(fromModelText: "  \n ") == nil)
+        #expect(studyGuideWish(fromModelText: "  only the engine ") == "only the engine")
+        #expect(studyGuideWish(fromModelText: String(repeating: "a", count: 500))?.count == 300)
+    }
+
+    @Test func studyGuideReplyMapsToARecordOrADistinctError() async throws {
+        let replyData = Data(#"{"pageId":"p1","pageURL":"https://www.notion.so/p1","guide":{"title":"T","sections":[]}}"#.utf8)
+        let decodedRecord = try studyGuideRecord(statusCode: 200, responseData: replyData)
+        #expect(decodedRecord.pageId == "p1")
+        #expect(decodedRecord.pageURL == URL(string: "https://www.notion.so/p1"))
+        #expect(decodedRecord.guide["title"] == .string("T"))
+
+        #expect(throws: StudyGuideError.notionIsNotConnected) {
+            try studyGuideRecord(statusCode: 503, responseData: Data(#"{"error":"Notion is not connected"}"#.utf8))
+        }
+        #expect(throws: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) {
+            try studyGuideRecord(statusCode: 502, responseData: Data("bad".utf8))
+        }
+    }
+
 }

@@ -1,0 +1,195 @@
+//
+//  StudyGuide.swift
+//  leanring-buddy
+//
+//  The app half of the Notion study guide. The learner asks for one by voice while a YouTube video plays,
+//  the Worker's POST /study-guide drafts it with Sonnet and writes the Notion page, and the app keeps
+//  the page and the guide JSON so a later request can revise or open it.
+//  The request and reply shapes are fixed by the Worker's contract. The app never reads the guide's
+//  fields: it stores the JSON and sends it back unchanged as the revision's previousGuide.
+//
+
+import Foundation
+
+// MARK: - Request
+
+/// How the learner did on one video quiz question, as the Worker's page layout reads it.
+nonisolated enum StudyGuideQuizOutcome: String, Encodable, Equatable, Sendable {
+    case gotIt
+    case missed
+    case skipped
+}
+
+/// One answered or skipped question from a video quiz. The Worker lists the missed and skipped ones first.
+nonisolated struct StudyGuideQuizResult: Encodable, Equatable, Sendable {
+    let question: String
+    let answerLabel: String
+    let explanation: String
+    /// The video time the quiz paused at.
+    let askedAtSeconds: Double
+    let result: StudyGuideQuizOutcome
+}
+
+/// Present only when the learner asks to change a guide that already exists.
+nonisolated struct StudyGuideRevision: Encodable, Equatable, Sendable {
+    /// The Notion page the new guide replaces.
+    let pageId: String
+    /// The guide the Worker returned last time, sent back unchanged.
+    let previousGuide: JSONValue
+    let instruction: String
+}
+
+nonisolated struct StudyGuideRequest: Encodable, Equatable, Sendable {
+    let videoTitle: String
+    let videoURL: String
+    let transcriptLines: [VideoQuizTranscriptLine]
+    let quizResults: [StudyGuideQuizResult]
+    /// An extra wish from the learner, such as "only the part about the engine". Left out of the JSON when nil.
+    let focus: String?
+    /// Left out of the JSON when nil.
+    let revision: StudyGuideRevision?
+}
+
+/// What the learner asked the guide to do.
+nonisolated enum StudyGuideJob: Equatable, Sendable {
+    case write(focus: String?)
+    case revise(instruction: String)
+}
+
+/// The Worker refuses a focus or an instruction over this many characters.
+nonisolated let longestStudyGuideWish = 300
+
+/// The Worker refuses more quiz results than this.
+nonisolated let mostStudyGuideQuizResults = 20
+
+/// A focus or an instruction comes from the model's reading of the learner's words, so it is trimmed and cut to
+/// what the Worker accepts. Nil when nothing is left, which keeps an empty focus out of the request.
+nonisolated func studyGuideWish(fromModelText modelText: String?) -> String? {
+    guard let trimmedText = modelText?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedText.isEmpty else {
+        return nil
+    }
+    return String(trimmedText.prefix(longestStudyGuideWish))
+}
+
+// MARK: - Quiz results
+
+/// How a graded answer counts toward the guide, or nil while the question is still open.
+/// A correct name counts as got it only on the first try, and asking for help or a second wrong answer counts as missed.
+/// A first wrong answer leaves the question open for another try, so it has no outcome yet.
+func studyGuideQuizOutcome(grade: LiveSceneQuizGrade, wrongAnswerCount: Int) -> StudyGuideQuizOutcome? {
+    switch grade {
+    case .nameAndFunctionWord, .nameOnly:
+        return wrongAnswerCount == 0 ? .gotIt : .missed
+    case .askedForHelp:
+        return .missed
+    case .wrong:
+        return wrongAnswerCount == 0 ? nil : .missed
+    }
+}
+
+/// The video quiz questions the learner has finished, per video. At most one result is kept per question,
+/// so a follow-up answer or an Escape after the answer does not add a second.
+nonisolated struct StudyGuideQuizLog: Equatable, Sendable {
+    private struct OpenQuestion: Equatable, Sendable {
+        let videoURL: String
+        let question: String
+        let answerLabel: String
+        let explanation: String
+        let askedAtSeconds: Double
+    }
+
+    private var openQuestion: OpenQuestion?
+    private(set) var resultsByVideoURL: [String: [StudyGuideQuizResult]] = [:]
+
+    mutating func questionIsAsked(videoURL: String, question: String, answerLabel: String, explanation: String, askedAtSeconds: Double) {
+        openQuestion = OpenQuestion(
+            videoURL: videoURL,
+            question: question,
+            answerLabel: answerLabel,
+            explanation: explanation,
+            askedAtSeconds: askedAtSeconds
+        )
+    }
+
+    /// Records the outcome for the question that is open, then closes it. Does nothing when no question is open.
+    mutating func closeTheOpenQuestion(with outcome: StudyGuideQuizOutcome) {
+        guard let openQuestion else { return }
+        self.openQuestion = nil
+        resultsByVideoURL[openQuestion.videoURL, default: []].append(StudyGuideQuizResult(
+            question: openQuestion.question,
+            answerLabel: openQuestion.answerLabel,
+            explanation: openQuestion.explanation,
+            askedAtSeconds: openQuestion.askedAtSeconds,
+            result: outcome
+        ))
+    }
+
+    /// For a quiz that stops with a question open, which the learner never answered or skipped.
+    mutating func discardTheOpenQuestion() {
+        openQuestion = nil
+    }
+}
+
+/// What the app reads from the video in Chrome's front tab to write a guide about it.
+nonisolated struct StudyGuideVideo: Equatable, Sendable {
+    let title: String
+    let url: String
+    let transcriptLines: [VideoQuizTranscriptLine]
+    let quizResults: [StudyGuideQuizResult]
+}
+
+// MARK: - Worker reply and client
+
+/// The page Notion made and the guide behind it. The guide stays opaque JSON.
+nonisolated struct StudyGuideRecord: Decodable, Equatable, Sendable {
+    let pageId: String
+    let pageURL: URL
+    let guide: JSONValue
+}
+
+nonisolated enum StudyGuideError: Error, Equatable {
+    /// The Worker has no Notion token or parent page, which it reports as a 503.
+    case notionIsNotConnected
+    case workerReturned(statusCode: Int, body: String)
+}
+
+@MainActor
+final class StudyGuideClient {
+    private let studyGuideURL: URL
+    private let session: URLSession
+
+    init(workerBaseURL: String) {
+        guard let studyGuideURL = URL(string: "\(workerBaseURL)/study-guide") else {
+            preconditionFailure("Worker base URL did not form the study guide URL: \(workerBaseURL)")
+        }
+        self.studyGuideURL = studyGuideURL
+        let configuration = URLSessionConfiguration.default
+        // Sonnet drafts the guide in 20 to 60 seconds, and Notion takes a few more.
+        configuration.timeoutIntervalForRequest = 150
+        configuration.timeoutIntervalForResource = 150
+        session = URLSession(configuration: configuration)
+    }
+
+    func writeStudyGuide(_ studyGuideRequest: StudyGuideRequest) async throws -> StudyGuideRecord {
+        var request = URLRequest(url: studyGuideURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(studyGuideRequest)
+        let (responseData, response) = try await session.data(for: request)
+        // URLSession returns URLResponse. The Worker answers over HTTP.
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        return try studyGuideRecord(statusCode: statusCode, responseData: responseData)
+    }
+}
+
+/// A 503 is the Worker saying it has no Notion token or parent page, which the learner can fix and Clicky says so.
+/// Any other failure is a Worker or Notion error.
+nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws -> StudyGuideRecord {
+    if statusCode == 503 {
+        throw StudyGuideError.notionIsNotConnected
+    }
+    guard statusCode == 200 else {
+        throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
+    }
+    return try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
+}

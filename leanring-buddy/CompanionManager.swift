@@ -115,6 +115,13 @@ final class CompanionManager: ObservableObject {
     }()
 
     private lazy var voiceCommandClient = VoiceCommandClient(workerBaseURL: Self.workerBaseURL)
+    private lazy var studyGuideClient = StudyGuideClient(workerBaseURL: Self.workerBaseURL)
+    /// The Notion page and guide JSON written for each video, filed under the video's URL when its guide was started,
+    /// so a revise or an open finds it later.
+    private var studyGuideRecordsByVideoURL: [String: StudyGuideRecord] = [:]
+    /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
+    /// and must not cancel a guide that is still being written.
+    private var studyGuideTask: Task<Void, Never>?
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
 
@@ -1564,6 +1571,9 @@ final class CompanionManager: ObservableObject {
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
+        if videoQuizQuestionIsActive, let studyGuideOutcome = studyGuideQuizOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount) {
+            videoQuizSession.recordTheOpenQuestionOutcome(studyGuideOutcome)
+        }
         switch grade {
         case .nameAndFunctionWord:
             liveScenePhase = .allLabelsShowing
@@ -1864,6 +1874,8 @@ final class CompanionManager: ObservableObject {
     }
 
     private func skipTheVideoQuizQuestion() {
+        // An answered question is already closed, so a skip after the answer adds nothing.
+        videoQuizSession.recordTheOpenQuestionOutcome(.skipped)
         currentResponseTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
@@ -1930,7 +1942,8 @@ final class CompanionManager: ObservableObject {
             videoIsInFront: frontVideoState != nil,
             videoIsOnYouTube: frontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
-            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2086,7 +2099,107 @@ final class CompanionManager: ObservableObject {
         case .endQuiz:
             handleVideoQuizVoiceCommand(.stop)
             return .handedOff
+        case .makeStudyGuide:
+            return startWritingTheStudyGuide(.write(focus: studyGuideWish(fromModelText: input["focus"]?.stringValue)))
+        case .reviseStudyGuide:
+            guard let instruction = studyGuideWish(fromModelText: input["instruction"]?.stringValue) else {
+                return .failed(error: "instruction must say what to change", state: nil)
+            }
+            return startWritingTheStudyGuide(.revise(instruction: instruction))
+        case .openStudyGuide:
+            guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
+                  let studyGuideRecord = studyGuideRecordsByVideoURL[frontVideoURL] else {
+                return .failed(error: "No study guide has been written for this video yet", state: nil)
+            }
+            guard NSWorkspace.shared.open(studyGuideRecord.pageURL) else {
+                return .failed(error: "The study guide page would not open", state: nil)
+            }
+            return .changed(state: nil)
         }
+    }
+
+    // MARK: - Study Guide
+
+    /// A guide exists for the video in front only when that video is on YouTube and a record is filed under its URL.
+    /// The tab's URL costs a round trip to Chrome, so it is read only when some guide has been written.
+    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?) -> Bool {
+        guard !studyGuideRecordsByVideoURL.isEmpty,
+              frontVideoState?["onYouTube"]?.boolValue == true,
+              let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
+            return false
+        }
+        return studyGuideRecordsByVideoURL[frontVideoURL] != nil
+    }
+
+    /// Starts the guide in the background and returns at once, so the router speaks its own confirmation
+    /// and the video keeps playing. One guide is written at a time.
+    private func startWritingTheStudyGuide(_ studyGuideJob: StudyGuideJob) -> VoiceToolOutcome {
+        guard studyGuideTask == nil else {
+            return .failed(error: "A study guide is still being written", state: nil)
+        }
+        studyGuideTask = Task {
+            await self.writeTheStudyGuide(studyGuideJob)
+            self.studyGuideTask = nil
+        }
+        return .changed(state: .object(["studyGuide": .string("started")]))
+    }
+
+    private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob) async {
+        let startedAt = Date()
+        let finishedLine: String
+        switch studyGuideJob {
+        case .write: finishedLine = "Your study guide is ready in Notion."
+        case .revise: finishedLine = "I updated your study guide."
+        }
+        let spokenLine: String
+        do {
+            let video = try await videoQuizSession.frontVideoForStudyGuide()
+            var studyGuideRevision: StudyGuideRevision?
+            var studyGuideFocus: String?
+            switch studyGuideJob {
+            case .write(let focus):
+                studyGuideFocus = focus
+            case .revise(let instruction):
+                guard let previousRecord = studyGuideRecordsByVideoURL[video.url] else {
+                    print("Study guide: no guide to revise for \(video.url)")
+                    await speakAfterNothingElseIsHappening("Sorry, I couldn't write that study guide.")
+                    return
+                }
+                studyGuideRevision = StudyGuideRevision(pageId: previousRecord.pageId, previousGuide: previousRecord.guide, instruction: instruction)
+            }
+            let studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
+                videoTitle: video.title,
+                videoURL: video.url,
+                transcriptLines: video.transcriptLines,
+                quizResults: video.quizResults,
+                focus: studyGuideFocus,
+                revision: studyGuideRevision
+            ))
+            // Filed under the video the guide was written for, not whichever tab is in front now.
+            studyGuideRecordsByVideoURL[video.url] = studyGuideRecord
+            print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
+            spokenLine = finishedLine
+        } catch StudyGuideError.notionIsNotConnected {
+            print("Study guide: the Worker has no Notion connection")
+            spokenLine = "Notion isn't connected yet."
+        } catch {
+            print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            spokenLine = "Sorry, I couldn't write that study guide."
+        }
+        await speakAfterNothingElseIsHappening(spokenLine)
+    }
+
+    /// The finished guide's line never cuts in. It waits until Clicky is not speaking or answering and no quiz question is open.
+    private func speakAfterNothingElseIsHappening(_ line: String) async {
+        while videoQuizQuestionIsActive || liveScenePhaseIsWaitingForAQuizAnswer || voiceAnswerIsStillRunning {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        await speakLiveSceneLine(line)
+        // A new press during the request for the line's audio owns the voice state now.
+        if voiceState == .responding {
+            voiceState = .idle
+        }
+        scheduleTransientHideIfNeeded()
     }
 
     private func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) -> VoiceToolOutcome {
@@ -2109,7 +2222,8 @@ final class CompanionManager: ObservableObject {
             videoIsInFront: debugFrontVideoState != nil,
             videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
-            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
@@ -2189,14 +2303,17 @@ final class CompanionManager: ObservableObject {
     /// through playback, so the quiz is the next thing Clicky says.
     private func waitUntilTheVoiceAnswerIsQuiet() async {
         while !Task.isCancelled {
-            let voiceAnswerIsStillRunning = voiceState == .processing
-                || voiceState == .listening
-                || elevenLabsTTSClient.isPlaying
             if !voiceAnswerIsStillRunning {
                 return
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
+    }
+
+    private var voiceAnswerIsStillRunning: Bool {
+        voiceState == .processing
+            || voiceState == .listening
+            || elevenLabsTTSClient.isPlaying
     }
 
     /// Waits for the line in progress, because a new line would cut it off.
