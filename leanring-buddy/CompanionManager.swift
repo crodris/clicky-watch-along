@@ -770,14 +770,26 @@ final class CompanionManager: ObservableObject {
     /// whole voice and quiz loop can be tested unattended. A transcript that
     /// starts with "~" does not wait for Clicky: the next one follows 6 seconds
     /// later, while a scene is still building. In a "?" step, "{answer}" becomes
-    /// the open question's answer label, since the plan picks a new question each run.
+    /// the open question's answer label, since the plan picks a new question each run. A transcript that starts
+    /// with "&" waits until no study guide is being written, so a demo can open the guide it just asked for.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStep in transcripts {
             let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
             // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
             let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
-            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion ? String(rehearsalStep.dropFirst()) : rehearsalStep
+            let stepWaitsForTheStudyGuide = rehearsalStep.hasPrefix("&")
+            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion || stepWaitsForTheStudyGuide
+                ? String(rehearsalStep.dropFirst())
+                : rehearsalStep
+            if stepWaitsForTheStudyGuide {
+                // A guide takes about 15 seconds, so 3 minutes covers every retry the Worker makes.
+                for _ in 0..<720 where studyGuideTask != nil {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+                // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+            }
             if stepWaitsForAQuestion {
                 // A learner answers after hearing the question, so wait for it to start and end.
                 var questionAudioHasStarted = false
