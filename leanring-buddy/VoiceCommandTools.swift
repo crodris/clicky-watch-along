@@ -325,13 +325,17 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             }
             return "Turning it"
         case "zoom":
-            return (numberInput("factor") ?? 1) >= 1 ? "Zooming in" : "Zooming out"
+            // The page refuses a missing factor and does nothing at 1, so the chip says nothing either.
+            guard let zoomFactor = numberInput("factor"), zoomFactor != 1 else { return nil }
+            return zoomFactor > 1 ? "Zooming in" : "Zooming out"
         case "zoom_to_part":
             return textInput("label").map { partLabel in "Zooming in on the \(partLabel)" } ?? "Zooming in"
         case "reset_view":
             return "Back to the start"
         case "explode_view":
-            return (numberInput("amount") ?? 1) > 0 ? "Pulling it apart" : "Putting it together"
+            // The page refuses a missing amount, so the chip says nothing for it.
+            guard let explodeAmount = numberInput("amount") else { return nil }
+            return explodeAmount > 0 ? "Pulling it apart" : "Putting it together"
         case "set_inside_view":
             // The page opens the cutaway only for a true open, so the chip reads it the same way.
             return input["open"]?.boolValue == true ? "Opening it up" : "Closing it up"

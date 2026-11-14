@@ -687,7 +687,7 @@ final class CompanionManager: ObservableObject {
     - you can help with anything — coding, writing, general knowledge, brainstorming.
     - never say "simply" or "just".
     - don't read out code verbatim. describe what the code does or what needs to change conversationally.
-    - don't end with simple yes/no questions like "want me to explain more?" or "should i show you?" — those are dead ends that force the user to just say yes.
+    - don't end with simple yes/no questions like "want me to explain more?" or "should I show you?" — those are dead ends that force the user to just say yes.
     - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
@@ -1204,6 +1204,8 @@ final class CompanionManager: ObservableObject {
             if let artworkLine = PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing {
                 await speakLiveSceneLine(artworkLine)
             }
+            // A push-to-talk press cancels this task, and a hide scheduled now would fade the overlay while they talk.
+            guard !Task.isCancelled else { return }
             scheduleTransientHideIfNeeded()
             return
         }
@@ -1227,6 +1229,7 @@ final class CompanionManager: ObservableObject {
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
             await speakLiveSceneLine(spokenLine)
         }
+        guard !Task.isCancelled else { return }
         scheduleTransientHideIfNeeded()
     }
 
