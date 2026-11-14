@@ -1337,4 +1337,80 @@ struct leanring_buddyTests {
         #expect(wingmanFormation(for: []).placements.isEmpty)
     }
 
+    // MARK: - Agent list shortcut
+
+    @Test func shiftAndOptionHeldForThreeTenthsOfASecondFiresOnce() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift], at: 9.9)
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        #expect(recognizer.holdCompletesAt == 10 + 0.3)
+        let firedTooEarly = recognizer.timeAdvanced(to: 10.29)
+        #expect(!firedTooEarly)
+        let firedOnTime = recognizer.timeAdvanced(to: 10 + 0.3)
+        #expect(firedOnTime)
+        let firedAgain = recognizer.timeAdvanced(to: 12)
+        #expect(!firedAgain)
+        #expect(recognizer.holdCompletesAt == nil)
+
+        // Releasing everything arms it again.
+        recognizer.modifiersChanged([], at: 13)
+        recognizer.modifiersChanged([.shift, .option], at: 14)
+        let firedOnTheNextHold = recognizer.timeAdvanced(to: 14 + 0.3)
+        #expect(firedOnTheNextHold)
+    }
+
+    @Test func releasingBeforeThreeTenthsOfASecondDoesNotFire() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        recognizer.modifiersChanged([.option], at: 10.2)
+        let fired5 = recognizer.timeAdvanced(to: 10.3)
+        #expect(!fired5)
+        let fired6 = recognizer.timeAdvanced(to: 11)
+        #expect(!fired6)
+    }
+
+    @Test func aKeyTypedDuringTheHoldDoesNotFireEvenWhenItIsReleased() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        recognizer.keyWasPressed()
+        let fired7 = recognizer.timeAdvanced(to: 10.3)
+        #expect(!fired7)
+
+        // Still holding both after the key is let go: this hold stays broken until every modifier is released.
+        let fired8 = recognizer.timeAdvanced(to: 12)
+        #expect(!fired8)
+        recognizer.modifiersChanged([], at: 13)
+        recognizer.modifiersChanged([.shift, .option], at: 14)
+        let fired9 = recognizer.timeAdvanced(to: 14.3)
+        #expect(fired9)
+    }
+
+    @Test func ordinaryTypingBeforeTheHoldDoesNotBlockIt() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.keyWasPressed()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        let fired10 = recognizer.timeAdvanced(to: 10.3)
+        #expect(fired10)
+    }
+
+    @Test func controlOrCommandWithShiftAndOptionNeverFiresEvenAfterTheyAreReleased() async throws {
+        for extraModifier in [NSEvent.ModifierFlags.control, .command] {
+            var recognizer = AgentListShortcutRecognizer()
+            recognizer.modifiersChanged([.shift, .option, extraModifier], at: 10)
+            let fired11 = recognizer.timeAdvanced(to: 11)
+            #expect(!fired11)
+            recognizer.modifiersChanged([.shift, .option], at: 11.1)
+            let fired12 = recognizer.timeAdvanced(to: 12)
+            #expect(!fired12)
+        }
+
+        // Push-to-talk first, then shift joins it: ctrl + option is never the list.
+        var pushToTalkRecognizer = AgentListShortcutRecognizer()
+        pushToTalkRecognizer.modifiersChanged([.control, .option], at: 10)
+        pushToTalkRecognizer.modifiersChanged([.control, .option, .shift], at: 10.1)
+        pushToTalkRecognizer.modifiersChanged([.shift, .option], at: 10.2)
+        let fired13 = pushToTalkRecognizer.timeAdvanced(to: 11)
+        #expect(!fired13)
+    }
+
 }
