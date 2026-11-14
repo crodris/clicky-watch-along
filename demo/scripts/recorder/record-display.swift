@@ -47,11 +47,13 @@ Task {
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let configuration = SCStreamConfiguration()
         let pointPixelScale = Int(filter.pointPixelScale)
-        let sourceRectValues = (ProcessInfo.processInfo.environment["RECORDING_SOURCE_RECT"] ?? "")
-            .split(separator: ",")
-            .compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-        if ProcessInfo.processInfo.environment["RECORDING_SOURCE_RECT"]?.isEmpty == false && sourceRectValues.count != 4 {
-            print("RECORDING_SOURCE_RECT must be x,y,width,height in points"); fflush(stdout)
+        let sourceRectText = ProcessInfo.processInfo.environment["RECORDING_SOURCE_RECT"] ?? ""
+        let sourceRectParts = sourceRectText.split(separator: ",", omittingEmptySubsequences: false)
+        let sourceRectValues = sourceRectParts.compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        // Every part must be a number, and the width and height above 0, or the recorder would capture another area.
+        if !sourceRectText.isEmpty
+            && (sourceRectParts.count != 4 || sourceRectValues.count != 4 || sourceRectValues[2] <= 0 || sourceRectValues[3] <= 0) {
+            print("RECORDING_SOURCE_RECT must be x,y,width,height in points, with a width and height above 0"); fflush(stdout)
             exit(2)
         }
         if sourceRectValues.count == 4 {

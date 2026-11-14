@@ -52,6 +52,10 @@ if [[ ! "$trailing_seconds" =~ $number_pattern ]]; then
   echo "TRAILING_SECONDS must be a number of seconds, got: $trailing_seconds" >&2
   exit 2
 fi
+if [[ ! "$RECORDING_SOURCE_RECT" =~ ^[0-9]+(\.[0-9]+)?,[0-9]+(\.[0-9]+)?,[1-9][0-9]*(\.[0-9]+)?,[1-9][0-9]*(\.[0-9]+)?$ ]]; then
+  echo "RECORDING_SOURCE_RECT must be x,y,width,height in points, with a width and height above 0, got: $RECORDING_SOURCE_RECT" >&2
+  exit 2
+fi
 if [[ ! "$recording_display_index" =~ ^[0-9]+$ ]]; then
   echo "RECORDING_DISPLAY_INDEX must be a display number of 0 or more, got: $recording_display_index" >&2
   exit 2
@@ -142,6 +146,12 @@ rm -f "$recording_path" "$events_path" "$events_path.raw"
   > >(perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$footage_folder/$shot_name.recorder.txt") &
 recorder_pid=$!
 sleep 2
+# The recorder refuses bad input and logs why, so a shot that is not recording stops here, before the rehearsal.
+if ! kill -0 "$recorder_pid" 2>/dev/null || ! grep -q "recording started" "$footage_folder/$shot_name.recorder.txt"; then
+  echo "the recorder did not start:" >&2
+  cat "$footage_folder/$shot_name.recorder.txt" >&2
+  exit 1
+fi
 
 # LaunchServices refuses to start the app (error -10810) while another process holds its log file open,
 # so the stamper starts reading only once the app is up. The rehearsal waits 3 seconds before its first step.
@@ -162,6 +172,10 @@ stop_background_work
 
 # Rewrite each log stamp as seconds since the recording started.
 recording_started_at="$(awk '/recording started/ { print $1; exit }' "$footage_folder/$shot_name.recorder.txt")"
+if [[ -z "$recording_started_at" ]]; then
+  echo "the recorder never logged its start, so the events cannot be timed; see $footage_folder/$shot_name.recorder.txt" >&2
+  exit 1
+fi
 awk -v start="$recording_started_at" '{ stamp = $1; $1 = ""; printf "%.2f%s\n", stamp - start, $0 }' "$events_path.raw" > "$events_path"
 rm -f "$events_path.raw"
 echo "recorded $recording_path"
