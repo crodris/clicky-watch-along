@@ -333,7 +333,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case "explode_view":
             return (numberInput("amount") ?? 1) > 0 ? "Pulling it apart" : "Putting it together"
         case "set_inside_view":
-            return input["open"]?.boolValue == false ? "Closing it up" : "Opening it up"
+            // The page opens the cutaway only for a true open, so the chip reads it the same way.
+            return input["open"]?.boolValue == true ? "Opening it up" : "Closing it up"
         case "close_scene":
             return "Putting it back"
         case "explain_part":
@@ -343,15 +344,17 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case "play_video":
             return "Playing the video"
         case "seek_relative":
-            guard let seconds = numberInput("seconds"), seconds != 0 else { return nil }
-            let wholeSeconds = Int(exactly: abs(seconds).rounded()) ?? 0
-            return seconds > 0 ? "Skipping ahead \(wholeSeconds) seconds" : "Going back \(wholeSeconds) seconds"
+            guard let seconds = numberInput("seconds"), let wholeSeconds = Int(exactly: abs(seconds).rounded()), wholeSeconds > 0 else { return nil }
+            let secondsText = wholeSeconds == 1 ? "1 second" : "\(wholeSeconds) seconds"
+            return seconds > 0 ? "Skipping ahead \(secondsText)" : "Going back \(secondsText)"
         case "seek_to_time":
             guard let seconds = numberInput("seconds"), seconds >= 0, let wholeSeconds = Int(exactly: seconds.rounded()) else { return nil }
             return "Jumping to \(wholeSeconds / 60):\(String(format: "%02d", wholeSeconds % 60))"
         case "set_speed":
             guard let rate = numberInput("rate") else { return nil }
-            return rate == 1 ? "Normal speed" : "Playing at \(rate.formatted(.number.precision(.fractionLength(0...2))))x"
+            // A fixed POSIX locale keeps "1.5x" from reading "1,5x" in a comma-decimal locale.
+            let rateText = rate.formatted(.number.precision(.fractionLength(0...2)).locale(Locale(identifier: "en_US_POSIX")))
+            return rate == 1 ? "Normal speed" : "Playing at \(rateText)x"
         case "find_moment":
             return textInput("query").map { query in "Finding \u{201C}\(query)\u{201D}" } ?? "Searching the captions"
         case "end_quiz":

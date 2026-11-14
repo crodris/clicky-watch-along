@@ -693,6 +693,9 @@ struct leanring_buddyTests {
         #expect(call("seek_to_time", ["seconds": .number(124.5)]).chipPhrase == "Jumping to 2:05")
         #expect(call("set_speed", ["rate": .number(1.5)]).chipPhrase == "Playing at 1.5x")
         #expect(call("set_inside_view", ["open": .bool(false)]).chipPhrase == "Closing it up")
+        // The page opens the cutaway only for a true open, so a missing one reads as closing.
+        #expect(call("set_inside_view", [:]).chipPhrase == "Closing it up")
+        #expect(call("seek_relative", ["seconds": .number(1)]).chipPhrase == "Skipping ahead 1 second")
         // A hand-off shows its own status line or spinner next, so its chip would repeat it.
         #expect(call("pop_out", [:]).chipPhrase == nil)
         #expect(call("build_new_scene", ["asQuiz": .bool(false)]).chipPhrase == nil)

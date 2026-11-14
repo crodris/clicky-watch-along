@@ -703,10 +703,10 @@ final class CompanionManager: ObservableObject {
     if pointing wouldn't help, append [POINT:none].
 
     examples:
-    - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
-    - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
-    - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
-    - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+    - user asks how to color grade in final cut: "You'll want to open the color inspector — it's right up in the top right area of the toolbar. Click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
+    - user asks what html is: "HTML stands for HyperText Markup Language, it's basically the skeleton of every web page. Curious how it connects to the CSS you're looking at? [POINT:none]"
+    - user asks how to commit in xcode: "See that Source Control menu up top? Click that and hit Commit, or you can use Command Option C as a shortcut. [POINT:285,11:source control]"
+    - element is on screen 2 (not where cursor is): "That's over on your other monitor — see the Terminal window? [POINT:400,300:terminal:screen2]"
     """
 
     /// Added to the system prompt for a look-inside request. Without it Claude
@@ -1198,6 +1198,15 @@ final class CompanionManager: ObservableObject {
     }
 
     private func animateTheFramePopoutOnScreen(_ framePopout: VideoFramePopout, requestGeneration: Int) async {
+        // An artwork is refused before any "animating" status or line, so Clicky never promises what it won't do.
+        guard !framePopout.isArtwork else {
+            print("Frame pop-out: leaving the artwork as the artist made it")
+            if let artworkLine = PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing {
+                await speakLiveSceneLine(artworkLine)
+            }
+            scheduleTransientHideIfNeeded()
+            return
+        }
         LiveSceneStatusLabel.shared.show(.animatingIt)
         defer {
             // A newer request's own line is not ours to hide.

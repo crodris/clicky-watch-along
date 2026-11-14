@@ -30,7 +30,7 @@ afterEach(() => {
 describe("checkPictureFlows", () => {
   it("rounds points, clamps them into the frame, and drops the stream names", () => {
     expect(checkPictureFlows(modelReply, 960, 679)).toEqual({
-          flows: [
+      flows: [
         { color: "blue", style: "air", points: [[70, 295], [445, 246]] },
         { color: "orange", style: "sparks", points: [[445, 246], [959, 0]] },
       ],
@@ -40,7 +40,7 @@ describe("checkPictureFlows", () => {
   it("drops a flow left with fewer than 2 distinct points and keeps at most 6 flows of 12 points", () => {
     const longPath = Array.from({ length: 20 }, (_, index) => ({ x: index * 10, y: 100 }));
     const crowdedReply = {
-          flows: [
+      flows: [
         { whatFlows: "Stuck air", color: "white" as const, style: "air" as const, points: [{ x: 5, y: 5 }, { x: 5.2, y: 4.9 }] },
         ...Array.from({ length: 8 }, () => ({ whatFlows: "Water", color: "cyan" as const, style: "droplets" as const, points: longPath })),
       ],

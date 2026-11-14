@@ -2,7 +2,7 @@
 
 A follow-up command spoken while a 3D scene is on screen or a video is in Chrome's front tab, on any site, changes what is already there, in about a second, instead of building a new scene.
 `POST /voice-command` asks Haiku 5.5 which tools to call from the list the app sends: the page's tools from `scene-tools.js` and the app's video, quiz, and hand-off tools.
-The app runs each call, shows a chip under the cursor such as `rotate_model(yawDegrees: -45)`, and then speaks the short confirmation the model wrote into the call.
+The app runs each call, shows a chip under the cursor in plain words such as "Turning it left" (or as code, `rotate_model(yawDegrees: -45)`, in a Debug build with the "Log tool call JSON" switch on), and then speaks the short confirmation the model wrote into the call.
 A request that needs a new scene or a screenshot answer hands off to the old path.
 
 ## Sub-features
@@ -15,7 +15,7 @@ A request that needs a new scene or a screenshot answer hands off to the old pat
   A voice pause or play drops Clicky's own pause record on that tab.
 - `voice-handoff` sends "show me a different model", "pop this out", and questions about the screen to the old path.
 - `voice-quiz-controls` lets the judge hear skip, repeat, a hint request, or a view command during a quiz question.
-- `voice-chip` shows each call under the cursor for 1.4 seconds, with a fade only.
+- `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `answer_with_screen`) whose own status line or spinner follows.
 - `voice-debug-log` prints the full JSON of each reply and tool result when the panel's "Log tool call JSON" switch is on (Debug builds).
 - `voice-debug-mcp` serves the same tools at `http://127.0.0.1:8790/mcp` in Debug builds launched with `--voice-tool-debug-server`, which `app-launch` passes.
 
