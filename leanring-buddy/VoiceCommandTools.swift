@@ -311,8 +311,9 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
 
     /// What the chip next to the cursor says, in words a learner reads at a glance, such as "Turning it left".
     /// Nil for a call whose own status line or answer follows at once, like pop_out's "Popping it out",
-    /// for a call that changes nothing (a zoom factor of 1, a seek that rounds to 0 seconds) or misses its argument,
-    /// and for a name this app does not know. The chip shows only once the call worked, so a refused call shows none.
+    /// for a call that changes nothing (a zoom factor of 1, a seek that rounds to 0 seconds), for a missing
+    /// or out-of-range argument (a negative or non-finite seek time), and for a name this app does not know.
+    /// `chipPhraseToShow(at:)` decides when the phrase shows.
     var chipPhrase: String? {
         let numberInput = { (argumentName: String) in self.input[argumentName]?.numberValue }
         let textInput = { (argumentName: String) in self.input[argumentName]?.stringValue }
@@ -370,6 +371,19 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         }
     }
 
+    /// The phrase the chip shows at this moment of the call, or nil. A lookup like find_moment changes nothing on screen,
+    /// so its chip shows while it runs. Any other call's chip waits until the call worked, so a refused call never
+    /// shows a chip claiming it happened.
+    func chipPhraseToShow(at chipMoment: VoiceToolChipMoment) -> String? {
+        let callIsALookup = AppVoiceTool(rawValue: name)?.descriptor.readOnly == true
+        switch chipMoment {
+        case .beforeTheCall:
+            return callIsALookup ? chipPhrase : nil
+        case .afterTheCall(let outcome):
+            return callIsALookup || outcome.isFailure ? nil : chipPhrase
+        }
+    }
+
     /// The call as code, such as rotate_model(yawDegrees: -45). Debug builds show it on the chip
     /// while the panel's "Log tool call JSON" switch is on, and the log always prints it.
     var chipText: String {
@@ -391,6 +405,12 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             .joined(separator: ", ")
         return "\(name)(\(argumentsText))"
     }
+}
+
+/// When the voice tool chip is asked what to show: as a call starts, or once it has run.
+nonisolated enum VoiceToolChipMoment: Sendable {
+    case beforeTheCall
+    case afterTheCall(VoiceToolOutcome)
 }
 
 /// POST /voice-command's reply. assistantContent goes back to the Worker unchanged on the next turn.

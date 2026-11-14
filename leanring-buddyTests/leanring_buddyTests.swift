@@ -706,6 +706,15 @@ struct leanring_buddyTests {
         #expect(call("build_new_scene", ["asQuiz": .bool(false)]).chipPhrase == nil)
         #expect(call("answer_with_screen", [:]).chipPhrase == nil)
         #expect(call("unknown_tool", [:]).chipPhrase == nil)
+        // An action's chip waits until the call worked, so a refused call never claims it happened.
+        let turn = call("rotate_model", ["yawDegrees": .number(-45)])
+        #expect(turn.chipPhraseToShow(at: .beforeTheCall) == nil)
+        #expect(turn.chipPhraseToShow(at: .afterTheCall(.changed(state: nil))) == "Turning it left")
+        #expect(turn.chipPhraseToShow(at: .afterTheCall(.failed(error: "factor must be a positive number", state: nil))) == nil)
+        // A lookup changes nothing on screen, so its chip shows while it runs, and only then.
+        let search = call("find_moment", ["query": .string("magma chamber")])
+        #expect(search.chipPhraseToShow(at: .beforeTheCall) == "Finding \u{201C}magma chamber\u{201D}")
+        #expect(search.chipPhraseToShow(at: .afterTheCall(.lookedUp(result: .null))) == nil)
     }
 
     @Test func statusLabelKeepsItsIconOnTheTrianglesSpotNearTheScreensRightEdge() async throws {

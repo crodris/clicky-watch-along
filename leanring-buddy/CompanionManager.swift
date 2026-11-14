@@ -1959,9 +1959,12 @@ final class CompanionManager: ObservableObject {
             for toolCall in reply.toolCalls {
                 // A push-to-talk press cancels this command, so its remaining calls must not run.
                 guard !Task.isCancelled else { return }
+                showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall)
                 let toolStartedAt = Date()
                 let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
-                showTheVoiceToolCallChip(for: toolCall, outcome: outcome)
+                // A push-to-talk press during a slow call, like play_video's check, must not bring up a chip afterwards.
+                guard !Task.isCancelled else { return }
+                showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
                 print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
                 logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
                 outcomes.append(outcome)
@@ -2101,8 +2104,9 @@ final class CompanionManager: ObservableObject {
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
+        showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall)
         let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
-        showTheVoiceToolCallChip(for: toolCall, outcome: outcome)
+        showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
         return outcome
     }
     #endif
@@ -2141,17 +2145,18 @@ final class CompanionManager: ObservableObject {
         return .object(sceneStateFields)
     }
 
-    /// Runs after the call, so a call the page or app refused never shows a chip claiming it happened.
-    /// Page tools finish in a few milliseconds, so the chip still appears with the change.
-    /// A learner sees the call in plain words. With the debug switch on, a Debug build shows every call as code instead, refused ones too.
-    private func showTheVoiceToolCallChip(for toolCall: VoiceToolCall, outcome: VoiceToolOutcome) {
+    /// Asked as each call starts and again once it has run. A learner sees the call in plain words, at the moment
+    /// `chipPhraseToShow(at:)` picks. With the debug switch on, a Debug build shows every call as code as it starts, refused ones too.
+    private func showTheVoiceToolCallChip(for toolCall: VoiceToolCall, at chipMoment: VoiceToolChipMoment) {
         #if DEBUG
         if UserDefaults.standard.bool(forKey: Self.logsVoiceToolCallJSONDefaultsKey) {
-            VoiceToolCallChip.shared.show(toolCall.chipText, chipTextIsCode: true)
+            if case .beforeTheCall = chipMoment {
+                VoiceToolCallChip.shared.show(toolCall.chipText, chipTextIsCode: true)
+            }
             return
         }
         #endif
-        guard !outcome.isFailure, let chipPhrase = toolCall.chipPhrase else { return }
+        guard let chipPhrase = toolCall.chipPhraseToShow(at: chipMoment) else { return }
         VoiceToolCallChip.shared.show(chipPhrase)
     }
 
