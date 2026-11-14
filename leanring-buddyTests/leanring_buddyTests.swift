@@ -1044,4 +1044,16 @@ struct leanring_buddyTests {
         #expect(parsedRequest.body == Data("{\"a\":1}".utf8))
     }
 
+
+    @Test func aRehearsalAnswersWithTheOpenQuestionsLabel() async throws {
+        #expect(rehearsalTranscript("is it the {answer}", answeringWith: "Stylomastoid foramen") == "is it the stylomastoid foramen")
+        #expect(rehearsalTranscript("stop the quiz", answeringWith: "Ash") == "stop the quiz")
+    }
+
+    @Test func aDebugCaptionsFileAppliesOnlyToTheVideoItIsNamedFor() async throws {
+        #expect(debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://www.youtube.com/watch?v=heOiSg21Lx8&t=35s"))
+        #expect(!debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://www.youtube.com/watch?v=7xRxpicxeFQ"))
+        // A URL with no v parameter, such as youtu.be, never matches.
+        #expect(!debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://youtu.be/heOiSg21Lx8"))
+    }
 }

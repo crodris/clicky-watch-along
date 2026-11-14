@@ -10,7 +10,10 @@ const loadCursorTracks: CalculateMetadataFunction<DemoProps> = async ({ props })
   const trackFiles = new Set(props.segments.flatMap((segment) => (segment.kind === "shot" && segment.cursorTrackFile ? [segment.cursorTrackFile] : [])));
   for (const trackFile of trackFiles) {
     const response = await fetch(staticFile(trackFile));
-    if (response.ok) cursorTracks[trackFile] = (await response.json()) as CursorTrack;
+    // A missing track would leave every "cursor" camera move zoomed on the frame's center, so the render stops instead.
+    if (!response.ok) throw new Error(`missing cursor track ${trackFile}: run pnpm track on its recording`);
+    // scripts/track-cursor.ts writes exactly this shape next to the recording.
+    cursorTracks[trackFile] = (await response.json()) as CursorTrack;
   }
   return { props: { ...props, cursorTracks } };
 };

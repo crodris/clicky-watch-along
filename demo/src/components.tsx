@@ -115,7 +115,7 @@ export function CaptionTrack({ captions }: { captions: Caption[] }) {
 }
 
 /**
- * #044 Cross dissolve with the brief's blur: the next shot fades in on top of this one over 12 frames,
+ * #044 Cross dissolve with the brief's blur: the next shot fades in on top of this one over 15 frames,
  * quadratic ease-in-out, while this one stays fully opaque underneath and only blurs out (up to 12 px).
  * The first shot fades in the same way from the dark background, and the last one fades out to it.
  */

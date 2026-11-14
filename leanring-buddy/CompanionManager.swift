@@ -35,6 +35,14 @@ func escapeHasAnAnswerToStop(
     return voiceState == .processing || voiceState == .responding || speechIsPlaying || cursorIsPointingForTheAnswer
 }
 
+#if DEBUG
+/// In a rehearsal "?" step, "{answer}" becomes the open question's answer label, since the plan picks a new
+/// question each run.
+func rehearsalTranscript(_ transcript: String, answeringWith answerLabel: String) -> String {
+    transcript.replacingOccurrences(of: "{answer}", with: answerLabel.lowercased())
+}
+#endif
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -753,7 +761,7 @@ final class CompanionManager: ObservableObject {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
                 if case .awaitingAnswer(let openQuiz, _) = liveScenePhase {
-                    transcript = transcript.replacingOccurrences(of: "{answer}", with: openQuiz.answerLabel.lowercased())
+                    transcript = rehearsalTranscript(transcript, answeringWith: openQuiz.answerLabel)
                 }
             }
             print("Live scene rehearsal: saying \"\(transcript)\" in phase \(liveScenePhase)")

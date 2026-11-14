@@ -16,7 +16,15 @@ TRAILING_SECONDS=12 demo/scripts/record-shot.sh volcano "skip to where they talk
 TRAILING_SECONDS=8 demo/scripts/record-shot.sh ejiri "pop this out|animate this" "https://commons.wikimedia.org/wiki/File:%E5%86%A8%E5%B6%BD%E4%B8%89%E5%8D%81%E5%85%AD%E6%99%AF_%E9%A7%BF%E5%B7%9E%E6%B1%9F%E5%B0%BB-Ejiri_in_Suruga_Province_(Sunsh%C5%AB_Ejiri),_from_the_series_Thirty-six_Views_of_Mount_Fuji_(Fugaku_sanj%C5%ABrokkei)_MET_DP140977.jpg" "" 1110 570
 ```
 
+The quiz clip uses 2 more shots. The quiz answers its own question through the `{answer}` token, and the facial nerve video's captions sometimes need the Debug captions file below.
+
+```bash
+TRAILING_SECONDS=6 demo/scripts/record-shot.sh nerve-quiz "watch this video with me and quiz me|?is it the {answer}|stop the quiz" "https://www.youtube.com/watch?v=heOiSg21Lx8" 35 1110 680
+TRAILING_SECONDS=6 demo/scripts/record-shot.sh earth "pop this out" "https://commons.wikimedia.org/wiki/File:Rotating_earth_(large).gif" "" 1110 570
+```
+
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
+The script exits with an error, and keeps no events file, when the rehearsal never logs that it finished.
 The events file stamps each app log line with seconds since the recording started.
 
 ## Track the cursor

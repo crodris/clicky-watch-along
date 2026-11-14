@@ -36,7 +36,7 @@ export const seconds = (secondCount: number) => Math.round(secondCount * frameRa
 /** The motion kit's progress through [start, end], clamped to 0..1. */
 export const progressBetween = (time: number, start: number, end: number) => Math.min(1, Math.max(0, (time - start) / (end - start)));
 /** The motion kit's quadratic ease-in-out (eIOs). */
-export const easeInOutQuadratic = (x: number) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+export const easeInOutQuadratic = (progress: number) => (progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2);
 
 /** 0 to 1 over `durationFrames` from `startFrame`, eased softly. */
 export function softProgress(frame: number, startFrame: number, durationFrames: number): number {

@@ -19,6 +19,10 @@ if (!voicePath || !musicPath || !outputPath) {
 const musicBelowVoiceInPausesDb = 9;
 // Applied after the music level is set from the voice, so it changes the voice against the music.
 const voiceGainDb = Number(voiceGainArgument ?? 0);
+if (!Number.isFinite(musicStartSeconds) || musicStartSeconds < 0 || !Number.isFinite(voiceGainDb)) {
+  console.error("music-start-seconds must be a number of 0 or more, and voice-gain-db a number");
+  process.exit(2);
+}
 const targetIntegratedLufs = -14;
 // loudnorm can overshoot its ceiling by about 0.1 dB, so it aims a little lower to stay under -1 dBTP.
 const truePeakCeilingDb = -1.5;
@@ -42,9 +46,21 @@ function integratedLoudness(path: string, filtersBefore = ""): number {
   return Number(match[1]);
 }
 
-const durationResult = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", voicePath], { encoding: "utf8" });
-const durationSeconds = Number(durationResult.stdout.trim());
-if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`no duration for ${voicePath}`);
+function mediaDurationSeconds(path: string): number {
+  const durationResult = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path], { encoding: "utf8" });
+  const durationSeconds = Number(durationResult.stdout.trim());
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`no duration for ${path}`);
+  return durationSeconds;
+}
+
+const durationSeconds = mediaDurationSeconds(voicePath);
+// The bed would stop short of the end, before its fade-out, so a track too short for the clip is refused.
+const musicSecondsAvailable = mediaDurationSeconds(musicPath) - musicStartSeconds;
+if (musicSecondsAvailable < durationSeconds) {
+  console.error(`the music has ${musicSecondsAvailable.toFixed(1)} s after its start, and the clip runs ${durationSeconds.toFixed(1)} s`);
+  process.exit(2);
+}
+const fadeOutSeconds = Math.min(3, durationSeconds);
 
 // Integrated loudness gates out silence, so for the voice it measures the narration itself.
 const voiceLufs = integratedLoudness(voicePath, voiceTreatment);
@@ -53,7 +69,7 @@ const musicGainDb = voiceLufs - musicLufs - musicBelowVoiceInPausesDb;
 
 const mixGraph = [
   `[1:a]atrim=${musicStartSeconds}:${musicStartSeconds + durationSeconds},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo,`
-    + `volume=${musicGainDb.toFixed(2)}dB,afade=t=in:d=1,afade=t=out:st=${(durationSeconds - 3).toFixed(2)}:d=3[music]`,
+    + `volume=${musicGainDb.toFixed(2)}dB,afade=t=in:d=1,afade=t=out:st=${(durationSeconds - fadeOutSeconds).toFixed(2)}:d=${fadeOutSeconds.toFixed(2)}[music]`,
   `[0:a]aformat=sample_rates=48000:channel_layouts=stereo,${voiceTreatment},volume=${voiceGainDb}dB,asplit=2[voice][voiceKey]`,
   // About -36 dBFS threshold with a 5:1 ratio takes roughly 11 dB off the music under the treated voice, which
   // measured 20.4 dB between voice and music in half-second windows while Clicky speaks.
@@ -67,6 +83,7 @@ const measurement = runFfmpeg([
   "-filter_complex", `${mixGraph};[mix]loudnorm=${loudnormTarget}:print_format=json[measured]`,
   "-map", "[measured]", "-f", "null", "-",
 ]);
+// loudnorm prints its measurements as one flat JSON object of strings, last in its log.
 const measured = JSON.parse(measurement.slice(measurement.lastIndexOf("{"), measurement.lastIndexOf("}") + 1)) as Record<string, string>;
 const secondPass = [
   loudnormTarget,
