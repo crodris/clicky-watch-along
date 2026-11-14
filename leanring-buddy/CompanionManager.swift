@@ -1934,7 +1934,7 @@ final class CompanionManager: ObservableObject {
             for toolCall in reply.toolCalls {
                 // A push-to-talk press cancels this command, so its remaining calls must not run.
                 guard !Task.isCancelled else { return }
-                VoiceToolCallChip.shared.show(toolCall.chipText)
+                showTheVoiceToolCallChip(for: toolCall)
                 let toolStartedAt = Date()
                 let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
                 print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
@@ -2076,7 +2076,7 @@ final class CompanionManager: ObservableObject {
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
-        VoiceToolCallChip.shared.show(toolCall.chipText)
+        showTheVoiceToolCallChip(for: toolCall)
         return await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
     }
     #endif
@@ -2113,6 +2113,18 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["quizQuestionIsOpen"] = .bool(true)
         }
         return .object(sceneStateFields)
+    }
+
+    /// A learner sees the call in plain words. With the debug switch on, a Debug build shows the call as code instead.
+    private func showTheVoiceToolCallChip(for toolCall: VoiceToolCall) {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: Self.logsVoiceToolCallJSONDefaultsKey) {
+            VoiceToolCallChip.shared.show(toolCall.chipText, chipTextIsCode: true)
+            return
+        }
+        #endif
+        guard let chipPhrase = toolCall.chipPhrase else { return }
+        VoiceToolCallChip.shared.show(chipPhrase)
     }
 
     /// The debug setting in the panel prints the full JSON of every voice command reply and tool result.

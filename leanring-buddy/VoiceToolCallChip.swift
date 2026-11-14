@@ -14,6 +14,8 @@ import SwiftUI
 @MainActor
 private final class VoiceToolCallChipModel: ObservableObject {
     @Published var chipText = ""
+    /// The call as code, set in a monospaced face, instead of a plain phrase.
+    @Published var chipTextIsCode = false
     @Published var isVisible = false
 }
 
@@ -33,7 +35,7 @@ private struct VoiceToolCallChipView: View {
                                 .fill(Color.white)
                                 .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
                         )
-                    OutlinedChipText(chipText: chipModel.chipText)
+                    OutlinedChipText(chipText: chipModel.chipText, chipTextIsCode: chipModel.chipTextIsCode)
                 }
                 .padding(.leading, 8)
                 // A fade only, so it is the same with Reduce Motion on.
@@ -48,6 +50,7 @@ private struct VoiceToolCallChipView: View {
 /// A white outline lets the letters read on light and dark pages without a pill behind them, like the status label.
 private struct OutlinedChipText: View {
     let chipText: String
+    let chipTextIsCode: Bool
 
     private let outlineOffsets: [CGSize] = [
         CGSize(width: 1.5, height: 0), CGSize(width: -1.5, height: 0),
@@ -57,7 +60,7 @@ private struct OutlinedChipText: View {
     ]
 
     var body: some View {
-        let glyphs = Text(chipText).font(.system(size: 13, weight: .bold, design: .monospaced))
+        let glyphs = Text(chipText).font(.system(size: chipTextIsCode ? 13 : 14, weight: .bold, design: chipTextIsCode ? .monospaced : .rounded))
         ZStack {
             ForEach(outlineOffsets.indices, id: \.self) { outlineIndex in
                 glyphs.foregroundColor(.white).offset(outlineOffsets[outlineIndex])
@@ -83,11 +86,12 @@ final class VoiceToolCallChip {
     private var hideWorkItem: DispatchWorkItem?
 
     /// A second call while a chip shows swaps the text and restarts its time on screen.
-    func show(_ chipText: String) {
+    func show(_ chipText: String, chipTextIsCode: Bool = false) {
         let panel = chipPanel ?? makeChipPanel()
         chipPanel = panel
         placeChipUnderTheCursor(panel)
         chipModel.chipText = chipText
+        chipModel.chipTextIsCode = chipTextIsCode
         panel.orderFrontRegardless()
         chipModel.isVisible = true
 

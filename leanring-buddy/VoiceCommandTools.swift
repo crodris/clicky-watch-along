@@ -309,7 +309,61 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         input.filter { inputKey, _ in inputKey != "confirmation" }
     }
 
-    /// Shown on the chip next to the cursor, such as rotate_model(yawDegrees: -45).
+    /// What the chip next to the cursor says, in words a learner reads at a glance, such as "Turning it left".
+    /// Nil for a call whose own status line or answer follows at once, like pop_out's "Popping it out",
+    /// and for a name this app does not know.
+    var chipPhrase: String? {
+        let numberInput = { (argumentName: String) in self.input[argumentName]?.numberValue }
+        let textInput = { (argumentName: String) in self.input[argumentName]?.stringValue }
+        switch name {
+        case "rotate_model":
+            if let yawDegrees = numberInput("yawDegrees"), yawDegrees != 0 {
+                return yawDegrees < 0 ? "Turning it left" : "Turning it right"
+            }
+            if let pitchDegrees = numberInput("pitchDegrees"), pitchDegrees != 0 {
+                return pitchDegrees > 0 ? "Looking from above" : "Looking from below"
+            }
+            return "Turning it"
+        case "zoom":
+            return (numberInput("factor") ?? 1) >= 1 ? "Zooming in" : "Zooming out"
+        case "zoom_to_part":
+            return textInput("label").map { partLabel in "Zooming in on the \(partLabel)" } ?? "Zooming in"
+        case "reset_view":
+            return "Back to the start"
+        case "explode_view":
+            return (numberInput("amount") ?? 1) > 0 ? "Pulling it apart" : "Putting it together"
+        case "set_inside_view":
+            return input["open"]?.boolValue == false ? "Closing it up" : "Opening it up"
+        case "close_scene":
+            return "Putting it back"
+        case "explain_part":
+            return textInput("label").map { partLabel in "The \(partLabel)" }
+        case "pause_video":
+            return "Pausing the video"
+        case "play_video":
+            return "Playing the video"
+        case "seek_relative":
+            guard let seconds = numberInput("seconds"), seconds != 0 else { return nil }
+            let wholeSeconds = Int(exactly: abs(seconds).rounded()) ?? 0
+            return seconds > 0 ? "Skipping ahead \(wholeSeconds) seconds" : "Going back \(wholeSeconds) seconds"
+        case "seek_to_time":
+            guard let seconds = numberInput("seconds"), seconds >= 0, let wholeSeconds = Int(exactly: seconds.rounded()) else { return nil }
+            return "Jumping to \(wholeSeconds / 60):\(String(format: "%02d", wholeSeconds % 60))"
+        case "set_speed":
+            guard let rate = numberInput("rate") else { return nil }
+            return rate == 1 ? "Normal speed" : "Playing at \(rate.formatted(.number.precision(.fractionLength(0...2))))x"
+        case "find_moment":
+            return textInput("query").map { query in "Finding \u{201C}\(query)\u{201D}" } ?? "Searching the captions"
+        case "end_quiz":
+            return "Ending the quiz"
+        default:
+            // pop_out, build_new_scene, and answer_with_screen hand off to a path with its own status line or spinner.
+            return nil
+        }
+    }
+
+    /// The call as code, such as rotate_model(yawDegrees: -45). Debug builds show it on the chip
+    /// while the panel's "Log tool call JSON" switch is on, and the log always prints it.
     var chipText: String {
         let argumentsText = inputWithoutConfirmation
             .sorted { $0.key < $1.key }

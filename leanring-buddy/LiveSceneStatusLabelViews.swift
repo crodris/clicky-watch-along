@@ -14,11 +14,18 @@ import SwiftUI
 struct LiveSceneStatusLabelContent: View {
     let statusLine: LiveSceneStatusLine
     let elapsedSeconds: Double
+    /// Near a screen's right edge the letters come first, so the icon stays on the triangle's spot.
+    let textSide: StatusLabelTextSide
 
     var body: some View {
         HStack(spacing: 10) {
+            if textSide == .leftOfIcon {
+                StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+            }
             StatusIconTile(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
-            StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+            if textSide == .rightOfIcon {
+                StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+            }
         }
     }
 }

@@ -683,6 +683,57 @@ struct leanring_buddyTests {
         #expect(PageImageAnimation.frames(ofImageData: try gifData(delaySecondsForEachFrame: [0.1]), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
     }
 
+    @Test func voiceToolChipSaysTheCallInPlainWordsAndSkipsHandOffs() async throws {
+        let call = { (name: String, input: [String: JSONValue]) in VoiceToolCall(id: "chip", name: name, input: input) }
+        #expect(call("rotate_model", ["yawDegrees": .number(-45)]).chipPhrase == "Turning it left")
+        #expect(call("rotate_model", ["yawDegrees": .number(30)]).chipPhrase == "Turning it right")
+        #expect(call("zoom", ["factor": .number(0.7)]).chipPhrase == "Zooming out")
+        #expect(call("zoom_to_part", ["label": .string("Crater")]).chipPhrase == "Zooming in on the Crater")
+        #expect(call("seek_relative", ["seconds": .number(-10)]).chipPhrase == "Going back 10 seconds")
+        #expect(call("seek_to_time", ["seconds": .number(124.5)]).chipPhrase == "Jumping to 2:05")
+        #expect(call("set_speed", ["rate": .number(1.5)]).chipPhrase == "Playing at 1.5x")
+        #expect(call("set_inside_view", ["open": .bool(false)]).chipPhrase == "Closing it up")
+        // A hand-off shows its own status line or spinner next, so its chip would repeat it.
+        #expect(call("pop_out", [:]).chipPhrase == nil)
+        #expect(call("build_new_scene", ["asQuiz": .bool(false)]).chipPhrase == nil)
+        #expect(call("answer_with_screen", [:]).chipPhrase == nil)
+        #expect(call("unknown_tool", [:]).chipPhrase == nil)
+    }
+
+    @Test func statusLabelKeepsItsIconOnTheTrianglesSpotNearTheScreensRightEdge() async throws {
+        let screenFrame = CGRect(x: 1710, y: 0, width: 1920, height: 1080)
+        let trianglesSpot = { (mouseLocation: CGPoint) in CGPoint(x: mouseLocation.x + 35, y: mouseLocation.y - 25) }
+        let iconCenter = { (placement: StatusLabelPlacement) in
+            CGPoint(
+                x: placement.textSide == .rightOfIcon ? placement.panelOrigin.x + 24 : placement.panelOrigin.x + 420 - 24,
+                y: placement.panelOrigin.y + 30
+            )
+        }
+
+        let mouseInTheMiddle = CGPoint(x: 2600, y: 500)
+        let middlePlacement = StatusLabelPlacement.placement(mouseLocation: mouseInTheMiddle, contentWidth: 210, screenFrame: screenFrame)
+        #expect(middlePlacement.textSide == .rightOfIcon)
+        #expect(middlePlacement.iconSitsOnTheTrianglesSpot)
+        #expect(iconCenter(middlePlacement) == trianglesSpot(mouseInTheMiddle))
+
+        // 210 points of letters right of the icon would run past 3630, so they move left of it.
+        let mouseNearTheRightEdge = CGPoint(x: 3500, y: 500)
+        let edgePlacement = StatusLabelPlacement.placement(mouseLocation: mouseNearTheRightEdge, contentWidth: 210, screenFrame: screenFrame)
+        #expect(edgePlacement.textSide == .leftOfIcon)
+        #expect(edgePlacement.iconSitsOnTheTrianglesSpot)
+        #expect(iconCenter(edgePlacement) == trianglesSpot(mouseNearTheRightEdge))
+
+        // Only the panel's empty part may cross the edge: the 420-point panel no longer pushes a short label.
+        let shortLabelPlacement = StatusLabelPlacement.placement(mouseLocation: CGPoint(x: 3300, y: 500), contentWidth: 210, screenFrame: screenFrame)
+        #expect(shortLabelPlacement.textSide == .rightOfIcon)
+        #expect(shortLabelPlacement.iconSitsOnTheTrianglesSpot)
+
+        // Near the bottom edge the panel is pushed up, so the triangle stays.
+        let bottomPlacement = StatusLabelPlacement.placement(mouseLocation: CGPoint(x: 2600, y: 10), contentWidth: 210, screenFrame: screenFrame)
+        #expect(bottomPlacement.panelOrigin.y == 0)
+        #expect(!bottomPlacement.iconSitsOnTheTrianglesSpot)
+    }
+
     @Test func narrationOfAPageImageNeverCallsItAVideo() async throws {
         let pageImageGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
         let youTubeFrameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: 42, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
