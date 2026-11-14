@@ -48,6 +48,8 @@ Preconditions:
   The log shows `Video quiz: found tab`, `read N caption lines`, `planned N moments`, `paused at Ns for moment 1`, then `Video quiz: stopped`.
 - **Correct answer.** In a `?` step, `{answer}` becomes the open question's answer label, so `?is it the {answer}` answers correctly whatever the plan picked.
   The log shows the judge's grade, and a correct name turns the label green with the ring burst and the "Glass" sound.
+- **Hidden labels.** On a video that prints its own labels, such as an anatomy animation, the log shows `Video quiz: hiding N printed text boxes until the pop-out returns` with N above 0.
+  While the question and its follow-up are open, no printed word is readable on the frame or the lifted subject, even a tall title; after the pop-out returns to the video, the text is back.
 
 ## Gotchas
 

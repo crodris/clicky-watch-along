@@ -700,8 +700,8 @@ final class VideoQuizSession {
         }
         if let pageImageAnimationTask,
            let animationFrames = await animationFramesReadyInTime(from: pageImageAnimationTask) {
-            framePopout.animationFrames = animationFrames
-            print("Frame pop-out: playing the page image's \(animationFrames.count) animation frames")
+            framePopout.playAnimationFrames(animationFrames)
+            print("Frame pop-out: playing the page image's \(animationFrames.count) animation frames, with no labels")
         }
         return framePopout
     }

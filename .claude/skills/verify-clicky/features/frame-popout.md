@@ -74,9 +74,11 @@ Preconditions:
   The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
   In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
   The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
+  When the tour ends the card almost faces the camera, so a round subject, such as Wikimedia's "Rotating earth (large).gif", stays round, and "reset the view" returns it to that pose.
   Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
 - **Pop out an animated image.** With `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and the lead GIF wholly on screen, run `$V app-launch "pop this out"`.
-  The log shows `Frame pop-out: playing the page image's 21 animation frames` before `Frame pop-out: lifting the subject`.
+  The log shows `Frame pop-out: playing the page image's 21 animation frames, with no labels` before `Frame pop-out: lifting the subject out of the frame with 0 labels`.
+  The lifted engine shows no part labels, and the narration names no part.
   Run `$V shot animated-popout` twice about 0.2 seconds apart, and check that the blades and the arrows moved between the two shots with no white blobs at the engine's edge.
   Scroll so the GIF is cut off at the top of the window and pop it out again, and the log has no animation line.
 - **Flows route.** Build a body like the route step's, with `partLabels` (the labels from a `/video-frame-parts` reply) in place of `subject`, `question`, and `answerLabel`, then `$V post /picture-flows "$RUN/flows-body.json"`.

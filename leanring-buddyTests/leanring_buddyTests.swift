@@ -789,6 +789,47 @@ struct leanring_buddyTests {
         #expect(liveSceneNarrationUserPrompt(for: .partTapped(label: "Fan"), knownPartLabels: ["Fan"], isArtwork: false).contains("what does the Fan do?"))
     }
 
+    @Test func printedTextBoxesTurnFromVisionsBottomLeftBoxIntoPaddedFramePixels() async throws {
+        let textBox = VideoFramePrintedText.frameBox(ofNormalizedBox: CGRect(x: 0.25, y: 0.5, width: 0.5, height: 0.25), frameWidth: 1000, frameHeight: 400)
+        let textBoxEdges: [Int] = [textBox.left, textBox.top, textBox.right, textBox.bottom]
+        #expect(textBoxEdges == [246, 96, 754, 204])
+        let cornerBox = VideoFramePrintedText.frameBox(ofNormalizedBox: CGRect(x: 0, y: 0, width: 1, height: 0.1), frameWidth: 1000, frameHeight: 400)
+        let cornerBoxEdges: [Int] = [cornerBox.left, cornerBox.top, cornerBox.right, cornerBox.bottom]
+        #expect(cornerBoxEdges == [0, 356, 999, 399])
+    }
+
+    @Test func anAnimatedPictureLiftsOutWithItsFramesAndNoLabels() async throws {
+        let frameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
+        var framePopout = VideoFramePopout(
+            frameGrab: frameGrab,
+            subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
+            parts: [VideoFramePopout.Part(label: "Africa", x: 10, y: 10, isQuizAnswer: false)],
+            subjectMaskPNGBase64: "",
+            pictureShowsDepth: true,
+            isArtwork: false
+        )
+        let pageImageAnimationFrames = [PageImageAnimationFrame(jpegBase64: "first", delaySeconds: 0.1), PageImageAnimationFrame(jpegBase64: "second", delaySeconds: 0.1)]
+        framePopout.playAnimationFrames(pageImageAnimationFrames)
+        #expect(framePopout.animationFrames == pageImageAnimationFrames)
+        #expect(framePopout.parts.isEmpty)
+    }
+
+    @Test func anAnimatedPictureWithNoLabelsIsNarratedWithoutPartTags() async throws {
+        let noLabelPrompt = liveSceneNarrationUserPrompt(for: .afterTour, knownPartLabels: [], isArtwork: false)
+        #expect(noLabelPrompt.contains("without any [PART:] tags"))
+        #expect(noLabelPrompt.contains("the image is only its first frame"))
+        #expect(!noLabelPrompt.contains("the labeled parts are exactly"))
+        // An animated artwork still gets facts about the art, with no part named.
+        let noLabelArtworkPrompt = liveSceneNarrationUserPrompt(for: .afterTour, knownPartLabels: [], isArtwork: true)
+        #expect(noLabelArtworkPrompt.contains("facts about the artwork"))
+        #expect(noLabelArtworkPrompt.contains("without any [PART:] tags"))
+        // The system prompt then promises no labeled parts and asks for no sentence per part.
+        let noLabelSystemPrompt = liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: false, hasPartLabels: false)
+        #expect(!noLabelSystemPrompt.contains("labeled parts"))
+        #expect(!noLabelSystemPrompt.contains("that part"))
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true, hasPartLabels: false).contains("ties to the part it names"))
+    }
+
     @Test func onlyAFailureOfTheLoadClickyStartedEndsTheScene() async throws {
         let failedLoad = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost)
         #expect(pageLoadFailureEndsTheScene(failedLoad, failedNavigationIsTheLoadClickyStarted: true))
