@@ -3,8 +3,9 @@
  *
  * The app sends a YouTube video's timestamped transcript, the quiz results so far, and optionally a
  * focus or a revision instruction. Sonnet drafts a study guide as JSON, and the Worker writes it to
- * Notion as a page under the configured parent page. A revision creates the new page first, then trashes
- * the page it replaces, so a failure never leaves the learner without a guide.
+ * Notion as its own page in the token owner's Private section. NOTION_API_KEY must be a personal access token,
+ * because only a token that acts as a user may create a page with no parent page. A revision creates the new
+ * page first, then trashes the page it replaces, so a failure never leaves the learner without a guide.
  *
  * parseStudyGuide is the only place the model reply is trusted. studyGuidePageBlocks builds the page, and
  * the "Review these first" section comes from the quiz results in code, never from the model.
@@ -66,7 +67,7 @@ const studyGuideRequestSchema = z.object({
   focus: z.string().max(300).optional(),
   revision: z
     .object({
-      pageId: z.string().min(1),
+      pageHandle: z.string().min(1),
       previousGuide: studyGuideSchema,
       instruction: z.string().trim().min(1).max(300),
     })
@@ -361,12 +362,11 @@ async function callNotion(
 
 async function createNotionPage(
   notionAPIKey: string,
-  parentPageId: string,
   title: string,
   children: NotionBlock[],
 ): Promise<NotionCallResult<{ id: string; url: string }>> {
   const createdPage = await callNotion(notionAPIKey, "POST", "/pages", {
-    parent: { page_id: parentPageId },
+    parent: { type: "workspace", workspace: true },
     properties: { title: { title: [richTextItem(title)] } },
     children,
   });
@@ -378,6 +378,61 @@ async function createNotionPage(
     return { ok: false, error: `Notion's reply was not a page: ${zodIssuesOnOneLine(parsedPage.error)}` };
   }
   return { ok: true, reply: parsedPage.data };
+}
+
+function hexFromBytes(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesFromHex(hexText: string): Uint8Array<ArrayBuffer> | undefined {
+  if (!/^(?:[0-9a-f]{2})+$/.test(hexText)) {
+    return undefined;
+  }
+  return new Uint8Array((hexText.match(/../g) ?? []).map((hexPair) => Number.parseInt(hexPair, 16)));
+}
+
+async function pageHandleSigningKey(notionAPIKey: string): Promise<CryptoKey> {
+  return await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(notionAPIKey),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+}
+
+/**
+ * The app gets a page handle, the page id with an HMAC of it keyed by the Notion token, instead of the bare id.
+ * A revision trashes the page its handle names, and the token can reach every page its owner can, so only a
+ * handle this Worker signed may name the page to trash.
+ */
+export async function signedPageHandle(notionAPIKey: string, pageId: string): Promise<string> {
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    await pageHandleSigningKey(notionAPIKey),
+    new TextEncoder().encode(pageId),
+  );
+  return `${pageId}.${hexFromBytes(new Uint8Array(signature))}`;
+}
+
+/** The page id a handle names, or undefined when this Worker did not sign the handle. */
+export async function pageIdFromSignedHandle(notionAPIKey: string, pageHandle: string): Promise<string | undefined> {
+  const separatorIndex = pageHandle.lastIndexOf(".");
+  if (separatorIndex <= 0) {
+    return undefined;
+  }
+  const pageId = pageHandle.slice(0, separatorIndex);
+  const signatureBytes = bytesFromHex(pageHandle.slice(separatorIndex + 1));
+  if (signatureBytes === undefined) {
+    return undefined;
+  }
+  const signatureIsValid = await crypto.subtle.verify(
+    "HMAC",
+    await pageHandleSigningKey(notionAPIKey),
+    signatureBytes,
+    new TextEncoder().encode(pageId),
+  );
+  return signatureIsValid ? pageId : undefined;
 }
 
 async function trashNotionPage(notionAPIKey: string, pageId: string): Promise<NotionCallResult<unknown>> {
@@ -430,7 +485,6 @@ function userTurn(studyGuideRequest: StudyGuideRequest, rejectedReplyError: stri
 export interface StudyGuideEnvironment {
   ANTHROPIC_API_KEY: string;
   NOTION_API_KEY?: string;
-  NOTION_STUDY_GUIDE_PARENT_PAGE_ID?: string;
 }
 
 export async function handleStudyGuide(request: Request, environment: StudyGuideEnvironment): Promise<Response> {
@@ -441,9 +495,17 @@ export async function handleStudyGuide(request: Request, environment: StudyGuide
   const studyGuideRequest = parsedRequest.requestBody;
 
   const notionAPIKey = environment.NOTION_API_KEY;
-  const parentPageId = environment.NOTION_STUDY_GUIDE_PARENT_PAGE_ID;
-  if (!notionAPIKey || !parentPageId) {
+  if (!notionAPIKey) {
     return jsonResponse({ error: "Notion is not connected" }, 503);
+  }
+
+  // Checked before any model call, so a forged handle costs nothing and trashes nothing.
+  let pageIdToReplace: string | undefined;
+  if (studyGuideRequest.revision !== undefined) {
+    pageIdToReplace = await pageIdFromSignedHandle(notionAPIKey, studyGuideRequest.revision.pageHandle);
+    if (pageIdToReplace === undefined) {
+      return jsonResponse({ error: "revision.pageHandle was not issued by this Worker" }, 400);
+    }
   }
 
   // Retries that name the broken rule, because a schema-valid guide still sometimes breaks a count or time rule
@@ -474,7 +536,6 @@ export async function handleStudyGuide(request: Request, environment: StudyGuide
 
     const createdPage = await createNotionPage(
       notionAPIKey,
-      parentPageId,
       guide.title,
       studyGuidePageBlocks(guide, studyGuideRequest.quizResults, studyGuideRequest.videoTitle, studyGuideRequest.videoURL),
     );
@@ -482,14 +543,17 @@ export async function handleStudyGuide(request: Request, environment: StudyGuide
       return jsonResponse({ error: createdPage.error }, 502);
     }
 
-    if (studyGuideRequest.revision !== undefined) {
-      const trashedPage = await trashNotionPage(notionAPIKey, studyGuideRequest.revision.pageId);
+    if (pageIdToReplace !== undefined) {
+      const trashedPage = await trashNotionPage(notionAPIKey, pageIdToReplace);
       if (!trashedPage.ok) {
-        console.error(`[/study-guide] could not trash the replaced page ${studyGuideRequest.revision.pageId}: ${trashedPage.error}`);
+        console.error(`[/study-guide] could not trash the replaced page ${pageIdToReplace}: ${trashedPage.error}`);
       }
     }
 
-    return jsonResponse({ pageId: createdPage.reply.id, pageURL: createdPage.reply.url, guide }, 200);
+    return jsonResponse(
+      { pageHandle: await signedPageHandle(notionAPIKey, createdPage.reply.id), pageURL: createdPage.reply.url, guide },
+      200,
+    );
   }
   return jsonResponse({ error: lastValidationError }, 502);
 }

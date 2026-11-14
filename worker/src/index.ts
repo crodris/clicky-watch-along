@@ -40,7 +40,6 @@ interface Env {
   /** Internal Notion integration token. Without it, /study-guide answers 503. */
   NOTION_API_KEY?: string;
   /** The Notion page that study guides are created under. It must be shared with the integration. */
-  NOTION_STUDY_GUIDE_PARENT_PAGE_ID?: string;
 }
 
 export default {

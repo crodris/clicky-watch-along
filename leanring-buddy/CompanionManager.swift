@@ -2165,7 +2165,7 @@ final class CompanionManager: ObservableObject {
                     await speakAfterNothingElseIsHappening("Sorry, I couldn't write that study guide.")
                     return
                 }
-                studyGuideRevision = StudyGuideRevision(pageId: previousRecord.pageId, previousGuide: previousRecord.guide, instruction: instruction)
+                studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: instruction)
             }
             let studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
                 videoTitle: video.title,

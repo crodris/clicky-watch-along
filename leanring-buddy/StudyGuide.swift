@@ -32,8 +32,8 @@ nonisolated struct StudyGuideQuizResult: Encodable, Equatable, Sendable {
 
 /// Present only when the learner asks to change a guide that already exists.
 nonisolated struct StudyGuideRevision: Encodable, Equatable, Sendable {
-    /// The Notion page the new guide replaces.
-    let pageId: String
+    /// The handle of the Notion page the new guide replaces, sent back as the Worker signed it.
+    let pageHandle: String
     /// The guide the Worker returned last time, sent back unchanged.
     let previousGuide: JSONValue
     let instruction: String
@@ -142,7 +142,8 @@ nonisolated struct StudyGuideVideo: Equatable, Sendable {
 
 /// The page Notion made and the guide behind it. The guide stays opaque JSON.
 nonisolated struct StudyGuideRecord: Decodable, Equatable, Sendable {
-    let pageId: String
+    /// The page id with the Worker's signature, opaque to the app. Only a signed handle lets a revision trash its page.
+    let pageHandle: String
     let pageURL: URL
     let guide: JSONValue
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   handleStudyGuide,
   parseStudyGuide,
+  signedPageHandle,
   studyGuidePageBlocks,
   videoTimestampURL,
   type NotionBlock,
@@ -219,7 +220,6 @@ describe("handleStudyGuide", () => {
   const notionEnvironment = {
     ANTHROPIC_API_KEY: "anthropic-key",
     NOTION_API_KEY: "notion-key",
-    NOTION_STUDY_GUIDE_PARENT_PAGE_ID: "parent-page-id",
   };
 
   const validRequestBody = { videoTitle, videoURL, transcriptLines, quizResults: [missedResult] };
@@ -279,14 +279,14 @@ describe("handleStudyGuide", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("drafts with one Anthropic call, creates one page under the parent, and returns the page and guide", async () => {
+  it("drafts with one Anthropic call, creates one private page, and returns its signed handle and the guide", async () => {
     const fetchMock = stubFetch();
 
     const response = await handleStudyGuide(requestWithBody(validRequestBody), notionEnvironment);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      pageId: "new-page-id",
+      pageHandle: await signedPageHandle("notion-key", "new-page-id"),
       pageURL: "https://notion.so/new-page-id",
       guide: validGuide,
     });
@@ -299,7 +299,7 @@ describe("handleStudyGuide", () => {
       "notion-version": "2026-03-11",
     });
     expect(JSON.parse(String(notionInit?.body))).toMatchObject({
-      parent: { page_id: "parent-page-id" },
+      parent: { type: "workspace", workspace: true },
       properties: { title: { title: [{ text: { content: "Jet engines" } }] } },
       children: expect.arrayContaining([expect.objectContaining({ type: "heading_2" })]),
     });
@@ -312,7 +312,7 @@ describe("handleStudyGuide", () => {
       requestWithBody({
         ...validRequestBody,
         focus: "only the combustor",
-        revision: { pageId: "old-page-id", previousGuide: validGuide, instruction: "make it shorter" },
+        revision: { pageHandle: await signedPageHandle("notion-key", "old-page-id"), previousGuide: validGuide, instruction: "make it shorter" },
       }),
       notionEnvironment,
     );
@@ -334,7 +334,7 @@ describe("handleStudyGuide", () => {
     const response = await handleStudyGuide(
       requestWithBody({
         ...validRequestBody,
-        revision: { pageId: "old-page-id", previousGuide: validGuide, instruction: "make it shorter" },
+        revision: { pageHandle: await signedPageHandle("notion-key", "old-page-id"), previousGuide: validGuide, instruction: "make it shorter" },
       }),
       notionEnvironment,
     );
@@ -355,13 +355,30 @@ describe("handleStudyGuide", () => {
     const response = await handleStudyGuide(
       requestWithBody({
         ...validRequestBody,
-        revision: { pageId: "old-page-id", previousGuide: validGuide, instruction: "make it shorter" },
+        revision: { pageHandle: await signedPageHandle("notion-key", "old-page-id"), previousGuide: validGuide, instruction: "make it shorter" },
       }),
       notionEnvironment,
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ pageId: "new-page-id" });
+    expect(await response.json()).toMatchObject({ pageHandle: await signedPageHandle("notion-key", "new-page-id") });
+  });
+
+  it("answers 400 for a revision whose page handle this Worker did not sign, before any model or Notion call", async () => {
+    const fetchMock = stubFetch();
+    const handleSignedWithAnotherKey = await signedPageHandle("another-key", "someone-elses-page");
+
+    for (const forgedPageHandle of ["someone-elses-page", "someone-elses-page.00", handleSignedWithAnotherKey]) {
+      const response = await handleStudyGuide(
+        requestWithBody({
+          ...validRequestBody,
+          revision: { pageHandle: forgedPageHandle, previousGuide: validGuide, instruction: "make it shorter" },
+        }),
+        notionEnvironment,
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("answers 502 when Notion rejects the new page, and trashes nothing", async () => {
@@ -371,7 +388,7 @@ describe("handleStudyGuide", () => {
     const response = await handleStudyGuide(
       requestWithBody({
         ...validRequestBody,
-        revision: { pageId: "old-page-id", previousGuide: validGuide, instruction: "make it shorter" },
+        revision: { pageHandle: await signedPageHandle("notion-key", "old-page-id"), previousGuide: validGuide, instruction: "make it shorter" },
       }),
       notionEnvironment,
     );

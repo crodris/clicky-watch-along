@@ -1199,13 +1199,13 @@ struct leanring_buddyTests {
             transcriptLines: newGuide.transcriptLines,
             quizResults: [],
             focus: "only the engine",
-            revision: StudyGuideRevision(pageId: "page-1", previousGuide: .object(["title": .string("Engines")]), instruction: "make it shorter")
+            revision: StudyGuideRevision(pageHandle: "page-1.sig", previousGuide: .object(["title": .string("Engines")]), instruction: "make it shorter")
         )
         let revisedGuideObject = try encodedObject(revisedGuide)
         #expect(Set(revisedGuideObject.keys) == ["videoTitle", "videoURL", "transcriptLines", "quizResults", "focus", "revision"])
         #expect(revisedGuideObject["focus"] as? String == "only the engine")
         let revisionObject = try #require(revisedGuideObject["revision"] as? [String: Any])
-        #expect(Set(revisionObject.keys) == ["pageId", "previousGuide", "instruction"])
+        #expect(Set(revisionObject.keys) == ["pageHandle", "previousGuide", "instruction"])
         #expect((revisionObject["previousGuide"] as? [String: Any])?["title"] as? String == "Engines")
     }
 
@@ -1217,9 +1217,9 @@ struct leanring_buddyTests {
     }
 
     @Test func studyGuideReplyMapsToARecordOrADistinctError() async throws {
-        let replyData = Data(#"{"pageId":"p1","pageURL":"https://www.notion.so/p1","guide":{"title":"T","sections":[]}}"#.utf8)
+        let replyData = Data(#"{"pageHandle":"p1.sig","pageURL":"https://www.notion.so/p1","guide":{"title":"T","sections":[]}}"#.utf8)
         let decodedRecord = try studyGuideRecord(statusCode: 200, responseData: replyData)
-        #expect(decodedRecord.pageId == "p1")
+        #expect(decodedRecord.pageHandle == "p1.sig")
         #expect(decodedRecord.pageURL == URL(string: "https://www.notion.so/p1"))
         #expect(decodedRecord.guide["title"] == .string("T"))
 
