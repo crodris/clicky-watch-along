@@ -14,6 +14,7 @@
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
+ *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
@@ -24,6 +25,7 @@ import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
+import { handleStudyGuide } from "./studyGuide";
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -35,6 +37,10 @@ interface Env {
   LIVE_SCENE_MODEL?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;
+  /** Internal Notion integration token. Without it, /study-guide answers 503. */
+  NOTION_API_KEY?: string;
+  /** The Notion page that study guides are created under. It must be shared with the integration. */
+  NOTION_STUDY_GUIDE_PARENT_PAGE_ID?: string;
 }
 
 export default {
@@ -84,6 +90,10 @@ export default {
 
       if (url.pathname === "/picture-flows") {
         return await handlePictureFlows(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/study-guide") {
+        return await handleStudyGuide(request, env);
       }
 
       if (url.pathname === "/judge-answer") {

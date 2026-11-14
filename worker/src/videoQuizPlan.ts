@@ -171,7 +171,7 @@ function lineStartAtOrAfter(secondsToSnap: number, lineStartsInOrder: number[]):
  * A source time between two line starts names the line that was playing then, which started before it.
  * A source time before the first line keeps its time, so parseVideoQuizPlan rejects a line the model never saw.
  */
-function lineStartAtOrBefore(secondsToSnap: number, lineStartsInOrder: number[]): number {
+export function lineStartAtOrBefore(secondsToSnap: number, lineStartsInOrder: number[]): number {
   return [...lineStartsInOrder].reverse().find((lineStart) => lineStart <= secondsToSnap) ?? secondsToSnap;
 }
 
