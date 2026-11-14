@@ -2,7 +2,8 @@
 
 While a YouTube video plays in Chrome's front tab, the learner asks for a study guide, and Clicky writes a Notion page about the video in the background while the video keeps playing.
 `POST /study-guide` has Sonnet draft the guide from the captions and writes it as its own page in the Private section of the Notion user who made the token, with a timestamp link on every point and the quiz questions the learner missed or skipped listed first.
-Clicky says "Your study guide is ready in Notion." when the page exists, and the learner can revise or open it by voice.
+Clicky does not speak when the guide ends. A wingman triangle flies behind the blue cursor while it runs, and a finished guide opens in a Chrome tab behind the video tab, with a quiet chip under the cursor.
+The learner can revise or open the guide by voice, and hold shift + option to see every agent and cancel one.
 
 ## Sub-features
 
@@ -10,11 +11,16 @@ Clicky says "Your study guide is ready in Notion." when the page exists, and the
 - `guide-revise` sends `revision` with the previous page handle and guide, creates the new page, and trashes the old one.
   A handle the Worker did not sign gets a 400 before any model or Notion call.
 - `guide-review-first` builds the "Review these first" section from the quiz results marked `missed` or `skipped`.
-- `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and Clicky says "Notion isn't connected yet."
+- `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a red outline wingman and no sound.
 - `guide-voice-tools` offers `make_study_guide` with a YouTube video in front and no quiz question open, and `revise_study_guide` and `open_study_guide` once a guide exists for that video.
-- `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and the finished line waits until Clicky is quiet and no quiz question is open.
+- `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
+- `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, half filled after the captions are read, and green after "Tink" and the chip "Study guide ready" when the page exists.
+- `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
+- `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
 
 ## How to get to it (user POV)
+
+- Hold shift + option for a moment to open the agent list, click a row to see its steps, and press Cancel to stop a running guide.
 
 - With a YouTube video in Chrome's front tab, hold ctrl+option and say "make me a Notion study guide for this".
 - After the guide is ready, say "make the study guide shorter" or "open my study guide".
@@ -38,6 +44,15 @@ Preconditions:
   The same post with the handle's last character changed returns 400, and the Worker log has no new usage line.
 - **Voice tools in the app.** With a YouTube video in front, run `$V app-launch ""`, then post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"make_study_guide","arguments":{}}}` to `http://127.0.0.1:8790/mcp`.
   The app log shows `Study guide: wrote https://www.notion.so/... in N s`, and `tools/list` then includes `revise_study_guide` and `open_study_guide`.
+
+- **Wingman.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
+  The screenshot shows an amber outline triangle down and to the right of the blue cursor triangle.
+  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the green triangle ahead of the tip and the "Study guide ready" chip.
+- **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
+  The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
+  Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.
+- **Background tab.** Before the guide ends, note the front tab with `osascript -e 'tell application "Google Chrome" to get URL of active tab of front window'`.
+  After it ends, the same command prints the same URL, and `osascript -e 'tell application "Google Chrome" to get URL of last tab of front window'` prints the `notion.so` page.
 
 ## Gotchas
 
