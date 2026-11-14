@@ -696,7 +696,7 @@ struct leanring_buddyTests {
         // The page opens the cutaway only for a true open, so a missing one reads as closing.
         #expect(call("set_inside_view", [:]).chipPhrase == "Closing it up")
         #expect(call("seek_relative", ["seconds": .number(1)]).chipPhrase == "Skipping ahead 1 second")
-        // A call the page refuses or that changes nothing shows no chip.
+        // A call that misses its argument, changes nothing, or rounds to 0 seconds has no phrase.
         #expect(call("seek_relative", ["seconds": .number(0.4)]).chipPhrase == nil)
         #expect(call("zoom", [:]).chipPhrase == nil)
         #expect(call("zoom", ["factor": .number(1)]).chipPhrase == nil)

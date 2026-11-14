@@ -311,7 +311,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
 
     /// What the chip next to the cursor says, in words a learner reads at a glance, such as "Turning it left".
     /// Nil for a call whose own status line or answer follows at once, like pop_out's "Popping it out",
-    /// and for a name this app does not know.
+    /// for a call that changes nothing (a zoom factor of 1, a seek that rounds to 0 seconds) or misses its argument,
+    /// and for a name this app does not know. The chip shows only once the call worked, so a refused call shows none.
     var chipPhrase: String? {
         let numberInput = { (argumentName: String) in self.input[argumentName]?.numberValue }
         let textInput = { (argumentName: String) in self.input[argumentName]?.stringValue }
