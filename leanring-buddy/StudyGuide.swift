@@ -149,7 +149,7 @@ nonisolated struct StudyGuideRecord: Decodable, Equatable, Sendable {
 }
 
 nonisolated enum StudyGuideError: Error, Equatable {
-    /// The Worker has no Notion token or parent page, which it reports as a 503.
+    /// The Worker has no Notion token, which it reports as a 503.
     case notionIsNotConnected
     case workerReturned(statusCode: Int, body: String)
 }
@@ -183,7 +183,7 @@ final class StudyGuideClient {
     }
 }
 
-/// A 503 is the Worker saying it has no Notion token or parent page, which the learner can fix and Clicky says so.
+/// A 503 is the Worker saying it has no Notion token, which the learner can fix and Clicky says so.
 /// Any other failure is a Worker or Notion error.
 nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws -> StudyGuideRecord {
     if statusCode == 503 {
