@@ -86,7 +86,7 @@ final class VoiceToolCallChip {
     private static let panelSize = CGSize(width: 520, height: 34)
     /// Under the spot where Clicky's triangle and the status label sit, so neither covers the chip.
     private static let distanceFromCursor = CGPoint(x: 35 - 19, y: -25 - 30 - 34)
-    static let defaultSecondsOnScreen: TimeInterval = 1.4
+    nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
 
     private let chipModel = VoiceToolCallChipModel()
     private var chipPanel: NSPanel?
