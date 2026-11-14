@@ -69,7 +69,7 @@ struct VideoFramePopout {
         animationFrames = pageImageAnimationFrames
         parts = []
     }
-    /// Printed text in the frame, in frame pixels, which a quiz question hides until the answer, since a video's
+    /// Printed text in the frame, in frame pixels, which a quiz question hides until the pop-out returns to the video, since a video's
     /// own labels can name it. Empty outside a quiz.
     var textBoxesToHide: [SubjectBox] = []
 }
@@ -145,7 +145,7 @@ enum VideoFramePopoutClient {
         }.value
         guard let foundSubjectMask else { return nil }
         if hidesPrintedText {
-            print("Video quiz: hiding \(textBoxesToHide.count) printed text boxes until the answer")
+            print("Video quiz: hiding \(textBoxesToHide.count) printed text boxes until the pop-out returns")
         }
         return VideoFramePopout(
             frameGrab: frameGrab,

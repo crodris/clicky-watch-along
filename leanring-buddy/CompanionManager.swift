@@ -2228,7 +2228,8 @@ final class CompanionManager: ObservableObject {
     /// Says a few sentences about a frame pop-out, one part each, highlighting that part and pointing the
     /// blue cursor at it as it is named. The Claude call starts right away and the speech waits for the tour,
     /// so it is ready when the camera stops. The labels come from the pop-out's own parts list, because the
-    /// page may not have loaded yet.
+    /// page may not have loaded yet. An animated picture lifts out with no labels, so its sentences name no part
+    /// and the cursor points at nothing.
     private func narrateTheFramePopout(_ framePopout: VideoFramePopout, narrationTrigger: LiveSceneNarrationTrigger) async {
         let narrationID = UUID()
         // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
