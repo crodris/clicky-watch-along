@@ -114,7 +114,7 @@ func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource, is
         ? "it's a work of art. make each sentence one true fact about the artwork itself that ties to the part it names: who made it, when, how it was made, the story behind it, or why it became famous. never just say what the part shows, since they can see that. say only facts you're sure of, and if you don't recognize this exact artwork, talk about the technique and materials you can see instead of guessing its name or its artist."
         : "make each sentence say one surprising or useful thing about that part."
     return """
-    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence) your words go to text to speech, so write the way you'd talk: short sentences, plain words, all lowercase, no lists, no markdown, no emojis, no abbreviations. \(whatEachSentenceSays) never tell them to click, scroll, or look anywhere else.
+    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence) your words go to text to speech, so write the way you'd talk: short sentences, plain words, no lists, no markdown, no emojis, no abbreviations. the words also show as captions, so use normal sentence case and capitalize every name, such as people, places, languages, and nationalities (Hokusai, Japan, Japanese). \(whatEachSentenceSays) never tell them to click, scroll, or look anywhere else.
     """
 }
 

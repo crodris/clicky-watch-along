@@ -679,7 +679,7 @@ final class CompanionManager: ObservableObject {
 
     rules:
     - default to one or two short sentences, about 35 words in total, counting any idea you end on, because the user waits through every extra sentence as audio. be direct and dense, and give the one best answer rather than every option. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
-    - all lowercase, casual, warm. no emojis.
+    - casual and warm, in normal sentence case: capitalize the start of each sentence and every name, such as people, places, languages, and nationalities (Hokusai, Japan, Japanese). no emojis.
     - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
     - don't use abbreviations or symbols that sound weird read aloud. write "for example" not "e.g.", spell out small numbers.
     - if the user's question relates to what's on their screen, reference specific things you see.
@@ -2157,6 +2157,12 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
+    /// The pointing bubble types along with it.
+    func spokenFractionOfTheLine(_ text: String) -> Double? {
+        elevenLabsTTSClient.spokenFraction(ofLine: text)
+    }
+
     private func speakLiveSceneLine(_ line: String) async {
         do {
             try await elevenLabsTTSClient.speakText(line)
@@ -2535,7 +2541,7 @@ final class CompanionManager: ObservableObject {
 
     CRITICAL COORDINATE RULE: you MUST only pick elements near the CENTER of the screen. your x coordinate must be between 20%-80% of the image width. your y coordinate must be between 20%-80% of the image height. do NOT pick anything in the top 20%, bottom 20%, left 20%, or right 20% of the screen. no menu bar items, no dock icons, no sidebar items, no items near any edge. only things clearly in the middle area of the screen. if the only interesting things are near the edges, pick something boring in the center instead.
 
-    respond with ONLY your short comment followed by the coordinate tag. nothing else. all lowercase.
+    respond with ONLY your short comment followed by the coordinate tag. nothing else. normal sentence case, with names capitalized.
 
     format: your comment [POINT:x,y:label]
 

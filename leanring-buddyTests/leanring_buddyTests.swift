@@ -693,6 +693,23 @@ struct leanring_buddyTests {
         #expect(liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame, isArtwork: false).contains("the paused frame"))
     }
 
+    @Test func captionsFollowTheVoiceAndNamesAreCapitalized() async throws {
+        // While audio still arrives, 60 letters at about 15 a second stand in for the line's length.
+        #expect(SpokenLineProgress.spokenFraction(playedSeconds: 1, arrivedSeconds: 0.5, allAudioHasArrived: false, characterCount: 60) == 0.25)
+        // Once every sample has arrived, the real length wins.
+        #expect(SpokenLineProgress.spokenFraction(playedSeconds: 1, arrivedSeconds: 2, allAudioHasArrived: true, characterCount: 60) == 0.5)
+        #expect(SpokenLineProgress.spokenFraction(playedSeconds: 5, arrivedSeconds: 2, allAudioHasArrived: true, characterCount: 60) == 1)
+        // Half the line said shows half the letters plus two, and a finished line shows them all.
+        #expect(SpokenLineProgress.revealedCharacterCount(phraseLength: 40, spokenFraction: 0.5) == 22)
+        #expect(SpokenLineProgress.revealedCharacterCount(phraseLength: 40, spokenFraction: 0) == 2)
+        #expect(SpokenLineProgress.revealedCharacterCount(phraseLength: 40, spokenFraction: 1) == 40)
+        // The captions show what Clicky says, so names keep their capitals.
+        for narrationPrompt in [liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true), liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame, isArtwork: false)] {
+            #expect(!narrationPrompt.contains("lowercase"))
+            #expect(narrationPrompt.contains("sentence case"))
+        }
+    }
+
     @Test func narrationOfAnArtworkAsksForFactsAboutTheArtNotWhatItShows() async throws {
         let artworkSystemPrompt = liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true)
         #expect(artworkSystemPrompt.contains("fact about the artwork"))

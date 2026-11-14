@@ -69,6 +69,9 @@ final class ElevenLabsTTSClient {
     private var playbackGeneration = 0
     private var isReceivingStream = false
     private var buffersWaitingToFinishPlaying = 0
+    /// The line now playing and how many of its samples have arrived, so a caption can follow the voice.
+    private var currentLineText: String?
+    private var currentLineScheduledSampleCount = 0
     private var engineConfigurationObserver: NSObjectProtocol?
 
     init(proxyURL: String) {
@@ -173,6 +176,7 @@ final class ElevenLabsTTSClient {
         try Task.checkCancellation()
         // A newer line or stopPlayback took over while this one loaded, so this line must not report that it is playing.
         guard generation == playbackGeneration else { throw CancellationError() }
+        currentLineText = text
         guard let firstChunk else {
             throw NSError(domain: "ElevenLabsTTS", code: -3,
                           userInfo: [NSLocalizedDescriptionKey: "TTS returned no audio"])
@@ -222,6 +226,7 @@ final class ElevenLabsTTSClient {
             channelSamples.update(from: samplePointer.baseAddress!, count: samples.count)
         }
         buffersWaitingToFinishPlaying += 1
+        currentLineScheduledSampleCount += samples.count
         playerNode.scheduleBuffer(pcmBuffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             // The audio engine calls this on its own thread.
             Task { @MainActor in
@@ -243,9 +248,26 @@ final class ElevenLabsTTSClient {
         audioEngine.isRunning && (isReceivingStream || buffersWaitingToFinishPlaying > 0)
     }
 
+    /// How far through `text` the voice is, from 0 to 1, or nil when `text` is not the line Clicky is speaking.
+    /// The player's clock starts at 0 for each line, since every line stops the player first.
+    func spokenFraction(ofLine text: String) -> Double? {
+        guard let currentLineText, currentLineText == text else { return nil }
+        guard isPlaying else { return 1 }
+        guard let renderTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: renderTime) else { return 0 }
+        return SpokenLineProgress.spokenFraction(
+            playedSeconds: Double(playerTime.sampleTime) / Self.sampleRate,
+            arrivedSeconds: Double(currentLineScheduledSampleCount) / Self.sampleRate,
+            allAudioHasArrived: !isReceivingStream,
+            characterCount: text.count
+        )
+    }
+
     /// Stops any in-progress playback immediately.
     func stopPlayback() {
         playbackGeneration += 1
+        currentLineText = nil
+        currentLineScheduledSampleCount = 0
         streamingTask?.cancel()
         streamingTask = nil
         isReceivingStream = false
@@ -254,5 +276,26 @@ final class ElevenLabsTTSClient {
         if audioEngine.isRunning {
             audioEngine.pause()
         }
+    }
+}
+
+/// How far through a line the voice is. A line's audio streams in faster than it plays, so its full
+/// length is usually known within a moment. Until then the text's length gives an estimate.
+enum SpokenLineProgress {
+    /// About how fast the voice speaks: three eleven_v4_turbo narration lines ran 13.6 to 15.7 characters a second.
+    static let estimatedCharactersPerSecond = 15.0
+
+    static func spokenFraction(playedSeconds: Double, arrivedSeconds: Double, allAudioHasArrived: Bool, characterCount: Int) -> Double {
+        let lineSeconds = allAudioHasArrived
+            ? arrivedSeconds
+            : max(arrivedSeconds, Double(characterCount) / estimatedCharactersPerSecond)
+        guard lineSeconds > 0 else { return 1 }
+        return min(1, max(0, playedSeconds / lineSeconds))
+    }
+
+    /// The letters a caption shows for a spoken fraction. It runs two letters ahead, so the eye never waits on it.
+    static func revealedCharacterCount(phraseLength: Int, spokenFraction: Double) -> Int {
+        guard spokenFraction < 1 else { return phraseLength }
+        return min(phraseLength, Int((spokenFraction * Double(phraseLength)).rounded(.up)) + 2)
     }
 }
