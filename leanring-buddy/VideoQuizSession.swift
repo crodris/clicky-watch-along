@@ -1170,6 +1170,18 @@ private enum VideoCaptionsDownloader {
     /// Runs yt-dlp for the English captions only. Asking for "en.*" also asks for
     /// every translation, which YouTube answers with a 429.
     static func downloadTranscriptLines(forVideoURL videoURL: String) async throws -> [VideoQuizTranscriptLine] {
+        #if DEBUG
+        // When YouTube rate-limits this Mac's caption requests, a rehearsal can use captions fetched elsewhere:
+        // `defaults write <bundle id> debugVideoQuizCaptionsJSON3Path /path/<video id>.json3`. The file counts only
+        // when its name holds the playing video's ID, so a leftover setting never feeds one video's captions to another.
+        if let captionsFilePath = UserDefaults.standard.string(forKey: "debugVideoQuizCaptionsJSON3Path"),
+           let videoID = URLComponents(string: videoURL)?.queryItems?.first(where: { $0.name == "v" })?.value,
+           (captionsFilePath as NSString).lastPathComponent.contains(videoID),
+           let captionsData = FileManager.default.contents(atPath: captionsFilePath) {
+            print("Video quiz: reading captions from \(captionsFilePath) instead of yt-dlp")
+            return try videoQuizTranscriptLines(fromCaptionsJSON3Data: captionsData)
+        }
+        #endif
         guard let ytDlpPath = ytDlpCandidatePaths.first(where: { candidatePath in
             FileManager.default.isExecutableFile(atPath: candidatePath)
         }) else {

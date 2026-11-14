@@ -12,3 +12,7 @@ worker/.wrangler/
 *.profraw
 .verify-clicky/
 bench/node_modules/
+demo-refs/
+demo/node_modules/
+demo/public/
+demo/out/
