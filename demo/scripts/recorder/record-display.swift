@@ -7,7 +7,7 @@ import AVFoundation
 import AppKit
 
 let arguments = CommandLine.arguments
-guard arguments.count == 3, let displayIndex = Int(arguments[1]) else {
+guard arguments.count == 3, let displayIndex = Int(arguments[1]), displayIndex >= 0 else {
     FileHandle.standardError.write("usage: record <displayIndex> <output.mov>\n".data(using: .utf8)!)
     exit(2)
 }
@@ -50,6 +50,10 @@ Task {
         let sourceRectValues = (ProcessInfo.processInfo.environment["RECORDING_SOURCE_RECT"] ?? "")
             .split(separator: ",")
             .compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        if ProcessInfo.processInfo.environment["RECORDING_SOURCE_RECT"]?.isEmpty == false && sourceRectValues.count != 4 {
+            print("RECORDING_SOURCE_RECT must be x,y,width,height in points"); fflush(stdout)
+            exit(2)
+        }
         if sourceRectValues.count == 4 {
             let sourceRect = CGRect(x: sourceRectValues[0], y: sourceRectValues[1], width: sourceRectValues[2], height: sourceRectValues[3])
             configuration.sourceRect = sourceRect

@@ -47,6 +47,15 @@ if [[ ! "$demo_window_bounds" =~ ^[0-9]+,\ ?[0-9]+,\ ?[0-9]+,\ ?[0-9]+$ ]]; then
   echo "DEMO_WINDOW_BOUNDS must be four numbers separated by commas, got: $demo_window_bounds" >&2
   exit 2
 fi
+trailing_seconds="${TRAILING_SECONDS:-6}"
+if [[ ! "$trailing_seconds" =~ $number_pattern ]]; then
+  echo "TRAILING_SECONDS must be a number of seconds, got: $trailing_seconds" >&2
+  exit 2
+fi
+if [[ ! "$recording_display_index" =~ ^[0-9]+$ ]]; then
+  echo "RECORDING_DISPLAY_INDEX must be a display number of 0 or more, got: $recording_display_index" >&2
+  exit 2
+fi
 page_is_youtube_video=false
 [[ "$page_url" == *youtube.com/watch* ]] && page_is_youtube_video=true
 
@@ -60,7 +69,7 @@ previous_front_bundle_id="$(lsappinfo info -only bundleid "$(lsappinfo front)" |
 
 demo_window_id=""
 recorder_pid=""
-log_stamper_pid=""
+log_tail_pid=""
 run_folder=""
 app_was_launched=false
 cleanup_has_run=false
@@ -73,13 +82,12 @@ restore_youtube_volume() {
 stop_background_work() {
   [[ "$cleanup_has_run" == true ]] && return
   cleanup_has_run=true
+  # The recorder finishes its file on SIGINT, and the stamper behind each process ends when its input closes.
   if [[ -n "$recorder_pid" ]]; then
-    pkill -INT -f "record-display $recording_display_index $recording_path" 2>/dev/null || true
+    kill -INT "$recorder_pid" 2>/dev/null || true
     wait "$recorder_pid" 2>/dev/null || true
   fi
-  [[ -n "$log_stamper_pid" ]] && kill "$log_stamper_pid" 2>/dev/null || true
-  # pkill reads its pattern as a regular expression, so the + in "-n +1" goes in brackets.
-  [[ -n "$run_folder" ]] && pkill -f "tail -n [+]1 -F $run_folder/app.log" 2>/dev/null || true
+  [[ -n "$log_tail_pid" ]] && kill "$log_tail_pid" 2>/dev/null || true
   [[ "$app_was_launched" == true ]] && "$verify_script" app-quit >/dev/null 2>&1 || true
   if [[ -n "$demo_window_id" ]]; then
     restore_youtube_volume
@@ -125,11 +133,13 @@ run_folder="$(readlink "$checkout_root/.verify-clicky/current")"
 
 recording_path="$footage_folder/$shot_name.mov"
 events_path="$footage_folder/$shot_name.events.txt"
-rm -f "$recording_path"
+# A failed retake must not leave an earlier take's events next to its own partial recording.
+rm -f "$recording_path" "$events_path" "$events_path.raw"
 
 # Wall-clock stamps on the recorder's own lines give the moment the first frame was written.
+# Process substitution keeps $! on the recorder itself, so cleanup can signal it by its process ID.
 "$binary_folder/record-display" "$recording_display_index" "$recording_path" \
-  | perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$footage_folder/$shot_name.recorder.txt" &
+  > >(perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$footage_folder/$shot_name.recorder.txt") &
 recorder_pid=$!
 sleep 2
 
@@ -138,25 +148,16 @@ sleep 2
 app_was_launched=true
 "$verify_script" app-launch "$rehearsal_steps"
 tail -n +1 -F "$run_folder/app.log" 2>/dev/null \
-  | perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$events_path.raw" &
-log_stamper_pid=$!
-# A quiz step waits up to 4 minutes for its question, so a shot gets 10 minutes before it counts as stuck.
-rehearsal_finished=false
-for _ in $(seq 1 600); do
-  if grep -q 'Live scene rehearsal: done' "$run_folder/app.log" 2>/dev/null; then
-    rehearsal_finished=true
-    break
-  fi
-  # A crashed app never logs "done", so the wait ends early.
-  pgrep -x Clicky >/dev/null 2>&1 || break
-  sleep 1
-done
-if [[ "$rehearsal_finished" != true ]]; then
-  echo "the rehearsal never logged 'Live scene rehearsal: done', so the shot is incomplete; see $run_folder/app.log" >&2
+  > >(perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$events_path.raw") &
+log_tail_pid=$!
+# app-wait exits 1 when the app quits or the rehearsal never logs "done". A quiz step waits up to 4 minutes for
+# its question, so a shot gets 10 minutes.
+if ! "$verify_script" app-wait 600 >/dev/null; then
+  echo "the rehearsal did not finish, so the shot is incomplete; see $run_folder/app.log" >&2
   exit 1
 fi
 # The last spoken line and the cursor's flight back still play after "done".
-sleep "${TRAILING_SECONDS:-6}"
+sleep "$trailing_seconds"
 stop_background_work
 
 # Rewrite each log stamp as seconds since the recording started.

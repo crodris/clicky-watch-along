@@ -1085,7 +1085,6 @@ struct leanring_buddyTests {
         #expect(parsedRequest.body == Data("{\"a\":1}".utf8))
     }
 
-
     @Test func aRehearsalAnswersWithTheOpenQuestionsLabel() async throws {
         #expect(rehearsalTranscript("is it the {answer}", answeringWith: "Stylomastoid foramen") == "is it the stylomastoid foramen")
         #expect(rehearsalTranscript("stop the quiz", answeringWith: "Ash") == "stop the quiz")

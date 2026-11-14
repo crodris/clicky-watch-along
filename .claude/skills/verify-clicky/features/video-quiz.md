@@ -57,7 +57,8 @@ Preconditions:
   Give `app-wait` enough seconds.
 - YouTube can rate-limit this Mac's caption requests with HTTP 429 for an hour or more, and the quiz then fails at `read N caption lines`.
   Fetch the captions from another IP with yt-dlp (`--write-auto-subs --sub-langs en --sub-format json3`), save them as `<video id>.json3`, and run `defaults write <bundle id> debugVideoQuizCaptionsJSON3Path <that path>`.
-  A Debug build then logs `Video quiz: reading captions from <path> instead of yt-dlp`. Run `defaults delete <bundle id> debugVideoQuizCaptionsJSON3Path` afterwards.
+  A Debug build then logs `Video quiz: reading captions from <path> instead of yt-dlp`, for the quiz and for find_moment. Run `defaults delete <bundle id> debugVideoQuizCaptionsJSON3Path` afterwards.
+  The file counts only when its name holds the video's `v` parameter, so a youtu.be link never uses it. A file that does not apply logs `Video quiz: the debug captions file <path> does not apply to <url>`, and yt-dlp reads the captions instead. A file with no caption lines fails as no captions.
 - A video without captions fails at `read N caption lines`.
   Pick another video, and do not report the route as broken.
 - A `?` step waits at most 4 minutes for a question to be asked.
