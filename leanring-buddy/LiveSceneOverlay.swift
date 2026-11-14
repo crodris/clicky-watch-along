@@ -443,7 +443,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// Only the bundled frame pop-out draws flows, so the call is optional.
     func showFlows(_ pictureFlows: [PictureFlow]) {
         let flowsForThePage = pictureFlows.map { pictureFlow in
-            ["color": pictureFlow.color.rawValue, "points": pictureFlow.points] as [String: Any]
+            ["color": pictureFlow.color.rawValue, "style": pictureFlow.style.rawValue, "points": pictureFlow.points] as [String: Any]
         }
         evaluateOnThePage("window.liveScene.showFlows?.(flows)", arguments: ["flows": flowsForThePage])
     }

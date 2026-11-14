@@ -1,0 +1,340 @@
+{
+  "label": "opus",
+  "benchKind": "worker",
+  "commitSHA": "44f2b3e30a8e",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-13T23:45:31.115Z",
+  "runCount": 3,
+  "port": 8789,
+  "interleavedWith": [
+    "sonnet"
+  ],
+  "summary": [
+    {
+      "caseId": "picture-flows-heart",
+      "route": "/picture-flows",
+      "description": "Draws blood rich and low in oxygen through a heart diagram",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 5798,
+        "p95": 5913,
+        "min": 5381,
+        "max": 5913
+      },
+      "firstByteMs": {
+        "p50": 5797,
+        "p95": 5912,
+        "min": 5381,
+        "max": 5912
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1261,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1304,
+      "meanOutputTokens": 586,
+      "meanCostUSD": 0.01703
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "route": "/picture-flows",
+      "description": "Draws rain and runoff as droplets through the USGS water cycle diagram",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 5463,
+        "p95": 5468,
+        "min": 5388,
+        "max": 5468
+      },
+      "firstByteMs": {
+        "p50": 5462,
+        "p95": 5467,
+        "min": 5388,
+        "max": 5467
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1260,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1304,
+      "meanOutputTokens": 538,
+      "meanCostUSD": 0.01605
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "route": "/picture-flows",
+      "description": "Draws air and hot gas through a turbofan cutaway",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 4697,
+        "p95": 5229,
+        "min": 4637,
+        "max": 5229
+      },
+      "firstByteMs": {
+        "p50": 4697,
+        "p95": 5228,
+        "min": 4637,
+        "max": 5228
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1304,
+      "meanOutputTokens": 414,
+      "meanCostUSD": 0.01357
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 5797.2005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5798.3422089999995,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 582
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0169448,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 6 flows: droplets/blue, droplets/blue, droplets/blue, droplets/red, droplets/red, droplets/red"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[500,120],[500,220],[505,330],[525,420],[560,470]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[490,630],[490,560],[500,470],[550,465]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[620,500],[615,420],[612,330],[615,230],[680,185],[770,185],[815,200]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[835,235],[780,245],[730,280],[735,330],[750,400],[770,470]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[740,410],[690,390],[665,330],[600,200],[610,120],[650,60]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[580,230],[585,4"
+    },
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 5380.758542000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5381.337625000002,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 551
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0163248,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 5 flows: droplets/blue, droplets/blue, droplets/blue, droplets/red, droplets/red"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[500,110],[505,200],[505,300],[510,380],[540,450],[600,500],[640,540]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[490,610],[490,530],[510,460],[560,470],[620,510]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[640,540],[615,460],[612,390],[615,280],[640,200],[720,185],[810,190]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[840,235],[780,250],[720,290],[740,330],[760,400],[760,470]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[760,470],[720,410],[680,385],[590,300],[570,200],[610,120],[650,60]]}]}"
+    },
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 5912.3968749999985,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5913.054833999999,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 626
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0178248,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 6 flows: droplets/blue, droplets/blue, droplets/blue, droplets/blue, droplets/red, droplets/red"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[500,110],[503,200],[505,290],[510,370],[540,450],[600,510],[615,460],[615,400]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[490,620],[495,520],[510,430],[545,460],[610,510],[615,420]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[615,390],[615,280],[625,210],[690,185],[780,185],[815,195]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[620,200],[540,185],[430,187]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[830,235],[770,260],[720,290],[735,330],[760,420],[720,400],[690,380]]},{\"color\":\"red\",\"style\":\"droplets\",\"poi"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 5466.714124999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5467.766084000003,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1260,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 542
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0161408,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 6 flows: air/white, air/white, droplets/cyan, droplets/cyan, droplets/cyan, droplets/cyan"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"white\",\"style\":\"air\",\"points\":[[1100,500],[1140,380],[1100,260],[990,190]]},{\"color\":\"white\",\"style\":\"air\",\"points\":[[960,160],[800,120],[640,110],[500,118]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[470,130],[360,210],[260,280],[170,360]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[330,290],[370,340],[500,420],[620,470],[720,390],[820,420]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[150,390],[200,460],[280,530],[400,590],[550,625],[710,630]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[145,400],[160,520],[220,620],[370,685]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 5387.564458000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5388.130000000005,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1260,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 542
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0161408,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 6 flows: smoke/white, smoke/white, droplets/cyan, droplets/cyan, droplets/cyan, droplets/cyan"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"white\",\"style\":\"smoke\",\"points\":[[1105,500],[1130,380],[1100,270],[1040,200],[980,185]]},{\"color\":\"white\",\"style\":\"smoke\",\"points\":[[960,160],[800,120],[650,110],[495,118]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[470,130],[380,200],[280,270],[175,360]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[715,380],[740,395],[700,445]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[150,385],[200,440],[260,500],[350,560],[480,610],[600,630],[715,628]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[145,400],[160,530],[200,620],[270,670],[375,688]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 5461.650833,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5463.190916,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1260,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 529
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0158808,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 6 flows: air/white, air/white, droplets/cyan, droplets/cyan, droplets/cyan, droplets/cyan"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"white\",\"style\":\"air\",\"points\":[[1105,500],[1140,380],[1100,260],[990,190]]},{\"color\":\"white\",\"style\":\"air\",\"points\":[[960,160],[800,120],[640,110],[500,118]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[470,130],[380,190],[260,270],[175,355]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[330,290],[370,340],[500,420],[720,385],[820,420]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[150,390],[200,440],[280,520],[420,590],[600,630],[715,630]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[145,400],[160,520],[210,620],[370,690]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 5228.273916999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5229.0091669999965,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 459
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0144608,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 5 flows: air/blue, air/blue, air/blue, sparks/orange, smoke/orange"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"blue\",\"style\":\"air\",\"points\":[[360,240],[450,235],[560,245],[700,235],[800,200],[880,185]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[400,545],[480,540],[620,510],[760,465],[840,455]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[370,330],[450,330],[540,320],[620,315],[700,305]]},{\"color\":\"orange\",\"style\":\"sparks\",\"points\":[[700,305],[745,300],[800,295],[860,290],[920,300],[970,330]]},{\"color\":\"orange\",\"style\":\"smoke\",\"points\":[[970,330],[1010,350],[1060,360]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4696.787125000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4697.108749999999,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 392
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.013120799999999998,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 4 flows: air/blue, air/blue, air/blue, sparks/orange"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"blue\",\"style\":\"air\",\"points\":[[360,240],[470,235],[600,240],[720,225],[820,200],[900,195]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[390,545],[500,520],[620,490],[740,465],[840,455]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[370,320],[470,340],[560,345],[640,340],[710,335]]},{\"color\":\"orange\",\"style\":\"sparks\",\"points\":[[710,335],[760,330],[820,320],[880,315],[950,330],[1000,350]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 4636.532541000008,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4637.135458000004,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-opus-5-5",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1304,
+          "outputTokens": 392
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.013120799999999998,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 4 flows: air/blue, air/blue, air/blue, sparks/orange"
+      },
+      "replyPreview": "{\"isArtwork\":false,\"flows\":[{\"color\":\"blue\",\"style\":\"air\",\"points\":[[360,245],[450,250],[560,255],[680,250],[800,215],[880,200]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[400,545],[500,520],[620,490],[740,460],[830,455]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[370,340],[470,345],[560,340],[630,335],[700,320]]},{\"color\":\"orange\",\"style\":\"sparks\",\"points\":[[740,315],[800,315],[860,320],[920,330],[980,340],[1040,345]]}]}"
+    }
+  ]
+}

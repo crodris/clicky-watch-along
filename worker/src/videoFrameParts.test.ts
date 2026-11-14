@@ -19,6 +19,7 @@ const modelReply = {
     { label: "Left atrium", x: 1200, y: 30 },
   ],
   answerPartIndex: 1,
+  isArtwork: false,
   wholePictureIsSubject: false,
   pictureShowsDepth: false,
 };
@@ -42,6 +43,7 @@ describe("checkFrameParts", () => {
     expect(frameParts).toEqual({
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      isArtwork: false,
       wholePictureIsSubject: false,
       pictureShowsDepth: false,
       parts: [
@@ -67,6 +69,7 @@ describe("checkFrameParts", () => {
     expect(checkFrameParts(labelsFromAPage, 1280, 720)).toEqual({
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      isArtwork: false,
       wholePictureIsSubject: false,
       pictureShowsDepth: false,
       parts: [
@@ -89,6 +92,7 @@ describe("checkFrameParts", () => {
     expect(checkFrameParts(labelsWithPunctuation, 1280, 720)).toEqual({
       subjectFound: true,
       subjectBox: { left: 455, top: 91, right: 812, bottom: 608 },
+      isArtwork: false,
       wholePictureIsSubject: false,
       pictureShowsDepth: false,
       parts: [
@@ -106,6 +110,12 @@ describe("checkFrameParts", () => {
       subjectBox: { left: 0, top: 0, right: 1279, bottom: 719 },
       wholePictureIsSubject: true,
     });
+  });
+
+  it("returns whether the picture is an artwork, so Clicky narrates facts about the art and never animates it", () => {
+    const artOfOneAnimal = { ...modelReply, isArtwork: true };
+
+    expect(checkFrameParts(artOfOneAnimal, 1280, 720)).toMatchObject({ subjectFound: true, isArtwork: true, wholePictureIsSubject: false });
   });
 
   it("returns whether the picture already shows depth, so the app lifts a cutaway or a photo as a flat card", () => {
@@ -161,7 +171,7 @@ describe("handleVideoFrameParts", () => {
     });
   });
 
-  it("asks for wholePictureIsSubject first, so a painting of several figures is not ruled out as no single object", async () => {
+  it("asks for wholePictureIsSubject before subjectFound, so a painting of several figures is not ruled out as no single object", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => sonnetReply(JSON.stringify(modelReply)));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -170,7 +180,8 @@ describe("handleVideoFrameParts", () => {
     const sentSchema = z
       .object({ output_config: z.object({ format: z.object({ schema: z.object({ properties: z.record(z.string(), z.unknown()) }) }) }) })
       .parse(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).output_config.format.schema;
-    expect(Object.keys(sentSchema.properties)[0]).toBe("wholePictureIsSubject");
+    const propertyOrder = Object.keys(sentSchema.properties);
+    expect(propertyOrder.indexOf("wholePictureIsSubject")).toBeLessThan(propertyOrder.indexOf("subjectFound"));
   });
 
   it("returns 502 when the reply is not the parts JSON", async () => {

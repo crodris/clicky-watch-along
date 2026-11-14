@@ -191,17 +191,21 @@ struct leanring_buddyTests {
     }
 
     @Test func pictureFlowsSayWhyNothingMovesOnlyWhenNothingIsShowing() async throws {
-        let workerReply = Data(#"{"flows":[{"color":"orange","points":[[445,246],[880,292]]}]}"#.utf8)
+        let workerReply = Data(#"{"flows":[{"color":"orange","style":"sparks","points":[[445,246],[880,292]]}]}"#.utf8)
         struct FlowsReply: Decodable { let flows: [PictureFlow] }
         let pictureFlows = try JSONDecoder().decode(FlowsReply.self, from: workerReply).flows
-        #expect(pictureFlows == [PictureFlow(color: .orange, points: [[445, 246], [880, 292]])])
-        // A color outside the palette fails the whole reply, so the page never gets an unknown color.
+        #expect(pictureFlows == [PictureFlow(color: .orange, style: .sparks, points: [[445, 246], [880, 292]])])
+        // A color or style the page cannot draw fails the whole reply, so the page never gets one.
         #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"magenta","points":[[1,1],[9,9]]}]}"#.utf8))
+            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"magenta","style":"air","points":[[1,1],[9,9]]}]}"#.utf8))
+        }
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"white","style":"links","points":[[1,1],[9,9]]}]}"#.utf8))
         }
         #expect(PictureFlowsOutcome.showing(flowCount: 1).spokenLineWhenNotShowing == nil)
         #expect(PictureFlowsOutcome.superseded.spokenLineWhenNotShowing == nil)
         #expect(PictureFlowsOutcome.nothingFlows.spokenLineWhenNotShowing != nil)
+        #expect(PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing == "This is a work of art, so I'll leave it just as the artist made it.")
         #expect(PictureFlowsOutcome.failed.spokenLineWhenNotShowing != nil)
     }
 
@@ -458,7 +462,9 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines, whileShowing: .readingYourScreen) == .readingYourScreen)
 
         // Each owner's set holds every line that owner shows, so none of its lines can be left up.
-        #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut])
+        #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut, .animatingIt])
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.popOutLines, whileShowing: .animatingIt) == nil)
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .animatingIt) == .animatingIt)
         #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
@@ -576,7 +582,8 @@ struct leanring_buddyTests {
             subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
             parts: [VideoFramePopout.Part(label: "Aorta", x: 10, y: 10, isQuizAnswer: false)],
             subjectMaskPNGBase64: "",
-            pictureShowsDepth: false
+            pictureShowsDepth: false,
+            isArtwork: false
         )
         let framePopoutOnScreen = LiveScenePageOnScreen.framePopout(framePopout)
 
@@ -620,7 +627,8 @@ struct leanring_buddyTests {
                 subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
                 parts: [VideoFramePopout.Part(label: "Fan", x: 10, y: 10, isQuizAnswer: false)],
                 subjectMaskPNGBase64: "",
-                pictureShowsDepth: pictureShowsDepth
+                pictureShowsDepth: pictureShowsDepth,
+                isArtwork: false
             )
             let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
             #expect(popoutPageHTML.contains("\"pictureShowsDepth\":\(pictureShowsDepth)"))
@@ -680,9 +688,20 @@ struct leanring_buddyTests {
         let youTubeFrameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: 42, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
         #expect(pageImageGrab.source == .pageImage)
         #expect(youTubeFrameGrab.source == .pausedYouTubeFrame)
-        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage).contains("video"))
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: false).contains("video"))
         #expect(!FramePopoutSource.pageImage.narrationImageLabel.contains("video"))
-        #expect(liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame).contains("the paused frame"))
+        #expect(liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame, isArtwork: false).contains("the paused frame"))
+    }
+
+    @Test func narrationOfAnArtworkAsksForFactsAboutTheArtNotWhatItShows() async throws {
+        let artworkSystemPrompt = liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true)
+        #expect(artworkSystemPrompt.contains("fact about the artwork"))
+        #expect(artworkSystemPrompt.contains("never just say what the part shows"))
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: false).contains("artwork"))
+        let tappedArtworkLabel = liveSceneNarrationUserPrompt(for: .partTapped(label: "Mount Fuji"), knownPartLabels: ["Mount Fuji", "Boats"], isArtwork: true)
+        #expect(!tappedArtworkLabel.contains("what does the Mount Fuji do"))
+        #expect(tappedArtworkLabel.contains("[PART:Mount Fuji]"))
+        #expect(liveSceneNarrationUserPrompt(for: .partTapped(label: "Fan"), knownPartLabels: ["Fan"], isArtwork: false).contains("what does the Fan do?"))
     }
 
     @Test func onlyAFailureOfTheLoadClickyStartedEndsTheScene() async throws {

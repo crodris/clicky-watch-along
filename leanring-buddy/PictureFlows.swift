@@ -3,8 +3,9 @@
 //  leanring-buddy
 //
 //  Streams of what flows through a popped-out picture, like air through an engine or blood
-//  through a heart. Sonnet draws them through POST /picture-flows when the learner says
-//  "animate this", and the pop-out page streams particles along them.
+//  through a heart. Opus draws them through POST /picture-flows when the learner says
+//  "animate this", and the pop-out page draws each one on top of the picture as smoke,
+//  sparks, lava, droplets, air, current, or beads. An artwork is never animated.
 //
 
 import Foundation
@@ -15,7 +16,13 @@ struct PictureFlow: Decodable, Equatable {
         case blue, red, orange, cyan, green, yellow, white
     }
 
+    /// How the pop-out page draws the stream.
+    enum Style: String, Decodable {
+        case smoke, sparks, lava, droplets, air, current, beads
+    }
+
     let color: Color
+    let style: Style
     /// The path in frame pixels, as [x, y] pairs, in the order the stream moves.
     let points: [[Int]]
 }
@@ -24,6 +31,7 @@ struct PictureFlow: Decodable, Equatable {
 enum PictureFlowsOutcome: Equatable {
     case showing(flowCount: Int)
     case nothingFlows
+    case leftTheArtworkAlone
     case failed
     /// A newer request took over, so this one says nothing.
     case superseded
@@ -34,6 +42,8 @@ enum PictureFlowsOutcome: Equatable {
             return nil
         case .nothingFlows:
             return "I don't see anything flowing through this picture to animate."
+        case .leftTheArtworkAlone:
+            return "This is a work of art, so I'll leave it just as the artist made it."
         case .failed:
             return "Sorry, I couldn't animate that one."
         }
@@ -45,7 +55,7 @@ enum PictureFlowsClient {
         let flows: [PictureFlow]
     }
 
-    /// Sonnet answers in about 4 seconds, while the pop-out tour plays.
+    /// Opus answers in about 2 to 7 seconds, while the pop-out tour plays.
     private static let requestTimeoutSeconds: TimeInterval = 15
 
     /// Empty when nothing in the picture flows.

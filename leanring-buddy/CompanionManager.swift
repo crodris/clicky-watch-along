@@ -1119,7 +1119,8 @@ final class CompanionManager: ObservableObject {
     /// Lifts the subject of the paused YouTube frame, or of the largest image on any other page, out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int, animatesWhatFlows: Bool) async {
-        LiveSceneStatusLabel.shared.show(.poppingItOut)
+        // A learner who asked to animate sees that word while the pop-out builds.
+        LiveSceneStatusLabel.shared.show(animatesWhatFlows ? .animatingIt : .poppingItOut)
         defer {
             // Every exit hides the pop-out line, unless a newer request took over, whose own line is not ours to hide.
             if requestGeneration == liveSceneRequestGeneration {
@@ -1162,7 +1163,7 @@ final class CompanionManager: ObservableObject {
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
         liveScenePageOnScreen = .framePopout(framePopout)
-        // Sonnet draws the flows while the tour plays, and the page starts them when the tour ends.
+        // Opus draws the flows while the tour plays, and the page starts them when the tour ends.
         // A tap that stops the narration keeps the pop-out, so the flows task runs on, and showPictureFlows
         // drops them only when a newer request or another page took over.
         let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows
@@ -1184,6 +1185,13 @@ final class CompanionManager: ObservableObject {
     }
 
     private func animateTheFramePopoutOnScreen(_ framePopout: VideoFramePopout, requestGeneration: Int) async {
+        LiveSceneStatusLabel.shared.show(.animatingIt)
+        defer {
+            // A newer request's own line is not ours to hide.
+            if requestGeneration == liveSceneRequestGeneration {
+                LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
+            }
+        }
         let pictureFlowsTask = Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
         await speakLiveSceneLine("Sure, let me animate that.")
         // A fast "nothing flows" reply would otherwise cut this line off, since a new line stops the one playing.
@@ -1192,6 +1200,7 @@ final class CompanionManager: ObservableObject {
         voiceState = .processing
         let pictureFlowsOutcome = await pictureFlowsTask.value
         guard !Task.isCancelled else { return }
+        LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
             await speakLiveSceneLine(spokenLine)
@@ -1200,6 +1209,11 @@ final class CompanionManager: ObservableObject {
     }
 
     private func showPictureFlows(on framePopout: VideoFramePopout, requestGeneration: Int) async -> PictureFlowsOutcome {
+        // An artwork is never animated, so its flows are never asked for.
+        guard !framePopout.isArtwork else {
+            print("Frame pop-out: leaving the artwork as the artist made it")
+            return .leftTheArtworkAlone
+        }
         let pictureFlows: [PictureFlow]
         do {
             pictureFlows = try await PictureFlowsClient.requestFlows(workerBaseURL: Self.workerBaseURL, framePopout: framePopout)
@@ -2175,8 +2189,8 @@ final class CompanionManager: ObservableObject {
         do {
             narrationText = try await claudeAPI.analyzeImageStreaming(
                 images: sourceImagesForNarration,
-                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source),
-                userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels),
+                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source, isArtwork: framePopout.isArtwork),
+                userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels, isArtwork: framePopout.isArtwork),
                 onTextChunk: { _ in }
             ).text
         } catch {

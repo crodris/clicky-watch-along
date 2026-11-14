@@ -19,8 +19,8 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   Flat illustrations and paintings keep the puffed-up lift.
 - `popout-animation` keeps an animated page image (GIF, animated WebP, or APNG) playing on the lifted subject and on the frame behind it, when the image sits wholly inside the viewport.
   Reduce Motion keeps the still frame.
-- `popout-flows` streams what flows through the picture, like air through an engine, when the learner says "animate this", "make it move", or "make it flow".
-  It uses `/picture-flows`, and Reduce Motion holds the streams still.
+- `popout-flows` draws what flows through the picture on top of it, like air streaks through an engine or lava down a volcano, when the learner says "animate this", "make it move", or "make it flow".
+  It uses `/picture-flows`, leaves an artwork and a picture of only moving parts unanimated with a spoken reason, and Reduce Motion holds the particles still.
 - `popout-narration` speaks two or three sentences after a non-quiz pop-out's tour, one part each, and highlights each part as it is named.
   The Claude call starts when the pop-out starts, with the paused frame and the part labels from `/video-frame-parts`.
   For an image on a web page, the prompt calls it a picture, never a video.
@@ -80,12 +80,18 @@ Preconditions:
   Run `$V shot animated-popout` twice about 0.2 seconds apart, and check that the blades and the arrows moved between the two shots with no white blobs at the engine's edge.
   Scroll so the GIF is cut off at the top of the window and pop it out again, and the log has no animation line.
 - **Flows route.** Build a body like the route step's, with `partLabels` (the labels from a `/video-frame-parts` reply) in place of `subject`, `question`, and `answerLabel`, then `$V post /picture-flows "$RUN/flows-body.json"`.
-  The Turbofan article's schematic and its animated cutaway each return several flows in blue and orange, a heart diagram returns red and blue, and The Starry Night returns `{"flows":[]}`.
-  `node bench/bench.ts worker --label flows --runs 1 --only picture-flows-heart,picture-flows-painting` checks the same on the bench fixtures.
+  A heart diagram returns red and blue `droplets`, and the Turbofan article's cutaway returns blue `air` and orange `sparks`.
+  A bicycle diagram returns `{"flows":[]}`, since its chain is a moving part, not a flow.
+  The app never asks for an artwork's flows: `/video-frame-parts` returns `isArtwork: true` for The Starry Night, The Great Wave, and Dürer's Young Hare, and `false` for the heart, the cutaway, and the bicycle.
+  `node bench/bench.ts worker --label flows --runs 1 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle,frame-parts-painting,frame-parts-print,frame-parts-art-of-one-animal,frame-parts-bicycle` checks the same on the bench fixtures.
 - **Animate in the app.** With the Turbofan article's lead GIF wholly on screen, run `$V app-launch "animate this"`.
   The log shows `Frame pop-out: lifting the subject` and then `Frame pop-out: streaming N flows`.
-  Run `$V shot flows` after the tour, and check that blue and orange dashes move through the engine's channels below the labels.
+  Run `$V shot flows` after the tour, and check that blue air streaks and orange sparks move through the engine's channels below the labels, and that the picture under them is unchanged.
   Then run `$V app-launch "pop this out|animate this"`, and the second step logs `streaming N flows` without a second `lifting the subject` line.
+- **An artwork stays still.** With The Starry Night or The Great Wave wholly on screen, run `$V app-launch "animate this"`.
+  The painting pops out, the log shows `Frame pop-out: leaving the artwork as the artist made it`, and after the narration Clicky says "This is a work of art, so I'll leave it just as the artist made it."
+- **An artwork is narrated with facts about the art.** With The Great Wave wholly on screen, run `$V app-launch "pop this out"` and record the display.
+  The cursor bubbles name Hokusai, about 1831, and the series Thirty-six Views of Mount Fuji, and none just says what a part shows.
 - **Cost ceiling.** One `[/video-frame-parts]` usage line per request, with `thinking_tokens` 0 because the route runs at low effort.
   Its output ceiling is not measured yet, and the route stops at 4096 tokens, so a line near 4096 means a cut-off reply.
 

@@ -13,6 +13,7 @@ import SwiftUI
 
 enum LiveSceneStatusLine {
     case poppingItOut
+    case animatingIt
     case readingYourScreen
     case buildingYourScene
     case almostThere
@@ -22,6 +23,7 @@ enum LiveSceneStatusLine {
     var text: String {
         switch self {
         case .poppingItOut: return "Popping it out"
+        case .animatingIt: return "Animating it"
         case .readingYourScreen: return "Reading your screen"
         case .buildingYourScene: return "Building your 3D scene"
         case .almostThere: return "Almost there"
@@ -38,6 +40,7 @@ enum LiveSceneStatusLine {
     var palette: StatusLabelPalette {
         switch self {
         case .poppingItOut: return .poppingItOut
+        case .animatingIt: return .animatingIt
         case .readingYourScreen: return .readingYourScreen
         case .buildingYourScene: return .buildingYourScene
         case .almostThere: return .almostThere
@@ -48,8 +51,9 @@ enum LiveSceneStatusLine {
 
     /// The lines the scene build shows. Only the scene build hides these.
     static let sceneBuildLines: Set<LiveSceneStatusLine> = [.readingYourScreen, .buildingYourScene, .almostThere]
-    /// The line the pop-out shows. Only the pop-out hides it.
-    static let popOutLines: Set<LiveSceneStatusLine> = [.poppingItOut]
+    /// The lines the pop-out shows: "Animating it" when the learner asked to animate, while the pop-out builds
+    /// or while the flows for a pop-out already on screen come back. Only the pop-out hides these.
+    static let popOutLines: Set<LiveSceneStatusLine> = [.poppingItOut, .animatingIt]
     /// The lines the video quiz shows while it reads and plans. Only the video quiz hides these.
     static let videoQuizPlanningLines: Set<LiveSceneStatusLine> = [.readingTheTranscript, .pickingQuizSpots]
 
@@ -80,6 +84,7 @@ enum LiveSceneStatusLine {
     var stillMomentSeconds: Double {
         switch self {
         case .poppingItOut: return 1.9
+        case .animatingIt: return 0
         case .readingYourScreen: return 1.35
         case .buildingYourScene: return 1.6
         case .almostThere: return 1.5
@@ -102,6 +107,10 @@ struct StatusLabelPalette {
     static let poppingItOut = StatusLabelPalette(
         iconColor: DS.Colors.blue600, textColor: DS.Colors.blue600, lightColor: DS.Colors.blue400,
         paleColor: DS.Colors.blue200, washColor: DS.Colors.blue50, highlightColor: DS.Colors.blue400
+    )
+    static let animatingIt = StatusLabelPalette(
+        iconColor: DS.Colors.teal500, textColor: DS.Colors.teal700, lightColor: DS.Colors.teal300,
+        paleColor: DS.Colors.teal100, washColor: DS.Colors.teal50, highlightColor: DS.Colors.teal400
     )
     static let readingYourScreen = StatusLabelPalette(
         iconColor: DS.Colors.purple500, textColor: DS.Colors.purple700, lightColor: DS.Colors.purple300,
@@ -218,6 +227,12 @@ extension LiveSceneStatusLine {
                 scale: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 1), (0.12, 1.3), (0.24, 0.95), (0.40, 1), (1, 1)], easing: StatusLabelMotion.easeOutBack),
                 rotationDegrees: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 0), (0.12, tiltDegrees), (0.24, 0), (1, 0)], easing: StatusLabelMotion.easeOutBack)
             )
+
+        case .animatingIt:
+            // A wave flows through the letters left to right, and each crest glows, like the streams on the icon.
+            let wavePhase = 2 * Double.pi * (elapsedSeconds / 1.6 - Double(letterIndex) * 0.09)
+            let crestAmount = max(0, sin(wavePhase))
+            return StatusLetterPose(offsetY: -3.5 * sin(wavePhase), highlightAmount: crestAmount * crestAmount)
 
         case .readingYourScreen:
             // A bright band runs across the letters, like the scan line on the icon.

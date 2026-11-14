@@ -108,24 +108,38 @@ enum FramePopoutSource {
 }
 
 /// Kept apart from the companion prompt, which asks for [POINT:] tags that make no sense here.
-func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource) -> String {
-    """
-    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence) your words go to text to speech, so write the way you'd talk: short sentences, plain words, all lowercase, no lists, no markdown, no emojis, no abbreviations. make each sentence say one surprising or useful thing about that part. never tell them to click, scroll, or look anywhere else.
+/// An artwork gets facts about the art, since saying what a painting shows tells them nothing they can't see.
+func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource, isArtwork: Bool) -> String {
+    let whatEachSentenceSays = isArtwork
+        ? "it's a work of art. make each sentence one true fact about the artwork itself that ties to the part it names: who made it, when, how it was made, the story behind it, or why it became famous. never just say what the part shows, since they can see that. say only facts you're sure of, and if you don't recognize this exact artwork, talk about the technique and materials you can see instead of guessing its name or its artist."
+        : "make each sentence say one surprising or useful thing about that part."
+    return """
+    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence) your words go to text to speech, so write the way you'd talk: short sentences, plain words, all lowercase, no lists, no markdown, no emojis, no abbreviations. \(whatEachSentenceSays) never tell them to click, scroll, or look anywhere else.
     """
 }
 
-func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigger, knownPartLabels: [String]) -> String {
+func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigger, knownPartLabels: [String], isArtwork: Bool) -> String {
     let partNamesLine = "the labeled parts are exactly: \(knownPartLabels.joined(separator: ", "))."
-    switch narrationTrigger {
-    case .afterTour:
+    switch (narrationTrigger, isArtwork) {
+    case (.afterTour, false):
         return """
         \(partNamesLine)
         say two or three short sentences, one per part, picking the parts an 11-year-old would find most interesting. start each sentence with [PART:name] using one of those exact names.
         """
-    case .partTapped(let label):
+    case (.afterTour, true):
+        return """
+        \(partNamesLine)
+        say two or three short sentences, one per part, picking the parts with the most interesting facts about the artwork behind them. start each sentence with [PART:name] using one of those exact names.
+        """
+    case (.partTapped(let label), false):
         return """
         \(partNamesLine)
         the learner tapped the \(label) label and asks: what does the \(label) do? answer in one or two short sentences. start the first sentence with [PART:\(label)].
+        """
+    case (.partTapped(let label), true):
+        return """
+        \(partNamesLine)
+        the learner tapped the \(label) label and wants to know about it. answer with one or two short facts about the \(label) in this artwork. start the first sentence with [PART:\(label)].
         """
     }
 }
