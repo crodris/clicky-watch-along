@@ -762,6 +762,9 @@ final class CompanionManager: ObservableObject {
                 continue
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            // A quiet moment is not the end of a step: a pop-out's narration starts about a second after its
+            // tour ends, so the step's own work is waited out first, then any tour or speech still going.
+            await waitForTheLatestResponseTaskToFinish()
             while true {
                 let tourIsStillPlaying: Bool
                 if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
@@ -772,6 +775,7 @@ final class CompanionManager: ObservableObject {
             print("Live scene rehearsal: finished, phase \(liveScenePhase)")
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
+        await waitForTheLatestResponseTaskToFinish()
         // A scene that should have been cancelled would still be building or touring here, for up to 40 seconds.
         for _ in 0..<160 {
             var sceneIsStillInProgress = false
@@ -782,6 +786,15 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         print("Live scene rehearsal: done, phase \(liveScenePhase)")
+    }
+
+    /// A voice command can hand its request to a new response task, such as pop_out starting the pop-out,
+    /// so this waits on whichever task is current until no newer one has replaced it.
+    private func waitForTheLatestResponseTaskToFinish() async {
+        while let responseTask = currentResponseTask {
+            await responseTask.value
+            if currentResponseTask == responseTask { return }
+        }
     }
     #endif
 
