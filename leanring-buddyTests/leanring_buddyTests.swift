@@ -1231,4 +1231,110 @@ struct leanring_buddyTests {
         }
     }
 
+    // MARK: - Background agents
+
+    private let studyGuidePageURL = URL(string: "https://www.notion.so/p1")!
+
+    @Test func anAgentMovesThroughItsStepsAndFinishesWithItsResult() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        #expect(store.agents.first?.phase == .running(completedStepCount: 0))
+        #expect(store.agents.first?.filledFraction == 0)
+
+        store.setSubject("How a jet engine works", for: agentID)
+        store.completeStep(for: agentID)
+        #expect(store.agents.first?.subject == "How a jet engine works")
+        #expect(store.agents.first?.phase == .running(completedStepCount: 1))
+        #expect(store.agents.first?.filledFraction == 0.5)
+
+        store.finish(agentID, with: .notionPage(studyGuidePageURL))
+        #expect(store.agents.first?.phase == .finished(.notionPage(studyGuidePageURL)))
+        #expect(store.agents.first?.filledFraction == 1)
+        #expect(store.agents.first?.endedAt != nil)
+    }
+
+    @Test func anAgentThatEndedIgnoresEveryLaterChange() async throws {
+        let store = BackgroundAgentStore()
+        let finishedAgentID = store.start(kind: .studyGuide)
+        store.finish(finishedAgentID, with: .notionPage(studyGuidePageURL))
+        store.completeStep(for: finishedAgentID)
+        store.setSubject("Late title", for: finishedAgentID)
+        store.fail(finishedAgentID, reason: "late failure")
+        store.cancel(finishedAgentID)
+        #expect(store.agents.first?.phase == .finished(.notionPage(studyGuidePageURL)))
+        #expect(store.agents.first?.subject == nil)
+
+        let cancelledAgentID = store.start(kind: .studyGuide)
+        store.cancel(cancelledAgentID)
+        store.finish(cancelledAgentID, with: .notionPage(studyGuidePageURL))
+        #expect(store.agents.first?.phase == .cancelled)
+    }
+
+    @Test func aFailedAgentKeepsItsReasonAndShowsAnEmptyOutline() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        store.completeStep(for: agentID)
+        store.fail(agentID, reason: "Notion isn't connected yet")
+        #expect(store.agents.first?.phase == .failed(reason: "Notion isn't connected yet"))
+        #expect(store.agents.first?.filledFraction == 0)
+    }
+
+    @Test func theLastStepIsFinishedByFinishingTheAgentNotByCompletingAStep() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        store.completeStep(for: agentID)
+        store.completeStep(for: agentID)
+        store.completeStep(for: agentID)
+        #expect(store.agents.first?.phase == .running(completedStepCount: 1))
+    }
+
+    @Test func theStoreKeepsTheNewestTenAgentsFirst() async throws {
+        let store = BackgroundAgentStore()
+        let agentIDs = (0..<12).map { _ in store.start(kind: .studyGuide) }
+        #expect(store.agents.count == 10)
+        #expect(store.agents.map(\.id) == Array(agentIDs.suffix(10).reversed()))
+    }
+
+    @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {
+        let endedAt = Date(timeIntervalSince1970: 1_000)
+        func agent(in phase: BackgroundAgentPhase) -> BackgroundAgent {
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
+        }
+        let finishedAgent = agent(in: .finished(.notionPage(studyGuidePageURL)))
+        #expect(agent(in: .running(completedStepCount: 1)).isShownAsAWingman(at: endedAt.addingTimeInterval(500)))
+        #expect(finishedAgent.isShownAsAWingman(at: endedAt.addingTimeInterval(3.9)))
+        #expect(!finishedAgent.isShownAsAWingman(at: endedAt.addingTimeInterval(4)))
+        #expect(agent(in: .failed(reason: "x")).isShownAsAWingman(at: endedAt.addingTimeInterval(1)))
+        #expect(!agent(in: .failed(reason: "x")).isShownAsAWingman(at: endedAt.addingTimeInterval(4)))
+        #expect(!agent(in: .cancelled).isShownAsAWingman(at: endedAt))
+    }
+
+    @Test func elapsedTimeReadsAsMinutesAndSeconds() async throws {
+        #expect(backgroundAgentElapsedTimeText(seconds: 0) == "0:00")
+        #expect(backgroundAgentElapsedTimeText(seconds: 42.9) == "0:42")
+        #expect(backgroundAgentElapsedTimeText(seconds: 725) == "12:05")
+    }
+
+    @Test func fiveRunningAgentsShowThreeWingmenDownAndRightOfTheTriangleAndCountTwoMore() async throws {
+        let store = BackgroundAgentStore()
+        for _ in 0..<5 { store.start(kind: .studyGuide) }
+        let formation = wingmanFormation(for: store.agents)
+        #expect(formation.placements.count == 3)
+        #expect(formation.overflowCount == 2)
+        #expect(formation.placements.map(\.agent.id) == store.agents.prefix(3).map(\.id))
+        #expect(formation.placements.map(\.offset) == [CGSize(width: 15, height: 18), CGSize(width: 30, height: 36), CGSize(width: 45, height: 54)])
+    }
+
+    @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
+        let store = BackgroundAgentStore()
+        let olderAgentID = store.start(kind: .studyGuide)
+        let newerAgentID = store.start(kind: .studyGuide)
+        store.finish(newerAgentID, with: .notionPage(studyGuidePageURL))
+        let formation = wingmanFormation(for: store.agents)
+        #expect(formation.placements.map(\.agent.id) == [newerAgentID, olderAgentID])
+        #expect(formation.placements.map(\.offset) == [WingmanFormation.aheadOfTheTipOffset, CGSize(width: 15, height: 18)])
+        #expect(formation.overflowCount == 0)
+        #expect(wingmanFormation(for: []).placements.isEmpty)
+    }
+
 }
