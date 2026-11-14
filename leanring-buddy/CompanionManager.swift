@@ -124,6 +124,10 @@ final class CompanionManager: ObservableObject {
     private var studyGuideTask: Task<Void, Never>?
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     let backgroundAgentStore = BackgroundAgentStore()
+    private lazy var agentListPanelController = AgentListPanelController(
+        store: backgroundAgentStore,
+        cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) }
+    )
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -181,6 +185,7 @@ final class CompanionManager: ObservableObject {
 
     private var shortcutTransitionCancellable: AnyCancellable?
     private var escapeKeyCancellable: AnyCancellable?
+    private var agentListShortcutCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
@@ -293,6 +298,7 @@ final class CompanionManager: ObservableObject {
         bindShortcutTransitions()
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
+        bindShiftOptionHoldToTheAgentList()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -417,6 +423,8 @@ final class CompanionManager: ObservableObject {
         shortcutTransitionCancellable?.cancel()
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
+        agentListShortcutCancellable?.cancel()
+        agentListPanelController.close()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
@@ -599,6 +607,16 @@ final class CompanionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 self?.closeLiveSceneOnEscape()
+            }
+    }
+
+    /// Holding shift + option opens the agent list, and holding them again closes it.
+    private func bindShiftOptionHoldToTheAgentList() {
+        agentListShortcutCancellable = globalPushToTalkShortcutMonitor
+            .agentListShortcutPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.agentListPanelController.toggle()
             }
     }
 
@@ -1823,10 +1841,15 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape ends the scene and anything Clicky is still saying about it.
+    /// Escape closes the agent list when it is open. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
+        // With the agent list open, Escape only closes it.
+        if agentListPanelController.isOpen {
+            agentListPanelController.close()
+            return
+        }
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
             clearTheLiveSceneAndReleaseTheBuddy()

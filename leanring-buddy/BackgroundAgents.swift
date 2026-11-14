@@ -105,6 +105,39 @@ struct BackgroundAgent: Identifiable, Equatable {
     }
 }
 
+enum BackgroundAgentStepStatus: Equatable {
+    case done
+    case current
+    case pending
+
+    var symbol: String {
+        switch self {
+        case .done: return "✓"
+        case .current: return "●"
+        case .pending: return "○"
+        }
+    }
+}
+
+extension BackgroundAgent {
+    /// One status per step, in order, for the list's expanded row. A failed or cancelled agent has none,
+    /// because its phase does not keep how far it got, and the list shows its reason instead.
+    var stepStatuses: [BackgroundAgentStepStatus] {
+        let stepCount = kind.stepNames.count
+        switch phase {
+        case .running(let completedStepCount):
+            return (0..<stepCount).map { stepIndex in
+                if stepIndex < completedStepCount { return .done }
+                return stepIndex == completedStepCount ? .current : .pending
+            }
+        case .finished:
+            return Array(repeating: .done, count: stepCount)
+        case .failed, .cancelled:
+            return []
+        }
+    }
+}
+
 /// "0:42" or "12:05".
 func backgroundAgentElapsedTimeText(seconds: TimeInterval) -> String {
     let wholeSeconds = Int(seconds)

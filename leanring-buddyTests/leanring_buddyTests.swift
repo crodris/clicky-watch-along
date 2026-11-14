@@ -1447,4 +1447,36 @@ struct leanring_buddyTests {
         }
     }
 
+    // MARK: - Agent list
+
+    @Test func theAgentListOpensBelowAndRightOfTheMouseAndStaysInsideTheScreen() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 875)
+        let panelSize = CGSize(width: 300, height: 200)
+
+        let nearTheMiddle = agentListPanelOrigin(anchorTopLeft: CGPoint(x: 600, y: 500), panelSize: panelSize, visibleFrame: visibleFrame)
+        #expect(nearTheMiddle == CGPoint(x: 600, y: 300))
+
+        let nearTheBottomRightCorner = agentListPanelOrigin(anchorTopLeft: CGPoint(x: 1400, y: 50), panelSize: panelSize, visibleFrame: visibleFrame)
+        #expect(nearTheBottomRightCorner == CGPoint(x: 1140, y: 0))
+
+        let nearTheTopEdge = agentListPanelOrigin(anchorTopLeft: CGPoint(x: 600, y: 900), panelSize: panelSize, visibleFrame: visibleFrame)
+        #expect(nearTheTopEdge == CGPoint(x: 600, y: 675))
+    }
+
+    @Test func theExpandedRowMarksDoneCurrentAndPendingStepsAndShowsNoneForAnEndedWithoutResult() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        #expect(store.agents[0].stepStatuses == [.current, .pending])
+        #expect(store.agents[0].stepStatuses.map(\.symbol) == ["●", "○"])
+        store.completeStep(for: agentID)
+        #expect(store.agents[0].stepStatuses == [.done, .current])
+        store.finish(agentID, with: .notionPage(studyGuidePageURL))
+        #expect(store.agents[0].stepStatuses == [.done, .done])
+        #expect(store.agents[0].stepStatuses.map(\.symbol) == ["✓", "✓"])
+
+        let failedAgentID = store.start(kind: .studyGuide)
+        store.fail(failedAgentID, reason: "x")
+        #expect(store.agents[0].stepStatuses.isEmpty)
+    }
+
 }
