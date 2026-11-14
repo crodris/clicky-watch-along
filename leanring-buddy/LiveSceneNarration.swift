@@ -88,12 +88,13 @@ enum FramePopoutSource {
     case pageImage
 
     /// The prompt's sentence about what lifted out, and what the attached image is.
-    var narrationSourceSentence: String {
+    func narrationSourceSentence(hasPartLabels: Bool) -> String {
+        let model = hasPartLabels ? "a 3d model with labeled parts" : "a 3d model"
         switch self {
         case .pausedYouTubeFrame:
-            return "something from the video they're watching just lifted out of the paused frame as a 3d model with labeled parts. the image is that paused frame."
+            return "something from the video they're watching just lifted out of the paused frame as \(model). the image is that paused frame."
         case .pageImage:
-            return "something from a picture on the web page they're reading just lifted out of the page as a 3d model with labeled parts. the image is that picture."
+            return "something from a picture on the web page they're reading just lifted out of the page as \(model). the image is that picture."
         }
     }
 
@@ -109,16 +110,35 @@ enum FramePopoutSource {
 
 /// Kept apart from the companion prompt, which asks for [POINT:] tags that make no sense here.
 /// An artwork gets facts about the art, since saying what a painting shows tells them nothing they can't see.
-func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource, isArtwork: Bool) -> String {
-    let whatEachSentenceSays = isArtwork
-        ? "it's a work of art. make each sentence one true fact about the artwork itself that ties to the part it names: who made it, when, how it was made, the story behind it, or why it became famous. never just say what the part shows, since they can see that. say only facts you're sure of, and if you don't recognize this exact artwork, talk about the technique and materials you can see instead of guessing its name or its artist."
-        : "make each sentence say one surprising or useful thing about that part."
+/// An animated picture lifts out with no labels, so its sentences name no part.
+func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource, isArtwork: Bool, hasPartLabels: Bool = true) -> String {
+    let whatEachSentenceSays: String
+    switch (isArtwork, hasPartLabels) {
+    case (true, true):
+        whatEachSentenceSays = "it's a work of art. make each sentence one true fact about the artwork itself that ties to the part it names: who made it, when, how it was made, the story behind it, or why it became famous. never just say what the part shows, since they can see that. say only facts you're sure of, and if you don't recognize this exact artwork, talk about the technique and materials you can see instead of guessing its name or its artist."
+    case (true, false):
+        whatEachSentenceSays = "it's a work of art. make each sentence one true fact about the artwork itself: who made it, when, how it was made, the story behind it, or why it became famous. say only facts you're sure of, and if you don't recognize this exact artwork, talk about the technique and materials you can see instead of guessing its name or its artist."
+    case (false, true):
+        whatEachSentenceSays = "make each sentence say one surprising or useful thing about that part."
+    case (false, false):
+        whatEachSentenceSays = "make each sentence say one surprising or useful thing about what the picture shows."
+    }
     return """
-    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence) your words go to text to speech, so write the way you'd talk: short sentences, plain words, no lists, no markdown, no emojis, no abbreviations. the words also show as captions, so use normal sentence case and capitalize every name, such as people, places, languages, and nationalities (Hokusai, Japan, Japanese). \(whatEachSentenceSays) never tell them to click, scroll, or look anywhere else.
+    you're clicky, a friendly guide talking out loud to a curious 11-year-old. \(framePopoutSource.narrationSourceSentence(hasPartLabels: hasPartLabels)) your words go to text to speech, so write the way you'd talk: short sentences, plain words, no lists, no markdown, no emojis, no abbreviations. the words also show as captions, so use normal sentence case and capitalize every name, such as people, places, languages, and nationalities (Hokusai, Japan, Japanese). \(whatEachSentenceSays) never tell them to click, scroll, or look anywhere else.
     """
 }
 
 func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigger, knownPartLabels: [String], isArtwork: Bool) -> String {
+    // An animated picture lifts out with no labels, and no label can be tapped, so the narration names no parts.
+    // The attached image is only its first frame, so the narration talks about the motion, not what that frame shows.
+    if knownPartLabels.isEmpty {
+        let whatToTalkAbout = isArtwork
+            ? "say two or three short true facts about the artwork"
+            : "talk about what the animation shows happening: the motion itself, how it works, and why it matters. don't describe the places or things that happen to be in this one frame, since they move away. say two or three short sentences"
+        return """
+        this picture is an animation, and the image is only its first frame, so it keeps moving while you talk. \(whatToTalkAbout), without any [PART:] tags.
+        """
+    }
     let partNamesLine = "the labeled parts are exactly: \(knownPartLabels.joined(separator: ", "))."
     switch (narrationTrigger, isArtwork) {
     case (.afterTour, false):
