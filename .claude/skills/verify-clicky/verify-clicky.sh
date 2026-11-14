@@ -14,6 +14,7 @@ usage() {
 Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
 
   new-run <name>            Start an evidence folder and make it current.
+  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished.
   doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
   worker-up [port] [-- wrangler args]
                             Start wrangler dev from this checkout (default port 8789).
@@ -209,6 +210,64 @@ stop_process_tree() {
   kill -KILL $tree_pids 2>/dev/null || true
 }
 
+# Xcode's own build keeps Clicky's privacy grants, which xcodebuild resets. Xcode's AppleScript build silently does
+# nothing while a project has no active run destination, so this sets "My Mac" first, then checks the app changed.
+command_build() {
+  local project_path="$checkout_root/leanring-buddy.xcodeproj"
+  local built_before=""
+  local app_before
+  app_before="$(debug_app_path)"
+  if [[ -n "$app_before" && "$(debug_app_workspace "$app_before")" == "$project_path" ]]; then
+    built_before="$(stat -f %m "$app_before/Contents/MacOS/Clicky.debug.dylib" 2>/dev/null || true)"
+  fi
+  open -a Xcode "$project_path"
+  local build_status
+  build_status="$(osascript - "$project_path" <<'APPLESCRIPT'
+on run argv
+  set projectPath to item 1 of argv
+  tell application "Xcode"
+    repeat 60 times
+      if (count of (workspace documents whose path is projectPath)) > 0 then exit repeat
+      delay 1
+    end repeat
+    set projectDocument to first workspace document whose path is projectPath
+    repeat 60 times
+      if loaded of projectDocument then exit repeat
+      delay 1
+    end repeat
+    set active run destination of projectDocument to (first run destination of projectDocument whose name is "My Mac")
+    set buildResult to build projectDocument
+    repeat 900 times
+      if completed of buildResult then exit repeat
+      delay 1
+    end repeat
+    return status of buildResult as text
+  end tell
+end run
+APPLESCRIPT
+)"
+  local app_after
+  app_after="$(debug_app_path)"
+  local built_after=""
+  if [[ -n "$app_after" && "$(debug_app_workspace "$app_after")" == "$project_path" ]]; then
+    built_after="$(stat -f %m "$app_after/Contents/MacOS/Clicky.debug.dylib" 2>/dev/null || true)"
+  fi
+  if [[ "$build_status" != "succeeded" ]]; then
+    echo "Xcode build $build_status for $project_path. Read the errors in Xcode's issue navigator." >&2
+    exit 1
+  fi
+  # A build with nothing to compile leaves the app as it was, which still matches this checkout.
+  if [[ -z "$built_after" ]]; then
+    echo "Xcode reported success, but no Debug app from $project_path exists. Check Xcode's scheme and destination." >&2
+    exit 1
+  fi
+  if [[ "$built_after" == "$built_before" ]]; then
+    echo "build: up to date, $app_after"
+  else
+    echo "build: done, $app_after"
+  fi
+}
+
 command_doctor() {
   echo "checkout: $checkout_root"
   echo "branch: $(git -C "$checkout_root" branch --show-current) at $(git -C "$checkout_root" log -1 --format='%h %s')"
@@ -240,7 +299,7 @@ command_doctor() {
   local app_path
   app_path="$(debug_app_path)"
   if [[ -z "$app_path" ]]; then
-    echo "debug app: MISSING for this repository. Chris builds it in Xcode (Cmd+B). Never run xcodebuild locally."
+    echo "debug app: MISSING for this repository. Run this script's build command, which builds in Xcode. Never run xcodebuild locally."
   else
     local app_binary="$app_path/Contents/MacOS/Clicky"
     local build_epoch last_app_commit_epoch
@@ -259,7 +318,7 @@ command_doctor() {
     if strings "${binaries_with_strings[@]}" | grep -x -- '--live-scene-rehearsal' >/dev/null; then
       echo "debug app: supports --live-scene-rehearsal"
     else
-      echo "debug app: does NOT support --live-scene-rehearsal. Ask Chris to build in Xcode (Cmd+B)."
+      echo "debug app: does NOT support --live-scene-rehearsal. Run this script's build command."
     fi
   fi
 
@@ -403,7 +462,7 @@ command_app_launch() {
   local rehearsal_steps="$1"
   local app_path
   app_path="$(debug_app_path)"
-  if [[ -z "$app_path" ]]; then echo "No Debug Clicky.app built from this repository. Ask Chris to build in Xcode (Cmd+B)." >&2; exit 1; fi
+  if [[ -z "$app_path" ]]; then echo "No Debug Clicky.app built from this repository. Run this script's build command first." >&2; exit 1; fi
   if [[ -n "$(running_clicky_pids)" ]]; then
     echo "Clicky is already running (pid $(running_clicky_pids | paste -sd, -)). Two instances fight over the event tap and overlay. Ask Chris to quit his first." >&2
     exit 1
@@ -513,6 +572,7 @@ main() {
   if [[ "$command_name" != "doctor" ]]; then mkdir -p "$runs_root"; fi
   case "$command_name" in
     new-run) start_new_run "${1:?new-run needs a name}" ;;
+    build) command_build ;;
     doctor) command_doctor ;;
     worker-up) command_worker_up "$@" ;;
     worker-down) command_worker_down ;;

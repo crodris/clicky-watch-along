@@ -1163,6 +1163,18 @@ private struct ChromeVideoTab {
 
 // MARK: - Captions
 
+#if DEBUG
+/// A debug captions file counts only when its name holds the playing video's ID, read from the URL's `v` parameter,
+/// so a leftover setting never feeds one video's captions to another.
+func debugCaptionsFileApplies(captionsFilePath: String, videoURL: String) -> Bool {
+    guard let videoID = URLComponents(string: videoURL)?.queryItems?.first(where: { $0.name == "v" })?.value,
+          !videoID.isEmpty else {
+        return false
+    }
+    return (captionsFilePath as NSString).lastPathComponent.contains(videoID)
+}
+#endif
+
 private enum VideoCaptionsDownloader {
     private static let ytDlpCandidatePaths = ["/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp"]
     private static let secondsBeforeGivingUpOnYtDlp: TimeInterval = 45
@@ -1170,6 +1182,21 @@ private enum VideoCaptionsDownloader {
     /// Runs yt-dlp for the English captions only. Asking for "en.*" also asks for
     /// every translation, which YouTube answers with a 429.
     static func downloadTranscriptLines(forVideoURL videoURL: String) async throws -> [VideoQuizTranscriptLine] {
+        #if DEBUG
+        // When YouTube rate-limits this Mac's caption requests, a rehearsal can use captions fetched elsewhere:
+        // `defaults write <bundle id> debugVideoQuizCaptionsJSON3Path /path/<video id>.json3`. The quiz and
+        // find_moment both read through here.
+        if let captionsFilePath = UserDefaults.standard.string(forKey: "debugVideoQuizCaptionsJSON3Path") {
+            if debugCaptionsFileApplies(captionsFilePath: captionsFilePath, videoURL: videoURL),
+               let captionsData = FileManager.default.contents(atPath: captionsFilePath) {
+                print("Video quiz: reading captions from \(captionsFilePath) instead of yt-dlp")
+                let transcriptLines = try videoQuizTranscriptLines(fromCaptionsJSON3Data: captionsData)
+                guard !transcriptLines.isEmpty else { throw VideoQuizFailure.noCaptions }
+                return transcriptLines
+            }
+            print("Video quiz: the debug captions file \(captionsFilePath) does not apply to \(videoURL), so yt-dlp reads the captions")
+        }
+        #endif
         guard let ytDlpPath = ytDlpCandidatePaths.first(where: { candidatePath in
             FileManager.default.isExecutableFile(atPath: candidatePath)
         }) else {

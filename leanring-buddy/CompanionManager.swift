@@ -35,6 +35,14 @@ func escapeHasAnAnswerToStop(
     return voiceState == .processing || voiceState == .responding || speechIsPlaying || cursorIsPointingForTheAnswer
 }
 
+#if DEBUG
+/// In a rehearsal "?" step, "{answer}" becomes the open question's answer label, since the plan picks a new
+/// question each run.
+func rehearsalTranscript(_ transcript: String, answeringWith answerLabel: String) -> String {
+    transcript.replacingOccurrences(of: "{answer}", with: answerLabel.lowercased())
+}
+#endif
+
 @MainActor
 final class CompanionManager: ObservableObject {
     @Published private(set) var voiceState: CompanionVoiceState = .idle
@@ -733,14 +741,15 @@ final class CompanionManager: ObservableObject {
     /// Feeds transcripts through the real pipeline with no microphone, so the
     /// whole voice and quiz loop can be tested unattended. A transcript that
     /// starts with "~" does not wait for Clicky: the next one follows 6 seconds
-    /// later, while a scene is still building.
+    /// later, while a scene is still building. In a "?" step, "{answer}" becomes
+    /// the open question's answer label, since the plan picks a new question each run.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStep in transcripts {
             let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
             // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
             let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
-            let transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion ? String(rehearsalStep.dropFirst()) : rehearsalStep
+            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion ? String(rehearsalStep.dropFirst()) : rehearsalStep
             if stepWaitsForAQuestion {
                 // A learner answers after hearing the question, so wait for it to start and end.
                 var questionAudioHasStarted = false
@@ -750,6 +759,9 @@ final class CompanionManager: ObservableObject {
                     if questionIsWaiting && elevenLabsTTSClient.isPlaying { questionAudioHasStarted = true }
                     if questionIsWaiting && questionAudioHasStarted && !elevenLabsTTSClient.isPlaying { break }
                     try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+                if case .awaitingAnswer(let openQuiz, _) = liveScenePhase {
+                    transcript = rehearsalTranscript(transcript, answeringWith: openQuiz.answerLabel)
                 }
             }
             print("Live scene rehearsal: saying \"\(transcript)\" in phase \(liveScenePhase)")

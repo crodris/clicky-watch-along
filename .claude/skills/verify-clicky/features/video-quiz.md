@@ -46,6 +46,8 @@ Preconditions:
 - **Quiz in the app.** Start the quiz and answer the first question.
   Run `$V app-launch "watch this video with me and quiz me|?I'm not sure, can you give me a hint|stop the quiz"` and `$V app-wait 600`.
   The log shows `Video quiz: found tab`, `read N caption lines`, `planned N moments`, `paused at Ns for moment 1`, then `Video quiz: stopped`.
+- **Correct answer.** In a `?` step, `{answer}` becomes the open question's answer label, so `?is it the {answer}` answers correctly whatever the plan picked.
+  The log shows the judge's grade, and a correct name turns the label green with the ring burst and the "Glass" sound.
 - **Hidden labels.** On a video that prints its own labels, such as an anatomy animation, the log shows `Video quiz: hiding N printed text boxes until the pop-out returns` with N above 0.
   While the question and its follow-up are open, no printed word is readable on the frame or the lifted subject, even a tall title; after the pop-out returns to the video, the text is back.
 
@@ -53,6 +55,12 @@ Preconditions:
 
 - The video plays in real time, so the first pause can be minutes away.
   Give `app-wait` enough seconds.
+- YouTube can rate-limit this Mac's caption requests with HTTP 429 for an hour or more, and the quiz then fails at `read N caption lines`.
+  Fetch the captions from another IP with yt-dlp (`--write-auto-subs --sub-langs en --sub-format json3`), save them as `<video id>.json3`, and run `defaults write <bundle id> debugVideoQuizCaptionsJSON3Path <that path>`.
+  A Debug build then logs `Video quiz: reading captions from <path> instead of yt-dlp`, for the quiz and for find_moment. Run `defaults delete <bundle id> debugVideoQuizCaptionsJSON3Path` afterwards.
+  The file counts only when its name holds the video's `v` parameter, so a youtu.be link never uses it.
+  A file that does not apply logs `Video quiz: the debug captions file <path> does not apply to <url>`, and yt-dlp reads the captions instead.
+  A file with no caption lines fails as no captions.
 - A video without captions fails at `read N caption lines`.
   Pick another video, and do not report the route as broken.
 - A `?` step waits at most 4 minutes for a question to be asked.

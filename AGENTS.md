@@ -185,6 +185,7 @@ The pop-out lands back in the frame, then clears before the video plays again. S
 | `bench/bench.ts` | ~840 | Benchmark of every Worker route the demo uses, on fixed fixtures in `bench/fixtures/`: latency, tokens, cost, and a quality check per call, with results in `bench/results/`. Each side of a comparison sends what its own app version sends. See `bench/README.md`. |
 | `tools/swift-check.sh` | ~45 | Builds the app's Swift sources and runs `leanring-buddyTests` without xcodebuild, in a throwaway Swift package that links the sources in place, with the stand-ins and settings in `tools/swift-check/`. It skips the tests that read a page from the app bundle, which only Xcode's test host has. Its `Package.swift` mirrors the Xcode target's Swift settings, so change both together. |
 | `bench/report.ts` | ~185 | Turns benchmark result files into the CSV tables a chart page reads. CI runs it on every committed result. |
+| `demo/` | ~1300 | A Remotion edit of real Clicky recordings for the demo video. `scripts/record-shot.sh` records a Chrome window on the MacBook's Retina display while the rehearsal flag drives the main checkout's Debug build, `scripts/track-cursor.ts` finds the blue triangle in each frame, `src/timeline.ts` holds the shots, captions, and camera moves of the demo and the follow-up quiz clip, and `scripts/mix-music.ts` mixes a ducked music bed under the narration, with an optional voice gain per clip, and normalizes to -14 LUFS. Recordings, the music file, and renders are gitignored. See `demo/README.md`. |
 
 ## Build & Run
 

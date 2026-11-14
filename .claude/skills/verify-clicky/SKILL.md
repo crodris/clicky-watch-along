@@ -24,7 +24,7 @@ $V            # prints usage
   Verify those pull requests through CI only.
 - Never run `xcodebuild` on this Mac as Chris's user.
   It resets the app's TCC permissions.
-  Chris builds the Debug app in Xcode (Cmd+B).
+  Build the Debug app with `$V build`, which drives Xcode itself through AppleScript and keeps the grants. Never ask Chris to build.
   CI builds it on this Mac as the separate `clicky-ci` user, into a temp folder.
   That build never replaces the app Chris's grants belong to.
   Fork pull requests build on GitHub's `macos-latest`.
@@ -60,7 +60,7 @@ It reports:
 
 A build older than the last app commit may not match HEAD.
 A build without `--live-scene-rehearsal` cannot be driven at all.
-In both cases ask Chris to press Cmd+B in Xcode, and report the app surface as unverified until he does.
+In both cases run `$V build`, and report the app surface as unverified only if that build fails.
 
 ## Launch
 
@@ -141,6 +141,7 @@ Run it with no arguments for this usage:
 
 ```text
 new-run <name>            Start an evidence folder and make it current.
+build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished.
 doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
 worker-up [port] [-- wrangler args]
                           Start wrangler dev from this checkout (default port 8789).

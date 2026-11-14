@@ -1,0 +1,27 @@
+{
+  "name": "clicky-demo-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts ClickyDemo out/clicky-demo-voice.mp4 --gl=angle --concurrency=4 --crf=16 && node scripts/mix-music.ts out/clicky-demo-voice.mp4 public/music/happy-times.mp3 out/clicky-demo.mp4",
+    "still": "remotion still src/index.ts ClickyDemo --gl=angle",
+    "track": "node scripts/track-cursor.ts",
+    "typecheck": "tsc --noEmit",
+    "mix": "node scripts/mix-music.ts out/clicky-demo-voice.mp4 public/music/happy-times.mp3 out/clicky-demo.mp4",
+    "render-quiz": "remotion render src/index.ts ClickyQuizClip out/clicky-quiz-voice.mp4 --gl=angle --concurrency=4 --crf=16 && node scripts/mix-music.ts out/clicky-quiz-voice.mp4 public/music/its-love.mp3 out/clicky-quiz.mp4 1.5 -5",
+    "mix-quiz": "node scripts/mix-music.ts out/clicky-quiz-voice.mp4 public/music/its-love.mp3 out/clicky-quiz.mp4 1.5 -5"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.539",
+    "@remotion/google-fonts": "4.0.539",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "remotion": "4.0.539"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "typescript": "7.0.2"
+  }
+}
