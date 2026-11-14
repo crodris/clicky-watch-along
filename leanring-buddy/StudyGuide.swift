@@ -152,6 +152,35 @@ nonisolated enum StudyGuideError: Error, Equatable {
     /// The Worker has no Notion token, which it reports as a 503.
     case notionIsNotConnected
     case workerReturned(statusCode: Int, body: String)
+    /// A revision was asked for a video that has no guide yet.
+    case noGuideToRevise
+}
+
+/// The line a failed guide shows beside the cursor. Notion not being connected is the one failure the learner can fix.
+nonisolated func studyGuideFailureLine(for error: Error) -> String {
+    if let studyGuideError = error as? StudyGuideError, studyGuideError == .notionIsNotConnected {
+        return "Notion isn't connected yet"
+    }
+    return "Couldn't write the study guide"
+}
+
+/// Why a guide failed, in the agent list, where there is room for more than the line beside the cursor.
+nonisolated func studyGuideFailureReason(for error: Error) -> String {
+    switch error as? StudyGuideError {
+    case .notionIsNotConnected:
+        return "Notion isn't connected yet"
+    case .workerReturned(let statusCode, _):
+        return "The Worker answered \(statusCode)"
+    case .noGuideToRevise:
+        return "No study guide has been written for this video yet"
+    case nil:
+        return (error as? LocalizedError)?.errorDescription ?? "Couldn't write the study guide"
+    }
+}
+
+/// A guide cancelled from the agent list ends its request with one of these, which is not a failure.
+nonisolated func errorIsACancellation(_ error: Error) -> Bool {
+    error is CancellationError || (error as? URLError)?.code == .cancelled
 }
 
 @MainActor

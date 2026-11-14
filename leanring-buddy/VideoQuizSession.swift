@@ -852,6 +852,18 @@ final class VideoQuizSession {
         try? ChromeVideoTab.frontTabOfTheFrontWindow().url
     }
 
+    /// Opens a page in a new Chrome tab behind the one the learner is on. False when Chrome would not take it,
+    /// so the caller can say how to open the page by voice instead.
+    func openInABackgroundChromeTab(_ pageURL: URL) -> Bool {
+        do {
+            try ChromeVideoTab.openInABackgroundTab(pageURL)
+            return true
+        } catch {
+            print("Background tab: could not open \(pageURL): \(error)")
+            return false
+        }
+    }
+
     /// The YouTube video in Chrome's front tab with its captions and the quiz results Clicky holds for it, for a study guide.
     /// The URL is read once here, so the guide is filed under the video its captions came from even if the learner switches tabs meanwhile.
     /// Throws the same errors as the caption search, such as a page that is not on YouTube or a video with no captions.
@@ -938,6 +950,23 @@ final class VideoQuizSession {
         }
         return VideoPlaybackState(currentSeconds: currentSeconds, isPaused: resultParts[1] == "true")
     }
+}
+
+/// The AppleScript that opens a page as the last tab of Chrome's front window and then puts the window back on the tab
+/// the learner was watching, so a finished guide never takes over the screen. Nil unless the page is https.
+/// A URL's text has quotes and backslashes percent-encoded, so it sits safely inside the AppleScript string.
+nonisolated func appleScriptToOpenInABackgroundTab(pageURL: URL) -> String? {
+    guard pageURL.scheme?.lowercased() == "https" else { return nil }
+    let pageURLText = pageURL.absoluteString
+    return """
+    tell application "Google Chrome"
+        if (count of windows) is 0 then error "Chrome has no window"
+        set frontChromeWindow to front window
+        set originalActiveTabIndex to active tab index of frontChromeWindow
+        tell frontChromeWindow to make new tab at end of tabs with properties {URL:"\(pageURLText)"}
+        set active tab index of frontChromeWindow to originalActiveTabIndex
+    end tell
+    """
 }
 
 // MARK: - Chrome tab
@@ -1092,6 +1121,18 @@ private struct ChromeVideoTab {
         "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL });",
         "})()",
     ].joined(separator: " ")
+
+    /// Opens the page as a new tab at the end of Chrome's front window without switching to it.
+    /// Throws when Chrome is not running, has no window, or refuses the script, and never opens a page that is not https.
+    static func openInABackgroundTab(_ pageURL: URL) throws {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
+            throw VideoQuizFailure.chromeIsNotRunning
+        }
+        guard let appleScriptSource = appleScriptToOpenInABackgroundTab(pageURL: pageURL) else {
+            throw VideoQuizFailure.chromeScriptFailed("Only https pages open in a background tab")
+        }
+        _ = try runAppleScript(appleScriptSource)
+    }
 
     /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,
     /// or no media big enough. The learner may be looking at anything, so this never throws.

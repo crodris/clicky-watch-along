@@ -122,6 +122,9 @@ final class CompanionManager: ObservableObject {
     /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
     /// and must not cancel a guide that is still being written.
     private var studyGuideTask: Task<Void, Never>?
+    /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
+    let backgroundAgentStore = BackgroundAgentStore()
+    private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
 
@@ -2144,16 +2147,15 @@ final class CompanionManager: ObservableObject {
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
+    /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
+    /// the chip under it, and the page in a background tab say it instead.
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob) async {
         let startedAt = Date()
-        let finishedLine: String
-        switch studyGuideJob {
-        case .write: finishedLine = "Your study guide is ready in Notion."
-        case .revise: finishedLine = "I updated your study guide."
-        }
-        let spokenLine: String
+        let agentID = backgroundAgentStore.start(kind: .studyGuide)
         do {
             let video = try await videoQuizSession.frontVideoForStudyGuide()
+            backgroundAgentStore.setSubject(video.title, for: agentID)
+            backgroundAgentStore.completeStep(for: agentID)
             var studyGuideRevision: StudyGuideRevision?
             var studyGuideFocus: String?
             switch studyGuideJob {
@@ -2162,8 +2164,7 @@ final class CompanionManager: ObservableObject {
             case .revise(let instruction):
                 guard let previousRecord = studyGuideRecordsByVideoURL[video.url] else {
                     print("Study guide: no guide to revise for \(video.url)")
-                    await speakAfterNothingElseIsHappening("Sorry, I couldn't write that study guide.")
-                    return
+                    throw StudyGuideError.noGuideToRevise
                 }
                 studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: instruction)
             }
@@ -2175,31 +2176,49 @@ final class CompanionManager: ObservableObject {
                 focus: studyGuideFocus,
                 revision: studyGuideRevision
             ))
+            // A guide cancelled from the agent list keeps no record, even when the Worker had already replied.
+            try Task.checkCancellation()
             // Filed under the video the guide was written for, not whichever tab is in front now.
             studyGuideRecordsByVideoURL[video.url] = studyGuideRecord
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
-            spokenLine = finishedLine
-        } catch StudyGuideError.notionIsNotConnected {
-            print("Study guide: the Worker has no Notion connection")
-            spokenLine = "Notion isn't connected yet."
+            finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL))
         } catch {
+            if Task.isCancelled || errorIsACancellation(error) {
+                // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip.
+                print("Study guide: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
+                return
+            }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
-            spokenLine = "Sorry, I couldn't write that study guide."
+            backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
+            VoiceToolCallChip.shared.show(studyGuideFailureLine(for: error), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
         }
-        await speakAfterNothingElseIsHappening(spokenLine)
     }
 
-    /// The finished guide's line never cuts in. It waits until Clicky is not speaking or answering and no quiz question is open.
-    private func speakAfterNothingElseIsHappening(_ line: String) async {
-        while videoQuizQuestionIsActive || liveScenePhaseIsWaitingForAQuizAnswer || voiceAnswerIsStillRunning {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+    /// The ending Clicky plays for a finished agent depends on what it made.
+    private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult) {
+        backgroundAgentStore.finish(agentID, with: result)
+        switch result {
+        case .notionPage(let pageURL):
+            // "Glass" belongs to quiz answers.
+            NSSound(named: "Tink")?.play()
+            // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
+            let openedInANewTab = videoQuizSession.openInABackgroundChromeTab(pageURL)
+            VoiceToolCallChip.shared.show(
+                "Study guide ready",
+                secondaryChipText: openedInANewTab ? "· opened in a new tab" : "· say open my study guide",
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
         }
-        await speakLiveSceneLine(line)
-        // A new press during the request for the line's audio owns the voice state now.
-        if voiceState == .responding {
-            voiceState = .idle
+    }
+
+    /// Cancels a running agent from the agent list. The cancelled agent keeps no chip and no record.
+    func cancelBackgroundAgent(_ agentID: UUID) {
+        guard let agent = backgroundAgentStore.agents.first(where: { $0.id == agentID }), agent.isRunning else { return }
+        switch agent.kind {
+        case .studyGuide:
+            studyGuideTask?.cancel()
         }
-        scheduleTransientHideIfNeeded()
+        backgroundAgentStore.cancel(agentID)
     }
 
     private func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) -> VoiceToolOutcome {

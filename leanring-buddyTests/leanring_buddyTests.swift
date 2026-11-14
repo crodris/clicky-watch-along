@@ -1413,4 +1413,38 @@ struct leanring_buddyTests {
         #expect(!fired13)
     }
 
+    // MARK: - Study guide ending
+
+    @Test func aFailedGuideNamesNotionWhenItIsNotConnectedAndOtherwiseSaysItCouldNotBeWritten() async throws {
+        #expect(studyGuideFailureLine(for: StudyGuideError.notionIsNotConnected) == "Notion isn't connected yet")
+        #expect(studyGuideFailureLine(for: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) == "Couldn't write the study guide")
+        #expect(studyGuideFailureLine(for: URLError(.timedOut)) == "Couldn't write the study guide")
+        #expect(studyGuideFailureReason(for: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) == "The Worker answered 502")
+        #expect(studyGuideFailureReason(for: StudyGuideError.noGuideToRevise) == "No study guide has been written for this video yet")
+    }
+
+    @Test func aCancelledRequestIsNotAFailure() async throws {
+        #expect(errorIsACancellation(CancellationError()))
+        #expect(errorIsACancellation(URLError(.cancelled)))
+        #expect(!errorIsACancellation(URLError(.timedOut)))
+        #expect(!errorIsACancellation(StudyGuideError.notionIsNotConnected))
+    }
+
+    @Test func onlyAnHTTPSPageOpensInABackgroundChromeTabAndTheTabInFrontIsPutBack() async throws {
+        let notionPageURL = try #require(URL(string: "https://www.notion.so/p1"))
+        let httpsScript = try #require(appleScriptToOpenInABackgroundTab(pageURL: notionPageURL))
+        #expect(httpsScript.contains(#"{URL:"https://www.notion.so/p1"}"#))
+        #expect(httpsScript.contains("set originalActiveTabIndex to active tab index of frontChromeWindow"))
+        #expect(httpsScript.contains("set active tab index of frontChromeWindow to originalActiveTabIndex"))
+
+        let quotedURL = try #require(URL(string: #"https://example.com/a"b\c"#))
+        let quotedURLScript = try #require(appleScriptToOpenInABackgroundTab(pageURL: quotedURL))
+        #expect(quotedURLScript.contains(#"{URL:"https://example.com/a%22b%5Cc"}"#))
+
+        for refusedURLText in ["http://www.notion.so/p1", "file:///etc/hosts", "javascript:alert(1)"] {
+            let refusedURL = try #require(URL(string: refusedURLText))
+            #expect(appleScriptToOpenInABackgroundTab(pageURL: refusedURL) == nil, "\(refusedURLText)")
+        }
+    }
+
 }
