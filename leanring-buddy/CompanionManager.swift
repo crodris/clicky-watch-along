@@ -1963,8 +1963,10 @@ final class CompanionManager: ObservableObject {
                 let toolStartedAt = Date()
                 let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
                 // A push-to-talk press during a slow call, like play_video's check, must not bring up a chip afterwards.
-                guard !Task.isCancelled else { return }
-                showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
+                // A hand-off cancels this task itself when it starts the new path, and runs with no await, so its chip still shows.
+                if outcome == .handedOff || !Task.isCancelled {
+                    showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
+                }
                 print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
                 logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
                 outcomes.append(outcome)
