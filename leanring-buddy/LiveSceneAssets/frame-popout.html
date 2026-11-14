@@ -127,14 +127,14 @@ const flowStyles = {
 };
 
 const postLiveSceneEvent = (eventName) => window.webkit?.messageHandlers?.liveSceneEvent?.postMessage(eventName);
-// Brings back the printed text a quiz question hid. It does nothing until the scene is built.
+// Brings back the printed text a quiz question hid, once the pop-out returns to the video. A correct name still
+// leads to a follow-up question about what the part does, which the video's text could answer, so the answer
+// alone does not bring it back. It does nothing until the scene is built.
 let showPrintedText = () => {};
 
 // outcome is celebrateCorrectName, shakeAndKeepTheQuestionMark, or revealWithoutCelebration.
 // The shake and the ring burst are skipped for a viewer who asked for reduced motion, and the color flip stays.
 function showAnswerMoment(outcome) {
-  // Any outcome but a first wrong answer ends the question, even when no label marks the answer.
-  if (outcome !== "shakeAndKeepTheQuestionMark") showPrintedText();
   const entry = labelEntries.find((candidate) => candidate.part.isQuizAnswer);
   if (!entry) return;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -246,8 +246,8 @@ window.liveScene = {
     if (!sceneIsBuilt || returnStartedAt !== null) return false;
     window.liveScene.endTour();
     window.liveScene.focusPart("");
-    draggedYaw = 0.6;
-    draggedPitch = 0.18;
+    draggedYaw = tourEndYaw;
+    draggedPitch = tourEndPitch;
     restingCameraDistance = endDistance;
     focusMove = { startedAt: performance.now(), from: null };
     if (reducedMotionQuery.matches) { yaw = draggedYaw; pitch = draggedPitch; cameraDistance = restingCameraDistance; }
@@ -316,7 +316,8 @@ const fullContext = full.getContext("2d", { willReadFrequently: true }); fullCon
 const pixels = fullContext.getImageData(0, 0, W, H).data;
 
 // During a quiz question the video's own printed labels could name the answer, so each text box the app found is
-// smoothed out of the shown frame and the lifted subject: shrunk ten times and stretched back. The answer brings it back.
+// smoothed out of the shown frame and the lifted subject: shrunk to 3 rows of pixels and stretched back, so even a
+// tall title loses its letters. The return to the video brings it back.
 const textBoxesToHide = popout.textBoxesToHide ?? [];
 const shownFrame = document.createElement("canvas"); shownFrame.width = W; shownFrame.height = H;
 const shownFrameContext = shownFrame.getContext("2d", { willReadFrequently: true });
@@ -324,7 +325,8 @@ shownFrameContext.drawImage(full, 0, 0);
 for (const textBox of textBoxesToHide) {
   const boxWidth = textBox.right - textBox.left + 1, boxHeight = textBox.bottom - textBox.top + 1;
   const shrunk = document.createElement("canvas");
-  shrunk.width = Math.max(1, Math.ceil(boxWidth / 10)); shrunk.height = Math.max(1, Math.ceil(boxHeight / 10));
+  if (boxWidth < 1 || boxHeight < 1) continue;
+  shrunk.height = 3; shrunk.width = Math.max(1, Math.round(boxWidth * 3 / boxHeight));
   shrunk.getContext("2d").drawImage(full, textBox.left, textBox.top, boxWidth, boxHeight, 0, 0, shrunk.width, shrunk.height);
   shownFrameContext.imageSmoothingEnabled = true;
   shownFrameContext.imageSmoothingQuality = "high";

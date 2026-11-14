@@ -819,6 +819,15 @@ struct leanring_buddyTests {
         #expect(noLabelPrompt.contains("without any [PART:] tags"))
         #expect(noLabelPrompt.contains("the image is only its first frame"))
         #expect(!noLabelPrompt.contains("the labeled parts are exactly"))
+        // An animated artwork still gets facts about the art, with no part named.
+        let noLabelArtworkPrompt = liveSceneNarrationUserPrompt(for: .afterTour, knownPartLabels: [], isArtwork: true)
+        #expect(noLabelArtworkPrompt.contains("facts about the artwork"))
+        #expect(noLabelArtworkPrompt.contains("without any [PART:] tags"))
+        // The system prompt then promises no labeled parts and asks for no sentence per part.
+        let noLabelSystemPrompt = liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: false, hasPartLabels: false)
+        #expect(!noLabelSystemPrompt.contains("labeled parts"))
+        #expect(!noLabelSystemPrompt.contains("that part"))
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true, hasPartLabels: false).contains("ties to the part it names"))
     }
 
     @Test func onlyAFailureOfTheLoadClickyStartedEndsTheScene() async throws {

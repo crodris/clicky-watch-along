@@ -74,6 +74,7 @@ Preconditions:
   The flower diagram (`Mature_flower_diagram.svg` on Commons), the Turbofan article's side-view schematic (`Tfan-schematic-kk-20090106.png`), a heart diagram, and The Starry Night return `pictureShowsDepth: false` every run.
   In the app, open `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and run `$V app-launch "pop this out"`.
   The log shows `Frame pop-out: lifting the subject out of the frame with N labels as a flat card`.
+  When the tour ends the card almost faces the camera, so a round subject, such as Wikimedia's "Rotating earth (large).gif", stays round, and "reset the view" returns it to that pose.
   Run `$V shot depth-popout` while the card floats over the image, and check that the engine has no smeared or stretched rim.
 - **Pop out an animated image.** With `https://en.wikipedia.org/wiki/Turbofan` in Chrome's front tab and the lead GIF wholly on screen, run `$V app-launch "pop this out"`.
   The log shows `Frame pop-out: playing the page image's 21 animation frames, with no labels` before `Frame pop-out: lifting the subject out of the frame with 0 labels`.

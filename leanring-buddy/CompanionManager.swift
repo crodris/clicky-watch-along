@@ -2242,7 +2242,7 @@ final class CompanionManager: ObservableObject {
         do {
             narrationText = try await claudeAPI.analyzeImageStreaming(
                 images: sourceImagesForNarration,
-                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source, isArtwork: framePopout.isArtwork),
+                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source, isArtwork: framePopout.isArtwork, hasPartLabels: !knownPartLabels.isEmpty),
                 userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels, isArtwork: framePopout.isArtwork),
                 onTextChunk: { _ in }
             ).text

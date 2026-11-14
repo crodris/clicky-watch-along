@@ -130,7 +130,8 @@ enum VideoFramePopoutClient {
         let frameWidth = frameGrab.width, frameHeight = frameGrab.height
         // Only a quiz question has an answer the video's own labels could give away.
         let hidesPrintedText = !answerLabel.isEmpty
-        // Building either mask walks every frame pixel, and Vision takes under half a second, so both run off the main actor.
+        // Building either mask walks every frame pixel, and each Vision request (subject lifting, and text recognition for
+        // a quiz) takes under half a second, so all of it runs off the main actor.
         let (foundSubjectMask, textBoxesToHide) = try await Task.detached(priority: .userInitiated) {
             let foundSubjectMask: VideoFrameSubjectMask.SubjectMask?
             if liftsTheWholePicture {
