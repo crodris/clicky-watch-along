@@ -127,10 +127,14 @@ const flowStyles = {
 };
 
 const postLiveSceneEvent = (eventName) => window.webkit?.messageHandlers?.liveSceneEvent?.postMessage(eventName);
+// Brings back the printed text a quiz question hid. It does nothing until the scene is built.
+let showPrintedText = () => {};
 
 // outcome is celebrateCorrectName, shakeAndKeepTheQuestionMark, or revealWithoutCelebration.
 // The shake and the ring burst are skipped for a viewer who asked for reduced motion, and the color flip stays.
 function showAnswerMoment(outcome) {
+  // Any outcome but a first wrong answer ends the question, even when no label marks the answer.
+  if (outcome !== "shakeAndKeepTheQuestionMark") showPrintedText();
   const entry = labelEntries.find((candidate) => candidate.part.isQuizAnswer);
   if (!entry) return;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -167,6 +171,8 @@ window.liveScene = {
   returnToSource() {
     if (returnStartedAt !== null) return;
     returnStartedAt = performance.now();
+    // The subject lands back in the frame over the live video, so the frame must match it again.
+    showPrintedText();
     // A label clicked while the subject sinks back would start an explanation for a scene that is leaving.
     document.body.classList.remove("labels-take-clicks");
     if (!sceneIsBuilt) {
@@ -309,6 +315,23 @@ const full = document.createElement("canvas"); full.width = W; full.height = H;
 const fullContext = full.getContext("2d", { willReadFrequently: true }); fullContext.drawImage(image, 0, 0);
 const pixels = fullContext.getImageData(0, 0, W, H).data;
 
+// During a quiz question the video's own printed labels could name the answer, so each text box the app found is
+// smoothed out of the shown frame and the lifted subject: shrunk ten times and stretched back. The answer brings it back.
+const textBoxesToHide = popout.textBoxesToHide ?? [];
+const shownFrame = document.createElement("canvas"); shownFrame.width = W; shownFrame.height = H;
+const shownFrameContext = shownFrame.getContext("2d", { willReadFrequently: true });
+shownFrameContext.drawImage(full, 0, 0);
+for (const textBox of textBoxesToHide) {
+  const boxWidth = textBox.right - textBox.left + 1, boxHeight = textBox.bottom - textBox.top + 1;
+  const shrunk = document.createElement("canvas");
+  shrunk.width = Math.max(1, Math.ceil(boxWidth / 10)); shrunk.height = Math.max(1, Math.ceil(boxHeight / 10));
+  shrunk.getContext("2d").drawImage(full, textBox.left, textBox.top, boxWidth, boxHeight, 0, 0, shrunk.width, shrunk.height);
+  shownFrameContext.imageSmoothingEnabled = true;
+  shownFrameContext.imageSmoothingQuality = "high";
+  shownFrameContext.drawImage(shrunk, 0, 0, shrunk.width, shrunk.height, textBox.left, textBox.top, boxWidth, boxHeight);
+}
+const shownPixels = textBoxesToHide.length > 0 ? shownFrameContext.getImageData(0, 0, W, H).data : pixels;
+
 const pad = 12;
 const box = popout.subjectBox;
 const x0 = Math.max(0, box.left - pad), y0 = Math.max(0, box.top - pad);
@@ -411,18 +434,19 @@ const thicknessInFramePixels = (d) => {
 };
 
 const cutout = document.createElement("canvas"); cutout.width = boxW; cutout.height = boxH;
-{
+const drawCutout = (framePixels) => {
   const cutoutContext = cutout.getContext("2d", { willReadFrequently: true });
   const cutoutData = cutoutContext.createImageData(boxW, boxH);
   for (let y = 0; y < boxH; y++) for (let x = 0; x < boxW; x++) {
     const frameIndex = ((y + y0) * W + (x + x0)) * 4, cutoutIndex = (y * boxW + x) * 4;
-    cutoutData.data[cutoutIndex] = pixels[frameIndex];
-    cutoutData.data[cutoutIndex + 1] = pixels[frameIndex + 1];
-    cutoutData.data[cutoutIndex + 2] = pixels[frameIndex + 2];
+    cutoutData.data[cutoutIndex] = framePixels[frameIndex];
+    cutoutData.data[cutoutIndex + 1] = framePixels[frameIndex + 1];
+    cutoutData.data[cutoutIndex + 2] = framePixels[frameIndex + 2];
     cutoutData.data[cutoutIndex + 3] = subjectMask[y * boxW + x] ? 255 : 0;
   }
   cutoutContext.putImageData(cutoutData, 0, 0);
-}
+};
+drawCutout(shownPixels);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(pageWidth, pageHeight);
@@ -447,7 +471,7 @@ const asTexture = (canvas) => { const texture = new THREE.CanvasTexture(canvas);
 const frameBackground = document.getElementById("frameBackground");
 frameBackground.width = W; frameBackground.height = H;
 Object.assign(frameBackground.style, { left: `${shownLeft}px`, top: `${shownTop}px`, width: `${shownWidth}px`, height: `${shownHeight}px` });
-frameBackground.getContext("2d").drawImage(full, 0, 0);
+frameBackground.getContext("2d").drawImage(shownFrame, 0, 0);
 
 const columns = 220, rows = Math.round(columns * boxH / boxW);
 const vertexCount = columns * rows;
@@ -476,6 +500,14 @@ subjectGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3)
 subjectGeometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 subjectGeometry.setIndex(indices);
 const subjectTexture = asTexture(cutout);
+if (textBoxesToHide.length > 0) {
+  showPrintedText = () => {
+    showPrintedText = () => {};
+    frameBackground.getContext("2d").drawImage(full, 0, 0);
+    drawCutout(pixels);
+    subjectTexture.needsUpdate = true;
+  };
+}
 const subjectMesh = new THREE.Mesh(subjectGeometry, new THREE.MeshStandardMaterial({ map: subjectTexture, alphaTest: 0.5, roughness: 0.75, side: THREE.DoubleSide }));
 scene.add(subjectMesh);
 scene.add(new THREE.AmbientLight(0xffffff, 1.5));
@@ -642,6 +674,10 @@ cameraDistance = pageDistance;
 const target = new THREE.Vector3();
 const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const tourStartedAt = performance.now();
+// The tour turns a puffed-up model 0.6 radians to show its depth. A flat card seen from that angle looks
+// squeezed to cos(0.6), about 83% of its width, so a flat card ends its tour almost facing the camera.
+const tourEndYaw = popout.pictureShowsDepth ? 0.12 : 0.6;
+const tourEndPitch = popout.pictureShowsDepth ? 0.06 : 0.18;
 
 let dragging = false, lastX = 0, lastY = 0;
 // A press that travels further than this many pixels is a drag to turn the model, not a click on a label.
@@ -710,8 +746,8 @@ const render = (now) => {
     const lift = ease(Math.min(1, Math.max(0, (seconds - 1) / 2)));
     const move = ease(Math.min(1, Math.max(0, (seconds - 1.5) / 3)));
     if (lift !== liftNow) applyLift(lift);
-    yaw = 0.6 * move;
-    pitch = 0.18 * move;
+    yaw = tourEndYaw * move;
+    pitch = tourEndPitch * move;
     cameraDistance = pageDistance + (endDistance - pageDistance) * move;
     target.lerpVectors(new THREE.Vector3(0, 0, 0), subjectCenter(), move);
     if (seconds > 4.5) finishTour();

@@ -119,6 +119,13 @@ func liveSceneNarrationSystemPrompt(for framePopoutSource: FramePopoutSource, is
 }
 
 func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigger, knownPartLabels: [String], isArtwork: Bool) -> String {
+    // An animated picture lifts out with no labels, and no label can be tapped, so the narration names no parts.
+    // The attached image is only its first frame, so the narration talks about the motion, not what that frame shows.
+    if knownPartLabels.isEmpty {
+        return """
+        this picture is an animation, and the image is only its first frame, so it keeps moving while you talk. talk about what the animation shows happening: the motion itself, how it works, and why it matters. don't describe the places or things that happen to be in this one frame, since they move away. say two or three short sentences, without any [PART:] tags.
+        """
+    }
     let partNamesLine = "the labeled parts are exactly: \(knownPartLabels.joined(separator: ", "))."
     switch (narrationTrigger, isArtwork) {
     case (.afterTour, false):

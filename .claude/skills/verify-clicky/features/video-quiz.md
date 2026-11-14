@@ -46,6 +46,8 @@ Preconditions:
 - **Quiz in the app.** Start the quiz and answer the first question.
   Run `$V app-launch "watch this video with me and quiz me|?I'm not sure, can you give me a hint|stop the quiz"` and `$V app-wait 600`.
   The log shows `Video quiz: found tab`, `read N caption lines`, `planned N moments`, `paused at Ns for moment 1`, then `Video quiz: stopped`.
+- **Hidden labels.** On a video that prints its own labels, such as an anatomy animation, the log shows `Video quiz: hiding N printed text boxes until the answer` with N above 0.
+  Before the answer, no printed word is readable on the frame or the lifted subject; after it, the text is back.
 
 ## Gotchas
 

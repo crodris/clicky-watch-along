@@ -52,7 +52,8 @@ struct VideoFramePopout {
     let frameGrab: VideoFrameGrab
     /// The bounding box of the subject mask, in frame pixels.
     let subjectBox: SubjectBox
-    let parts: [Part]
+    /// Empty for an animated page image, whose parts move away from labels placed on its first frame.
+    var parts: [Part]
     /// A PNG as large as the frame, white where the subject is.
     let subjectMaskPNGBase64: String
     /// True for a cutaway, a 3D render, or a photo, which lifts out as a flat card instead of puffed up.
@@ -61,6 +62,16 @@ struct VideoFramePopout {
     let isArtwork: Bool
     /// The page image's own frames when it is animated, which the lifted subject keeps playing. Empty for a still.
     var animationFrames: [PageImageAnimationFrame] = []
+    /// Plays a page image's own frames on the lifted subject. Sonnet placed the labels on the first frame, and a
+    /// moving picture drifts away from them, so an animated picture lifts out with no labels and its narration
+    /// talks about the whole picture.
+    mutating func playAnimationFrames(_ pageImageAnimationFrames: [PageImageAnimationFrame]) {
+        animationFrames = pageImageAnimationFrames
+        parts = []
+    }
+    /// Printed text in the frame, in frame pixels, which a quiz question hides until the answer, since a video's
+    /// own labels can name it. Empty outside a quiz.
+    var textBoxesToHide: [SubjectBox] = []
 }
 
 private struct VideoFramePartsResponse: Decodable {
@@ -117,22 +128,71 @@ enum VideoFramePopoutClient {
         guard let frameJPEGData = Data(base64Encoded: frameGrab.jpeg) else { return nil }
         let liftsTheWholePicture = framePartsResponse.wholePictureIsSubject == true
         let frameWidth = frameGrab.width, frameHeight = frameGrab.height
+        // Only a quiz question has an answer the video's own labels could give away.
+        let hidesPrintedText = !answerLabel.isEmpty
         // Building either mask walks every frame pixel, and Vision takes under half a second, so both run off the main actor.
-        let subjectMask = try await Task.detached(priority: .userInitiated) {
+        let (foundSubjectMask, textBoxesToHide) = try await Task.detached(priority: .userInitiated) {
+            let foundSubjectMask: VideoFrameSubjectMask.SubjectMask?
             if liftsTheWholePicture {
                 print("Frame pop-out: lifting the whole picture in Sonnet's box")
-                return VideoFrameSubjectMask.wholePictureMask(frameWidth: frameWidth, frameHeight: frameHeight, pictureBox: subjectBox)
+                foundSubjectMask = VideoFrameSubjectMask.wholePictureMask(frameWidth: frameWidth, frameHeight: frameHeight, pictureBox: subjectBox)
+            } else {
+                foundSubjectMask = try VideoFrameSubjectMask.subjectMask(frameJPEGData: frameJPEGData, sonnetSubjectBox: subjectBox)
             }
-            return try VideoFrameSubjectMask.subjectMask(frameJPEGData: frameJPEGData, sonnetSubjectBox: subjectBox)
+            let textBoxesToHide = hidesPrintedText ? VideoFramePrintedText.boxesToHide(frameJPEGData: frameJPEGData) : []
+            return (foundSubjectMask, textBoxesToHide)
         }.value
-        guard let subjectMask else { return nil }
+        guard let foundSubjectMask else { return nil }
+        if hidesPrintedText {
+            print("Video quiz: hiding \(textBoxesToHide.count) printed text boxes until the answer")
+        }
         return VideoFramePopout(
             frameGrab: frameGrab,
-            subjectBox: subjectMask.boundingBox,
+            subjectBox: foundSubjectMask.boundingBox,
             parts: parts,
-            subjectMaskPNGBase64: subjectMask.pngData.base64EncodedString(),
+            subjectMaskPNGBase64: foundSubjectMask.pngData.base64EncodedString(),
             pictureShowsDepth: framePartsResponse.pictureShowsDepth == true,
-            isArtwork: framePartsResponse.isArtwork == true
+            isArtwork: framePartsResponse.isArtwork == true,
+            textBoxesToHide: textBoxesToHide
+        )
+    }
+}
+
+/// Finds printed text in a frame with Vision, so a quiz question can hide the labels a video draws itself.
+enum VideoFramePrintedText {
+    /// Extra frame pixels around each text box, so the smoothing also covers the edges of the letters.
+    nonisolated static let paddingInFramePixels = 4
+
+    nonisolated static func boxesToHide(frameJPEGData: Data) -> [VideoFramePopout.SubjectBox] {
+        guard let imageSource = CGImageSourceCreateWithData(frameJPEGData as CFData, nil),
+              let frameImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+            return []
+        }
+        let textRequest = VNRecognizeTextRequest()
+        textRequest.recognitionLevel = .fast
+        textRequest.usesLanguageCorrection = false
+        do {
+            try VNImageRequestHandler(cgImage: frameImage).perform([textRequest])
+        } catch {
+            print("Video quiz: could not look for printed text: \(error)")
+            return []
+        }
+        return (textRequest.results ?? []).map { textObservation in
+            frameBox(ofNormalizedBox: textObservation.boundingBox, frameWidth: frameImage.width, frameHeight: frameImage.height)
+        }
+    }
+
+    /// Vision's box runs from 0 to 1 starting at the bottom-left corner, and frame pixels start at the top-left.
+    nonisolated static func frameBox(ofNormalizedBox normalizedBox: CGRect, frameWidth: Int, frameHeight: Int) -> VideoFramePopout.SubjectBox {
+        let left = Int((normalizedBox.minX * Double(frameWidth)).rounded(.down)) - paddingInFramePixels
+        let right = Int((normalizedBox.maxX * Double(frameWidth)).rounded(.up)) + paddingInFramePixels
+        let top = Int(((1 - normalizedBox.maxY) * Double(frameHeight)).rounded(.down)) - paddingInFramePixels
+        let bottom = Int(((1 - normalizedBox.minY) * Double(frameHeight)).rounded(.up)) + paddingInFramePixels
+        return VideoFramePopout.SubjectBox(
+            left: max(0, left),
+            top: max(0, top),
+            right: min(frameWidth - 1, right),
+            bottom: min(frameHeight - 1, bottom)
         )
     }
 }
@@ -410,6 +470,9 @@ func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScr
             ["label": part.label, "x": part.x, "y": part.y, "isQuizAnswer": part.isQuizAnswer] as [String: Any]
         },
         "pictureShowsDepth": framePopout.pictureShowsDepth,
+        "textBoxesToHide": framePopout.textBoxesToHide.map { textBox in
+            ["left": textBox.left, "top": textBox.top, "right": textBox.right, "bottom": textBox.bottom]
+        },
         "animationFrames": framePopout.animationFrames.map { animationFrame in
             ["dataURL": "data:image/jpeg;base64,\(animationFrame.jpegBase64)", "delaySeconds": animationFrame.delaySeconds] as [String: Any]
         },
