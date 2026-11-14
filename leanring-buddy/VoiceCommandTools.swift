@@ -309,7 +309,83 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         input.filter { inputKey, _ in inputKey != "confirmation" }
     }
 
-    /// Shown on the chip next to the cursor, such as rotate_model(yawDegrees: -45).
+    /// What the chip next to the cursor says, in words a learner reads at a glance, such as "Turning it left".
+    /// Nil for a call whose own status line or answer follows at once, like pop_out's "Popping it out",
+    /// for a call that changes nothing (a zoom factor of 1, a seek that rounds to 0 seconds), for a missing
+    /// or out-of-range argument (a negative or non-finite seek time), and for a name this app does not know.
+    /// `chipPhraseToShow(at:)` decides when the phrase shows.
+    var chipPhrase: String? {
+        let numberInput = { (argumentName: String) in self.input[argumentName]?.numberValue }
+        let textInput = { (argumentName: String) in self.input[argumentName]?.stringValue }
+        switch name {
+        case "rotate_model":
+            if let yawDegrees = numberInput("yawDegrees"), yawDegrees != 0 {
+                return yawDegrees < 0 ? "Turning it left" : "Turning it right"
+            }
+            if let pitchDegrees = numberInput("pitchDegrees"), pitchDegrees != 0 {
+                return pitchDegrees > 0 ? "Looking from above" : "Looking from below"
+            }
+            return "Turning it"
+        case "zoom":
+            // The page refuses a missing factor and does nothing at 1, so the chip says nothing either.
+            guard let zoomFactor = numberInput("factor"), zoomFactor != 1 else { return nil }
+            return zoomFactor > 1 ? "Zooming in" : "Zooming out"
+        case "zoom_to_part":
+            return textInput("label").map { partLabel in "Zooming in on the \(partLabel)" } ?? "Zooming in"
+        case "reset_view":
+            return "Back to the start"
+        case "explode_view":
+            // The page refuses a missing amount, so the chip says nothing for it.
+            guard let explodeAmount = numberInput("amount") else { return nil }
+            return explodeAmount > 0 ? "Pulling it apart" : "Putting it together"
+        case "set_inside_view":
+            // The page opens the cutaway only for a true open, so the chip reads it the same way.
+            return input["open"]?.boolValue == true ? "Opening it up" : "Closing it up"
+        case "close_scene":
+            return "Putting it back"
+        case "explain_part":
+            return textInput("label").map { partLabel in "The \(partLabel)" }
+        case "pause_video":
+            return "Pausing the video"
+        case "play_video":
+            return "Playing the video"
+        case "seek_relative":
+            guard let seconds = numberInput("seconds"), let wholeSeconds = Int(exactly: abs(seconds).rounded()), wholeSeconds > 0 else { return nil }
+            let secondsText = wholeSeconds == 1 ? "1 second" : "\(wholeSeconds) seconds"
+            return seconds > 0 ? "Skipping ahead \(secondsText)" : "Going back \(secondsText)"
+        case "seek_to_time":
+            guard let seconds = numberInput("seconds"), seconds >= 0, let wholeSeconds = Int(exactly: seconds.rounded()) else { return nil }
+            return "Jumping to \(wholeSeconds / 60):\(String(format: "%02d", wholeSeconds % 60))"
+        case "set_speed":
+            guard let rate = numberInput("rate") else { return nil }
+            // A fixed POSIX locale keeps "1.5x" from reading "1,5x" in a comma-decimal locale.
+            let rateText = rate.formatted(.number.precision(.fractionLength(0...2)).locale(Locale(identifier: "en_US_POSIX")))
+            return rate == 1 ? "Normal speed" : "Playing at \(rateText)x"
+        case "find_moment":
+            return textInput("query").map { query in "Finding \u{201C}\(query)\u{201D}" } ?? "Searching the captions"
+        case "end_quiz":
+            return "Ending the quiz"
+        default:
+            // pop_out, build_new_scene, and answer_with_screen hand off to a path with its own status line or spinner.
+            return nil
+        }
+    }
+
+    /// The phrase the chip shows at this moment of the call, or nil. A lookup like find_moment changes nothing on screen,
+    /// so its chip shows while it runs. Any other call's chip waits until the call worked, so a refused call never
+    /// shows a chip claiming it happened.
+    func chipPhraseToShow(at chipMoment: VoiceToolChipMoment) -> String? {
+        let callIsALookup = AppVoiceTool(rawValue: name)?.descriptor.readOnly == true
+        switch chipMoment {
+        case .beforeTheCall:
+            return callIsALookup ? chipPhrase : nil
+        case .afterTheCall(let outcome):
+            return callIsALookup || outcome.isFailure ? nil : chipPhrase
+        }
+    }
+
+    /// The call as code, such as rotate_model(yawDegrees: -45). Debug builds show it on the chip
+    /// while the panel's "Log tool call JSON" switch is on, and the log always prints it.
     var chipText: String {
         let argumentsText = inputWithoutConfirmation
             .sorted { $0.key < $1.key }
@@ -329,6 +405,12 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             .joined(separator: ", ")
         return "\(name)(\(argumentsText))"
     }
+}
+
+/// When the voice tool chip is asked what to show: as a call starts, or once it has run.
+nonisolated enum VoiceToolChipMoment: Sendable {
+    case beforeTheCall
+    case afterTheCall(VoiceToolOutcome)
 }
 
 /// POST /voice-command's reply. assistantContent goes back to the Worker unchanged on the next turn.

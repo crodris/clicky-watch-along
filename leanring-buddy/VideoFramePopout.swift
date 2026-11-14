@@ -57,6 +57,8 @@ struct VideoFramePopout {
     let subjectMaskPNGBase64: String
     /// True for a cutaway, a 3D render, or a photo, which lifts out as a flat card instead of puffed up.
     let pictureShowsDepth: Bool
+    /// True for a painting, print, drawing, or sculpture. Clicky narrates facts about the art and never animates it.
+    let isArtwork: Bool
     /// The page image's own frames when it is animated, which the lifted subject keeps playing. Empty for a still.
     var animationFrames: [PageImageAnimationFrame] = []
 }
@@ -69,6 +71,8 @@ private struct VideoFramePartsResponse: Decodable {
     let wholePictureIsSubject: Bool?
     /// Missing from a Worker that predates it, which keeps the puffed-up lift.
     let pictureShowsDepth: Bool?
+    /// Missing from a Worker that predates it, which narrates the picture as before.
+    let isArtwork: Bool?
 }
 
 enum VideoFramePopoutClient {
@@ -127,7 +131,8 @@ enum VideoFramePopoutClient {
             subjectBox: subjectMask.boundingBox,
             parts: parts,
             subjectMaskPNGBase64: subjectMask.pngData.base64EncodedString(),
-            pictureShowsDepth: framePartsResponse.pictureShowsDepth == true
+            pictureShowsDepth: framePartsResponse.pictureShowsDepth == true,
+            isArtwork: framePartsResponse.isArtwork == true
         )
     }
 }

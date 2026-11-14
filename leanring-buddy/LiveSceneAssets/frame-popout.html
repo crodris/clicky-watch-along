@@ -64,6 +64,67 @@ const returnSeconds = 0.8;
 let flowsToDraw = null;
 let flowsStartedAt = null;
 const flowColors = { blue: "#5aa9ff", red: "#ff4d5e", orange: "#ff8030", cyan: "#3fd6e8", green: "#4cd07a", yellow: "#ffd23f", white: "#f4f4f4" };
+// Each style says how often a particle starts, how fast it travels in frame pixels a second, how far it
+// strays from the path, and how it draws. Sizes and speeds are for a 640-pixel-wide frame and scale with it.
+// Particles that glow add light, and a style without its own colors takes the flow's palette color.
+const flowStyles = {
+  smoke: { spawnsPerSecond: 7, speed: 24, stray: (progress) => 10 * progress, glows: false, draw(context, particle) {
+    const radius = (3 + 16 * particle.progress) * particle.size;
+    const alpha = 0.55 * Math.sin(Math.PI * particle.progress);
+    const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, radius);
+    gradient.addColorStop(0, `rgba(235, 235, 235, ${alpha})`); gradient.addColorStop(1, "rgba(200, 200, 200, 0)");
+    context.fillStyle = gradient; context.beginPath(); context.arc(particle.x, particle.y, radius, 0, Math.PI * 2); context.fill();
+  } },
+  sparks: { spawnsPerSecond: 34, speed: 120, stray: () => 4, glows: true, draw(context, particle) {
+    const flicker = 0.5 + 0.5 * Math.sin(particle.seconds * 40 + particle.seed * 50);
+    context.strokeStyle = `rgba(255, ${Math.round(150 + 90 * particle.seed)}, 80, ${0.9 * flicker * Math.sin(Math.PI * particle.progress)})`;
+    context.lineWidth = 1.6 * particle.size; context.lineCap = "round";
+    context.beginPath(); context.moveTo(particle.x, particle.y);
+    context.lineTo(particle.x - particle.directionX * 7 * particle.size, particle.y - particle.directionY * 7 * particle.size); context.stroke();
+  } },
+  lava: { spawnsPerSecond: 11, speed: 34, stray: () => 3, glows: true, draw(context, particle) {
+    const radius = (4 + 2.5 * particle.seed) * 1.8 * particle.size;
+    const alpha = Math.min(1, 4 * Math.sin(Math.PI * particle.progress));
+    const gradient = context.createRadialGradient(particle.x, particle.y, 0, particle.x, particle.y, radius);
+    gradient.addColorStop(0, `rgba(255, 240, 170, ${alpha})`); gradient.addColorStop(0.4, `rgba(255, 140, 40, ${0.8 * alpha})`); gradient.addColorStop(1, "rgba(255, 60, 0, 0)");
+    context.fillStyle = gradient; context.beginPath(); context.arc(particle.x, particle.y, radius, 0, Math.PI * 2); context.fill();
+  } },
+  droplets: { spawnsPerSecond: 12, speed: 70, stray: () => 5, glows: false, draw(context, particle) {
+    const alpha = Math.min(1, 4 * Math.sin(Math.PI * particle.progress));
+    context.save(); context.translate(particle.x, particle.y); context.rotate(Math.atan2(particle.directionY, particle.directionX));
+    context.globalAlpha *= 0.9 * alpha; context.fillStyle = particle.color;
+    context.beginPath(); context.ellipse(0, 0, 4.5 * particle.size, 2.4 * particle.size, 0, 0, Math.PI * 2); context.fill();
+    context.fillStyle = "rgba(255, 255, 255, 0.85)";
+    context.beginPath(); context.arc(1.5 * particle.size, -0.8 * particle.size, 0.9 * particle.size, 0, Math.PI * 2); context.fill();
+    context.restore();
+  } },
+  air: { spawnsPerSecond: 16, speed: 150, stray: () => 9, glows: false, draw(context, particle) {
+    const length = 26 * particle.size;
+    const tailX = particle.x - particle.directionX * length, tailY = particle.y - particle.directionY * length;
+    const gradient = context.createLinearGradient(tailX, tailY, particle.x, particle.y);
+    gradient.addColorStop(0, `${particle.color}00`); gradient.addColorStop(1, particle.color);
+    context.save(); context.globalAlpha *= 0.95 * Math.sin(Math.PI * particle.progress);
+    context.strokeStyle = gradient; context.lineWidth = 2.8 * particle.size; context.lineCap = "round";
+    context.beginPath(); context.moveTo(tailX, tailY); context.lineTo(particle.x, particle.y); context.stroke();
+    context.restore();
+  } },
+  current: { spawnsPerSecond: 9, speed: 260, stray: () => 2, glows: true, draw(context, particle) {
+    const normalX = -particle.directionY, normalY = particle.directionX, step = 4 * particle.size;
+    context.strokeStyle = `rgba(255, 230, 90, ${0.95 * (0.5 + 0.5 * Math.sin(particle.seconds * 60 + particle.seed * 9))})`;
+    context.lineWidth = 1.8 * particle.size; context.lineJoin = "round";
+    context.beginPath();
+    for (let zigIndex = 0; zigIndex <= 4; zigIndex++) {
+      const side = zigIndex % 2 === 0 ? 3 : -3;
+      context.lineTo(particle.x - particle.directionX * step * zigIndex + normalX * side * particle.size, particle.y - particle.directionY * step * zigIndex + normalY * side * particle.size);
+    }
+    context.stroke();
+  } },
+  beads: { spawnsPerSecond: 10, speed: 50, stray: () => 3, glows: false, draw(context, particle) {
+    context.save(); context.globalAlpha *= Math.min(1, 4 * Math.sin(Math.PI * particle.progress));
+    context.fillStyle = particle.color; context.beginPath(); context.arc(particle.x, particle.y, 3 * particle.size, 0, Math.PI * 2); context.fill();
+    context.restore();
+  } },
+};
 
 const postLiveSceneEvent = (eventName) => window.webkit?.messageHandlers?.liveSceneEvent?.postMessage(eventName);
 
@@ -135,12 +196,12 @@ window.liveScene = {
     focusMove = { startedAt: performance.now(), from: null };
     return true;
   },
-  // Swift sends only palette color names and frame points, and anything else is dropped here.
+  // Swift sends only palette color names, style names, and frame points, and anything else is dropped here.
   showFlows(flows) {
     // A subject already sinking back into its frame gets no new flows.
     if (!Array.isArray(flows) || returnStartedAt !== null) return;
     flowsToDraw = flows
-      .filter((flow) => flowColors[flow?.color] && Array.isArray(flow.points))
+      .filter((flow) => flowColors[flow?.color] && Object.hasOwn(flowStyles, flow?.style) && Array.isArray(flow.points))
       .map((flow) => {
         const points = flow.points.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
         const lengths = [0];
@@ -148,7 +209,7 @@ window.liveScene = {
           const previousPoint = points[pointIndex - 1], point = points[pointIndex];
           lengths.push(lengths[pointIndex - 1] + Math.hypot(point[0] - previousPoint[0], point[1] - previousPoint[1]));
         }
-        return { color: flowColors[flow.color], points, lengths, length: lengths[lengths.length - 1] };
+        return { color: flowColors[flow.color], style: flowStyles[flow.style], points, lengths, length: lengths[lengths.length - 1] };
       })
       .filter((flow) => flow.points.length >= 2 && flow.length > 0);
     flowsStartedAt = null;
@@ -526,28 +587,51 @@ const pointAlongFlow = (flow, distanceAlong) => {
   }
   return flow.points[flow.points.length - 1];
 };
-// Short glowing dashes stream along each flow at 110 frame pixels a second. With Reduce Motion they stand still.
+const repeatableNoise = (first, second) => {
+  const value = Math.sin(first * 127.1 + second * 311.7) * 43758.5453;
+  return value - Math.floor(value);
+};
+// A particle is a pure function of the clock and its index, so nothing piles up between frames.
+// With Reduce Motion each stream's clock stops once a full stream of particles covers its path, so it stands still but stays visible.
 const drawFlows = (now) => {
   flowContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   flowContext.clearRect(0, 0, pageWidth, pageHeight);
   if (!flowsToDraw || !tourDone) return;
   flowsStartedAt ??= now;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const seconds = reducedMotion ? 0 : (now - flowsStartedAt) / 1000;
+  const runningSeconds = (now - flowsStartedAt) / 1000;
   const fade = Math.min(1, (now - flowsStartedAt) / 800) * (returnFrom ? labelFade : 1);
-  const speed = 110, spacing = 34, dashLength = 16;
-  flowContext.lineWidth = 4; flowContext.lineCap = "round"; flowContext.shadowBlur = 10;
-  for (const flow of flowsToDraw) {
-    flowContext.strokeStyle = flow.color; flowContext.shadowColor = flow.color;
-    // Every flow shares one clock, so a stream that continues in another flow, like air turning into hot gas, has no seam.
-    for (let along = (seconds * speed) % spacing; along < flow.length; along += spacing) {
-      const [headX, headY] = flowPointOnPage(...pointAlongFlow(flow, along));
-      const [tailX, tailY] = flowPointOnPage(...pointAlongFlow(flow, Math.max(0, along - dashLength)));
-      flowContext.globalAlpha = fade * Math.min(1, along / 30, (flow.length - along) / 30);
-      flowContext.beginPath(); flowContext.moveTo(tailX, tailY); flowContext.lineTo(headX, headY); flowContext.stroke();
+  const frameScale = W / 640;
+  flowsToDraw.forEach((flow, flowIndex) => {
+    const { style } = flow;
+    const speed = style.speed * frameScale;
+    // The slowest particle travels at 0.8 of the style's speed, so the window is long enough for it to reach the end.
+    const lifeSeconds = flow.length / (speed * 0.8);
+    const seconds = reducedMotion ? lifeSeconds : runningSeconds;
+    flowContext.globalCompositeOperation = style.glows ? "lighter" : "source-over";
+    flowContext.globalAlpha = fade;
+    const firstIndex = Math.max(0, Math.floor((seconds - lifeSeconds) * style.spawnsPerSecond));
+    const lastIndex = Math.floor(seconds * style.spawnsPerSecond);
+    for (let particleIndex = firstIndex; particleIndex <= lastIndex; particleIndex++) {
+      const seed = repeatableNoise(particleIndex, flowIndex + 1);
+      const age = seconds - particleIndex / style.spawnsPerSecond;
+      const along = age * speed * (0.8 + 0.4 * repeatableNoise(particleIndex, flowIndex + 7));
+      if (along < 0 || along > flow.length) continue;
+      // The page position of a point a little further on gives the direction and the frame-to-page scale here.
+      const aheadAlong = Math.min(flow.length, along + 2), behindAlong = aheadAlong - 2;
+      const [behindX, behindY] = flowPointOnPage(...pointAlongFlow(flow, behindAlong));
+      const [aheadX, aheadY] = flowPointOnPage(...pointAlongFlow(flow, aheadAlong));
+      const pagePixelsPerFramePixel = Math.hypot(aheadX - behindX, aheadY - behindY) / 2 || 1;
+      const directionX = (aheadX - behindX) / (2 * pagePixelsPerFramePixel), directionY = (aheadY - behindY) / (2 * pagePixelsPerFramePixel);
+      const size = frameScale * pagePixelsPerFramePixel;
+      const progress = along / flow.length;
+      const stray = ((seed - 0.5) * 2 * style.stray(progress) + Math.sin(age * 3 + seed * 20) * 1.2) * size;
+      const [pointX, pointY] = flowPointOnPage(...pointAlongFlow(flow, along));
+      style.draw(flowContext, { x: pointX - directionY * stray, y: pointY + directionX * stray, directionX, directionY, progress, seed, seconds, size, color: flow.color });
     }
-  }
-  flowContext.globalAlpha = 1; flowContext.shadowBlur = 0;
+  });
+  flowContext.globalCompositeOperation = "source-over";
+  flowContext.globalAlpha = 1;
 };
 
 const subjectHeightWorld = boxH * frameToWorld;

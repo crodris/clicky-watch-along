@@ -14,11 +14,18 @@ import SwiftUI
 struct LiveSceneStatusLabelContent: View {
     let statusLine: LiveSceneStatusLine
     let elapsedSeconds: Double
+    /// Near a screen's right edge the letters come first, so the icon stays on the triangle's spot.
+    let textSide: StatusLabelTextSide
 
     var body: some View {
         HStack(spacing: 10) {
+            if textSide == .leftOfIcon {
+                StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+            }
             StatusIconTile(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
-            StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+            if textSide == .rightOfIcon {
+                StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+            }
         }
     }
 }
@@ -64,6 +71,7 @@ private struct StatusLetter: View {
     private var letterFont: Font {
         switch statusLine {
         case .poppingItOut, .buildingYourScene: return .system(size: 19, weight: .black, design: .rounded)
+        case .animatingIt: return .system(size: 19, weight: .heavy, design: .rounded).italic()
         case .readingYourScreen: return .system(size: 16, weight: .heavy, design: .monospaced)
         case .almostThere: return .system(size: 19, weight: .black).italic()
         case .readingTheTranscript: return .system(size: 18, weight: .bold, design: .serif)
@@ -133,6 +141,7 @@ private struct StatusIconTile: View {
             let palette = statusLine.palette
             switch statusLine {
             case .poppingItOut: StatusIconDrawing.drawPopOutCube(in: &context, elapsedSeconds: elapsedSeconds)
+            case .animatingIt: StatusIconDrawing.drawFlowingStreams(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .readingYourScreen: StatusIconDrawing.drawScanningScreen(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .buildingYourScene: StatusIconDrawing.drawAssemblingCube(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .almostThere: StatusIconDrawing.drawFillingRing(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
@@ -372,6 +381,33 @@ private enum StatusIconDrawing {
             })
             facePath.closeSubpath()
             context.fill(facePath, with: .color(face.color.opacity(opacity)))
+        }
+    }
+
+    // MARK: Animating it: particles stream along three curved paths, like the flows on the pop-out
+
+    static func drawFlowingStreams(in context: inout GraphicsContext, palette: StatusLabelPalette, elapsedSeconds: Double) {
+        for (streamIndex, streamY) in [7.0, 13, 19].enumerated() {
+            // Each stream bends the other way from its neighbor, so the three read as flowing, not as lines of text.
+            let bend = streamIndex.isMultiple(of: 2) ? -3.0 : 3.0
+            let streamStart = CGPoint(x: 3, y: streamY), streamControl = CGPoint(x: 13, y: streamY + bend), streamEnd = CGPoint(x: 23, y: streamY)
+            var streamPath = Path()
+            streamPath.move(to: streamStart)
+            streamPath.addQuadCurve(to: streamEnd, control: streamControl)
+            context.stroke(streamPath, with: .color(palette.paleColor), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+
+            for particleIndex in 0..<2 {
+                let travelFraction = (elapsedSeconds / 1.2 + Double(particleIndex) * 0.5 + Double(streamIndex) * 0.21).truncatingRemainder(dividingBy: 1)
+                // A point on the quadratic curve, so the particle follows the bend.
+                let oneMinus = 1 - travelFraction
+                let particleX = oneMinus * oneMinus * streamStart.x + 2 * oneMinus * travelFraction * streamControl.x + travelFraction * travelFraction * streamEnd.x
+                let particleY = oneMinus * oneMinus * streamStart.y + 2 * oneMinus * travelFraction * streamControl.y + travelFraction * travelFraction * streamEnd.y
+                // Particles fade in at the start of a stream and out at its end.
+                let edgeFade = min(1, travelFraction / 0.15, oneMinus / 0.15)
+                var particleContext = context
+                particleContext.opacity = edgeFade
+                particleContext.fill(Path(ellipseIn: CGRect(x: particleX - 2.2, y: particleY - 2.2, width: 4.4, height: 4.4)), with: .color(palette.iconColor))
+            }
         }
     }
 

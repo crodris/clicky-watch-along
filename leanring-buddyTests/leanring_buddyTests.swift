@@ -191,17 +191,21 @@ struct leanring_buddyTests {
     }
 
     @Test func pictureFlowsSayWhyNothingMovesOnlyWhenNothingIsShowing() async throws {
-        let workerReply = Data(#"{"flows":[{"color":"orange","points":[[445,246],[880,292]]}]}"#.utf8)
+        let workerReply = Data(#"{"flows":[{"color":"orange","style":"sparks","points":[[445,246],[880,292]]}]}"#.utf8)
         struct FlowsReply: Decodable { let flows: [PictureFlow] }
         let pictureFlows = try JSONDecoder().decode(FlowsReply.self, from: workerReply).flows
-        #expect(pictureFlows == [PictureFlow(color: .orange, points: [[445, 246], [880, 292]])])
-        // A color outside the palette fails the whole reply, so the page never gets an unknown color.
+        #expect(pictureFlows == [PictureFlow(color: .orange, style: .sparks, points: [[445, 246], [880, 292]])])
+        // A color or style the page cannot draw fails the whole reply, so the page never gets one.
         #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"magenta","points":[[1,1],[9,9]]}]}"#.utf8))
+            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"magenta","style":"air","points":[[1,1],[9,9]]}]}"#.utf8))
+        }
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(FlowsReply.self, from: Data(#"{"flows":[{"color":"white","style":"links","points":[[1,1],[9,9]]}]}"#.utf8))
         }
         #expect(PictureFlowsOutcome.showing(flowCount: 1).spokenLineWhenNotShowing == nil)
         #expect(PictureFlowsOutcome.superseded.spokenLineWhenNotShowing == nil)
         #expect(PictureFlowsOutcome.nothingFlows.spokenLineWhenNotShowing != nil)
+        #expect(PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing == "This is a work of art, so I'll leave it just as the artist made it.")
         #expect(PictureFlowsOutcome.failed.spokenLineWhenNotShowing != nil)
     }
 
@@ -458,7 +462,9 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines, whileShowing: .readingYourScreen) == .readingYourScreen)
 
         // Each owner's set holds every line that owner shows, so none of its lines can be left up.
-        #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut])
+        #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut, .animatingIt])
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.popOutLines, whileShowing: .animatingIt) == nil)
+        #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .animatingIt) == .animatingIt)
         #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
@@ -576,7 +582,8 @@ struct leanring_buddyTests {
             subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
             parts: [VideoFramePopout.Part(label: "Aorta", x: 10, y: 10, isQuizAnswer: false)],
             subjectMaskPNGBase64: "",
-            pictureShowsDepth: false
+            pictureShowsDepth: false,
+            isArtwork: false
         )
         let framePopoutOnScreen = LiveScenePageOnScreen.framePopout(framePopout)
 
@@ -620,7 +627,8 @@ struct leanring_buddyTests {
                 subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
                 parts: [VideoFramePopout.Part(label: "Fan", x: 10, y: 10, isQuizAnswer: false)],
                 subjectMaskPNGBase64: "",
-                pictureShowsDepth: pictureShowsDepth
+                pictureShowsDepth: pictureShowsDepth,
+                isArtwork: false
             )
             let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
             #expect(popoutPageHTML.contains("\"pictureShowsDepth\":\(pictureShowsDepth)"))
@@ -675,14 +683,110 @@ struct leanring_buddyTests {
         #expect(PageImageAnimation.frames(ofImageData: try gifData(delaySecondsForEachFrame: [0.1]), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
     }
 
+    @Test func voiceToolChipSaysTheCallInPlainWordsAndSkipsHandOffs() async throws {
+        let call = { (name: String, input: [String: JSONValue]) in VoiceToolCall(id: "chip", name: name, input: input) }
+        #expect(call("rotate_model", ["yawDegrees": .number(-45)]).chipPhrase == "Turning it left")
+        #expect(call("rotate_model", ["yawDegrees": .number(30)]).chipPhrase == "Turning it right")
+        #expect(call("zoom", ["factor": .number(0.7)]).chipPhrase == "Zooming out")
+        #expect(call("zoom_to_part", ["label": .string("Crater")]).chipPhrase == "Zooming in on the Crater")
+        #expect(call("seek_relative", ["seconds": .number(-10)]).chipPhrase == "Going back 10 seconds")
+        #expect(call("seek_to_time", ["seconds": .number(124.5)]).chipPhrase == "Jumping to 2:05")
+        #expect(call("set_speed", ["rate": .number(1.5)]).chipPhrase == "Playing at 1.5x")
+        #expect(call("set_inside_view", ["open": .bool(false)]).chipPhrase == "Closing it up")
+        // The page opens the cutaway only for a true open, so a missing one reads as closing.
+        #expect(call("set_inside_view", [:]).chipPhrase == "Closing it up")
+        #expect(call("seek_relative", ["seconds": .number(1)]).chipPhrase == "Skipping ahead 1 second")
+        // A call that misses its argument, changes nothing, or rounds to 0 seconds has no phrase.
+        #expect(call("seek_relative", ["seconds": .number(0.4)]).chipPhrase == nil)
+        #expect(call("zoom", [:]).chipPhrase == nil)
+        #expect(call("zoom", ["factor": .number(1)]).chipPhrase == nil)
+        #expect(call("explode_view", [:]).chipPhrase == nil)
+        // A hand-off shows its own status line or spinner next, so its chip would repeat it.
+        #expect(call("pop_out", [:]).chipPhrase == nil)
+        #expect(call("build_new_scene", ["asQuiz": .bool(false)]).chipPhrase == nil)
+        #expect(call("answer_with_screen", [:]).chipPhrase == nil)
+        #expect(call("unknown_tool", [:]).chipPhrase == nil)
+        // An action's chip waits until the call worked, so a refused call never claims it happened.
+        let turn = call("rotate_model", ["yawDegrees": .number(-45)])
+        #expect(turn.chipPhraseToShow(at: .beforeTheCall) == nil)
+        #expect(turn.chipPhraseToShow(at: .afterTheCall(.changed(state: nil))) == "Turning it left")
+        #expect(turn.chipPhraseToShow(at: .afterTheCall(.failed(error: "factor must be a positive number", state: nil))) == nil)
+        // A lookup changes nothing on screen, so its chip shows while it runs, and only then.
+        let search = call("find_moment", ["query": .string("magma chamber")])
+        #expect(search.chipPhraseToShow(at: .beforeTheCall) == "Finding \u{201C}magma chamber\u{201D}")
+        #expect(search.chipPhraseToShow(at: .afterTheCall(.lookedUp(result: .null))) == nil)
+    }
+
+    @Test func statusLabelKeepsItsIconOnTheTrianglesSpotNearTheScreensRightEdge() async throws {
+        let screenFrame = CGRect(x: 1710, y: 0, width: 1920, height: 1080)
+        let trianglesSpot = { (mouseLocation: CGPoint) in CGPoint(x: mouseLocation.x + 35, y: mouseLocation.y - 25) }
+        let iconCenter = { (placement: StatusLabelPlacement) in
+            CGPoint(
+                x: placement.textSide == .rightOfIcon ? placement.panelOrigin.x + 24 : placement.panelOrigin.x + 420 - 24,
+                y: placement.panelOrigin.y + 30
+            )
+        }
+
+        let mouseInTheMiddle = CGPoint(x: 2600, y: 500)
+        let middlePlacement = StatusLabelPlacement.placement(mouseLocation: mouseInTheMiddle, contentWidth: 210, screenFrame: screenFrame)
+        #expect(middlePlacement.textSide == .rightOfIcon)
+        #expect(middlePlacement.iconSitsOnTheTrianglesSpot)
+        #expect(iconCenter(middlePlacement) == trianglesSpot(mouseInTheMiddle))
+
+        // 210 points of letters right of the icon would run past 3630, so they move left of it.
+        let mouseNearTheRightEdge = CGPoint(x: 3500, y: 500)
+        let edgePlacement = StatusLabelPlacement.placement(mouseLocation: mouseNearTheRightEdge, contentWidth: 210, screenFrame: screenFrame)
+        #expect(edgePlacement.textSide == .leftOfIcon)
+        #expect(edgePlacement.iconSitsOnTheTrianglesSpot)
+        #expect(iconCenter(edgePlacement) == trianglesSpot(mouseNearTheRightEdge))
+
+        // Only the panel's empty part may cross the edge: the 420-point panel no longer pushes a short label.
+        let shortLabelPlacement = StatusLabelPlacement.placement(mouseLocation: CGPoint(x: 3300, y: 500), contentWidth: 210, screenFrame: screenFrame)
+        #expect(shortLabelPlacement.textSide == .rightOfIcon)
+        #expect(shortLabelPlacement.iconSitsOnTheTrianglesSpot)
+
+        // Near the bottom edge the panel is pushed up, so the triangle stays.
+        let bottomPlacement = StatusLabelPlacement.placement(mouseLocation: CGPoint(x: 2600, y: 10), contentWidth: 210, screenFrame: screenFrame)
+        #expect(bottomPlacement.panelOrigin.y == 0)
+        #expect(!bottomPlacement.iconSitsOnTheTrianglesSpot)
+    }
+
     @Test func narrationOfAPageImageNeverCallsItAVideo() async throws {
         let pageImageGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
         let youTubeFrameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: 42, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
         #expect(pageImageGrab.source == .pageImage)
         #expect(youTubeFrameGrab.source == .pausedYouTubeFrame)
-        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage).contains("video"))
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: false).contains("video"))
         #expect(!FramePopoutSource.pageImage.narrationImageLabel.contains("video"))
-        #expect(liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame).contains("the paused frame"))
+        #expect(liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame, isArtwork: false).contains("the paused frame"))
+    }
+
+    @Test func captionsFollowTheVoiceAndNamesAreCapitalized() async throws {
+        // While audio still arrives, 60 letters at about 15 a second stand in for the line's length.
+        #expect(SpokenLineProgress.spokenFraction(playedSeconds: 1, arrivedSeconds: 0.5, allAudioHasArrived: false, characterCount: 60) == 0.25)
+        // Once every sample has arrived, the real length wins.
+        #expect(SpokenLineProgress.spokenFraction(playedSeconds: 1, arrivedSeconds: 2, allAudioHasArrived: true, characterCount: 60) == 0.5)
+        #expect(SpokenLineProgress.spokenFraction(playedSeconds: 5, arrivedSeconds: 2, allAudioHasArrived: true, characterCount: 60) == 1)
+        // Half the line said shows half the letters plus two, and a finished line shows them all.
+        #expect(SpokenLineProgress.revealedCharacterCount(phraseLength: 40, spokenFraction: 0.5) == 22)
+        #expect(SpokenLineProgress.revealedCharacterCount(phraseLength: 40, spokenFraction: 0) == 2)
+        #expect(SpokenLineProgress.revealedCharacterCount(phraseLength: 40, spokenFraction: 1) == 40)
+        // The captions show what Clicky says, so names keep their capitals.
+        for narrationPrompt in [liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true), liveSceneNarrationSystemPrompt(for: .pausedYouTubeFrame, isArtwork: false)] {
+            #expect(!narrationPrompt.contains("lowercase"))
+            #expect(narrationPrompt.contains("sentence case"))
+        }
+    }
+
+    @Test func narrationOfAnArtworkAsksForFactsAboutTheArtNotWhatItShows() async throws {
+        let artworkSystemPrompt = liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: true)
+        #expect(artworkSystemPrompt.contains("fact about the artwork"))
+        #expect(artworkSystemPrompt.contains("never just say what the part shows"))
+        #expect(!liveSceneNarrationSystemPrompt(for: .pageImage, isArtwork: false).contains("artwork"))
+        let tappedArtworkLabel = liveSceneNarrationUserPrompt(for: .partTapped(label: "Mount Fuji"), knownPartLabels: ["Mount Fuji", "Boats"], isArtwork: true)
+        #expect(!tappedArtworkLabel.contains("what does the Mount Fuji do"))
+        #expect(tappedArtworkLabel.contains("[PART:Mount Fuji]"))
+        #expect(liveSceneNarrationUserPrompt(for: .partTapped(label: "Fan"), knownPartLabels: ["Fan"], isArtwork: false).contains("what does the Fan do?"))
     }
 
     @Test func onlyAFailureOfTheLoadClickyStartedEndsTheScene() async throws {

@@ -1,0 +1,340 @@
+{
+  "label": "sonnet",
+  "benchKind": "worker",
+  "commitSHA": "44f2b3e30a8e",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-13T23:45:31.095Z",
+  "runCount": 3,
+  "port": 8787,
+  "interleavedWith": [
+    "opus"
+  ],
+  "summary": [
+    {
+      "caseId": "picture-flows-heart",
+      "route": "/picture-flows",
+      "description": "Draws blood rich and low in oxygen through a heart diagram",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 4372,
+        "p95": 4499,
+        "min": 4188,
+        "max": 4499
+      },
+      "firstByteMs": {
+        "p50": 4367,
+        "p95": 4497,
+        "min": 4187,
+        "max": 4497
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1261,
+      "meanCacheWriteTokens": 308,
+      "meanCacheReadTokens": 615,
+      "meanOutputTokens": 493,
+      "meanCostUSD": 0.00828
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "route": "/picture-flows",
+      "description": "Draws rain and runoff as droplets through the USGS water cycle diagram",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 3,
+      "qualityPassed": 0,
+      "totalMs": {
+        "p50": 3768,
+        "p95": 3984,
+        "min": 3744,
+        "max": 3984
+      },
+      "firstByteMs": {
+        "p50": 3767,
+        "p95": 3983,
+        "min": 3743,
+        "max": 3983
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1260,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 923,
+      "meanOutputTokens": 478,
+      "meanCostUSD": 0.00739
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "route": "/picture-flows",
+      "description": "Draws air and hot gas through a turbofan cutaway",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "runs": 3,
+      "qualityPassed": 0,
+      "totalMs": {
+        "p50": 3712,
+        "p95": 3754,
+        "min": 3342,
+        "max": 3754
+      },
+      "firstByteMs": {
+        "p50": 3711,
+        "p95": 3753,
+        "min": 3340,
+        "max": 3753
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 923,
+      "meanOutputTokens": 383,
+      "meanCostUSD": 0.00643
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 4367.156583,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4372.375083,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1261,
+          "cacheWriteTokens": 923,
+          "cacheReadTokens": 0,
+          "outputTokens": 469
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0095195,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 5 flows: none/blue, none/blue, none/blue, none/red, none/red"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"points\":[[502,150],[503,220],[505,300],[510,380],[540,450],[600,510],[615,450],[615,380]]},{\"color\":\"blue\",\"points\":[[492,610],[492,540],[495,440],[505,340]]},{\"color\":\"blue\",\"points\":[[615,420],[620,330],[630,250],[680,200],[750,187],[810,190]]},{\"color\":\"red\",\"points\":[[440,240],[520,260],[700,250],[735,320],[740,380]]},{\"color\":\"red\",\"points\":[[700,400],[640,330],[570,220],[590,150],[650,120],[652,60]]}]}"
+    },
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4186.554083000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4187.998167000002,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 482
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0074343000000000005,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 5 flows: none/blue, none/blue, none/blue, none/red, none/red"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"points\":[[502,150],[503,210],[510,300],[515,380],[545,460],[600,520],[615,460],[615,400]]},{\"color\":\"blue\",\"points\":[[490,610],[492,540],[495,450],[510,380]]},{\"color\":\"blue\",\"points\":[[615,400],[622,320],[625,250],[680,195],[770,187],[810,180]]},{\"color\":\"red\",\"points\":[[850,235],[790,235],[740,320],[745,370],[745,415]]},{\"color\":\"red\",\"points\":[[700,400],[690,340],[600,260],[570,200],[600,150],[650,100],[652,55]]}]}"
+    },
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 4497.489374999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4499.036082999999,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 528
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0078943,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, 5 flows: none/blue, none/blue, none/blue, none/red, none/red"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"points\":[[502,150],[503,220],[505,290],[505,360],[520,420],[550,462],[590,520],[615,500],[616,440],[615,400]]},{\"color\":\"blue\",\"points\":[[615,380],[622,290],[625,240],[680,190],[750,187],[800,190]]},{\"color\":\"blue\",\"points\":[[490,610],[490,540],[495,470],[505,400]]},{\"color\":\"red\",\"points\":[[800,235],[830,275],[800,275],[760,300],[740,330],[745,380]]},{\"color\":\"red\",\"points\":[[745,420],[705,400],[680,385],[620,330],[568,230],[568,190],[600,140],[650,90]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3983.4897500000043,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3983.860958000001,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1260,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 484
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0074523,
+      "quality": {
+        "passed": false,
+        "detail": "isArtwork false, 6 flows: none/cyan, none/white, none/cyan, none/cyan, none/cyan, none/cyan"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"cyan\",\"points\":[[1105,495],[1150,380],[1120,270],[1040,200],[980,185]]},{\"color\":\"white\",\"points\":[[970,172],[800,125],[640,110],[500,118]]},{\"color\":\"cyan\",\"points\":[[480,125],[380,200],[280,290],[200,340],[170,360]]},{\"color\":\"cyan\",\"points\":[[720,380],[780,405],[825,425]]},{\"color\":\"cyan\",\"points\":[[150,385],[230,490],[380,580],[560,625],[715,632]]},{\"color\":\"cyan\",\"points\":[[150,390],[160,520],[220,620],[300,660],[375,685]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3742.5923330000005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3743.800958,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1260,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 475
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0073623000000000004,
+      "quality": {
+        "passed": false,
+        "detail": "isArtwork false, 6 flows: none/cyan, none/white, none/cyan, none/cyan, none/cyan, none/cyan"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"cyan\",\"points\":[[1105,495],[1150,380],[1120,270],[1040,200],[985,185]]},{\"color\":\"white\",\"points\":[[975,170],[800,120],[600,112],[495,120]]},{\"color\":\"cyan\",\"points\":[[480,125],[380,200],[280,290],[200,350],[170,362]]},{\"color\":\"cyan\",\"points\":[[720,380],[780,405],[825,425]]},{\"color\":\"cyan\",\"points\":[[155,385],[250,490],[400,590],[560,625],[715,632]]},{\"color\":\"cyan\",\"points\":[[150,390],[170,520],[250,620],[370,685]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3767.239042000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3767.5639169999995,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1260,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 475
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0073623000000000004,
+      "quality": {
+        "passed": false,
+        "detail": "isArtwork false, 6 flows: none/cyan, none/white, none/cyan, none/cyan, none/cyan, none/cyan"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"cyan\",\"points\":[[1105,495],[1150,390],[1140,280],[1060,210],[985,185]]},{\"color\":\"white\",\"points\":[[970,170],[800,115],[620,108],[495,120]]},{\"color\":\"cyan\",\"points\":[[480,125],[380,190],[280,270],[210,330],[170,362]]},{\"color\":\"cyan\",\"points\":[[720,380],[780,405],[825,425]]},{\"color\":\"cyan\",\"points\":[[160,385],[250,490],[380,575],[540,625],[715,632]]},{\"color\":\"cyan\",\"points\":[[150,385],[165,520],[230,620],[370,685]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3710.6117500000037,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3711.825334000001,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 382
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006422300000000001,
+      "quality": {
+        "passed": false,
+        "detail": "isArtwork false, 4 flows: none/blue, none/orange, none/blue, none/blue"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"points\":[[390,300],[450,340],[530,370],[600,370],[680,365],[720,350]]},{\"color\":\"orange\",\"points\":[[720,340],[770,335],[830,340],[880,350],[940,340],[990,320]]},{\"color\":\"blue\",\"points\":[[400,245],[500,255],[620,260],[740,250],[830,235],[900,225]]},{\"color\":\"blue\",\"points\":[[420,480],[480,490],[560,470],[650,445],[740,435],[820,440]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3753.376707999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3753.9829579999932,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 383
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0064323,
+      "quality": {
+        "passed": false,
+        "detail": "isArtwork false, 4 flows: none/blue, none/orange, none/blue, none/blue"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"points\":[[380,245],[450,300],[520,350],[580,350],[640,340],[700,330]]},{\"color\":\"orange\",\"points\":[[720,335],[770,340],[830,350],[890,350],[950,330],[1000,320]]},{\"color\":\"blue\",\"points\":[[400,250],[500,260],[620,270],[740,260],[850,235],[960,225]]},{\"color\":\"blue\",\"points\":[[420,470],[500,490],[600,490],[700,470],[800,455],[880,450]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3340.1640409999964,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3342.0393329999933,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 923,
+          "outputTokens": 384
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0064423,
+      "quality": {
+        "passed": false,
+        "detail": "isArtwork false, 4 flows: none/blue, none/orange, none/blue, none/blue"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"points\":[[390,300],[470,340],[540,370],[610,370],[680,360],[720,345]]},{\"color\":\"orange\",\"points\":[[720,340],[770,335],[830,335],[890,330],[950,320],[1000,320]]},{\"color\":\"blue\",\"points\":[[400,245],[500,250],[620,255],[740,250],[830,225],[900,210]]},{\"color\":\"blue\",\"points\":[[420,470],[500,490],[600,500],[700,490],[800,460],[850,440]]}]}"
+    }
+  ]
+}

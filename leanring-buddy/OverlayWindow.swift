@@ -663,7 +663,7 @@ struct BlueCursorView: View {
         navigationBubbleTypingGeneration += 1
         let typingGeneration = navigationBubbleTypingGeneration
 
-        streamNavigationBubbleCharacter(phrase: phrase, characterIndex: 0, typingGeneration: typingGeneration) {
+        let onTypingComplete = {
             // A held target stays until CompanionManager clears the location.
             guard !self.currentTargetHoldsUntilReleased else { return }
             // All characters streamed. Hold for 3 seconds, then fly back.
@@ -676,6 +676,36 @@ struct BlueCursorView: View {
                     self.startFlyingBackToCursor()
                 }
             }
+        }
+        // A phrase Clicky is speaking types along with the voice. Any other phrase types at its own pace.
+        if companionManager.spokenFractionOfTheLine(phrase) != nil {
+            followTheVoiceInTheNavigationBubble(phrase: phrase, typingGeneration: typingGeneration, onComplete: onTypingComplete)
+        } else {
+            streamNavigationBubbleCharacter(phrase: phrase, characterIndex: 0, typingGeneration: typingGeneration, onComplete: onTypingComplete)
+        }
+    }
+
+    /// Shows as much of the phrase as the voice has said, 30 times a second, so the caption never races
+    /// ahead or falls behind. The bubble often arrives after the sentence started, and then catches up at once.
+    private func followTheVoiceInTheNavigationBubble(phrase: String, typingGeneration: Int, onComplete: @escaping () -> Void) {
+        guard buddyNavigationMode == .pointingAtTarget,
+              typingGeneration == navigationBubbleTypingGeneration else { return }
+        // A line that was stopped counts as said, so the caption finishes instead of freezing.
+        let spokenFraction = companionManager.spokenFractionOfTheLine(phrase) ?? 1
+        let revealedCharacterCount = SpokenLineProgress.revealedCharacterCount(phraseLength: phrase.count, spokenFraction: spokenFraction)
+        if navigationBubbleText.count != revealedCharacterCount {
+            // The scale-bounce entrance plays when the first letters appear.
+            if navigationBubbleText.isEmpty && revealedCharacterCount > 0 {
+                navigationBubbleScale = 1.0
+            }
+            navigationBubbleText = String(phrase.prefix(revealedCharacterCount))
+        }
+        guard revealedCharacterCount < phrase.count else {
+            onComplete()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30.0) {
+            self.followTheVoiceInTheNavigationBubble(phrase: phrase, typingGeneration: typingGeneration, onComplete: onComplete)
         }
     }
 

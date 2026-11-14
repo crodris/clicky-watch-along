@@ -131,6 +131,13 @@ enum DS {
         static let sky500 = Color(hex: "#0ea5e9")
         static let sky700 = Color(hex: "#0369a1")
 
+        static let teal50  = Color(hex: "#f0fdfa")
+        static let teal100 = Color(hex: "#ccfbf1")
+        static let teal300 = Color(hex: "#5eead4")
+        static let teal400 = Color(hex: "#2dd4bf")
+        static let teal500 = Color(hex: "#14b8a6")
+        static let teal700 = Color(hex: "#0f766e")
+
         // ── Accent (derived from blue scale) ───────────────────────
         // The primary fill is Blue 600; hover darkens to Blue 700.
 

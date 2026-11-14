@@ -22,6 +22,7 @@ const verifyClickyStateDirectory = join(checkoutRoot, ".verify-clicky");
 const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
   "claude-sonnet-4-6": { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
   "claude-sonnet-5-5": { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 },
+  "claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 },
   "claude-haiku-5-5": { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
 };
 // OpenAI's pricing page refuses automated fetches, so a GPT scene uses the repo's measured estimate per call.
@@ -288,13 +289,10 @@ function judgeCase(judgeCaseSpec: {
   };
 }
 
-function framePartsCase(
-  id: string,
-  frameFileName: string,
-  expectWholePicture: boolean,
-  expectShowsDepth: boolean,
-  description: string,
-): BenchCase {
+/** A field left out is not checked. */
+type FramePartsExpectation = { isArtwork: boolean; wholePictureIsSubject: boolean; pictureShowsDepth?: boolean };
+
+function framePartsCase(id: string, frameFileName: string, expected: FramePartsExpectation, description: string): BenchCase {
   return {
     id,
     route: "/video-frame-parts",
@@ -313,15 +311,24 @@ function framePartsCase(
         return { passed: false, detail: "subjectFound is not true" };
       }
       const parts = Array.isArray(reply.parts) ? reply.parts : [];
+      const isArtwork = reply.isArtwork === true;
       const wholePicture = reply.wholePictureIsSubject === true;
       const showsDepth = reply.pictureShowsDepth === true;
-      const passed = wholePicture === expectWholePicture && showsDepth === expectShowsDepth && parts.length >= 3;
-      return { passed, detail: `wholePictureIsSubject ${wholePicture}, pictureShowsDepth ${showsDepth}, ${parts.length} parts` };
+      const passed =
+        isArtwork === expected.isArtwork &&
+        wholePicture === expected.wholePictureIsSubject &&
+        (expected.pictureShowsDepth === undefined || showsDepth === expected.pictureShowsDepth) &&
+        parts.length >= 3;
+      return { passed, detail: `isArtwork ${isArtwork}, wholePictureIsSubject ${wholePicture}, pictureShowsDepth ${showsDepth}, ${parts.length} parts` };
     },
   };
 }
 
-function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[], expectedColors: string[], description: string): BenchCase {
+type PictureFlowsExpectation =
+  | { kind: "nothingFlows" }
+  | { kind: "flows"; colors: string[]; styles: string[] };
+
+function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[], expectation: PictureFlowsExpectation, description: string): BenchCase {
   return {
     id,
     route: "/picture-flows",
@@ -329,11 +336,16 @@ function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[
     requestBody: () => ({ frameBase64: fixtureBase64(frameFileName), frameWidth: 1280, frameHeight: 720, partLabels }),
     checkReply: (replyText) => {
       const reply = parseJSONObject(replyText);
-      const flows = Array.isArray(reply?.flows) ? reply.flows : [];
-      const colors = flows.map((flow: unknown) => (typeof flow === "object" && flow !== null && "color" in flow ? String(flow.color) : "none"));
-      // An empty list of expected colors means nothing in the picture flows.
-      const passed = expectedColors.length === 0 ? flows.length === 0 : expectedColors.every((color) => colors.includes(color));
-      return { passed, detail: `${flows.length} flows: ${colors.join(", ") || "none"}` };
+      const flows: unknown[] = Array.isArray(reply?.flows) ? reply.flows : [];
+      const flowField = (fieldName: "color" | "style") =>
+        flows.map((flow) => (typeof flow === "object" && flow !== null && fieldName in flow ? String((flow as Record<string, unknown>)[fieldName]) : "none"));
+      const colors = flowField("color"), styles = flowField("style");
+      const passedByKind = {
+        nothingFlows: () => flows.length === 0,
+        flows: () => expectation.kind === "flows" && expectation.colors.every((color) => colors.includes(color)) && expectation.styles.every((style) => styles.includes(style)),
+      };
+      const flowSummary = flows.length === 0 ? "none" : colors.map((color, flowIndex) => `${styles[flowIndex]}/${color}`).join(", ");
+      return { passed: passedByKind[expectation.kind](), detail: `${flows.length} flows: ${flowSummary}` };
     },
   };
 }
@@ -428,17 +440,34 @@ const benchCases: BenchCase[] = [
       };
     },
   },
-  framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", false, false, "Finds the heart in a 1280x720 diagram frame"),
-  framePartsCase("frame-parts-painting", "starry-night-frame.jpg", true, false, "Lifts The Starry Night out as a whole picture"),
-  framePartsCase("frame-parts-cutaway", "turbofan-cutaway-frame.jpg", false, true, "Marks a 3D cutaway of a turbofan as showing depth"),
+  framePartsCase("frame-parts-heart", "heart-diagram-frame.jpg", { isArtwork: false, wholePictureIsSubject: false, pictureShowsDepth: false }, "Finds the heart in a 1280x720 diagram frame"),
+  framePartsCase("frame-parts-painting", "starry-night-frame.jpg", { isArtwork: true, wholePictureIsSubject: true, pictureShowsDepth: false }, "Lifts The Starry Night out as a whole picture and marks it as art"),
+  framePartsCase("frame-parts-cutaway", "turbofan-cutaway-frame.jpg", { isArtwork: false, wholePictureIsSubject: false, pictureShowsDepth: true }, "Marks a 3D cutaway of a turbofan as showing depth"),
+  framePartsCase("frame-parts-print", "great-wave-frame.jpg", { isArtwork: true, wholePictureIsSubject: true }, "Marks The Great Wave, a woodblock print, as art"),
+  framePartsCase("frame-parts-art-of-one-animal", "young-hare-frame.jpg", { isArtwork: true, wholePictureIsSubject: false }, "Marks Dürer's Young Hare as art, though it shows one animal"),
+  framePartsCase("frame-parts-bicycle", "bicycle-diagram-frame.jpg", { isArtwork: false, wholePictureIsSubject: false }, "Keeps a labeled bicycle diagram as a diagram, not art"),
   pictureFlowsCase(
     "picture-flows-heart",
     "heart-diagram-frame.jpg",
     ["Aorta", "Left ventricle", "Right ventricle", "Pulmonary artery"],
-    ["red", "blue"],
+    { kind: "flows", colors: ["red", "blue"], styles: [] },
     "Draws blood rich and low in oxygen through a heart diagram",
   ),
-  pictureFlowsCase("picture-flows-painting", "starry-night-frame.jpg", ["Cypress tree", "Village", "Swirling sky"], [], "Finds nothing flowing in The Starry Night"),
+  pictureFlowsCase(
+    "picture-flows-water-cycle",
+    "water-cycle-frame.jpg",
+    ["Evaporation", "Precipitation", "Surface runoff", "Groundwater flow"],
+    { kind: "flows", colors: ["cyan"], styles: ["droplets"] },
+    "Draws rain and runoff as droplets through the USGS water cycle diagram",
+  ),
+  pictureFlowsCase(
+    "picture-flows-cutaway",
+    "turbofan-cutaway-frame.jpg",
+    ["Fan", "Compressor", "Combustion chamber", "Turbine"],
+    { kind: "flows", colors: [], styles: ["air", "sparks"] },
+    "Draws air and hot gas through a turbofan cutaway",
+  ),
+  pictureFlowsCase("picture-flows-bicycle", "bicycle-diagram-frame.jpg", ["Front wheel", "Rear wheel", "Chain", "Pedal"], { kind: "nothingFlows" }, "Draws no flow for a bicycle, whose chain is a moving part"),
   {
     id: "landmark",
     route: "/landmark",

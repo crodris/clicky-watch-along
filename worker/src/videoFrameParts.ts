@@ -28,6 +28,7 @@ const modelReplySchema = z.object({
   subjectBox: z.object({ left: z.number(), top: z.number(), right: z.number(), bottom: z.number() }),
   parts: z.array(z.object({ label: z.string().min(1), x: z.number(), y: z.number() })),
   answerPartIndex: z.number().int(),
+  isArtwork: z.boolean(),
   wholePictureIsSubject: z.boolean(),
   pictureShowsDepth: z.boolean(),
 });
@@ -39,6 +40,8 @@ export type FrameParts =
   | {
       subjectFound: true;
       subjectBox: { left: number; top: number; right: number; bottom: number };
+      /** True for a work of art, which Clicky narrates with facts about the art and never animates. */
+      isArtwork: boolean;
       /** True for a painted scene, which the app lifts out whole instead of cutting out its foreground objects. */
       wholePictureIsSubject: boolean;
       /**
@@ -54,6 +57,7 @@ const framePartsSystemPrompt = [
   "Reply with JSON only.",
   "",
   "Unless wholePictureIsSubject is true, subjectFound is false when the subject is not drawn or filmed as one object in this frame, for example a chart, a diagram of arrows, or a person talking.",
+  "isArtwork is true when the picture is a work of art, such as a painting, print, drawing, fresco, or sculpture, including art of one animal or object, rather than a diagram, an illustration made to teach, a photo, or a video frame of real things.",
   "wholePictureIsSubject is true only for a painting, fresco, or print of a whole scene, where what the artist painted around the main figures is part of the work, such as a landscape, a night sky over a town, or several people painted together.",
   "It is false for art that shows one animal, person, plant, or object on a plain or empty background, such as a woodcut of one animal or a botanical drawing on blank paper, and false for teaching diagrams and filmed objects.",
   "When wholePictureIsSubject is true, subjectFound is true.",
@@ -117,6 +121,7 @@ export function checkFrameParts(modelReply: ModelReply, frameWidth: number, fram
   return {
     subjectFound: true,
     subjectBox,
+    isArtwork: modelReply.isArtwork,
     wholePictureIsSubject: modelReply.wholePictureIsSubject,
     // A painted scene keeps its puffed-up lift, which is how paintings pop out today.
     pictureShowsDepth: modelReply.pictureShowsDepth && !modelReply.wholePictureIsSubject,
@@ -138,6 +143,7 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
           additionalProperties: false,
           // The model writes properties in this order, so it decides on a painted scene before it can rule out one object.
           properties: {
+            isArtwork: { type: "boolean" },
             wholePictureIsSubject: { type: "boolean" },
             subjectFound: { type: "boolean" },
             pictureShowsDepth: { type: "boolean" },
@@ -163,7 +169,7 @@ function framePartsRequestBody(frameRequest: FrameRequest): unknown {
             },
             answerPartIndex: { type: "integer" },
           },
-          required: ["wholePictureIsSubject", "subjectFound", "pictureShowsDepth", "subjectBox", "parts", "answerPartIndex"],
+          required: ["isArtwork", "wholePictureIsSubject", "subjectFound", "pictureShowsDepth", "subjectBox", "parts", "answerPartIndex"],
         },
       },
     },

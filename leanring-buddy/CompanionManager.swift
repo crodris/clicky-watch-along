@@ -679,7 +679,7 @@ final class CompanionManager: ObservableObject {
 
     rules:
     - default to one or two short sentences, about 35 words in total, counting any idea you end on, because the user waits through every extra sentence as audio. be direct and dense, and give the one best answer rather than every option. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
-    - all lowercase, casual, warm. no emojis.
+    - casual and warm, in normal sentence case: capitalize the start of each sentence and every name, such as people, places, languages, and nationalities (Hokusai, Japan, Japanese). no emojis.
     - write for the ear, not the eye. short sentences. no lists, bullet points, markdown, or formatting — just natural speech.
     - don't use abbreviations or symbols that sound weird read aloud. write "for example" not "e.g.", spell out small numbers.
     - if the user's question relates to what's on their screen, reference specific things you see.
@@ -687,7 +687,7 @@ final class CompanionManager: ObservableObject {
     - you can help with anything — coding, writing, general knowledge, brainstorming.
     - never say "simply" or "just".
     - don't read out code verbatim. describe what the code does or what needs to change conversationally.
-    - don't end with simple yes/no questions like "want me to explain more?" or "should i show you?" — those are dead ends that force the user to just say yes.
+    - don't end with simple yes/no questions like "want me to explain more?" or "should I show you?" — those are dead ends that force the user to just say yes.
     - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
@@ -703,10 +703,10 @@ final class CompanionManager: ObservableObject {
     if pointing wouldn't help, append [POINT:none].
 
     examples:
-    - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
-    - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
-    - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
-    - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+    - user asks how to color grade in final cut: "You'll want to open the color inspector — it's right up in the top right area of the toolbar. Click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
+    - user asks what html is: "HTML stands for HyperText Markup Language, it's basically the skeleton of every web page. Curious how it connects to the CSS you're looking at? [POINT:none]"
+    - user asks how to commit in xcode: "See that Source Control menu up top? Click that and hit Commit, or you can use Command Option C as a shortcut. [POINT:285,11:source control]"
+    - element is on screen 2 (not where cursor is): "That's over on your other monitor — see the Terminal window? [POINT:400,300:terminal:screen2]"
     """
 
     /// Added to the system prompt for a look-inside request. Without it Claude
@@ -762,6 +762,9 @@ final class CompanionManager: ObservableObject {
                 continue
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            // A quiet moment is not the end of a step: a pop-out's narration starts about a second after its
+            // tour ends, so the step's own work is waited out first, then any tour or speech still going.
+            await waitForTheLatestResponseTaskToFinish()
             while true {
                 let tourIsStillPlaying: Bool
                 if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
@@ -772,6 +775,7 @@ final class CompanionManager: ObservableObject {
             print("Live scene rehearsal: finished, phase \(liveScenePhase)")
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
+        await waitForTheLatestResponseTaskToFinish()
         // A scene that should have been cancelled would still be building or touring here, for up to 40 seconds.
         for _ in 0..<160 {
             var sceneIsStillInProgress = false
@@ -782,6 +786,15 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         print("Live scene rehearsal: done, phase \(liveScenePhase)")
+    }
+
+    /// A voice command can hand its request to a new response task, such as pop_out starting the pop-out,
+    /// so this waits on whichever task is current until no newer one has replaced it.
+    private func waitForTheLatestResponseTaskToFinish() async {
+        while let responseTask = currentResponseTask {
+            await responseTask.value
+            if currentResponseTask == responseTask { return }
+        }
     }
     #endif
 
@@ -1119,7 +1132,8 @@ final class CompanionManager: ObservableObject {
     /// Lifts the subject of the paused YouTube frame, or of the largest image on any other page, out in 3D with every label showing.
     /// Sonnet and Vision take about 4 seconds, so there is no status line to speak.
     private func popOutTheVisibleVideoFrame(requestGeneration: Int, animatesWhatFlows: Bool) async {
-        LiveSceneStatusLabel.shared.show(.poppingItOut)
+        // A learner who asked to animate sees that word while the pop-out builds.
+        LiveSceneStatusLabel.shared.show(animatesWhatFlows ? .animatingIt : .poppingItOut)
         defer {
             // Every exit hides the pop-out line, unless a newer request took over, whose own line is not ours to hide.
             if requestGeneration == liveSceneRequestGeneration {
@@ -1162,7 +1176,7 @@ final class CompanionManager: ObservableObject {
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
         liveScenePageOnScreen = .framePopout(framePopout)
-        // Sonnet draws the flows while the tour plays, and the page starts them when the tour ends.
+        // Opus draws the flows while the tour plays, and the page starts them when the tour ends.
         // A tap that stops the narration keeps the pop-out, so the flows task runs on, and showPictureFlows
         // drops them only when a newer request or another page took over.
         let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows
@@ -1184,6 +1198,24 @@ final class CompanionManager: ObservableObject {
     }
 
     private func animateTheFramePopoutOnScreen(_ framePopout: VideoFramePopout, requestGeneration: Int) async {
+        // An artwork is refused before any "animating" status or line, so Clicky never promises what it won't do.
+        guard !framePopout.isArtwork else {
+            print("Frame pop-out: leaving the artwork as the artist made it")
+            if let artworkLine = PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing {
+                await speakLiveSceneLine(artworkLine)
+            }
+            // A push-to-talk press cancels this task, and a hide scheduled now would fade the overlay while they talk.
+            guard !Task.isCancelled else { return }
+            scheduleTransientHideIfNeeded()
+            return
+        }
+        LiveSceneStatusLabel.shared.show(.animatingIt)
+        defer {
+            // A newer request's own line is not ours to hide.
+            if requestGeneration == liveSceneRequestGeneration {
+                LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
+            }
+        }
         let pictureFlowsTask = Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
         await speakLiveSceneLine("Sure, let me animate that.")
         // A fast "nothing flows" reply would otherwise cut this line off, since a new line stops the one playing.
@@ -1192,14 +1224,21 @@ final class CompanionManager: ObservableObject {
         voiceState = .processing
         let pictureFlowsOutcome = await pictureFlowsTask.value
         guard !Task.isCancelled else { return }
+        LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
             await speakLiveSceneLine(spokenLine)
         }
+        guard !Task.isCancelled else { return }
         scheduleTransientHideIfNeeded()
     }
 
     private func showPictureFlows(on framePopout: VideoFramePopout, requestGeneration: Int) async -> PictureFlowsOutcome {
+        // An artwork is never animated, so its flows are never asked for.
+        guard !framePopout.isArtwork else {
+            print("Frame pop-out: leaving the artwork as the artist made it")
+            return .leftTheArtworkAlone
+        }
         let pictureFlows: [PictureFlow]
         do {
             pictureFlows = try await PictureFlowsClient.requestFlows(workerBaseURL: Self.workerBaseURL, framePopout: framePopout)
@@ -1920,9 +1959,14 @@ final class CompanionManager: ObservableObject {
             for toolCall in reply.toolCalls {
                 // A push-to-talk press cancels this command, so its remaining calls must not run.
                 guard !Task.isCancelled else { return }
-                VoiceToolCallChip.shared.show(toolCall.chipText)
+                showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall)
                 let toolStartedAt = Date()
                 let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
+                // A push-to-talk press during a slow call, like play_video's check, ends the command here, so its outcome is
+                // never shown or recorded. A hand-off cancels this task itself when it starts the new path, and runs with
+                // no await, so it goes on to show its chip and record its action.
+                if Task.isCancelled && outcome != .handedOff { return }
+                showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
                 print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
                 logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
                 outcomes.append(outcome)
@@ -2062,8 +2106,10 @@ final class CompanionManager: ObservableObject {
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
-        VoiceToolCallChip.shared.show(toolCall.chipText)
-        return await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
+        showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall)
+        let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
+        showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
+        return outcome
     }
     #endif
 
@@ -2099,6 +2145,21 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["quizQuestionIsOpen"] = .bool(true)
         }
         return .object(sceneStateFields)
+    }
+
+    /// Asked as each call starts and again once it has run. A learner sees the call in plain words, at the moment
+    /// `chipPhraseToShow(at:)` picks. With the debug switch on, a Debug build shows every call as code as it starts, refused ones too.
+    private func showTheVoiceToolCallChip(for toolCall: VoiceToolCall, at chipMoment: VoiceToolChipMoment) {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: Self.logsVoiceToolCallJSONDefaultsKey) {
+            if case .beforeTheCall = chipMoment {
+                VoiceToolCallChip.shared.show(toolCall.chipText, chipTextIsCode: true)
+            }
+            return
+        }
+        #endif
+        guard let chipPhrase = toolCall.chipPhraseToShow(at: chipMoment) else { return }
+        VoiceToolCallChip.shared.show(chipPhrase)
     }
 
     /// The debug setting in the panel prints the full JSON of every voice command reply and tool result.
@@ -2143,6 +2204,12 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
+    /// The pointing bubble types along with it.
+    func spokenFractionOfTheLine(_ text: String) -> Double? {
+        elevenLabsTTSClient.spokenFraction(ofLine: text)
+    }
+
     private func speakLiveSceneLine(_ line: String) async {
         do {
             try await elevenLabsTTSClient.speakText(line)
@@ -2175,8 +2242,8 @@ final class CompanionManager: ObservableObject {
         do {
             narrationText = try await claudeAPI.analyzeImageStreaming(
                 images: sourceImagesForNarration,
-                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source),
-                userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels),
+                systemPrompt: liveSceneNarrationSystemPrompt(for: framePopout.frameGrab.source, isArtwork: framePopout.isArtwork),
+                userPrompt: liveSceneNarrationUserPrompt(for: narrationTrigger, knownPartLabels: knownPartLabels, isArtwork: framePopout.isArtwork),
                 onTextChunk: { _ in }
             ).text
         } catch {
@@ -2521,7 +2588,7 @@ final class CompanionManager: ObservableObject {
 
     CRITICAL COORDINATE RULE: you MUST only pick elements near the CENTER of the screen. your x coordinate must be between 20%-80% of the image width. your y coordinate must be between 20%-80% of the image height. do NOT pick anything in the top 20%, bottom 20%, left 20%, or right 20% of the screen. no menu bar items, no dock icons, no sidebar items, no items near any edge. only things clearly in the middle area of the screen. if the only interesting things are near the edges, pick something boring in the center instead.
 
-    respond with ONLY your short comment followed by the coordinate tag. nothing else. all lowercase.
+    respond with ONLY your short comment followed by the coordinate tag. nothing else. normal sentence case, with names capitalized.
 
     format: your comment [POINT:x,y:label]
 
