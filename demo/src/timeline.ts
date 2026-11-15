@@ -258,240 +258,199 @@ const studyGuideChip = { x: 0.72, y: 0.73 };
 const notionPage = { x: 0.64, y: 0.55 };
 // Close enough to see the helper triangle trail the blue one and fill.
 const helperScale = 3.0;
-// Frames the page's text column with the (0:29) link the driver clicks at its right end.
-const timestampLink = { x: 0.6, y: 0.55 };
+// Frames the key terms at the bottom of the page, with the (1:05) link the driver clicks.
+const keyTermLink = { x: 0.6, y: 0.5 };
 // The check mark on a finished helper (DS.Colors.success in the app).
 const finishedCheckGreen = "#34D399";
 
+// Clicky's own lines are heard, so only the learner's silent requests and what is happening get captions. The captions
+// name the parts the way an engineer would, since the clip is for people who build agents.
 export const studyGuideClipSegments: Segment[] = [
   {
-    // A glimpse of the finished page first, so the result shows before anyone decides to scroll. It is from later in
-    // the take, so its sound stays off.
-    kind: "shot",
-    name: "payoff",
-    recordingFile: "study-guide.mov",
-    cursorTrackFile: "study-guide.cursor.json",
-    sourceStartSeconds: 66.9,
-    durationSeconds: 2.2,
-    muted: true,
-    cameraMoves: [{ atSeconds: 0, scale: 1.5, focus: notionPage, durationFrames: 1 }],
-    captions: [{ fromSeconds: 0.1, toSeconds: 2.1, text: "This wrote itself while I watched", accentWords: ["wrote itself"] }],
-  },
-  {
-    // study-guide.events.txt: the request at 5.88, the helper appears at 7.59, Clicky says "On it! Writing your study
-    // guide now!" from 8.19 to 10.48, and the mouse glides out from 8.2 and back by 12.2, with the helper trailing.
+    // study-guide.events.txt: the request at 5.67, make_study_guide spawns the helper at 7.20, which shows "Reading the
+    // captions" until 10.22 and then "Writing the guide in Notion", and the mouse glides out from 8.0 and back by 11.4
+    // with the helper trailing. Clicky says "On it, writing your study guide." from 7.62 to 9.71.
     kind: "shot",
     name: "ask",
     recordingFile: "study-guide.mov",
     cursorTrackFile: "study-guide.cursor.json",
-    sourceStartSeconds: 3.5,
-    durationSeconds: 9.2,
+    sourceStartSeconds: 3.4,
+    durationSeconds: 8.6,
     cameraMoves: [
       { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
-      { atSeconds: 3.9, scale: helperScale, focus: "cursor", durationFrames: bigMoveFrames },
+      { atSeconds: 3.7, scale: helperScale, focus: "cursor", durationFrames: bigMoveFrames },
     ],
     captions: [
       { fromSeconds: 0.2, toSeconds: 2.1, text: "Watching something worth remembering?" },
-      { fromSeconds: 2.3, toSeconds: 4.5, text: "Make me a Notion study guide for this video", voice: "learner" },
-      { fromSeconds: 4.7, toSeconds: 6.9, text: "On it! Writing your study guide now!", voice: "clicky" },
-      { fromSeconds: 7.0, toSeconds: 9.1, text: "A helper cursor spawns and follows you", accentWords: ["helper cursor"] },
+      { fromSeconds: 2.3, toSeconds: 4.3, text: "Make me a Notion study guide for this video", voice: "learner" },
+      { fromSeconds: 4.4, toSeconds: 6.2, text: "The tool call spawns a background sub-agent", accentWords: ["sub-agent"] },
+      { fromSeconds: 6.3, toSeconds: 8.4, text: "It trails your cursor and shows the step it's on", accentWords: ["step it's on"] },
     ],
   },
   {
-    // Starts where the ask's last dissolve begins. "Pop this out" at 12.75, Clicky says "Sure, let me pop that out."
-    // from 14.74 to 16.35, the engine lifts out at 17.84, and the guide is written at 21.27, mid-tour: the helper fills,
+    // Starts where the ask's last dissolve begins. "Pop this out" at 11.80, the agent list is open from about 13.5 to
+    // 17.5 while the pop-out builds, the engine lifts out at 16.37, and the guide is written at 19.77: the helper fills,
     // gets its green check, and the chip shows.
     kind: "shot",
     name: "popout",
     recordingFile: "study-guide.mov",
     cursorTrackFile: "study-guide.cursor.json",
-    sourceStartSeconds: 12.2,
-    durationSeconds: 11.2,
+    sourceStartSeconds: 11.5,
+    durationSeconds: 10.4,
     cameraMoves: [
       { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
-      { atSeconds: 8.6, scale: labelScale, focus: studyGuideChip, durationFrames: bigMoveFrames },
+      { atSeconds: 1.7, scale: labelScale, focus: studyGuideChip, durationFrames: bigMoveFrames },
+      { atSeconds: 5.8, scale: engineVideoScale, focus: engineVideo, durationFrames: bigMoveFrames },
+      { atSeconds: 7.8, scale: labelScale, focus: studyGuideChip, durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.5, toSeconds: 2.3, text: "Pop this out", voice: "learner" },
-      { fromSeconds: 2.5, toSeconds: 4.2, text: "Sure, let me pop that out.", voice: "clicky" },
-      { fromSeconds: 4.4, toSeconds: 8.7, text: "You keep learning while the helper writes", accentWords: ["keep learning"] },
-      { fromSeconds: 9.0, toSeconds: 11.1, text: "It finishes mid-tour with a green check", accentWords: ["green check"], accentColor: finishedCheckGreen },
+      { fromSeconds: 0.3, toSeconds: 2.0, text: "Pop this out", voice: "learner" },
+      { fromSeconds: 2.2, toSeconds: 5.8, text: "Shift + option lists every running sub-agent", accentWords: ["shift + option"] },
+      { fromSeconds: 6.0, toSeconds: 8.1, text: "The main agent stays free for you", accentWords: ["stays free"] },
+      { fromSeconds: 8.3, toSeconds: 10.3, text: "Done: green check, page ready in a background tab", accentWords: ["green check"], accentColor: finishedCheckGreen },
     ],
   },
   {
-    // Starts where the pop-out's last dissolve begins. Clicky's first sentence runs from 23.35 to 32.33, and the shot
+    // Starts where the pop-out's last dissolve begins. Clicky's first sentence runs from 21.70 to 29.71, and the shot
     // ends in the pause after it.
     kind: "shot",
     name: "narration",
     recordingFile: "study-guide.mov",
     cursorTrackFile: "study-guide.cursor.json",
-    sourceStartSeconds: 22.9,
-    durationSeconds: 9.9,
+    sourceStartSeconds: 21.4,
+    durationSeconds: 8.6,
     cameraMoves: [{ atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 }],
-    captions: [
-      { fromSeconds: 0.45, toSeconds: 3.9, text: "Each of these little blades works like a tiny fan,", voice: "clicky" },
-      { fromSeconds: 4.0, toSeconds: 6.7, text: "and there are thousands of them in a real jet engine,", voice: "clicky" },
-      { fromSeconds: 6.8, toSeconds: 9.6, text: "squeezing the air tighter and tighter.", voice: "clicky" },
-    ],
+    captions: [],
   },
   {
-    // "Open my study guide" at 62.18, the page shows from about 64.5, Clicky says "Opening your study guide now." from
-    // 65.08 to 66.75, the page scrolls to a point about the compressor from 68.2, and the mouse glides to its (0:29)
-    // link and clicks at about 73.0. The shot ends on the click, since the new tab is blank until the video shows.
+    // "Open my study guide" at 64.63, the page shows from about 66.5, Clicky says "Opening your study guide now!" from
+    // 66.86, the page scrolls to its key terms from 70.6, and the mouse glides to the (1:05) link of a key term and
+    // clicks at about 79.2. The shot ends on the click, since the new tab is blank until the video shows.
     kind: "shot",
     name: "open",
     recordingFile: "study-guide.mov",
     cursorTrackFile: "study-guide.cursor.json",
-    sourceStartSeconds: 62.0,
-    durationSeconds: 11.4,
+    sourceStartSeconds: 64.4,
+    durationSeconds: 15.0,
     cameraMoves: [
       { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
-      { atSeconds: 2.8, scale: 1.5, focus: notionPage, durationFrames: bigMoveFrames },
-      { atSeconds: 8.2, scale: 1.7, focus: timestampLink, durationFrames: bigMoveFrames },
+      { atSeconds: 2.4, scale: 1.5, focus: notionPage, durationFrames: bigMoveFrames },
+      { atSeconds: 7.4, scale: 1.6, focus: keyTermLink, durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.2, toSeconds: 2.6, text: "Open my study guide", voice: "learner" },
-      { fromSeconds: 3.0, toSeconds: 4.8, text: "Opening your study guide now.", voice: "clicky" },
-      { fromSeconds: 5.1, toSeconds: 11.1, text: "Every point links back to its moment in the video", accentWords: ["its moment"] },
+      { fromSeconds: 0.2, toSeconds: 2.4, text: "Open my study guide", voice: "learner" },
+      { fromSeconds: 4.4, toSeconds: 8.9, text: "Every point links back to its moment in the video", accentWords: ["its moment"] },
+      { fromSeconds: 9.1, toSeconds: 14.8, text: "The key terms link back too", accentWords: ["key terms"] },
     ],
   },
   {
-    // The clicked link opens the video at 0:29 in a new tab, where it plays from about 76.5.
+    // The clicked link opens the video at 1:05 in a new tab, where it plays from about 82.
     kind: "shot",
     name: "jump",
     recordingFile: "study-guide.mov",
     cursorTrackFile: "study-guide.cursor.json",
-    sourceStartSeconds: 76.4,
-    durationSeconds: 5.0,
+    sourceStartSeconds: 81.9,
+    durationSeconds: 4.6,
     cameraMoves: [{ atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 }],
-    captions: [{ fromSeconds: 0.3, toSeconds: 4.8, text: "Click one, and the video jumps right there", accentWords: ["jumps right there"] }],
+    captions: [{ fromSeconds: 0.3, toSeconds: 4.4, text: "Click one, and the video jumps right there", accentWords: ["jumps right there"] }],
   },
   // The music fades out under this card.
-  { kind: "endCard", name: "end-card", recordingFile: "study-guide.mov", sourceStartSeconds: 80, durationSeconds: 4.0 },
+  { kind: "endCard", name: "end-card", recordingFile: "study-guide.mov", sourceStartSeconds: 82, durationSeconds: 4.0 },
 ];
 
-// The quiz miss clip, posted beside the study guide clip: one wrong answer lands at the top of the guide.
-// The quiz's "?" label sits at the upper left of the lifted engine, and the blue cursor's bubble with the question
-// opens below and right of it.
+// The quiz miss clip, posted beside the study guide clip. The take writes the guide first, off camera, so the clip
+// starts at the quiz: a missed question spawns an update sub-agent, and the guide opens with the miss at the top.
+// The quiz's "?" label sits at the upper left of the lifted engine, with the question in the blue cursor's bubble.
 const quizQuestionLabel = { x: 0.36, y: 0.4 };
+// The update helper flies back with the blue cursor to the mouse, which rests at about (0.67, 0.69), and its chip opens
+// just below and right of it, as in the study guide clip.
+const quizUpdateHelper = studyGuideChip;
 // "Review these first" sits just under the page's summary.
 const reviewTheseFirst = { x: 0.6, y: 0.56 };
 
 export const quizMissClipSegments: Segment[] = [
   {
-    // A glimpse of the finished page first, from later in the take, so its sound stays off.
-    kind: "shot",
-    name: "payoff",
-    recordingFile: "quiz-miss.mov",
-    cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 124.2,
-    durationSeconds: 2.4,
-    muted: true,
-    cameraMoves: [{ atSeconds: 0, scale: 1.7, focus: reviewTheseFirst, durationFrames: 1 }],
-    captions: [{ fromSeconds: 0.1, toSeconds: 2.3, text: "My notes start with what I got wrong", accentWords: ["what I got wrong"] }],
-  },
-  {
-    // quiz-miss.events.txt: "Watch this video with me and quiz me" at 5.68, and Clicky says "Sure, let me read through
-    // this video." from 6.66 to 8.69.
+    // quiz-miss.events.txt: "Watch this video with me and quiz me" at 24.59, and Clicky says "Sure, let me read through
+    // this video." from 25.29.
     kind: "shot",
     name: "ask",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 5.2,
-    durationSeconds: 4.0,
+    sourceStartSeconds: 24.2,
+    durationSeconds: 3.6,
     cameraMoves: [{ atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 }],
-    captions: [
-      { fromSeconds: 0.3, toSeconds: 1.4, text: "Watch this video with me and quiz me", voice: "learner" },
-      { fromSeconds: 1.5, toSeconds: 3.9, text: "Sure, let me read through this video.", voice: "clicky" },
-    ],
+    captions: [{ fromSeconds: 0.3, toSeconds: 3.4, text: "Watch this video with me and quiz me", voice: "learner" }],
   },
   {
-    // The video pauses at 49.82 and the engine lifts out. Clicky asks from 55.46 to 62.53 while the blue cursor flies to
-    // the "?" label and its bubble types the question.
+    // The video pauses at 65.17 and the engine lifts out. Clicky asks from 70.48 to 77.27 while the blue cursor flies
+    // to the "?" label and its bubble types the question.
     kind: "shot",
     name: "question",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 49.4,
-    durationSeconds: 13.6,
+    sourceStartSeconds: 64.8,
+    durationSeconds: 13.0,
     cameraMoves: [
       { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
-      { atSeconds: 6.6, scale: 2.0, focus: quizQuestionLabel, durationFrames: bigMoveFrames },
+      { atSeconds: 5.4, scale: 2.0, focus: quizQuestionLabel, durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.5, toSeconds: 5.8, text: "It pauses at the right moment and lifts it out in 3D", accentWords: ["3D"] },
-      { fromSeconds: 6.06, toSeconds: 7.3, text: "Let's pause here.", voice: "clicky" },
-      { fromSeconds: 7.5, toSeconds: 10.6, text: "In each compressor stage, what part slows the swirling air", voice: "clicky" },
-      { fromSeconds: 10.7, toSeconds: 13.4, text: "so its pressure goes up?", voice: "clicky" },
+      { fromSeconds: 0.5, toSeconds: 5.3, text: "It pauses at the right moment and lifts it out in 3D", accentWords: ["3D"] },
+      { fromSeconds: 6.0, toSeconds: 12.6, text: "The question stays in the cursor's bubble", accentWords: ["cursor's bubble"] },
     ],
   },
   {
-    // Starts where the question's last dissolve begins. "Is it the muffler" at 63.13, Clicky answers from 65.33 to 69.46
-    // while the "?" shakes once and the question stays in the bubble, and the shot ends in the pause after it.
+    // Starts where the question's last dissolve begins. "Is it the muffler" at 77.50, and Clicky's first sentence runs
+    // from 79.82 to the pause at 84.76, while the "?" shakes once and the question stays in the bubble.
     kind: "shot",
     name: "wrong",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 62.5,
-    durationSeconds: 7.4,
+    sourceStartSeconds: 77.3,
+    durationSeconds: 7.75,
     cameraMoves: [{ atSeconds: 0, scale: 2.0, focus: quizQuestionLabel, durationFrames: 1 }],
-    captions: [
-      { fromSeconds: 0.6, toSeconds: 2.6, text: "Is it the muffler?", voice: "learner" },
-      { fromSeconds: 2.83, toSeconds: 7.2, text: "Good guess, but a muffler isn't part of the compressor stage.", voice: "clicky" },
-    ],
+    captions: [{ fromSeconds: 0.2, toSeconds: 2.4, text: "Is it the muffler?", voice: "learner" }],
   },
   {
-    // "Is it the stator vanes" at 78.75, and Clicky says "Yes, the stator vanes are right, so what do they do to the
-    // swirling air?" from 80.75 to 86.31 as the label turns green with a ring.
+    // "Is it the stator vanes" at 93.73. The miss spawns the update helper at 95.62, which shows "Adding your miss to the
+    // guide" and finishes at 96.54 with its check and the "Study guide updated" chip, while Clicky answers from 95.54.
     kind: "shot",
-    name: "right",
+    name: "update",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 78.4,
-    durationSeconds: 8.3,
-    cameraMoves: [{ atSeconds: 0, scale: 2.0, focus: quizQuestionLabel, durationFrames: 1 }],
+    sourceStartSeconds: 93.4,
+    durationSeconds: 8.6,
+    cameraMoves: [
+      { atSeconds: 0, scale: 2.0, focus: quizQuestionLabel, durationFrames: 1 },
+      // After the "?" turns green with its ring at about 2.1, which the camera stays on.
+      { atSeconds: 3.0, scale: 2.4, focus: quizUpdateHelper, durationFrames: bigMoveFrames },
+    ],
     captions: [
-      { fromSeconds: 0.35, toSeconds: 2.2, text: "Is it the stator vanes?", voice: "learner" },
-      { fromSeconds: 2.35, toSeconds: 4.5, text: "Yes, the stator vanes are right,", voice: "clicky", accentWords: ["stator vanes"], accentColor: finishedCheckGreen },
-      { fromSeconds: 4.6, toSeconds: 8.1, text: "so what do they do to the swirling air?", voice: "clicky" },
+      { fromSeconds: 0.3, toSeconds: 2.1, text: "Is it the stator vanes?", voice: "learner" },
+      { fromSeconds: 2.3, toSeconds: 5.4, text: "The miss spawns a sub-agent that updates the guide", accentWords: ["sub-agent"] },
+      { fromSeconds: 5.6, toSeconds: 8.4, text: "Done in under a second, with no model call", accentWords: ["under a second"], accentColor: finishedCheckGreen },
     ],
   },
   {
-    // "Make me a Notion study guide for this video" at 93.83, and Clicky says "On it. Writing your study guide now."
-    // from 95.67 to 97.90.
-    kind: "shot",
-    name: "guide",
-    recordingFile: "quiz-miss.mov",
-    cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 93.5,
-    durationSeconds: 4.7,
-    cameraMoves: [{ atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 }],
-    captions: [
-      { fromSeconds: 0.3, toSeconds: 2.0, text: "Make me a Notion study guide for this video", voice: "learner" },
-      { fromSeconds: 2.17, toSeconds: 4.6, text: "On it. Writing your study guide now.", voice: "clicky" },
-    ],
-  },
-  {
-    // "Open my study guide" at 119.43, the page shows from about 121.5, and Clicky says "Opening your study guide now."
-    // from 121.89 to 123.55.
+    // "Open my study guide" at 112.96, the page shows from about 115, and Clicky says "There! Opening your study guide!"
+    // from 115.40.
     kind: "shot",
     name: "open",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 119.1,
-    durationSeconds: 11.0,
+    sourceStartSeconds: 112.7,
+    durationSeconds: 10.6,
     cameraMoves: [
       { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
-      { atSeconds: 4.6, scale: 1.7, focus: reviewTheseFirst, durationFrames: bigMoveFrames },
+      { atSeconds: 3.4, scale: 1.7, focus: reviewTheseFirst, durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.33, toSeconds: 2.4, text: "Open my study guide", voice: "learner" },
-      { fromSeconds: 2.79, toSeconds: 4.6, text: "Opening your study guide now.", voice: "clicky" },
-      { fromSeconds: 5.0, toSeconds: 10.8, text: "The question I missed comes first", accentWords: ["I missed"] },
+      { fromSeconds: 0.3, toSeconds: 2.4, text: "Open my study guide", voice: "learner" },
+      { fromSeconds: 4.6, toSeconds: 10.4, text: "The miss is already at the top of the guide", accentWords: ["already at the top"] },
     ],
   },
   // The music fades out under this card.
-  { kind: "endCard", name: "end-card", recordingFile: "quiz-miss.mov", sourceStartSeconds: 132, durationSeconds: 4.0 },
+  { kind: "endCard", name: "end-card", recordingFile: "quiz-miss.mov", sourceStartSeconds: 125, durationSeconds: 4.0 },
 ];
 
 // The landmark clip: "show me this in 3D" over a drone video of the Colosseum brings up Google's real 3D scan of it.

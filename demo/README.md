@@ -26,17 +26,17 @@ TRAILING_SECONDS=6 demo/scripts/record-shot.sh earth "pop this out" "https://com
 The study guide clip and the quiz miss clip use 1 shot each, with the Worker's `NOTION_API_KEY` set.
 In the study guide shot, "pop this out" runs while the guide is written, so the guide finishes during the pop-out's tour.
 Its `&` step waits for the guide to finish before asking to open it.
-Start the driver just before that shot, so it scrolls the guide's page to a point about the compressor and clicks its timestamp link once the page opens.
+Start the driver just before that shot, so it glides the mouse right after the request, opens the agent list with shift + option while the pop-out builds, and once the page opens, scrolls to the key terms and clicks the timestamp of the term about the stator vanes or the compressor.
 The click is a real mouse event from `scripts/recorder/click-mouse.swift`, which needs the Accessibility permission for the app that runs the script.
-The quiz miss shot answers one question wrong, then right, so the guide opens on "Review these first".
-Its second `?` step waits out a 4 minute timeout, since the wrong answer's reply has already played, and the edit cuts the wait.
+The quiz miss shot writes the guide first, which the edit leaves out, then answers one question wrong and then right.
+That miss spawns a "Study guide update" helper, so the guide opens with the question under "Review these first".
 Each run writes a new private page into the Notion account, so trash the test pages afterwards.
 The app saves one guide per YouTube video and never writes a second, so `record-shot.sh` deletes the saved guide for the shot's video before it launches the app.
 
 ```bash
 demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
 TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion study guide for this video|pop this out|put it back|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 60 1110 680
-TRAILING_SECONDS=12 demo/scripts/record-shot.sh quiz-miss "watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|make me a Notion study guide for this video|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 20 1110 680
+TRAILING_SECONDS=12 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 5 1110 680
 ```
 
 The landmark clip uses a drone video of the Colosseum, with `GOOGLE_MAPS_API_KEY` in `worker/.dev.vars`.

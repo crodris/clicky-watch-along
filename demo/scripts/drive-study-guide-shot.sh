@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Runs beside record-shot.sh for the study guide shot. Right after the request it glides the mouse out and back, so the
-# helper cursor is seen trailing the blue one. The rehearsal then pops the engine out while the guide is written. Once
-# the guide's page opens, this scrolls to the first point about the compressor and clicks its timestamp link, which opens
-# the video at that moment in a new tab.
+# helper cursor is seen trailing the blue one. The rehearsal then pops the engine out while the guide is written, and
+# this opens the agent list with shift + option while the pop-out builds. Once the guide's page opens, this scrolls down
+# to its key terms and clicks the timestamp of the term about the stator vanes or the compressor, which opens the video at
+# that moment in a new tab.
 # Usage, from the main checkout's root, started just before record-shot.sh:
 #   demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
 set -u
 raw_events_path="$1"
 checkout_root="$(git rev-parse --show-toplevel)"
+verify_script="$checkout_root/.claude/skills/verify-clicky/verify-clicky.sh"
 demo_folder="$(cd "$(dirname "$0")/.." && pwd)"
 # record-shot.sh builds move-mouse before the recording starts, and this builds click-mouse the first time.
 move_mouse="$checkout_root/demo/out/bin/move-mouse"
@@ -42,10 +44,14 @@ glide_mouse() {
   done
 }
 
-# The timestamp link of the first point that mentions the compressor, or the first link when no point does. Notion
-# links each point's time to the video with a t= parameter, and it redraws links while the page scrolls, so the pick is
-# remembered by its address, not by the element.
-pick_link_javascript="(() => { const links = [...document.querySelectorAll('a[href]')].filter(link => /youtu/.test(link.href) && /[?&]t=[0-9]+/.test(link.href)); const link = links.find(candidate => /compress/i.test((candidate.closest('[data-block-id]') || candidate.parentElement).textContent)) || links[0]; if (!link) return 'none'; window.demoLinkAddress = link.href; link.scrollIntoView({ behavior: 'smooth', block: 'center' }); return link.textContent; })()"
+# Notion draws blocks far down the page only once they scroll near, so the page first scrolls to its end, where the key
+# terms are, and the pick runs once they are drawn.
+scroll_to_the_end_javascript="(() => { const scroller = [...document.querySelectorAll('.notion-scroller')].sort((a, b) => b.scrollHeight - a.scrollHeight)[0]; if (!scroller) return 'no scroller'; scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' }); return 'scrolling'; })()"
+# The timestamp link of the first key term about the stator vanes or the compressor, or the first key term, or the first
+# timestamp on the page when it has no key terms. Only a link whose text is a time such as (0:50) counts, since the
+# video link at the top of the page carries a t= parameter too. Notion redraws links while the page scrolls, so the pick
+# is remembered by its address, not by the element.
+pick_link_javascript="(() => { const links = [...document.querySelectorAll('a[href]')].filter(link => /youtu/.test(link.href) && /^[(]?[0-9]+:[0-9]{2}[)]?$/.test(link.textContent.trim())); const heading = [...document.querySelectorAll('h1, h2, h3, [class*=header-block]')].find(element => /key terms/i.test(element.textContent)); const headingTop = heading ? heading.getBoundingClientRect().top : Infinity; const termLinks = links.filter(link => link.getBoundingClientRect().top > headingTop); const link = termLinks.find(candidate => /stator|compress/i.test((candidate.closest('[data-block-id]') || candidate.parentElement).textContent)) || termLinks[0] || links[0]; if (!link) return 'none'; window.demoLinkAddress = link.href; link.scrollIntoView({ behavior: 'smooth', block: 'center' }); return link.textContent; })()"
 # The link's center on screen, in points. Chrome's tab sidebar sits left of the page, so the window's extra width is on the left.
 link_point_javascript="(() => { const link = [...document.querySelectorAll('a[href]')].find(candidate => candidate.href === window.demoLinkAddress); if (!link) return 'none'; const box = link.getBoundingClientRect(); const pageLeft = window.screenX + (window.outerWidth - window.innerWidth); const pageTop = window.screenY + (window.outerHeight - window.innerHeight); return Math.round(pageLeft + box.left + box.width / 2) + ' ' + Math.round(pageTop + box.top + box.height / 2); })()"
 
@@ -58,11 +64,22 @@ glide_mouse 1110 680 880 560
 sleep 0.4
 glide_mouse 880 560 1110 680
 
+# The agent list opens while the pop-out builds, so the study guide sub-agent is seen running beside the main agent's
+# work, and it closes before the engine lifts out about 5 seconds after the request.
+wait_for_log_line 'saying "pop this out' || exit 1
+sleep 1
+"$verify_script" key agents-list
+sleep 3.5
+"$verify_script" key agents-list
+
 # The Notion tab comes forward about 2 seconds after the request, and the page takes a few more to draw.
 wait_for_log_line 'saying "open my study guide' || exit 1
 sleep 6
+run_in_front_tab "$scroll_to_the_end_javascript" > /dev/null
+sleep 2.5
 echo "picked link: $(run_in_front_tab "$pick_link_javascript")"
-sleep 2
+# The key terms sit at the bottom of the page, so the smooth scroll takes longer than a scroll within the first screen.
+sleep 3
 read -r link_x link_y <<< "$(run_in_front_tab "$link_point_javascript")"
 if [[ ! "$link_x" =~ ^[0-9]+$ || ! "$link_y" =~ ^[0-9]+$ ]]; then
   echo "no timestamp link to click" >&2
