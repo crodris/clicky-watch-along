@@ -15,6 +15,8 @@
     "mix-study-guide": "node scripts/mix-music.ts out/clicky-study-guide-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-study-guide.mp4",
     "render-quiz-miss": "remotion render src/index.ts ClickyQuizMissClip out/clicky-quiz-miss-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-quiz-miss",
     "mix-quiz-miss": "node scripts/mix-music.ts out/clicky-quiz-miss-voice.mp4 public/music/friends-like-us.mp3 out/clicky-quiz-miss.mp4",
+    "render-sub-agents": "remotion render src/index.ts ClickySubAgentsClip out/clicky-sub-agents-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-sub-agents",
+    "mix-sub-agents": "node scripts/mix-music.ts out/clicky-sub-agents-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-sub-agents.mp4",
     "render-parallel-agents": "remotion render src/index.ts ClickyParallelAgentsClip out/clicky-parallel-agents-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-parallel-agents",
     "mix-parallel-agents": "node scripts/mix-music.ts out/clicky-parallel-agents-voice.mp4 public/music/driving-ambition.mp3 out/clicky-parallel-agents.mp4"
   },

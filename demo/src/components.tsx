@@ -170,10 +170,11 @@ export function BlurDissolve({ durationInFrames, children, fadesOut }: { duratio
 /**
  * The sound crossfades with the picture: it rises over a shot's first dissolve and falls over its last, so two shots
  * that overlap never play their sound at full volume together. When the next shot starts where this one's last
- * dissolve begins, the two halves are the same moments and add back up to the full sound.
+ * dissolve begins, the two halves are the same moments and add back up to the full sound. A shot held past its
+ * sound fades out the same way, ending at soundEndsAtSeconds.
  */
-function shotVolume(shotFrame: number, shotDurationInFrames: number): number {
-  return Math.min(1, shotFrame / dissolveFrames, (shotDurationInFrames - shotFrame) / dissolveFrames);
+function shotVolume(shotFrame: number, shotDurationInFrames: number, soundEndFrame: number): number {
+  return Math.max(0, Math.min(1, shotFrame / dissolveFrames, (Math.min(shotDurationInFrames, soundEndFrame) - shotFrame) / dissolveFrames));
 }
 
 /** A stretch of a recording, with its camera moves, Ken Burns drift, and captions. */
@@ -186,6 +187,7 @@ export function Shot({
   captions,
   theme,
   muted,
+  soundEndsAtSeconds,
 }: {
   recordingFile: string;
   sourceStartSeconds: number;
@@ -195,6 +197,7 @@ export function Shot({
   captions: Caption[];
   theme: DemoTheme;
   muted: boolean;
+  soundEndsAtSeconds?: number;
 }) {
   const frame = useCurrentFrame();
   const camera = cameraAt(cameraMoves, frame / frameRate, durationSeconds, sourceStartSeconds, cursorTrack);
@@ -210,7 +213,9 @@ export function Shot({
           src={staticFile(recordingFile)}
           trimBefore={Math.round(sourceStartSeconds * frameRate)}
           muted={muted}
-          volume={(shotFrame) => shotVolume(shotFrame, Math.round(durationSeconds * frameRate))}
+          volume={(shotFrame) =>
+            shotVolume(shotFrame, Math.round(durationSeconds * frameRate), Math.round((soundEndsAtSeconds ?? durationSeconds) * frameRate))
+          }
         />
       </AbsoluteFill>
       <CaptionTrack captions={captions} theme={theme} />

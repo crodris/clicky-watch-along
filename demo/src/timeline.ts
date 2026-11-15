@@ -18,6 +18,8 @@ export type ShotSegment = {
   captions: Caption[];
   /** For a shot from later in the recording, such as an opening glimpse of the result, whose sound would be out of place. */
   muted?: boolean;
+  /** Where the sound fades out, in seconds into the shot, so a held shot can run on past a line it must not play. */
+  soundEndsAtSeconds?: number;
 };
 
 /** The closing card over a blurred, muted stretch of a recording. */
@@ -256,6 +258,8 @@ const engineVideo = { x: 0.57, y: 0.49 };
 const engineVideoScale = 1.28;
 // The chips and the agent list open just below and right of the blue triangle, which rests at about (0.67, 0.69).
 const studyGuideChip = { x: 0.72, y: 0.73 };
+// Right of studyGuideChip, so the camera at 2.5 times shows the chip's whole "· opened in a new tab" with the helper.
+const wholeStudyGuideChip = { x: 0.75, y: 0.73 };
 const notionPage = { x: 0.64, y: 0.55 };
 // Close enough to see the helper triangle trail the blue one and fill.
 const helperScale = 3.0;
@@ -454,8 +458,70 @@ export const quizMissClipSegments: Segment[] = [
   { kind: "endCard", name: "end-card", recordingFile: "quiz-miss.mov", sourceStartSeconds: 125, durationSeconds: 4.0 },
 ];
 
-// The parallel agents clip, posted after the sub-agents clip that introduces the mechanics: a general task agent and a 3D model built in the background, at once, while FOX 26 Houston's
-// stream of Starship Flight 15 plays its tower catch. The video plays muted, so only Clicky and the music are heard.
+/** A shot from one of the clips above, found by name, so the combined clip reuses its times and captions. */
+function shotNamed(clipSegments: Segment[], shotName: string): Segment {
+  const shot = clipSegments.find((segment) => segment.name === shotName);
+  if (!shot) throw new Error(`no shot named ${shotName}`);
+  return shot;
+}
+
+// The study guide and quiz miss clips as one story for the HeyClicky team: the guide is written by a sub-agent, then a
+// quiz miss spawns another that updates it, and the guide opens with the miss on top. The study guide take's key terms
+// click closes it. The pop-out narration and the first take's own opening of the guide are left out.
+export const subAgentsClipSegments: Segment[] = [
+  { ...shotNamed(studyGuideClipSegments, "ask"), name: "guide-ask" },
+  {
+    // The study guide clip's pop-out shot, held on the finished helper. The narration that follows it is left out here,
+    // so the sound fades out by 21.6, before Clicky's first word at 21.70, while the picture runs on to 23.2: the chip
+    // and the helper's green check stay until the helper leaves at 23.4. The camera closes in on the helper from 18.1,
+    // so its fill is seen completing, then pulls back to show the whole chip.
+    kind: "shot",
+    name: "guide-popout",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 11.5,
+    durationSeconds: 11.7,
+    soundEndsAtSeconds: 10.1,
+    cameraMoves: [
+      { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
+      { atSeconds: 1.7, scale: labelScale, focus: studyGuideChip, durationFrames: bigMoveFrames },
+      { atSeconds: 4.9, scale: engineVideoScale, focus: engineVideo, durationFrames: bigMoveFrames },
+      { atSeconds: 6.6, scale: 4.0, focus: "cursor", durationFrames: bigMoveFrames },
+      { atSeconds: 8.9, scale: 2.5, focus: wholeStudyGuideChip, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.3, toSeconds: 2.0, text: "Pop this out", voice: "learner" },
+      { fromSeconds: 2.2, toSeconds: 5.0, text: "Shift + option lists every running sub-agent", accentWords: ["shift + option"] },
+      { fromSeconds: 5.1, toSeconds: 6.7, text: "The main agent stays free for you", accentWords: ["stays free"] },
+      { fromSeconds: 6.9, toSeconds: 9.0, text: "The sub-agent's cursor fills as its task progresses", accentWords: ["fills"] },
+      { fromSeconds: 9.1, toSeconds: 11.5, text: "Done: green check, page ready in a background tab", accentWords: ["green check"], accentColor: finishedCheckGreen },
+    ],
+  },
+  { ...shotNamed(quizMissClipSegments, "ask"), name: "quiz-ask" },
+  { ...shotNamed(quizMissClipSegments, "question"), name: "quiz-question" },
+  { ...shotNamed(quizMissClipSegments, "wrong"), name: "quiz-wrong" },
+  { ...shotNamed(quizMissClipSegments, "update"), name: "quiz-update" },
+  { ...shotNamed(quizMissClipSegments, "open"), name: "quiz-open" },
+  {
+    // study-guide.events.txt: the page scrolls to its key terms from 70.6, and the mouse glides to the (1:05) link of a
+    // key term and clicks at about 79.2.
+    kind: "shot",
+    name: "guide-key-terms",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 70.9,
+    durationSeconds: 8.5,
+    cameraMoves: [{ atSeconds: 0, scale: 1.6, focus: keyTermLink, durationFrames: 1 }],
+    captions: [{ fromSeconds: 0.3, toSeconds: 8.2, text: "Every point and key term links back to its moment", accentWords: ["its moment"] }],
+  },
+  { ...shotNamed(studyGuideClipSegments, "jump"), name: "guide-jump" },
+  // The music fades out under this card.
+  { kind: "endCard", name: "end-card", recordingFile: "study-guide.mov", sourceStartSeconds: 82, durationSeconds: 4.0 },
+];
+
+// The parallel agents clip, posted after the sub-agents clip above, which introduces the mechanics: a general task
+// agent and a 3D model built in the background, at once, while FOX 26 Houston's stream of Starship Flight 15 plays its
+// tower catch. The video plays muted, so only Clicky and the music are heard.
 // The stream's page keeps a column for the chat replay, which the driver hides, so the player fills about 62% of the
 // frame's width, and 1.5 times fills the frame with it.
 const starshipVideo = { x: 0.45, y: 0.49 };
