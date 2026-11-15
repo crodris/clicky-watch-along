@@ -3,9 +3,10 @@
 //  leanring-buddy
 //
 //  Each background agent shows as a small triangle, a wingman, that follows Clicky's blue cursor triangle
-//  in formation behind it. The triangle is an outline in the agent's color that fills from tail to tip as
-//  its steps finish. A finished agent's wingman hops ahead of the blue triangle's tip and turns green,
-//  and a failed one turns into a red outline.
+//  in formation behind it. The triangle is an outline in the agent's color that fills from tail to tip,
+//  easing through each step while it runs. A finished agent's wingman fills, hops ahead of the blue triangle's
+//  tip, and shows a green check mark, and a failed one turns into a red outline. Each grows and fades away
+//  when it leaves.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on
 //  high-refresh displays.
 //
@@ -20,12 +21,15 @@ struct WingmanTriangleView: View {
     /// The same tilt as the blue cursor triangle's resting pose.
     private static let rotationDegrees = -35.0
 
-    /// A finished agent is green and a failed one is a red outline. A cancelled one never shows beside the cursor,
-    /// and in the list it is a gray outline.
+    /// The fill on screen. Each step change starts one ease toward fillWhileTheStepRuns, so the fill moves through a
+    /// long step without a looping animation.
+    @State private var displayedFillFraction: Double = 0
+
+    /// A finished agent keeps its color and gets a green check mark, so the learner still sees which agent it was.
+    /// A failed one is a red outline. A cancelled one never shows beside the cursor, and in the list it is a gray outline.
     private var color: Color {
         switch agent.phase {
-        case .running: return agent.kind.color
-        case .finished: return DS.Colors.success
+        case .running, .finished: return agent.kind.color
         case .failed: return DS.Colors.destructive
         case .cancelled: return DS.Colors.textTertiary
         }
@@ -33,7 +37,7 @@ struct WingmanTriangleView: View {
 
     var body: some View {
         let triangleHeight = size * sqrt(3) / 2
-        let fillHeight = agent.filledFraction * triangleHeight
+        let fillHeight = displayedFillFraction * triangleHeight
         // Triangle() is drawn around the frame's center, so its base sits below the center and above the frame's
         // bottom edge. The fill's bottom edge goes on the base, not on the frame.
         let baseBelowCenter = size * sqrt(3) / 6
@@ -51,8 +55,44 @@ struct WingmanTriangleView: View {
         }
         .frame(width: size, height: size)
         .rotationEffect(.degrees(Self.rotationDegrees))
-        .animation(.easeOut(duration: 0.3), value: agent.filledFraction)
+        .overlay(alignment: .bottomTrailing) {
+            if agent.finishedResult != nil {
+                FinishedCheckMark(size: size * 0.8)
+                    .offset(x: size * 0.45, y: size * 0.35)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
         .animation(.easeOut(duration: 0.25), value: agent.phase)
+        .onAppear { moveTheFill(fromTheStepStart: true) }
+        .onChange(of: agent.phase) { moveTheFill(fromTheStepStart: false) }
+    }
+
+    private func moveTheFill(fromTheStepStart: Bool) {
+        if fromTheStepStart {
+            displayedFillFraction = agent.filledFraction
+        }
+        if let fillWhileTheStepRuns = agent.fillWhileTheStepRuns {
+            withAnimation(.easeOut(duration: fillWhileTheStepRuns.seconds)) {
+                displayedFillFraction = fillWhileTheStepRuns.fraction
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.3)) {
+                displayedFillFraction = agent.filledFraction
+            }
+        }
+    }
+}
+
+/// A white check on a green dot, at the base of a finished wingman.
+private struct FinishedCheckMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: size * 0.55, weight: .heavy))
+            .foregroundColor(.white)
+            .frame(width: size, height: size)
+            .background(Circle().fill(DS.Colors.success))
     }
 }
 
@@ -106,13 +146,31 @@ private struct WingmanView: View {
     /// One bouncy hop, played when the wingman goes ahead of the tip.
     private static let hopSpring = Animation.spring(response: 0.35, dampingFraction: 0.55, blendDuration: 0)
 
+    /// Set just before an ended agent's wingman is removed, so it grows and fades out instead of vanishing.
+    @State private var isLeaving = false
+
     var body: some View {
         let wingmanPosition = CGPoint(
             x: cursorPosition.x + placement.offset.width,
             y: cursorPosition.y + placement.offset.height
         )
         WingmanTriangleView(agent: placement.agent)
+            // Before .position, so it grows around the triangle, not around the screen's center.
+            .scaleEffect(isLeaving ? 1.8 : 1)
+            .opacity(isLeaving ? 0 : 1)
             .position(wingmanPosition)
             .animation(placement.agent.finishedResult == nil ? Self.followSpring(slot: placement.slot) : Self.hopSpring, value: wingmanPosition)
+            .onAppear { leaveOnceTheAgentHasEnded() }
+            .onChange(of: placement.agent.endedAt) { leaveOnceTheAgentHasEnded() }
+    }
+
+    /// The store removes an ended agent's wingman after it lingers, so the exit starts that long after the end.
+    private func leaveOnceTheAgentHasEnded() {
+        guard let endedAt = placement.agent.endedAt else { return }
+        let exitSeconds = 0.4
+        let secondsUntilTheExit = BackgroundAgent.secondsAWingmanLingersAfterItEnds - exitSeconds - Date().timeIntervalSince(endedAt)
+        withAnimation(.easeIn(duration: exitSeconds).delay(max(0, secondsUntilTheExit))) {
+            isLeaving = true
+        }
     }
 }

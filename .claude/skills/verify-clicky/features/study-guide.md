@@ -14,7 +14,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a red outline wingman and no sound.
 - `guide-voice-tools` offers `make_study_guide` with a YouTube video in front and no quiz question open, and `revise_study_guide` and `open_study_guide` once a guide exists for that video.
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
-- `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, half filled after the captions are read, and green after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
+- `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, filling through each step, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
 - `guide-open-tab` switches to that tab when the learner says "open my study guide", so Chrome holds one tab with the guide, and opens the page again only when that tab was closed.
@@ -48,7 +48,7 @@ Preconditions:
 
 - **Wingman.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
   The screenshot shows an amber outline triangle down and to the right of the blue cursor triangle.
-  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the green triangle ahead of the tip and the "Study guide ready" chip.
+  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the amber triangle with a green check mark ahead of the tip and the "Study guide ready" chip.
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
   The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
   Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.

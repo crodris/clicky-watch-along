@@ -14,6 +14,12 @@ import SwiftUI
 
 // MARK: - Agent
 
+/// One step of an agent's work, with about how long it takes, which sets how fast the wingman fills while it runs.
+struct BackgroundAgentStep: Equatable {
+    let name: String
+    let expectedSeconds: TimeInterval
+}
+
 /// What a background agent does. A new kind adds a case here and fills in its name, color, and steps.
 enum BackgroundAgentKind {
     case studyGuide
@@ -39,10 +45,19 @@ enum BackgroundAgentKind {
     }
 
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
-    var stepNames: [String] {
+    /// Reading the captions took about 4 seconds and writing the guide 9 to 13 in the demo recordings.
+    var steps: [BackgroundAgentStep] {
         switch self {
-        case .studyGuide: return ["Read the captions", "Write the guide in Notion"]
+        case .studyGuide:
+            return [
+                BackgroundAgentStep(name: "Read the captions", expectedSeconds: 4),
+                BackgroundAgentStep(name: "Write the guide in Notion", expectedSeconds: 12),
+            ]
         }
+    }
+
+    var stepNames: [String] {
+        steps.map(\.name)
     }
 }
 
@@ -78,6 +93,18 @@ struct BackgroundAgent: Identifiable, Equatable {
         case .failed, .cancelled:
             return 0
         }
+    }
+
+    /// Where the wingman's fill heads while the current step runs, and how long it takes to get there. It stops short
+    /// of the step's end, so the fill never claims a step is done before it is, and a long step still shows movement.
+    /// Nil for an agent that is not running.
+    var fillWhileTheStepRuns: (fraction: Double, seconds: TimeInterval)? {
+        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
+        let shareOfTheStepToFill = 0.85
+        return (
+            fraction: (Double(completedStepCount) + shareOfTheStepToFill) / Double(kind.steps.count),
+            seconds: kind.steps[completedStepCount].expectedSeconds
+        )
     }
 
     var isRunning: Bool {

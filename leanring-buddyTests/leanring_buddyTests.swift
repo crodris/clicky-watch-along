@@ -1325,6 +1325,21 @@ struct leanring_buddyTests {
         #expect(formation.placements.map(\.offset) == [CGSize(width: 15, height: 18), CGSize(width: 30, height: 36), CGSize(width: 45, height: 54)])
     }
 
+    @Test func aRunningWingmanEasesTowardMostOfItsCurrentStepButNeverClaimsTheStepIsDone() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let agent = { (phase: BackgroundAgentPhase) in
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: startedAt, endedAt: nil, phase: phase)
+        }
+        let readingTheCaptions = try #require(agent(.running(completedStepCount: 0)).fillWhileTheStepRuns)
+        #expect(readingTheCaptions.fraction == 0.425)
+        #expect(readingTheCaptions.seconds == 4)
+        let writingTheGuide = try #require(agent(.running(completedStepCount: 1)).fillWhileTheStepRuns)
+        #expect(writingTheGuide.fraction == 0.925)
+        #expect(writingTheGuide.seconds == 12)
+        #expect(agent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).fillWhileTheStepRuns == nil)
+        #expect(agent(.failed(reason: "x")).fillWhileTheStepRuns == nil)
+    }
+
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
         let store = BackgroundAgentStore()
         let olderAgentID = store.start(kind: .studyGuide)
