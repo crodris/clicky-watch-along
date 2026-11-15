@@ -955,6 +955,22 @@ struct leanring_buddyTests {
         #expect(availableTools.contains(.seekRelative))
     }
 
+    @Test func aBackgroundModelIsBuiltOverAVideoAndShownOnlyOnceReadyAndOutsideAQuizQuestion() async throws {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: context).contains(.buildModelInTheBackground))
+        #expect(!AppVoiceTool.available(in: context).contains(.showReadyModel))
+
+        context.threeDModelIsReady = true
+        #expect(AppVoiceTool.available(in: context).contains(.showReadyModel))
+
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.buildModelInTheBackground))
+        #expect(!AppVoiceTool.available(in: context).contains(.showReadyModel))
+
+        let noVideo = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(!AppVoiceTool.available(in: noVideo).contains(.buildModelInTheBackground))
+    }
+
     @Test func aPageCannotOfferAToolUnderAnAppToolsNameOrAnUnknownName() async throws {
         let emptySchema: JSONValue = .object(["type": .string("object")])
         let pageTools = [
@@ -979,6 +995,7 @@ struct leanring_buddyTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, threeDModelIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
     }
 
     @Test func findingAMomentPicksTheCaptionsThatSayTheQueryWords() async throws {

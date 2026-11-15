@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  The record of work Clicky does in the background while the learner watches a video, such as writing
-//  a Notion study guide. The store is the one source of truth that the wingmen next to the blue cursor
+//  a Notion study guide or building a 3D model. The store is the one source of truth that the wingmen next to the blue cursor
 //  and the agent list both read. Nothing here draws or talks to the network.
 //
 
@@ -28,18 +28,22 @@ enum BackgroundAgentKind {
     case studyGuide
     /// Rebuilds a guide's page with the newest quiz results after a missed question, keeping the guide's words.
     case studyGuideUpdate
+    /// Builds a 3D model of what the video shows while it keeps playing, and lifts it out of the video when it is ready.
+    case threeDModel
 
     var displayName: String {
         switch self {
         case .studyGuide: return "Study guide"
         case .studyGuideUpdate: return "Study guide update"
+        case .threeDModel: return "3D model"
         }
     }
 
-    /// Both kinds work on the same guide, so they share its amber.
+    /// Both guide kinds work on the same guide, so they share its amber.
     var color: Color {
         switch self {
         case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmber
+        case .threeDModel: return DS.Colors.backgroundAgentThreeDModelViolet
         }
     }
 
@@ -48,6 +52,7 @@ enum BackgroundAgentKind {
     var chipTextColor: Color {
         switch self {
         case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmberText
+        case .threeDModel: return DS.Colors.backgroundAgentThreeDModelVioletText
         }
     }
 
@@ -56,12 +61,14 @@ enum BackgroundAgentKind {
         switch self {
         case .studyGuide: return "Study guide ready"
         case .studyGuideUpdate: return "Study guide updated"
+        case .threeDModel: return "3D model ready"
         }
     }
 
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
     /// Reading the captions with yt-dlp took about 3 seconds, and writing the guide 10 to 14, in the demo recordings.
     /// An update reads the captions the quiz already holds, and rebuilds the page with no model call.
+    /// A 3D model's screenshot takes under a second, and `POST /live-scene` about 20 seconds.
     var steps: [BackgroundAgentStep] {
         switch self {
         case .studyGuide:
@@ -74,6 +81,11 @@ enum BackgroundAgentKind {
                 BackgroundAgentStep(name: "Read the quiz results", inProgressText: "Reading your quiz results", expectedSeconds: 1),
                 BackgroundAgentStep(name: "Add the miss to the guide", inProgressText: "Adding your miss to the guide", expectedSeconds: 3),
             ]
+        case .threeDModel:
+            return [
+                BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
+                BackgroundAgentStep(name: "Build the 3D model", inProgressText: "Building the 3D model", expectedSeconds: 20),
+            ]
         }
     }
 
@@ -85,6 +97,8 @@ enum BackgroundAgentKind {
 /// What a finished agent made. The ending Clicky plays for a finished agent is chosen by switching on this.
 enum BackgroundAgentResult: Equatable {
     case notionPage(URL)
+    /// The page itself waits in CompanionManager until it rises out of the video.
+    case threeDModel
 }
 
 enum BackgroundAgentPhase: Equatable {
@@ -97,7 +111,7 @@ enum BackgroundAgentPhase: Equatable {
 struct BackgroundAgent: Identifiable, Equatable {
     let id: UUID
     let kind: BackgroundAgentKind
-    /// The video's title, set once the agent knows which video it works on.
+    /// What the agent works on, once it knows: the video's title for a guide, and the learner's words for a 3D model.
     var subject: String?
     /// The YouTube video a study guide or update agent works on (`studyGuideVideoKey`), so one video never has two
     /// guide agents at once. Nil for every other kind.
@@ -338,4 +352,21 @@ func wingmanFormation(for agentsToShow: [BackgroundAgent]) -> WingmanFormation {
         placements: finishedPlacements + trailPlacements,
         overflowCount: max(0, agentsInTheTrail.count - WingmanFormation.mostWingmen)
     )
+}
+
+// MARK: - 3D model
+
+/// A 3D model page a background agent built, waiting to rise out of the video it was asked about.
+struct ReadyThreeDModel {
+    let agentID: UUID
+    /// The learner's words, which the narration after the tour answers.
+    let whatToBuild: String
+    let pageHTML: String
+    /// The front tab's URL when the build started. The model rises out of the video only while that tab is in front.
+    let sourceTabURL: String?
+}
+
+enum ThreeDModelBuildError: Error {
+    /// Screen Recording was turned off, so there is no frame to build from.
+    case noScreenshot
 }

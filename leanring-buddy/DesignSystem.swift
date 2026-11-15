@@ -201,6 +201,12 @@ enum DS {
         /// The study guide agent's chip letters. Tailwind Amber 700, the status lines' 700 for text.
         static let backgroundAgentStudyGuideAmberText = Color(hex: "#b45309")
 
+        /// The wingman of a 3D model agent. Tailwind Violet 400, apart from the cursor's blue and the guide's amber.
+        static let backgroundAgentThreeDModelViolet = Color(hex: "#a78bfa")
+
+        /// The 3D model agent's chip letters. Tailwind Violet 700.
+        static let backgroundAgentThreeDModelVioletText = Color(hex: "#6d28d9")
+
         // ── Floating Button Gradient ─────────────────────────────────
 
         /// The floating session button gradient colors (unchanged from original —

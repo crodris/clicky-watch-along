@@ -129,6 +129,9 @@ final class CompanionManager: ObservableObject {
     /// cancels one by its id. They are not currentResponseTask, because a push-to-talk press cancels that task and must
     /// not cancel work in the background.
     private var backgroundAgentTasks: [UUID: Task<Void, Never>] = [:]
+    /// The newest 3D model a background agent built that has not been shown yet. It waits here when the screen was
+    /// busy as it finished, until the learner says "show the model".
+    private var readyThreeDModel: ReadyThreeDModel?
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     let backgroundAgentStore = BackgroundAgentStore()
     private lazy var agentListPanelController = AgentListPanelController(
@@ -892,6 +895,7 @@ final class CompanionManager: ObservableObject {
         let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             videoIsInFront: frontVideoState != nil,
+            threeDModelIsReady: readyThreeDModel != nil,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding
         )
@@ -1506,27 +1510,12 @@ final class CompanionManager: ObservableObject {
                 cursorScreenJPEGData: cursorScreenJPEGData
             )
             guard requestGeneration == liveSceneRequestGeneration else { return }
-            let quizToAskAfterTour = sceneKind == .quiz ? liveScene.quiz : nil
-            // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
-            guard let overlayScreen = screenUnderTheMouseCursor() else { return }
-            var liveScenePageHTML = liveScene.html
-            if let mediaRectToRiseFrom,
-               let riseScript = liveSceneRiseScriptFromTheBundle() {
-                liveScenePageHTML = liveScenePageThatRisesFromTheSource(
-                    generatedPageHTML: liveScene.html,
-                    screenJPEGBase64: cursorScreenJPEGData.base64EncodedString(),
-                    sourceRectInOverlayPage: rectInOverlayPage(of: mediaRectToRiseFrom, overlayScreen: overlayScreen),
-                    riseScript: riseScript
-                )
-            }
-            let liveSceneWasAccepted = LiveSceneOverlay.shared.playLiveScene(
-                html: liveScenePageHTML,
-                hidesQuizLabel: quizToAskAfterTour != nil,
-                overlayScreen: overlayScreen
+            _ = playGeneratedScenePage(
+                html: liveScene.html,
+                quizToAskAfterTour: sceneKind == .quiz ? liveScene.quiz : nil,
+                cursorScreenJPEGData: cursorScreenJPEGData,
+                mediaRectToRiseFrom: mediaRectToRiseFrom
             )
-            guard liveSceneWasAccepted else { return }
-            liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
-            liveScenePageOnScreen = .generatedPage
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
@@ -1534,6 +1523,37 @@ final class CompanionManager: ObservableObject {
         } catch {
             print("Live scene request failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Plays a page from `POST /live-scene` on the screen under the mouse, rising out of the media rect when there is one
+    /// and a screenshot of that screen to rise from. Returns whether the overlay took the page.
+    private func playGeneratedScenePage(
+        html generatedPageHTML: String,
+        quizToAskAfterTour: LiveSceneQuiz?,
+        cursorScreenJPEGData: Data?,
+        mediaRectToRiseFrom: ScreenRectInChromeCoordinates?
+    ) -> Bool {
+        // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
+        guard let overlayScreen = screenUnderTheMouseCursor() else { return false }
+        var liveScenePageHTML = generatedPageHTML
+        if let mediaRectToRiseFrom, let cursorScreenJPEGData,
+           let riseScript = liveSceneRiseScriptFromTheBundle() {
+            liveScenePageHTML = liveScenePageThatRisesFromTheSource(
+                generatedPageHTML: generatedPageHTML,
+                screenJPEGBase64: cursorScreenJPEGData.base64EncodedString(),
+                sourceRectInOverlayPage: rectInOverlayPage(of: mediaRectToRiseFrom, overlayScreen: overlayScreen),
+                riseScript: riseScript
+            )
+        }
+        let liveSceneWasAccepted = LiveSceneOverlay.shared.playLiveScene(
+            html: liveScenePageHTML,
+            hidesQuizLabel: quizToAskAfterTour != nil,
+            overlayScreen: overlayScreen
+        )
+        guard liveSceneWasAccepted else { return false }
+        liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
+        liveScenePageOnScreen = .generatedPage
+        return true
     }
 
     private func respondToLiveSceneAnswer(
@@ -2005,7 +2025,8 @@ final class CompanionManager: ObservableObject {
             videoIsOnYouTube: frontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
-            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo,
+            threeDModelIsReady: readyThreeDModel != nil
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2184,7 +2205,130 @@ final class CompanionManager: ObservableObject {
                 return .failed(error: "The study guide page would not open", state: nil)
             }
             return .changed(state: nil)
+        case .buildModelInTheBackground:
+            guard let whatToBuild = input["whatToBuild"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !whatToBuild.isEmpty else {
+                return .failed(error: "whatToBuild must say what to build", state: nil)
+            }
+            return startBuildingAThreeDModelInTheBackground(whatToBuild: whatToBuild)
+        case .showReadyModel:
+            startShowingTheReadyThreeDModel()
+            return .handedOff
         }
+    }
+
+    // MARK: - 3D Model Agent
+
+    /// Starts the build and returns at once, so the router speaks its confirmation and the video keeps playing.
+    private func startBuildingAThreeDModelInTheBackground(whatToBuild: String) -> VoiceToolOutcome {
+        let agentID = backgroundAgentStore.start(kind: .threeDModel)
+        runInTheBackground(agentID) {
+            await self.buildTheThreeDModel(whatToBuild: whatToBuild, agentID: agentID)
+        }
+        return .changed(state: .object(["threeDModel": .string("started")]))
+    }
+
+    /// The same `POST /live-scene` request a scene build makes, from a screenshot of the playing video, with no status
+    /// line and no pause. Like a guide, nothing is spoken while it runs.
+    private func buildTheThreeDModel(whatToBuild: String, agentID: UUID) async {
+        let startedAt = Date()
+        do {
+            let sourceTabURL = videoQuizSession.frontTabURLOfTheFrontWindow()
+            let heardText = videoQuizSession.whatTheQuizVideoInFrontJustSaid()
+            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            guard let cursorScreenJPEGData = (screenCaptures.first { $0.isCursorScreen } ?? screenCaptures.first)?.imageData else {
+                throw ThreeDModelBuildError.noScreenshot
+            }
+            try Task.checkCancellation()
+            backgroundAgentStore.setSubject(whatToBuild, for: agentID)
+            backgroundAgentStore.completeStep(for: agentID)
+            let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
+            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: cursorScreenJPEGData)
+            // A model cancelled from the agent list never shows, even when the Worker had already replied.
+            try Task.checkCancellation()
+            print("3D model: built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
+            if readyThreeDModel != nil {
+                print("3D model: a newer model replaces the one still waiting to be shown")
+            }
+            readyThreeDModel = ReadyThreeDModel(agentID: agentID, whatToBuild: whatToBuild, pageHTML: liveScene.html, sourceTabURL: sourceTabURL)
+            finishTheBackgroundAgent(agentID, with: .threeDModel)
+        } catch {
+            if Task.isCancelled || errorIsACancellation(error) {
+                print("3D model: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
+                return
+            }
+            print("3D model: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            backgroundAgentStore.fail(agentID, reason: "The 3D model could not be built. Ask again to try once more.")
+            VoiceToolCallChip.shared.show(
+                "Couldn't build the 3D model",
+                sender: .backgroundAgent(.threeDModel),
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
+        }
+    }
+
+    /// A model rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or
+    /// pop-out is building or showing, and the video it was built from is in front. Otherwise it would cover
+    /// something the learner is looking at, so it waits for "show the model".
+    private var aReadyThreeDModelMayRiseNow: Bool {
+        guard let readyThreeDModel, voiceState == .idle, case .idle = liveScenePhase,
+              !LiveSceneOverlay.shared.isShowingAScene, !videoQuizQuestionIsActive else {
+            return false
+        }
+        return readyThreeDModel.sourceTabURL != nil && videoQuizSession.frontTabURLOfTheFrontWindow() == readyThreeDModel.sourceTabURL
+    }
+
+    /// Like a new scene request, this stops what Clicky says and puts back the scene on screen first.
+    private func startShowingTheReadyThreeDModel() {
+        currentResponseTask?.cancel()
+        liveSceneRequestTask?.cancel()
+        liveSceneTourFinishedTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        liveSceneRequestGeneration += 1
+        let requestGeneration = liveSceneRequestGeneration
+        if case .touring = liveScenePhase {
+            liveScenePhase = .allLabelsShowing
+        }
+        clearFinishedLiveScene(resumesTheVideo: false)
+        currentResponseTask = Task {
+            await self.showTheReadyThreeDModel(requestGeneration: requestGeneration)
+        }
+    }
+
+    /// Pauses the video it was built from and lifts the model out of it, then says what the model shows.
+    /// The screenshot for the rise is taken now, after the pause, so the still frame matches the video under it.
+    private func showTheReadyThreeDModel(requestGeneration: Int) async {
+        guard let modelToShow = readyThreeDModel else { return }
+        readyThreeDModel = nil
+        let sourceVideoIsInFront = modelToShow.sourceTabURL != nil && videoQuizSession.frontTabURLOfTheFrontWindow() == modelToShow.sourceTabURL
+        if sourceVideoIsInFront {
+            _ = videoQuizSession.pauseVideoForRequestedScene()
+        }
+        voiceState = .processing
+        var labeledImages: [(data: Data, label: String)] = []
+        var cursorScreenJPEGData: Data?
+        do {
+            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            cursorScreenJPEGData = (screenCaptures.first { $0.isCursorScreen } ?? screenCaptures.first)?.imageData
+            labeledImages = screenCaptures.map { capture in (data: capture.imageData, label: capture.label) }
+        } catch {
+            print("3D model: screen capture for the rise failed, so it shows without rising: \(error)")
+        }
+        let mediaRectToRiseFrom = sourceVideoIsInFront ? VideoQuizSession.screenRectOfTheMediaToRiseFrom() : nil
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
+        guard playGeneratedScenePage(
+            html: modelToShow.pageHTML,
+            quizToAskAfterTour: nil,
+            cursorScreenJPEGData: cursorScreenJPEGData,
+            mediaRectToRiseFrom: mediaRectToRiseFrom
+        ) else {
+            await sayTheSceneCouldNotBeBuilt()
+            return
+        }
+        print("3D model: showing \"\(modelToShow.whatToBuild)\", rising out of the video \(mediaRectToRiseFrom != nil)")
+        await speakAboutTheLiveSceneOnScreen(transcript: modelToShow.whatToBuild, labeledImages: labeledImages)
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     // MARK: - Study Guide
@@ -2342,6 +2486,20 @@ final class CompanionManager: ObservableObject {
                 secondaryChipText: secondaryChipText,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
+        case .threeDModel:
+            NSSound(named: "Tink")?.play()
+            let modelRisesNow = aReadyThreeDModelMayRiseNow
+            VoiceToolCallChip.shared.show(
+                agentKind.finishedChipText,
+                sender: .backgroundAgent(agentKind),
+                secondaryChipText: modelRisesNow ? nil : "· say show the model",
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
+            if modelRisesNow {
+                startShowingTheReadyThreeDModel()
+            } else {
+                print("3D model: the screen is busy, so the model waits for \"show the model\"")
+            }
         }
     }
 
@@ -2372,7 +2530,8 @@ final class CompanionManager: ObservableObject {
             videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
-            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
+            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
+            threeDModelIsReady: readyThreeDModel != nil
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)

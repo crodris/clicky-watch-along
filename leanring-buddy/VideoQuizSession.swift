@@ -411,15 +411,31 @@ final class VideoQuizSession {
             }
             print("Video quiz: paused for a requested 3D model, held by Clicky \(videoIsPausedForRequestedScene)")
             guard quizWatchesTheFrontVideo else { return "" }
-            return allTranscriptLines
-                .filter { $0.seconds < playbackState.currentSeconds }
-                .suffix(12)
-                .map(\.text)
-                .joined(separator: " ")
+            return quizCaptionText(heardBefore: playbackState.currentSeconds)
         } catch {
             print("Video quiz: could not pause for a 3D model: \(error)")
             return ""
         }
+    }
+
+    /// What the quiz video in front said before its playhead, for a 3D model built in the background while it plays.
+    /// Empty when the quiz does not watch the front video, since only the quiz holds captions.
+    func whatTheQuizVideoInFrontJustSaid() -> String {
+        guard isRunning,
+              let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true),
+              currentVideoTab?.isTheSameTab(as: frontVideoTab) == true,
+              let playbackState = try? readPlaybackState(of: frontVideoTab) else {
+            return ""
+        }
+        return quizCaptionText(heardBefore: playbackState.currentSeconds)
+    }
+
+    private func quizCaptionText(heardBefore playheadSeconds: Double) -> String {
+        allTranscriptLines
+            .filter { $0.seconds < playheadSeconds }
+            .suffix(12)
+            .map(\.text)
+            .joined(separator: " ")
     }
 
     /// Presses play once the scene is gone, but only for a pause Clicky made for it.
