@@ -37,9 +37,9 @@ glide_mouse() {
   done
 }
 
-# YouTube opens the chat replay a moment after the page loads, so this keeps trying for about 15 seconds.
-hide_chat_javascript="(() => { const hideButton = [...document.querySelectorAll('ytd-live-chat-frame button')].find(button => /hide chat/i.test(button.getAttribute('aria-label') || button.innerText || '')); if (!hideButton) return 'no hide button'; hideButton.click(); return 'hidden'; })()"
-for _ in $(seq 1 30); do
+# A style rule hides the chat replay whether YouTube shows it open or collapsed, so this waits until the page has one.
+hide_chat_javascript="(() => { if (!document.querySelector('ytd-live-chat-frame')) return 'no chat'; const style = document.createElement('style'); style.textContent = 'ytd-live-chat-frame { display: none !important; }'; document.head.appendChild(style); return 'hidden'; })()"
+for _ in $(seq 1 40); do
   [[ "$(run_in_front_tab "$hide_chat_javascript")" == hidden ]] && echo "hid the chat replay" && break
   sleep 0.5
 done
