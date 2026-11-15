@@ -122,8 +122,7 @@ describe("scene-tools.js simulation tools", () => {
     clickyTools.call("run_simulation", {});
     await vi.waitFor(() => expect(postedEvents).toHaveLength(1));
     finishFirstRun();
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(postedEvents).toHaveLength(1);
   });

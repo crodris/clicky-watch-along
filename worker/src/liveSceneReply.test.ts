@@ -134,6 +134,16 @@ describe("simulation reply", () => {
     expect(checkedReply).toMatchObject({ accepted: false, reason: "The simulation page is missing controls" });
   });
 
+  it("does not count run as a word inside another name or a comment", () => {
+    const pageWithOnlyOtherRuns = simulationPage
+      .replace("run() { return Promise.resolve(); },", "runner: 1,")
+      .replace("</body>", "<!-- the app drives the run --></body>");
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithOnlyOtherRuns), "simulation");
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: "The simulation page is missing run" });
+  });
+
   it("rejects a simulation page that draws its own button, because the app draws the only panel", () => {
     const pageWithItsOwnButton = simulationPage.replace("</body>", '<button id="go">Run</button></body>');
 
