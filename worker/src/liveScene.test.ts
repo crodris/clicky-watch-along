@@ -177,6 +177,18 @@ describe("handleLiveScene model setting", () => {
     expect(sentBody).toMatchObject({ model: "claude-fable-5-2" });
   });
 
+  it("asks GPT at medium reasoning effort and Sonnet at low effort when LIVE_SCENE_EFFORT is not set", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toMatchObject({ reasoning: { effort: "medium" } });
+
+    fetchMock.mockClear();
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toMatchObject({ output_config: { effort: "low" } });
+  });
+
   it("sends LIVE_SCENE_EFFORT to GPT as its reasoning effort", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
     vi.stubGlobal("fetch", fetchMock);

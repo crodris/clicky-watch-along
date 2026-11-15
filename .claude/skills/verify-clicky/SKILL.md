@@ -79,7 +79,7 @@ The free probe posts `{}` to `/judge-answer`, and this checkout's Zod check reje
 The command waits up to 60 seconds.
 
 ```bash
-$V worker-up                                        # GPT builds live scenes (about $0.23 each)
+$V worker-up                                        # GPT builds live scenes (about $0.37 each)
 $V worker-up 8789 -- --var LIVE_SCENE_MODEL:sonnet  # Sonnet builds them (about $0.04 each)
 ```
 

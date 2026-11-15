@@ -45,7 +45,7 @@ Preconditions:
 
 ## Gotchas
 
-- GPT scenes cost about $0.23 each and Sonnet scenes about $0.04.
+- GPT scenes cost about $0.37 each at medium effort and Sonnet scenes about $0.04.
   Use Sonnet unless the change is to the GPT path.
 - The scene appears on the display under the mouse pointer, so a screenshot of another display shows nothing.
 - `app-wait` returns after the tour, so the tour itself is only visible in screenshots taken during it.

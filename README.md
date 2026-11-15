@@ -72,7 +72,7 @@ Follow the setup below, which includes the OpenAI and Google Maps keys this fork
 - In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
 
 To test for less money, run `pnpm wrangler dev --var LIVE_SCENE_MODEL:sonnet`.
-Sonnet then builds the 3D models for about $0.04 each, instead of about $0.23 with GPT.
+Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 with GPT.
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.

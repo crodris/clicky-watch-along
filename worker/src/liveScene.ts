@@ -1,12 +1,11 @@
 /**
  * POST /live-scene and POST /judge-answer.
  *
- * /live-scene asks GPT-6.1 Sol Ultrafast for a self-contained three.js page
- * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet instead,
- * which test runs use because a GPT scene costs about $0.23 and a Sonnet one about $0.04.
- * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT sets a Claude
- * model's effort, or GPT's reasoning effort (low by default), for comparing scene quality. A reply that fails the check is
- * retried once, then returned as 422,
+ * /live-scene asks GPT-6.1 Sol Ultrafast, at medium reasoning effort, for a self-contained three.js page
+ * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet at low effort instead,
+ * which test runs use because a GPT scene costs about $0.37 and a Sonnet one about $0.04.
+ * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT overrides the
+ * effort, for comparing scene quality. A reply that fails the check is retried once, then returned as 422,
  * and the app tells the learner it couldn't build the scene.
  * /judge-answer asks Sonnet whether the learner's spoken answer is right, or whether they asked to skip, repeat,
  * get a hint, or change the view instead of answering.
@@ -26,7 +25,17 @@ const maximumLiveSceneAttempts = 2;
 
 const liveSceneModelSettingSchema = z.enum(["gpt", "sonnet", "opus", "fable"]).default("gpt");
 
-const liveSceneEffortSettingSchema = z.enum(["low", "medium", "high", "xhigh", "max"]).default("low");
+const liveSceneEffortSettingSchema = z.enum(["low", "medium", "high", "xhigh", "max"]).optional();
+
+type LiveSceneEffort = NonNullable<z.infer<typeof liveSceneEffortSettingSchema>>;
+
+/**
+ * Each model's effort when LIVE_SCENE_EFFORT is not set, picked on a Starship frame on 2026-11-14. GPT at medium drew
+ * rounder, tiled ships for about $0.15 more and 2 to 4 seconds longer than low, while high cost 4 times as much with no
+ * better ship and ran into the output cap. Sonnet at medium looked no better than low, and Opus and Fable above low
+ * took 3 to 5 minutes.
+ */
+const defaultLiveSceneEffortByModel: Record<LiveSceneModel, LiveSceneEffort> = { gpt: "medium", sonnet: "low", opus: "low", fable: "low" };
 
 /** The Claude model behind each Claude setting. GPT has its own request shape. */
 const claudeModelIDBySetting = { sonnet: "claude-sonnet-5-5", opus: "claude-opus-5-5", fable: "claude-fable-5-2" } as const;
@@ -201,7 +210,7 @@ type LiveSceneModelResult =
 async function requestClaudeLiveSceneReply(
   anthropicAPIKey: string,
   claudeModelID: (typeof claudeModelIDBySetting)[keyof typeof claudeModelIDBySetting],
-  effort: z.infer<typeof liveSceneEffortSettingSchema>,
+  effort: LiveSceneEffort,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
   const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, "/live-scene", {
@@ -233,7 +242,7 @@ async function requestClaudeLiveSceneReply(
 
 async function requestGPTLiveSceneReply(
   openAIAPIKey: string,
-  effort: z.infer<typeof liveSceneEffortSettingSchema>,
+  effort: LiveSceneEffort,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -304,6 +313,7 @@ export async function handleLiveScene(
   if (!parsedEffortSetting.success) {
     return jsonResponse({ error: `LIVE_SCENE_EFFORT must be low, medium, high, xhigh, or max, not ${env.LIVE_SCENE_EFFORT}` }, 500);
   }
+  const liveSceneEffort = parsedEffortSetting.data ?? defaultLiveSceneEffortByModel[liveSceneModel];
 
   const parsedRequest = await parseJSONRequest(request, sceneRequestSchema);
   if (!parsedRequest.ok) {
@@ -316,8 +326,8 @@ export async function handleLiveScene(
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
     const modelResult =
       liveSceneModel === "gpt"
-        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, parsedEffortSetting.data, sceneRequest)
-        : await requestClaudeLiveSceneReply(env.ANTHROPIC_API_KEY, claudeModelIDBySetting[liveSceneModel], parsedEffortSetting.data, sceneRequest);
+        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, liveSceneEffort, sceneRequest)
+        : await requestClaudeLiveSceneReply(env.ANTHROPIC_API_KEY, claudeModelIDBySetting[liveSceneModel], liveSceneEffort, sceneRequest);
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {
         return modelResult.response;

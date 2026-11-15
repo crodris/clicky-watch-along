@@ -33,7 +33,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `POST /chat` | `api.anthropic.com/v1/messages` | Claude vision + streaming chat |
 | `POST /tts` | `api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream` | ElevenLabs TTS audio, streamed. An `output_format` query such as `pcm_24000` passes through, and without one the audio is MP3 |
 | `POST /transcribe-token` | `streaming.assemblyai.com/v3/token` | Fetches a short-lived (480s) AssemblyAI websocket token |
-| `POST /live-scene` | `api.openai.com/v1/responses` | GPT-6.1 Sol Ultrafast writes a three.js page and a quiz from the question and screenshot |
+| `POST /live-scene` | `api.openai.com/v1/responses` | GPT-6.1 Sol Ultrafast, at medium reasoning effort, writes a three.js page and a quiz from the question and screenshot |
 | `POST /judge-answer` | `api.anthropic.com/v1/messages` | Sonnet grades a spoken answer as correct, named only, wrong, or a request for help, or hears a request to skip, repeat, get a hint, or change the view instead (`skip_question`, `repeat_question`, `wants_hint`, `scene_command`, where the skip, repeat, and scene command ones may have an empty `spokenReply`) |
 | `POST /voice-command` | `api.anthropic.com/v1/messages` | Haiku 5.5 (low effort, thinking off) picks the app's tools for a spoken follow-up command. The app sends `{ messages, tools: [{ name, description, inputSchema, readOnly? }] }`, the Worker adds a `confirmation` string to each tool (required unless `readOnly`), caches the system prompt and the tool list, and returns `{ content: [text or tool_use blocks], stopReason }`. The app runs the tools and calls again with the tool results while a lookup or a failure needs the model |
 | `POST /video-quiz-plan` | `api.anthropic.com/v1/messages` | Sonnet reads a video's timestamped transcript once, decides how many moments are worth a question, and picks them. Returns `{ moments: [{ pauseAtSeconds, sourceLineSeconds, question, answerLabel, functionWords, explanation, subject }] }`. Each moment lands on a transcript line boundary, at least 20 seconds in, and the moments are spread across the video |
@@ -45,7 +45,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `GET /v1/3dtiles/...` | `tile.googleapis.com` | Google Photorealistic 3D Tiles for the landmark page. Only `root.json` and dataset files pass, and the Worker adds `GOOGLE_MAPS_API_KEY` |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY` (a Maps Platform key with the Map Tiles API enabled and billing linked), `NOTION_API_KEY` (a Notion personal access token, which acts as its owner and may create pages with no parent page, for study guides), and `ASSEMBLYAI_API_KEY` only when Info.plist selects the `assemblyai` provider
-Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by default, `sonnet`, `opus`, or `fable` for Claude Fable 5.2) and `LIVE_SCENE_EFFORT` (the scene model's effort, `low` by default, where GPT takes low, medium, or high)
+Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by default, `sonnet`, `opus`, or `fable` for Claude Fable 5.2) and `LIVE_SCENE_EFFORT` (overrides the scene model's effort, which is `medium` for GPT and `low` for Claude, where GPT takes low, medium, or high)
 
 ### Key Architecture Decisions
 
@@ -62,7 +62,7 @@ Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by de
 **Transient Cursor Mode**: When "Show Clicky" is off, pressing the hotkey fades in the cursor overlay for the duration of the interaction (recording → response → TTS → optional pointing), then fades it out automatically after 1 second of inactivity.
 
 **Live Scene**: A transcript that contains "inside", "look like", "show me", "3D", or "render" calls `POST /live-scene`, and every label stays visible.
-`POST /live-scene` asks GPT-6.1 Sol Ultrafast (`gpt-6.1-sol`, service tier `ultrafast`) for a self-contained three.js page and a quiz.
+`POST /live-scene` asks GPT-6.1 Sol Ultrafast (`gpt-6.1-sol`, service tier `ultrafast`, medium reasoning effort) for a self-contained three.js page and a quiz. On a Starship frame, medium drew rounder, tiled ships than low for about $0.15 more and 2 to 4 more seconds, and high cost 4 times as much with no better ship.
 The page builds the whole subject from the outside, and adds the parts inside, fading the outer shell, only when the learner asks to see inside.
 The page imports three.js only from `clicky-asset://three/three.module.js`, which the overlay serves from the app bundle.
 The overlay serves the generated page from `clicky-asset://live/page.html` with a Content-Security-Policy header, a content rule blocks http, https, ws, and wss, and navigation is limited to `about` and `clicky-asset`.
@@ -260,7 +260,7 @@ pnpm wrangler deploy
 # Local dev (create worker/.dev.vars with your keys)
 pnpm wrangler dev
 
-# Test runs: build scenes with Sonnet (about $0.04 each) instead of GPT (about $0.23)
+# Test runs: build scenes with Sonnet (about $0.04 each) instead of GPT (about $0.37)
 pnpm wrangler dev --var LIVE_SCENE_MODEL:sonnet
 
 # Token use: every model call except the streamed /chat logs "[/route] usage {...}"
