@@ -216,6 +216,14 @@ struct LiveScenePartScreenPoint: Equatable {
     let globalPoint: CGPoint
 }
 
+/// The quiz's "?" label, found by the part the frame parts call marked as the answer, since that part's label and the
+/// planner's answer label can name it differently, such as "Ampullae of Lorenzini" and "Ampullae". A page with no
+/// marked part falls back to the answer label.
+func quizQuestionLabelScreenPoint(in labelScreenPoints: [LiveScenePartScreenPoint], quizAnswerPartLabel: String?, answerLabel: String) -> LiveScenePartScreenPoint? {
+    let labelToFind = quizAnswerPartLabel ?? answerLabel
+    return labelScreenPoints.first { labelScreenPoint in labelScreenPoint.label == labelToFind }
+}
+
 /// The middle of the label's bottom edge. The cursor lands just below and right of its target
 /// and points up and left, so it sits under the label pointing at it.
 /// The overlay page fills `overlayScreenFrame`, and the page's y grows down while AppKit's grows up.

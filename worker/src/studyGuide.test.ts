@@ -266,6 +266,35 @@ describe("handleStudyGuide", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("accepts a video on a YouTube subdomain and refuses a host that only ends in youtube.com", async () => {
+    stubFetch();
+
+    const subdomainResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, videoURL: "https://music.youtube.com/watch?v=abc123" }),
+      notionEnvironment,
+    );
+    const lookalikeResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, videoURL: "https://notyoutube.com/watch?v=abc123" }),
+      notionEnvironment,
+    );
+
+    expect(subdomainResponse.status).toBe(200);
+    expect(lookalikeResponse.status).toBe(400);
+  });
+
+  it("answers 400 for a transcript past the line limit, before any model or Notion call", async () => {
+    const fetchMock = stubFetch();
+    const tooManyLines = Array.from({ length: 10_001 }, (_, lineIndex) => ({ seconds: lineIndex, text: "line" }));
+
+    const response = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, transcriptLines: tooManyLines }),
+      notionEnvironment,
+    );
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("answers 503 and never calls Anthropic when the Notion key is missing", async () => {
     const fetchMock = stubFetch();
 

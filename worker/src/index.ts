@@ -38,9 +38,11 @@ interface Env {
   LIVE_SCENE_MODEL?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;
-  /** Internal Notion integration token. Without it, /study-guide answers 503. */
+  /**
+   * A Notion personal access token, which acts as its owner across their whole workspace, so /study-guide can create
+   * private pages with no parent. Without it, /study-guide answers 503.
+   */
   NOTION_API_KEY?: string;
-  /** The Notion page that study guides are created under. It must be shared with the integration. */
 }
 
 export default {

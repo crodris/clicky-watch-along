@@ -515,7 +515,7 @@ final class VideoQuizSession {
             print("Video quiz: planned \(plannedMoments.count) moments in \(String(format: "%.1f", planningSeconds))s")
 
             let spotCountText = plannedMoments.count == 1 ? "1 spot" : "\(plannedMoments.count) spots"
-            speakLine("Okay, I've got \(spotCountText) picked out. Here we go!")
+            speakLine("Okay, I've got \(spotCountText) picked out.")
             // The line takes about this long, and the video should start after it.
             try await Task.sleep(for: .seconds(Self.secondsForTheReadyLineToFinish))
             guard isRunning else { return }
@@ -621,8 +621,9 @@ final class VideoQuizSession {
     }
 
     /// Counts the open video quiz question as answered or skipped for the study guide. Only the first outcome
-    /// of a question counts, so a follow-up grade on the same question adds nothing.
-    func recordTheOpenQuestionOutcome(_ outcome: StudyGuideQuizOutcome) {
+    /// of a question counts, so a follow-up grade on the same question adds nothing, and this returns false for it.
+    @discardableResult
+    func recordTheOpenQuestionOutcome(_ outcome: StudyGuideQuizOutcome) -> Bool {
         studyGuideQuizLog.closeTheOpenQuestion(with: outcome)
     }
 
@@ -897,7 +898,7 @@ final class VideoQuizSession {
             title: frontVideoTab.title,
             url: frontVideoTab.url,
             transcriptLines: captionLines,
-            quizResults: Array((studyGuideQuizLog.resultsByVideoURL[frontVideoTab.url] ?? []).suffix(mostStudyGuideQuizResults))
+            quizResults: Array(studyGuideQuizLog.results(forVideoURL: frontVideoTab.url).suffix(mostStudyGuideQuizResults))
         )
     }
 

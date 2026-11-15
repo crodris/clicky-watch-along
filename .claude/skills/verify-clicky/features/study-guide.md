@@ -17,7 +17,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, filling by area through each step in step with the agent list's meter, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
-- `guide-quiz-update` spawns a "Study guide update" wingman when a video quiz question on a video with a saved guide is missed or skipped, logs `Study guide: updating the guide with the quiz miss`, makes no Anthropic call for it, and the page's "Review these first" then lists the question.
+- `guide-quiz-update` spawns a "Study guide update" wingman when a video quiz question on a video with a saved guide is missed or skipped, logs `Study guide: updating the guide with the quiz miss`, makes no Anthropic call for it, and the page's "Review these first" then lists the question. A miss while a guide is being written runs the refresh once that guide ends, and earlier misses stay on the page after a relaunch, since each saved guide keeps the quiz results it was written with.
 - `guide-step-line` shows the running step beside the wingman closest to the blue triangle, such as "Reading the captions" and then "Writing the guide in Notion".
 - `guide-open-tab` switches to that tab when the learner says "open my study guide", so Chrome holds one tab with the guide, and opens the page again only when that tab was closed. A revision's page loads in that same tab, and the chip says "· updated in its tab".
 
@@ -61,6 +61,6 @@ Preconditions:
 
 - A token from an internal connection ("API token" in the new connection dialog) fails the create, because only a token that acts as a user may create a page with no parent.
 - Each route or app run creates a real private page, so trash the test pages afterwards.
-- A handle is signed with the token itself, so a new token makes every earlier handle fail a revision with 400.
+- A handle is signed with the token itself, so a new token makes every earlier handle fail with 400. The app then forgets each saved guide at its next status check, so its video can get a new one.
 - The Worker reads `.dev.vars` only when it starts, so restart it after changing the token.
 - Notion API version `2026-03-11` trashes a page with `in_trash`, and the older `archived` field is rejected.

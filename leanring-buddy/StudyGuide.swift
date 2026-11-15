@@ -14,14 +14,15 @@ import Foundation
 // MARK: - Request
 
 /// How the learner did on one video quiz question, as the Worker's page layout reads it.
-nonisolated enum StudyGuideQuizOutcome: String, Encodable, Equatable, Sendable {
+nonisolated enum StudyGuideQuizOutcome: String, Codable, Equatable, Sendable {
     case gotIt
     case missed
     case skipped
 }
 
 /// One answered or skipped question from a video quiz. The Worker lists the missed and skipped ones first.
-nonisolated struct StudyGuideQuizResult: Encodable, Equatable, Sendable {
+/// Codable, so the results a guide was written with are saved with it and outlive a relaunch.
+nonisolated struct StudyGuideQuizResult: Codable, Equatable, Sendable {
     let question: String
     let answerLabel: String
     let explanation: String
@@ -71,7 +72,8 @@ nonisolated func quizOutcomeRefreshesTheStudyGuide(_ outcome: StudyGuideQuizOutc
     outcome != .gotIt
 }
 
-/// The Worker refuses a focus or an instruction over this many characters.
+/// The Worker refuses a focus or an instruction over this many characters, counted as JavaScript counts them, in
+/// UTF-16 code units.
 nonisolated let longestStudyGuideWish = 300
 
 /// The Worker refuses more quiz results than this.
@@ -83,7 +85,26 @@ nonisolated func studyGuideWish(fromModelText modelText: String?) -> String? {
     guard let trimmedText = modelText?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedText.isEmpty else {
         return nil
     }
-    return String(trimmedText.prefix(longestStudyGuideWish))
+    // Cut by whole characters until the UTF-16 count fits, so an emoji or an accent is never split and the Worker
+    // never sees more code units than it accepts.
+    var wish = trimmedText
+    while wish.utf16.count > longestStudyGuideWish {
+        wish.removeLast()
+    }
+    return wish
+}
+
+/// The quiz results a revised or refreshed guide is written with: the ones its page already shows, from the saved
+/// guide, then the ones logged since, so a relaunch, which empties the log, never drops a miss from the page. A
+/// question logged again replaces its saved result, and the newest results are kept when there are too many.
+nonisolated func studyGuideQuizResults(saved savedQuizResults: [StudyGuideQuizResult], logged loggedQuizResults: [StudyGuideQuizResult]) -> [StudyGuideQuizResult] {
+    func sameQuestion(_ firstResult: StudyGuideQuizResult, _ secondResult: StudyGuideQuizResult) -> Bool {
+        firstResult.question == secondResult.question && firstResult.askedAtSeconds == secondResult.askedAtSeconds
+    }
+    let savedResultsNotLoggedAgain = savedQuizResults.filter { savedResult in
+        !loggedQuizResults.contains { loggedResult in sameQuestion(savedResult, loggedResult) }
+    }
+    return Array((savedResultsNotLoggedAgain + loggedQuizResults).suffix(mostStudyGuideQuizResults))
 }
 
 // MARK: - Quiz results
@@ -103,7 +124,8 @@ func studyGuideQuizOutcome(grade: LiveSceneQuizGrade, wrongAnswerCount: Int) -> 
 }
 
 /// The video quiz questions the learner has finished, per video. At most one result is kept per question,
-/// so a follow-up answer or an Escape after the answer does not add a second.
+/// so a follow-up answer or an Escape after the answer does not add a second. Results are kept under the same video
+/// key a guide is saved under, so a quiz on a playlist URL reaches the guide written from the plain watch URL.
 nonisolated struct StudyGuideQuizLog: Equatable, Sendable {
     private struct OpenQuestion: Equatable, Sendable {
         let videoURL: String
@@ -114,7 +136,11 @@ nonisolated struct StudyGuideQuizLog: Equatable, Sendable {
     }
 
     private var openQuestion: OpenQuestion?
-    private(set) var resultsByVideoURL: [String: [StudyGuideQuizResult]] = [:]
+    private var resultsByVideoKey: [String: [StudyGuideQuizResult]] = [:]
+
+    func results(forVideoURL videoURL: String) -> [StudyGuideQuizResult] {
+        resultsByVideoKey[studyGuideVideoKey(forVideoURL: videoURL)] ?? []
+    }
 
     mutating func questionIsAsked(videoURL: String, question: String, answerLabel: String, explanation: String, askedAtSeconds: Double) {
         openQuestion = OpenQuestion(
@@ -126,17 +152,20 @@ nonisolated struct StudyGuideQuizLog: Equatable, Sendable {
         )
     }
 
-    /// Records the outcome for the question that is open, then closes it. Does nothing when no question is open.
-    mutating func closeTheOpenQuestion(with outcome: StudyGuideQuizOutcome) {
-        guard let openQuestion else { return }
+    /// Records the outcome for the question that is open, then closes it. Does nothing when no question is open, and
+    /// returns whether it recorded anything, so a skip after the answer does not rebuild the guide for nothing.
+    @discardableResult
+    mutating func closeTheOpenQuestion(with outcome: StudyGuideQuizOutcome) -> Bool {
+        guard let openQuestion else { return false }
         self.openQuestion = nil
-        resultsByVideoURL[openQuestion.videoURL, default: []].append(StudyGuideQuizResult(
+        resultsByVideoKey[studyGuideVideoKey(forVideoURL: openQuestion.videoURL), default: []].append(StudyGuideQuizResult(
             question: openQuestion.question,
             answerLabel: openQuestion.answerLabel,
             explanation: openQuestion.explanation,
             askedAtSeconds: openQuestion.askedAtSeconds,
             result: outcome
         ))
+        return true
     }
 
     /// For a quiz that stops with a question open, which the learner never answered or skipped.
@@ -162,6 +191,32 @@ nonisolated struct StudyGuideRecord: Codable, Equatable, Sendable {
     let pageHandle: String
     let pageURL: URL
     let guide: JSONValue
+    /// The quiz results the page was written with. The Worker's reply has none, so the app adds the ones it sent.
+    var quizResults: [StudyGuideQuizResult] = []
+}
+
+/// A guide saved before quiz results were saved with it, and the Worker's reply, have no quizResults key.
+nonisolated extension StudyGuideRecord {
+    private enum CodingKeys: String, CodingKey {
+        case pageHandle
+        case pageURL
+        case guide
+        case quizResults
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pageHandle = try container.decode(String.self, forKey: .pageHandle)
+        pageURL = try container.decode(URL.self, forKey: .pageURL)
+        guide = try container.decode(JSONValue.self, forKey: .guide)
+        quizResults = try container.decodeIfPresent([StudyGuideQuizResult].self, forKey: .quizResults) ?? []
+    }
+}
+
+/// The app opens a guide's page with NSWorkspace, which runs any URL scheme, so it opens only an https page on Notion.
+nonisolated func studyGuidePageURLIsOnNotion(_ pageURL: URL) -> Bool {
+    guard pageURL.scheme?.lowercased() == "https", let host = pageURL.host?.lowercased() else { return false }
+    return ["notion.so", "notion.com"].contains { notionHost in host == notionHost || host.hasSuffix("." + notionHost) }
 }
 
 /// The key a guide is saved under: the YouTube video id, so the same video opened at another time or from a playlist
@@ -217,14 +272,23 @@ nonisolated enum StudyGuideError: Error, Equatable {
     case workerReturned(statusCode: Int, body: String)
     /// A revision was asked for a video that has no guide yet.
     case noGuideToRevise
+    /// A new guide was asked for a video that already has one, such as after a tab switch between the request and the
+    /// write, so the video never gets a second page.
+    case guideAlreadyWritten
+    /// The Worker's reply named a page that is not an https page on Notion.
+    case pageIsNotOnNotion
 }
 
 /// The line a failed guide shows beside the cursor. Notion not being connected is the one failure the learner can fix.
 nonisolated func studyGuideFailureLine(for error: Error) -> String {
-    if let studyGuideError = error as? StudyGuideError, studyGuideError == .notionIsNotConnected {
+    switch error as? StudyGuideError {
+    case .notionIsNotConnected:
         return "Notion isn't connected yet"
+    case .guideAlreadyWritten:
+        return "This video already has a study guide"
+    default:
+        return "Couldn't write the study guide"
     }
-    return "Couldn't write the study guide"
 }
 
 /// Why a guide failed, in the agent list, where there is room for more than the line beside the cursor.
@@ -236,6 +300,10 @@ nonisolated func studyGuideFailureReason(for error: Error) -> String {
         return "The Worker answered \(statusCode)"
     case .noGuideToRevise:
         return "No study guide has been written for this video yet"
+    case .guideAlreadyWritten:
+        return "This video already has a study guide"
+    case .pageIsNotOnNotion:
+        return "The Worker named a page that is not on Notion"
     case nil:
         return (error as? LocalizedError)?.errorDescription ?? "Couldn't write the study guide"
     }
@@ -288,16 +356,27 @@ final class StudyGuideClient {
         let (responseData, response) = try await session.data(for: request)
         // URLSession returns URLResponse. The Worker answers over HTTP.
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        guard statusCode == 200 else {
-            throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
-        }
-        struct StudyGuideStatusReply: Decodable { let pageExists: Bool }
-        return try JSONDecoder().decode(StudyGuideStatusReply.self, from: responseData).pageExists
+        return try studyGuidePageExists(statusCode: statusCode, responseData: responseData)
     }
 }
 
+/// A 400 is the Worker refusing a handle it did not sign, which happens to every saved handle once the Notion token
+/// changes. That guide can never be revised or checked again, so it counts as gone, and the video can get a new one.
+/// Any other failure means the Worker or Notion cannot say.
+nonisolated func studyGuidePageExists(statusCode: Int, responseData: Data) throws -> Bool {
+    if statusCode == 400 {
+        return false
+    }
+    guard statusCode == 200 else {
+        throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
+    }
+    struct StudyGuideStatusReply: Decodable { let pageExists: Bool }
+    return try JSONDecoder().decode(StudyGuideStatusReply.self, from: responseData).pageExists
+}
+
 /// A 503 is the Worker saying it has no Notion token, which the learner can fix and Clicky says so.
-/// Any other failure is a Worker or Notion error.
+/// Any other failure is a Worker or Notion error, and so is a page that is not an https page on Notion, since the
+/// app opens the page it saves.
 nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws -> StudyGuideRecord {
     if statusCode == 503 {
         throw StudyGuideError.notionIsNotConnected
@@ -305,5 +384,9 @@ nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws ->
     guard statusCode == 200 else {
         throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
     }
-    return try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
+    let studyGuideRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
+    guard studyGuidePageURLIsOnNotion(studyGuideRecord.pageURL) else {
+        throw StudyGuideError.pageIsNotOnNotion
+    }
+    return studyGuideRecord
 }
