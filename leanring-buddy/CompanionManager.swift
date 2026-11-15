@@ -1435,13 +1435,15 @@ final class CompanionManager: ObservableObject {
         guard !Task.isCancelled else { return }
 
         if let cursorScreenJPEGData {
-            LiveSceneStatusLabel.shared.show(.buildingYourScene)
+            // An experiment gets its own line, so the label says what the voice says.
+            let buildingLine: LiveSceneStatusLine = sceneKind == .simulation ? .buildingYourExperiment : .buildingYourScene
+            LiveSceneStatusLabel.shared.show(buildingLine)
             let almostThereTask = Task {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 // A newer build owns the label now, so this older one must not swap its line.
                 guard !Task.isCancelled, requestGeneration == self.liveSceneRequestGeneration else { return }
                 // A press that hid the label must not bring it back, so this swaps only while "Building" shows.
-                LiveSceneStatusLabel.shared.replace(.buildingYourScene, with: .almostThere)
+                LiveSceneStatusLabel.shared.replace(buildingLine, with: .almostThere)
                 await self.speakLiveSceneStatus("Almost there")
             }
             let sceneRequestTask = Task {

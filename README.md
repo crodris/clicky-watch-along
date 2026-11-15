@@ -75,7 +75,7 @@ Asking for a different model still builds a new scene.
 This follows Wes Bos's WebMCP demo, where a fast model calls small tools on a 3D page.
 
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
-That covers popping out an image, reading your screen, building a 3D scene, reading a video's transcript, and picking quiz spots.
+That covers popping out an image, reading your screen, building a 3D scene or an experiment, reading a video's transcript, and picking quiz spots.
 While a label shows, its icon sits where Clicky's blue triangle usually is, and the triangle comes back when the step is done.
 
 **Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.

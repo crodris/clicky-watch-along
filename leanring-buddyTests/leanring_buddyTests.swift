@@ -433,6 +433,27 @@ struct leanring_buddyTests {
         #expect(abs(justBeforeTheLoopRepeats.turnDegrees - 360) < 0.5)
     }
 
+    @Test func experimentLineBubblesEachLetterUpOncePerLoopAndRestsForReduceMotion() async throws {
+        let statusLine = LiveSceneStatusLine.buildingYourExperiment
+        #expect(statusLine.text == "Building your experiment")
+        let letterCount = statusLine.displayedText.count
+        func pose(_ letterIndex: Int, atSeconds elapsedSeconds: Double) -> StatusLetterPose {
+            statusLine.letterPose(letterIndex: letterIndex, letterCount: letterCount, elapsedSeconds: elapsedSeconds)
+        }
+
+        // Reduce Motion shows the still moment, where every letter rests in place.
+        #expect((0..<letterCount).allSatisfy { pose($0, atSeconds: statusLine.stillMomentSeconds) == StatusLetterPose() })
+        // Over one loop after its delay, every letter rises about 4.5 points and glows at the top.
+        let sampleTimes = stride(from: 0.0, through: 6.6, by: 0.02)
+        for letterIndex in 0..<letterCount {
+            let highestRise = sampleTimes.map { -pose(letterIndex, atSeconds: $0).offsetY }.max() ?? 0
+            #expect(highestRise > 4 && highestRise <= 4.5, "letter \(letterIndex) rose \(highestRise)")
+        }
+        // Neighbors bubble at different times, so the line never rises as one block.
+        let firstRiseTimes = (0..<letterCount).map { letterIndex in sampleTimes.first { pose(letterIndex, atSeconds: $0).offsetY < -2 } ?? -1 }
+        #expect(Set(firstRiseTimes).count == letterCount)
+    }
+
     @Test func transcriptLineIsFullyTypedWithTheCaretAtTheEndBeforeItClears() async throws {
         let statusLine = LiveSceneStatusLine.readingTheTranscript
         let letterCount = statusLine.displayedText.count
@@ -466,7 +487,10 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut, .animatingIt])
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.popOutLines, whileShowing: .animatingIt) == nil)
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .animatingIt) == .animatingIt)
-        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
+        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .buildingYourExperiment, .almostThere])
+        // The experiment build swaps its own line for "Almost there", so a push-to-talk press that hid it keeps it hidden.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourExperiment, with: .almostThere, whileShowing: .buildingYourExperiment) == .almostThere)
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourExperiment, with: .almostThere, whileShowing: nil) == nil)
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
