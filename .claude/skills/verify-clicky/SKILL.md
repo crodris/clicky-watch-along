@@ -142,7 +142,7 @@ Run it with no arguments for this usage:
 
 ```text
 new-run <name>            Start an evidence folder and make it current.
-build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries 5 seconds apart, while the build fails or a Swift file is newer than the app, then fails naming that file.
+build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries 5 seconds apart, while the build fails or a Swift file under leanring-buddy/ is newer than the app, then fails naming the stale file or the build status.
 doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
 worker-up [port] [-- wrangler args]
                           Start wrangler dev from this checkout (default port 8789).

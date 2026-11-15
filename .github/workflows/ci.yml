@@ -58,7 +58,7 @@ jobs:
       - run: pnpm run typecheck
       # The committed results must still parse, since the charts are built from them.
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
-      # verify-clicky's build checks that the app is newer than every Swift file, and this test pins that check.
+      # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
 
   app:

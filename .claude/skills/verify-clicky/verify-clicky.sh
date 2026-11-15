@@ -14,7 +14,7 @@ usage() {
 Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
 
   new-run <name>            Start an evidence folder and make it current.
-  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries 5 seconds apart, while the build fails or a Swift file is newer than the app, then fails naming that file.
+  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries 5 seconds apart, while the build fails or a Swift file under leanring-buddy/ is newer than the app, then fails naming the stale file or the build status.
   doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
   worker-up [port] [-- wrangler args]
                             Start wrangler dev from this checkout (default port 8789).
@@ -249,7 +249,7 @@ APPLESCRIPT
 }
 
 # Xcode's own build keeps Clicky's privacy grants, which xcodebuild resets. This builds, then checks the app changed and
-# holds every Swift file in the checkout.
+# holds every Swift file under leanring-buddy/, the app target's only source folder.
 command_build() {
   local project_path="$checkout_root/leanring-buddy.xcodeproj"
   local built_before=""
@@ -281,6 +281,10 @@ command_build() {
       sleep 5
     fi
   done
+  if [[ "$build_status" == "error" ]]; then
+    echo "The AppleScript build call failed 3 times for $project_path, so Xcode never built. Read the osascript errors above, and check that Xcode opened the project and that Automation lets this terminal control Xcode." >&2
+    exit 1
+  fi
   if [[ "$build_status" != "succeeded" ]]; then
     echo "Xcode build $build_status for $project_path after 3 tries. Read the errors in Xcode's issue navigator." >&2
     exit 1
