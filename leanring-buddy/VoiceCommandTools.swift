@@ -259,7 +259,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         }
     }
 
-    /// These two act on what the learner said, so the debug MCP endpoint, which has no spoken request, leaves them out.
+    /// These act on what the learner said, so the debug MCP endpoint, which has no spoken request, leaves them out.
     var needsTheSpokenRequest: Bool {
         self == .answerWithScreen || self == .buildNewScene || self == .buildSimulation
     }

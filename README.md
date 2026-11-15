@@ -50,10 +50,14 @@ Clicky pauses the video, and a hands-on experiment of that idea rises out of it,
 GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
 Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.
 It works like a real experiment, in four steps:
-1. Clicky asks a hypothesis to test, like "Will 30 or 60 degrees send the ball farther?", and waits for your guess. Run stays locked until you answer out loud, or click it to skip.
-2. Once you guess, a dashed line shows where the ball will go as you drag. Each run leaves a faded path and adds a row to a small results table, so you can compare trials.
-3. When your trials answer the question, Clicky says whether your guess was right and why. If they do not answer it yet, Clicky says which setting to try next.
-4. Then comes a challenge, like "Can you land the ball 30 meters away?". The dashed line hides, so you aim from your earlier trials, and Clicky counts your tries and plays a chime on a hit.
+1. Clicky asks a hypothesis to test, like "Will 30 or 60 degrees send the ball farther?", and waits for your guess.
+   Run stays locked until you answer out loud, or click it to skip.
+2. Once you guess, a dashed line shows where the ball will go as you drag.
+   Each run leaves a faded path and adds a row to a small results table, so you can compare trials.
+3. When your trials answer the question, Clicky says whether your guess was right and why.
+   If they do not answer it yet, Clicky says which setting to try next.
+4. Then comes a challenge, like "Can you land the ball 30 meters away?".
+   The dashed line hides, so you aim from your earlier trials, and Clicky counts your tries and plays a chime on a hit.
 
 The parts have no labels at first, so nothing covers the experiment, and saying "show the labels" brings them back.
 You can say "make it 45 degrees" or "run it" instead of using the sliders.

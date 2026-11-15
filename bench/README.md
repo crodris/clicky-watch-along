@@ -8,7 +8,9 @@ Results are JSON files in `results/`, named `<label>-<kind>-<commit>.json`.
 
 Run every command from the checkout root.
 A worker run sends real requests with the Worker's API keys, so estimate its cost first.
-At 5 runs per case it costs about $1.60, and the GPT live scene is $1.15 of that.
+At 5 runs per case it costs about $1.60 without the simulation cases, and the GPT live scene is $1.15 of that.
+The five `simulation-*` cases are GPT live scenes too, at about $0.37 each, so they add about $9 at 5 runs.
+When a change does not touch the simulation prompt, list the other case IDs in `--only` to skip them.
 
 ```bash
 V=.claude/skills/verify-clicky/verify-clicky.sh
