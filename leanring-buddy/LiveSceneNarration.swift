@@ -166,13 +166,14 @@ func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigge
 
 /// One spoken line for the landmark page, naming the place with its height from the /landmark reply.
 func landmarkNarrationLine(for famousPlace: FamousPlace) -> String {
+    let nameInASentence = famousPlace.nameTakesThe ? "the \(famousPlace.name)" : famousPlace.name
     let roundedHeightMeters = Int(famousPlace.heightMeters.rounded())
     // About 3 meters a floor, so a kid can picture the height as a building.
     let buildingFloorCount = Int((famousPlace.heightMeters / 3).rounded())
     guard buildingFloorCount >= 2 else {
-        return "This is \(famousPlace.name), in real 3D. It stands about \(roundedHeightMeters) meters tall."
+        return "This is \(nameInASentence), in real 3D. It stands about \(roundedHeightMeters) meters tall."
     }
-    return "This is \(famousPlace.name), in real 3D. It stands about \(roundedHeightMeters) meters tall, as high as a \(buildingFloorCount)-story building."
+    return "This is \(nameInASentence), in real 3D. It stands about \(roundedHeightMeters) meters tall, as high as a \(buildingFloorCount)-story building."
 }
 
 // MARK: - Pointing the blue cursor at a part

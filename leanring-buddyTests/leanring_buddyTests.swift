@@ -596,7 +596,7 @@ struct leanring_buddyTests {
         #expect(partLabelToExplain(untrustedTappedLabel: "aorta", pageOnScreen: framePopoutOnScreen, liveScenePhase: .allLabelsShowing) == nil)
         // A generated page or the landmark page cannot ask for an explanation, even with a matching label.
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: .generatedPage, liveScenePhase: .allLabelsShowing) == nil)
-        let landmarkNamedLikeThePart = FamousPlace(name: "Aorta", latitude: 48.86, longitude: 2.29, heightMeters: 330, radiusMeters: 60)
+        let landmarkNamedLikeThePart = FamousPlace(name: "Aorta", nameTakesThe: false, latitude: 48.86, longitude: 2.29, heightMeters: 330, radiusMeters: 60)
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: .landmark(landmarkNamedLikeThePart), liveScenePhase: .allLabelsShowing) == nil)
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: nil, liveScenePhase: .allLabelsShowing) == nil)
     }
@@ -1383,6 +1383,13 @@ struct leanring_buddyTests {
             #expect(abs((1 - (1 - heightShare) * (1 - heightShare)) - progress) < 0.0001)
         }
         #expect(wingmanFillHeightShare(forProgress: 0.5) < 0.3)
+    }
+
+    @Test func theLandmarkLineSaysTheBeforeANameThatTakesIt() async throws {
+        let colosseum = FamousPlace(name: "Colosseum", nameTakesThe: true, latitude: 41.89021, longitude: 12.49223, heightMeters: 48, radiusMeters: 94)
+        #expect(landmarkNarrationLine(for: colosseum) == "This is the Colosseum, in real 3D. It stands about 48 meters tall, as high as a 16-story building.")
+        let bigBen = FamousPlace(name: "Big Ben", nameTakesThe: false, latitude: 51.50073, longitude: -0.12463, heightMeters: 96, radiusMeters: 6)
+        #expect(landmarkNarrationLine(for: bigBen).hasPrefix("This is Big Ben, in real 3D."))
     }
 
     @Test func aQuizMissSpawnsAnUpdateAgentThatRefreshesTheGuideWithNoInstruction() async throws {

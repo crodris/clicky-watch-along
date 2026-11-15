@@ -18,6 +18,7 @@ const landmarkRequestSchema = z.object({
 const modelReplySchema = z.object({
   isFamousPlace: z.boolean(),
   name: z.string(),
+  nameTakesThe: z.boolean(),
   latitude: z.number(),
   longitude: z.number(),
   heightMeters: z.number(),
@@ -26,13 +27,22 @@ const modelReplySchema = z.object({
 
 export type Landmark =
   | { isFamousPlace: false }
-  | { isFamousPlace: true; name: string; latitude: number; longitude: number; heightMeters: number; radiusMeters: number };
+  | {
+      isFamousPlace: true;
+      name: string;
+      nameTakesThe: boolean;
+      latitude: number;
+      longitude: number;
+      heightMeters: number;
+      radiusMeters: number;
+    };
 
 const landmarkSystemPrompt = [
   "You look at one frame from a video and say whether it shows one famous real-world structure or place that has an exact location, such as a monument, a tower, a stadium, or a bridge.",
   "Reply with JSON only.",
   "isFamousPlace is false for anything else: a drawing of a made-up thing, an object, a person, a map, or a generic street.",
-  "name is the place's common English name.",
+  "name is the place's common English name, with no leading article, such as Colosseum or Big Ben.",
+  "nameTakesThe is true when English puts 'the' before the name in a sentence, as in 'the Colosseum' or 'the Eiffel Tower', and false as in 'Big Ben' or 'Mount Fuji'.",
   "latitude and longitude are the decimal degrees of the center of the structure itself, not the surrounding park or island, to 5 decimal places.",
   "heightMeters is the structure's height above the ground around it, and radiusMeters is half its width at the base.",
   "isFamousPlace is also false when the learner's request names a different subject than the place in the frame, for example a heart while the frame shows a statue.",
@@ -41,13 +51,13 @@ const landmarkSystemPrompt = [
 
 /** Coordinates outside the globe or sizes outside what any building is mean the model guessed, so they count as no place. */
 export function checkLandmark(modelReply: z.infer<typeof modelReplySchema>): Landmark {
-  const { isFamousPlace, name, latitude, longitude, heightMeters, radiusMeters } = modelReply;
+  const { isFamousPlace, name, nameTakesThe, latitude, longitude, heightMeters, radiusMeters } = modelReply;
   const coordinatesAreReal = Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 && !(latitude === 0 && longitude === 0);
   const sizeIsReal = heightMeters > 0 && heightMeters < 1000 && radiusMeters > 0 && radiusMeters < 2000;
   if (!isFamousPlace || name.trim() === "" || !coordinatesAreReal || !sizeIsReal) {
     return { isFamousPlace: false };
   }
-  return { isFamousPlace: true, name: name.trim(), latitude, longitude, heightMeters, radiusMeters };
+  return { isFamousPlace: true, name: name.trim(), nameTakesThe, latitude, longitude, heightMeters, radiusMeters };
 }
 
 export async function handleLandmark(request: Request, anthropicAPIKey: string): Promise<Response> {
@@ -71,12 +81,13 @@ export async function handleLandmark(request: Request, anthropicAPIKey: string):
           properties: {
             isFamousPlace: { type: "boolean" },
             name: { type: "string" },
+            nameTakesThe: { type: "boolean" },
             latitude: { type: "number" },
             longitude: { type: "number" },
             heightMeters: { type: "number" },
             radiusMeters: { type: "number" },
           },
-          required: ["isFamousPlace", "name", "latitude", "longitude", "heightMeters", "radiusMeters"],
+          required: ["isFamousPlace", "name", "nameTakesThe", "latitude", "longitude", "heightMeters", "radiusMeters"],
         },
       },
     },
