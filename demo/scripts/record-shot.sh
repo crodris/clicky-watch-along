@@ -155,6 +155,13 @@ fi
 
 # LaunchServices refuses to start the app (error -10810) while another process holds its log file open,
 # so the stamper starts reading only once the app is up. The rehearsal waits 3 seconds before its first step.
+# The app saves one study guide per YouTube video and never writes a second, so the shot's video forgets its guide
+# first, and a study guide shot writes a new one. The key matches SavedStudyGuides in StudyGuide.swift.
+shot_video_id="$(printf '%s' "$page_url" | sed -nE 's/.*[?&]v=([A-Za-z0-9_-]+).*/\1/p')"
+if [[ -n "$shot_video_id" ]]; then
+  defaults delete com.crodris.clicky-watch-along "savedStudyGuide.$shot_video_id" >/dev/null 2>&1 || true
+fi
+
 app_was_launched=true
 "$verify_script" app-launch "$rehearsal_steps"
 tail -n +1 -F "$run_folder/app.log" 2>/dev/null \

@@ -2,9 +2,10 @@ import { AbsoluteFill, Sequence } from "remotion";
 import type { CursorTrack } from "./camera.ts";
 import { BlurDissolve, EndCard, Shot } from "./components.tsx";
 import { colors, dissolveFrames, seconds } from "./motion.ts";
+import type { DemoTheme } from "./theme.ts";
 import type { Segment } from "./timeline.ts";
 
-export type DemoProps = { segments: Segment[]; cursorTracks: Record<string, CursorTrack> };
+export type DemoProps = { segments: Segment[]; cursorTracks: Record<string, CursorTrack>; theme: DemoTheme };
 
 /** Each segment starts one dissolve before the previous one ends, so they overlap in a blur-dissolve. */
 export function segmentStartFrames(segments: Segment[]): number[] {
@@ -23,7 +24,7 @@ export function demoDurationInFrames(segments: Segment[]): number {
   return (startFrames[startFrames.length - 1] ?? 0) + (lastSegment ? seconds(lastSegment.durationSeconds) : 0);
 }
 
-export function Demo({ segments, cursorTracks }: DemoProps) {
+export function Demo({ segments, cursorTracks, theme }: DemoProps) {
   const startFrames = segmentStartFrames(segments);
   return (
     <AbsoluteFill style={{ background: colors.background }}>
@@ -40,9 +41,10 @@ export function Demo({ segments, cursorTracks }: DemoProps) {
                   cameraMoves={segment.cameraMoves}
                   cursorTrack={segment.cursorTrackFile ? cursorTracks[segment.cursorTrackFile] : undefined}
                   captions={segment.captions}
+                  theme={theme}
                 />
               ) : (
-                <EndCard recordingFile={segment.recordingFile} sourceStartSeconds={segment.sourceStartSeconds} />
+                <EndCard recordingFile={segment.recordingFile} sourceStartSeconds={segment.sourceStartSeconds} theme={theme} />
               )}
             </BlurDissolve>
           </Sequence>

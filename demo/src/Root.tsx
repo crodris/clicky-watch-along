@@ -2,7 +2,8 @@ import { type CalculateMetadataFunction, Composition, staticFile } from "remotio
 import type { CursorTrack } from "./camera.ts";
 import { Demo, demoDurationInFrames, type DemoProps } from "./Demo.tsx";
 import { frameRate, videoHeight, videoWidth } from "./motion.ts";
-import { quizClipSegments, segments } from "./timeline.ts";
+import { studyGuideTheme, watchAlongTheme } from "./theme.ts";
+import { quizClipSegments, segments, studyGuideClipSegments } from "./timeline.ts";
 
 /** The tracker writes these next to the recordings, and each composition reads its own once before rendering. */
 const loadCursorTracks: CalculateMetadataFunction<DemoProps> = async ({ props }) => {
@@ -28,7 +29,7 @@ export function Root() {
         height={videoHeight}
         fps={frameRate}
         durationInFrames={demoDurationInFrames(segments)}
-        defaultProps={{ segments, cursorTracks: {} } satisfies DemoProps}
+        defaultProps={{ segments, cursorTracks: {}, theme: watchAlongTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
       {/* The follow-up clip: a quiz pass and a moving picture. */}
@@ -39,7 +40,18 @@ export function Root() {
         height={videoHeight}
         fps={frameRate}
         durationInFrames={demoDurationInFrames(quizClipSegments)}
-        defaultProps={{ segments: quizClipSegments, cursorTracks: {} } satisfies DemoProps}
+        defaultProps={{ segments: quizClipSegments, cursorTracks: {}, theme: watchAlongTheme } satisfies DemoProps}
+        calculateMetadata={loadCursorTracks}
+      />
+      {/* The study guide clip, in its own notebook look. */}
+      <Composition
+        id="ClickyStudyGuideClip"
+        component={Demo}
+        width={videoWidth}
+        height={videoHeight}
+        fps={frameRate}
+        durationInFrames={demoDurationInFrames(studyGuideClipSegments)}
+        defaultProps={{ segments: studyGuideClipSegments, cursorTracks: {}, theme: studyGuideTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
     </>

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { AbsoluteFill, OffthreadVideo, staticFile, useCurrentFrame } from "remotion";
 import { cameraAt, cameraTransform, type CameraMove, type CursorTrack } from "./camera.ts";
+import type { DemoTheme } from "./theme.ts";
 import {
-  bodyFont,
   colors,
   dissolveFrames,
   easeInOutQuadratic,
@@ -26,15 +26,17 @@ export type Caption = {
   voice?: "learner" | "clicky";
   /** Words drawn in the caption accent color. */
   accentWords?: string[];
+  /** Replaces the theme's accent color for this caption, such as green for a finished agent's check mark. */
+  accentColor?: string;
 };
 
 const captionExitFrames = 8;
 
-function MicGlyph() {
+function MicGlyph({ color }: { color: string }) {
   return (
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-      <rect x="8.5" y="3" width="7" height="12" rx="3.5" fill={colors.captionAccent} />
-      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" stroke={colors.captionAccent} strokeWidth="2" strokeLinecap="round" />
+      <rect x="8.5" y="3" width="7" height="12" rx="3.5" fill={color} />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" stroke={color} strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -47,16 +49,48 @@ function ClickyTriangleGlyph() {
   );
 }
 
-function AccentedText({ text, accentWords = [] }: { text: string; accentWords?: string[] }) {
+const highlighterSweepFrames = 12;
+
+/** A marker stroke behind the words, drawn left to right once, starting after the caption has risen in. */
+function HighlightedWords({ text, color, sweepProgress }: { text: string; color: string; sweepProgress: number }) {
+  return (
+    <span
+      style={{
+        backgroundImage: `linear-gradient(${color}, ${color})`,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "0 78%",
+        backgroundSize: `${sweepProgress * 100}% 46%`,
+        padding: "0 0.08em",
+        margin: "0 -0.08em",
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function AccentedText({
+  text,
+  accentWords = [],
+  accent,
+  highlighterProgress,
+}: {
+  text: string;
+  accentWords?: string[];
+  accent: DemoTheme["accent"];
+  highlighterProgress: number;
+}) {
   if (accentWords.length === 0) return <>{text}</>;
   const accentPattern = new RegExp(`(${accentWords.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g");
   return (
     <>
       {text.split(accentPattern).map((piece, pieceIndex) =>
-        accentWords.includes(piece) ? (
-          <span key={pieceIndex} style={{ color: colors.captionAccent }}>{piece}</span>
-        ) : (
+        !accentWords.includes(piece) ? (
           <span key={pieceIndex}>{piece}</span>
+        ) : accent.style === "highlighter" ? (
+          <HighlightedWords key={pieceIndex} text={piece} color={accent.color} sweepProgress={highlighterProgress} />
+        ) : (
+          <span key={pieceIndex} style={{ color: accent.color }}>{piece}</span>
         ),
       )}
     </>
@@ -64,7 +98,7 @@ function AccentedText({ text, accentWords = [] }: { text: string; accentWords?: 
 }
 
 /** Whole phrases fade and rise in over 10 frames and fade out over 8, with no bounce. */
-export function CaptionTrack({ captions }: { captions: Caption[] }) {
+export function CaptionTrack({ captions, theme }: { captions: Caption[]; theme: DemoTheme }) {
   const frame = useCurrentFrame();
   return (
     <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", pointerEvents: "none" }}>
@@ -74,6 +108,7 @@ export function CaptionTrack({ captions }: { captions: Caption[] }) {
         if (frame < fromFrame || frame > toFrame) return null;
         const enter = softProgress(frame, fromFrame, typographyEnterFrames);
         const exit = softProgress(frame, toFrame - captionExitFrames, captionExitFrames);
+        const highlighterProgress = softProgress(frame, fromFrame + typographyEnterFrames, highlighterSweepFrames);
         return (
           <div
             key={captionIndex}
@@ -87,12 +122,12 @@ export function CaptionTrack({ captions }: { captions: Caption[] }) {
               gap: 16,
               maxWidth: 1640,
               padding: caption.voice ? "20px 40px 20px 30px" : "20px 40px",
-              borderRadius: 999,
-              background: colors.pillFill,
-              border: `1px solid ${colors.pillBorder}`,
+              borderRadius: theme.captionCornerRadius,
+              background: theme.captionFill,
+              border: `1px solid ${theme.captionBorder}`,
               boxShadow: "0 12px 36px rgba(0, 0, 0, 0.35)",
-              color: colors.text,
-              fontFamily: bodyFont,
+              color: theme.captionText,
+              fontFamily: theme.captionFont,
               fontWeight: caption.voice ? 600 : 500,
               // Large enough to read when the 16:9 video plays across a phone held upright.
               fontSize: 50,
@@ -100,11 +135,11 @@ export function CaptionTrack({ captions }: { captions: Caption[] }) {
               letterSpacing: -0.2,
             }}
           >
-            {caption.voice === "learner" ? <MicGlyph /> : null}
+            {caption.voice === "learner" ? <MicGlyph color={theme.micColor} /> : null}
             {caption.voice === "clicky" ? <ClickyTriangleGlyph /> : null}
             <span>
               {caption.voice ? "“" : null}
-              <AccentedText text={caption.text} accentWords={caption.accentWords} />
+              <AccentedText text={caption.text} accentWords={caption.accentWords} accent={caption.accentColor ? { ...theme.accent, color: caption.accentColor } : theme.accent} highlighterProgress={highlighterProgress} />
               {caption.voice ? "”" : null}
             </span>
           </div>
@@ -140,6 +175,7 @@ export function Shot({
   cameraMoves,
   cursorTrack,
   captions,
+  theme,
 }: {
   recordingFile: string;
   sourceStartSeconds: number;
@@ -147,6 +183,7 @@ export function Shot({
   cameraMoves: CameraMove[];
   cursorTrack?: CursorTrack;
   captions: Caption[];
+  theme: DemoTheme;
 }) {
   const frame = useCurrentFrame();
   const camera = cameraAt(cameraMoves, frame / frameRate, durationSeconds, sourceStartSeconds, cursorTrack);
@@ -160,7 +197,7 @@ export function Shot({
       >
         <OffthreadVideo src={staticFile(recordingFile)} trimBefore={Math.round(sourceStartSeconds * frameRate)} />
       </AbsoluteFill>
-      <CaptionTrack captions={captions} />
+      <CaptionTrack captions={captions} theme={theme} />
     </AbsoluteFill>
   );
 }
@@ -169,22 +206,29 @@ export function Shot({
  * The closing card: the last scene, blurred and darkened and muted, under the name and the handle. The card fades in
  * with the shot's dissolve, and each line rises in after it with the captions' soft ease.
  */
-export function EndCard({ recordingFile, sourceStartSeconds }: { recordingFile: string; sourceStartSeconds: number }) {
+export function EndCard({ recordingFile, sourceStartSeconds, theme }: { recordingFile: string; sourceStartSeconds: number; theme: DemoTheme }) {
   const frame = useCurrentFrame();
   const nameEnter = softProgress(frame, 8, typographyEnterFrames);
+  const taglineEnter = softProgress(frame, 12, typographyEnterFrames);
   const handleEnter = softProgress(frame, 16, typographyEnterFrames);
+  const { endCard } = theme;
   return (
     <AbsoluteFill style={{ background: colors.background, overflow: "hidden" }}>
       <AbsoluteFill style={{ transform: "scale(1.12)", filter: "blur(28px)" }}>
         <OffthreadVideo src={staticFile(recordingFile)} trimBefore={Math.round(sourceStartSeconds * frameRate)} muted />
       </AbsoluteFill>
-      <AbsoluteFill style={{ background: "rgba(10, 11, 15, 0.62)" }} />
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", gap: 22, fontFamily: bodyFont, color: colors.text }}>
+      <AbsoluteFill style={{ background: endCard.scrim }} />
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", gap: 22, fontFamily: theme.captionFont, color: endCard.titleColor }}>
         <div style={{ fontSize: 96, fontWeight: 700, letterSpacing: -1.5, opacity: nameEnter, transform: `translateY(${(1 - nameEnter) * typographyRisePixels}px)` }}>
-          Clicky watch-along
+          {endCard.title}
         </div>
-        <div style={{ fontSize: 48, fontWeight: 600, color: colors.captionAccent, opacity: handleEnter, transform: `translateY(${(1 - handleEnter) * typographyRisePixels}px)` }}>
-          @HayloCR
+        {endCard.tagline ? (
+          <div style={{ fontSize: 44, fontWeight: 500, opacity: taglineEnter * 0.85, transform: `translateY(${(1 - taglineEnter) * typographyRisePixels}px)` }}>
+            {endCard.tagline}
+          </div>
+        ) : null}
+        <div style={{ fontSize: 48, fontWeight: 600, color: endCard.handleColor, opacity: handleEnter, transform: `translateY(${(1 - handleEnter) * typographyRisePixels}px)` }}>
+          {endCard.handle}
         </div>
       </AbsoluteFill>
     </AbsoluteFill>

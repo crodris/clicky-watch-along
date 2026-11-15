@@ -245,3 +245,103 @@ export const quizClipSegments: Segment[] = [
   },
   { kind: "endCard", name: "end-card", recordingFile: "earth.mov", sourceStartSeconds: 30, durationSeconds: 4.0 },
 ];
+
+// The study guide clip: a Notion study guide written in the background while a jet engine video plays. The YouTube
+// video plays muted, so only Clicky's two short lines and the music are heard.
+// The YouTube player fills about 78% of the frame's width, right of Chrome's tab sidebar, so 1.28 times fills it.
+const engineVideo = { x: 0.57, y: 0.49 };
+const engineVideoScale = 1.28;
+// The chips and the agent list open just below and right of the blue triangle, which rests at about (0.67, 0.69).
+const studyGuideChip = { x: 0.72, y: 0.73 };
+const notionPage = { x: 0.64, y: 0.55 };
+// Close enough to see the helper triangle trail the blue one and fill.
+const helperScale = 3.0;
+// The check mark on a finished helper (DS.Colors.success in the app).
+const finishedCheckGreen = "#34D399";
+
+export const studyGuideClipSegments: Segment[] = [
+  {
+    // study-guide.events.txt: the request at 5.79, make_study_guide at 7.25, when the helper appears, and Clicky says
+    // "On it. Writing your study guide now." from 8.31 to 10.70.
+    kind: "shot",
+    name: "ask",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 3.45,
+    durationSeconds: 7.3,
+    cameraMoves: [
+      { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
+      { atSeconds: 4.4, scale: labelScale, focus: studyGuideChip, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.2, toSeconds: 2.1, text: "Watching something worth remembering?" },
+      { fromSeconds: 2.3, toSeconds: 4.6, text: "Make me a Notion study guide for this video", voice: "learner" },
+      { fromSeconds: 4.85, toSeconds: 7.2, text: "On it. Writing your study guide now.", voice: "clicky" },
+    ],
+  },
+  {
+    // The mouse glides out from 10.2 to 11.5 and back from 12.7 to 14.0, and the helper trails the blue triangle.
+    kind: "shot",
+    name: "helper",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 10.2,
+    durationSeconds: 4.8,
+    cameraMoves: [{ atSeconds: 0, scale: helperScale, focus: "cursor", durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.2, toSeconds: 2.3, text: "A helper cursor joins yours to do the work", accentWords: ["helper cursor"] },
+      { fromSeconds: 2.5, toSeconds: 4.7, text: "It follows you and fills up as it works", accentWords: ["fills up"] },
+    ],
+  },
+  {
+    // The agent list is open from about 15.2 to 20.2.
+    kind: "shot",
+    name: "list",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 14.6,
+    durationSeconds: 5.1,
+    cameraMoves: [{ atSeconds: 0, scale: labelScale, focus: studyGuideChip, durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.6, toSeconds: 4.9, text: "Hold shift + option to see what's running", accentWords: ["shift + option"] },
+    ],
+  },
+  {
+    // The guide is written at 19.74. "Tink" plays at 19.95, the helper sits ahead of the tip with a green check
+    // mark, the chip shows until about 23.8, and the helper grows and fades out from 23.3.
+    kind: "shot",
+    name: "ready",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 19.5,
+    durationSeconds: 4.8,
+    cameraMoves: [{ atSeconds: 0, scale: labelScale, focus: studyGuideChip, durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.4, toSeconds: 2.6, text: "When it's done, it gets a green check", accentWords: ["green check"], accentColor: finishedCheckGreen },
+      { fromSeconds: 2.8, toSeconds: 4.7, text: "and your guide opens in a tab behind the video", accentWords: ["behind the video"] },
+    ],
+  },
+  {
+    // "Open my study guide" at 24.30, open_study_guide switches to the guide's tab at 26.00, Clicky says "There,
+    // opening your study guide." from 26.53 to 28.38, and the page scrolls at about 30.3, 33.3, and 36.3.
+    kind: "shot",
+    name: "open",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    // It starts once the "Study guide ready" chip has faded.
+    sourceStartSeconds: 24.1,
+    durationSeconds: 14.8,
+    cameraMoves: [
+      { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
+      { atSeconds: 4.2, scale: 1.7, focus: notionPage, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.25, toSeconds: 2.25, text: "Open my study guide", voice: "learner" },
+      { fromSeconds: 2.45, toSeconds: 4.2, text: "There, opening your study guide.", voice: "clicky" },
+      { fromSeconds: 4.4, toSeconds: 8.4, text: "A summary, the key ideas, and the terms to know", accentWords: ["terms to know"] },
+      { fromSeconds: 8.7, toSeconds: 14.5, text: "Every point links back to its moment in the video", accentWords: ["its moment"] },
+    ],
+  },
+  // The music fades out under this card.
+  { kind: "endCard", name: "end-card", recordingFile: "study-guide.mov", sourceStartSeconds: 42, durationSeconds: 4.0 },
+];

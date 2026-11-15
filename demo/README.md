@@ -23,6 +23,17 @@ TRAILING_SECONDS=6 demo/scripts/record-shot.sh nerve-quiz "watch this video with
 TRAILING_SECONDS=6 demo/scripts/record-shot.sh earth "pop this out" "https://commons.wikimedia.org/wiki/File:Rotating_earth_(large).gif" "" 1110 570
 ```
 
+The study guide clip uses 1 more shot, with the Worker's `NOTION_API_KEY` set.
+Its `&` step waits for the guide to finish before asking to open it.
+Start the driver just before the shot, so it glides the mouse out and back while the guide is written, opens the agent list, and scrolls the Notion page once it opens.
+Each run writes a new private page into the Notion account, so trash the test pages afterwards.
+The app saves one guide per YouTube video and never writes a second, so `record-shot.sh` deletes the saved guide for the shot's video before it launches the app.
+
+```bash
+demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
+TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion study guide for this video|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 60 1110 680
+```
+
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
 The script exits with an error, and keeps no events file, when the rehearsal never logs that it finished.
 The events file stamps each app log line with seconds since the recording started.
@@ -34,17 +45,22 @@ cd demo
 pnpm install
 pnpm track public/volcano.mov public/volcano.cursor.json
 pnpm track public/ejiri.mov public/ejiri.cursor.json
+pnpm track public/study-guide.mov public/study-guide.cursor.json
 ```
 
 ## Music
 
-Each clip has its own bed, both from Mixkit under the Mixkit Stock Music Free License (https://mixkit.co/license/#musicFree):
+Each clip has its own bed.
+The first two come from Mixkit under the Mixkit Stock Music Free License (https://mixkit.co/license/#musicFree):
 
 - The demo uses "Happy Times" by Alejandro Magaña (https://mixkit.co/free-stock-music/happy-times/), saved as `demo/public/music/happy-times.mp3`.
 - The quiz clip uses "It's Love" by Michael Ramir C. (https://mixkit.co/free-stock-music/its-love/), saved as `demo/public/music/its-love.mp3`.
 
-That license allows commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
-Download both before rendering.
+The study guide clip uses "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
+It is not registered with YouTube Content ID, so a YouTube upload gets no claim, and it is not AI-generated.
+
+Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
+Download all three before rendering.
 
 `scripts/mix-music.ts` runs after the Remotion render.
 It gives the voice a high-pass at 80 Hz, a small lift at 3 kHz, and light compression.
@@ -56,7 +72,8 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, and `quizClipSegments` is the follow-up clip: the facial nerve quiz and the spinning globe.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), and `studyGuideClipSegments` is the Notion study guide clip.
+`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, and the study guide clip uses Fraunces on a paper card with an amber highlighter.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
 ```bash
@@ -64,11 +81,12 @@ pnpm studio
 export REMOTION_BROWSER_EXECUTABLE=~/Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell
 pnpm render
 pnpm render-quiz
+pnpm render-study-guide
 ```
 
 `pnpm render` writes the voice-only `out/clicky-demo-voice.mp4`, then the mix writes `out/clicky-demo.mp4`.
-`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`.
-`pnpm mix` and `pnpm mix-quiz` run only the mix, which is enough after changing the music or its levels.
+`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, and `pnpm render-study-guide` for `out/clicky-study-guide.mp4`.
+`pnpm mix`, `pnpm mix-quiz`, and `pnpm mix-study-guide` run only the mix, which is enough after changing the music or its levels.
 Set `REMOTION_BROWSER_EXECUTABLE` when Remotion's own headless shell hangs at "Waiting for root component to load".
 
 ## Quiz rehearsal
