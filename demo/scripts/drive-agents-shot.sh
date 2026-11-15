@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs beside record-shot.sh for the two sub-agents shot. It first hides the chat replay of a live stream's recording,
-# which shows viewers' comments beside the video. Once both sub-agents run, it opens the agent list with
+# which shows viewers' comments beside the video. When the learner asks what the task agent found, it brings the agent's
+# Notion page forward and scrolls through it while Clicky speaks. Once both sub-agents run, it opens the agent list with
 # shift + option, so the list shows "2 running", then glides the mouse out and back, so both helper triangles are seen
 # trailing the blue one in formation.
 # Usage, from the main checkout's root, started just before record-shot.sh:
@@ -56,3 +57,22 @@ sleep 0.6
 glide_mouse 1110 680 880 560
 sleep 0.4
 glide_mouse 880 560 1110 680
+
+# The task agent's page opened in a background tab when it finished. While Clicky speaks the answer, the page comes
+# forward and scrolls down a screen at a time.
+wait_for_log_line 'saying "what did you find' || exit 0
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+  set tabIndex to 0
+  repeat with candidateIndex from 1 to (count of tabs of front window)
+    if URL of tab candidateIndex of front window contains "notion." then set tabIndex to candidateIndex
+  end repeat
+  if tabIndex > 0 then set active tab index of front window to tabIndex
+end tell
+APPLESCRIPT
+scroll_a_screen_javascript="(() => { const scroller = [...document.querySelectorAll('.notion-scroller')].sort((a, b) => b.scrollHeight - a.scrollHeight)[0]; if (!scroller) return 'no scroller'; scroller.scrollBy({ top: scroller.clientHeight * 0.6, behavior: 'smooth' }); return 'scrolled'; })()"
+sleep 4
+for _ in 1 2 3; do
+  run_in_front_tab "$scroll_a_screen_javascript" > /dev/null
+  sleep 3.5
+done
