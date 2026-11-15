@@ -1,13 +1,13 @@
 # Let me try it simulation
 
-When the learner says "let me try it", "let me play with it", "can I try it", or "simulate this", Clicky builds a hands-on science experiment of what the screen shows, with sliders and a Run button drawn by `scene-tools.js`.
+When the learner ends what they say with "let me try it", "let me play with it", or "can I try it", or says "simulate this", Clicky builds a hands-on science experiment of what the screen shows, with sliders and a Run button drawn by `scene-tools.js`.
 `/live-scene` takes `kind: "simulation"`, and the page adds `controls`, `setControl`, `run`, readouts, a hidden dashed path, faded past paths, and a challenge.
 The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, the learner explores with the dashed path, Clicky says whether the guess was right and why once the trials answer it, and a challenge ends with a hit.
 
 ## Sub-features
 
-- `simulation-route` is `/live-scene` with `kind: "simulation"`, which rejects a page with no `controls`, `setControl`, or `run`, or with its own input or button.
-- `simulation-panel` is the panel `scene-tools.js` draws: sliders, Run (labeled "Say your guess" while locked), readouts, the challenge line, and the trials table.
+- `simulation-route` is `/live-scene` with `kind: "simulation"`, which rejects a page with no `controls`, `setControl`, `run`, or `readouts`, or with its own input or button.
+- `simulation-panel` is the panel `scene-tools.js` draws: sliders, Run (labeled "Say your guess" while locked), the hypothesis while Clicky waits for the guess, readouts, the challenge line, and the trials table.
 - `simulation-guess` is `record_guess`, which the router picks for an answer to the hypothesis and which unlocks Run and the dashed path.
 - `simulation-check` is the guess check through `/chat` after each explore run, logged as `Simulation: guess check after run N, settled <bool>`.
 - `simulation-challenge` starts once the guess is settled, hides the dashed path, and counts tries until a hit, which plays "Glass".

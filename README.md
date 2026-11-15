@@ -45,7 +45,7 @@ Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
-**Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, or a cup of cocoa cooling, say "let me try it", "let me play with it", or "simulate this".
+**Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, or a cup of cocoa cooling, say "let me try it", "let me play with it", or "simulate this" as the end of what you say.
 Clicky pauses the video, and a hands-on experiment of that idea rises out of it, with sliders for the things you can change and a Run button.
 GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
 Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.

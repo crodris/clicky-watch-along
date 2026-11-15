@@ -128,7 +128,7 @@ describe("scene-tools.js simulation tools", () => {
     expect(refused.state.labelsAreShown).toBe(false);
   });
 
-  it("describes each control to the model with its range and current value", () => {
+  it("describes each control to the model with its range, and leaves its current value to the state", () => {
     const setControlTool = loadSceneTools(simulationPage()).clickyTools.list().find((tool) => tool.name === "set_control");
 
     expect(setControlTool?.description).toContain("angle (Launch angle, 5 to 85 degrees)");

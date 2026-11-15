@@ -4,8 +4,9 @@
 // has the primitives it needs, so a generated page that skips one simply offers fewer tools.
 // Every call ends the camera tour first, because the learner asking for a change means the tour is over.
 // A simulation page also defines liveScene.controls, setControl, and run. This file draws the one panel for them
-// (a slider per control, a Run button, the readouts, and a results table of the trials), so the model never draws its own, and offers
-// set_control, run_simulation, and set_labels. It also runs the lesson: the learner guesses first, then explores with
+// (a slider per control, a Run button, the hypothesis while Clicky waits for the guess, the readouts, and a results table
+// of the trials), so the model never draws its own, and offers set_control, run_simulation, and set_labels.
+// It also runs the lesson: the learner guesses first, then explores with
 // the dashed path showing, then takes the page's challenge with the path hidden.
 // A finished run is posted to the app as "runFinished:<report JSON>" so Clicky can say the result.
 (() => {
@@ -203,7 +204,7 @@
 
   // The panel is styled like the scene labels, and sits on the document root so the rise animation, which moves
   // the body, never carries it. It appears when the tour ends, which is when the overlay starts taking the mouse.
-  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null, challengeElement: null, pastRunsElement: null };
+  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null, challengeOrQuestionElement: null, pastRunsElement: null };
   const decimalsOf = (step) => String(step).split(".")[1]?.length ?? 0;
   const valueText = (control) => `${control.value.toFixed(decimalsOf(control.step))}${control.unit ? " " + control.unit : ""}`;
 
@@ -245,11 +246,11 @@
     panel.runButton.style.background = lessonStage === "guess" ? "#8a94a3" : "#3380ff";
     const challenge = challengeState();
     const questionIsWaiting = lessonStage === "guess" && predictionQuestion !== "";
-    panel.challengeElement.style.display = challenge || questionIsWaiting ? "block" : "none";
-    if (questionIsWaiting) panel.challengeElement.textContent = predictionQuestion;
+    panel.challengeOrQuestionElement.style.display = challenge || questionIsWaiting ? "block" : "none";
+    if (questionIsWaiting) panel.challengeOrQuestionElement.textContent = predictionQuestion;
     if (challenge) {
       const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
-      panel.challengeElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
+      panel.challengeOrQuestionElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
     }
     // One row per trial, oldest first like a lab notebook: the trial number, each variable, and the first measurement.
     panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
@@ -328,13 +329,13 @@
       }
       startRun();
     });
-    panel.challengeElement = document.createElement("div");
-    panel.challengeElement.style.cssText = "display:none;flex-basis:100%;order:-1;color:#1f5fcc;font-weight:700;";
+    panel.challengeOrQuestionElement = document.createElement("div");
+    panel.challengeOrQuestionElement.style.cssText = "display:none;flex-basis:100%;order:-1;color:#1f5fcc;font-weight:700;";
     panel.readoutsElement = document.createElement("div");
     panel.readoutsElement.style.cssText = "display:none;flex-basis:100%;flex-wrap:wrap;gap:4px 18px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
     panel.pastRunsElement = document.createElement("div");
     panel.pastRunsElement.style.cssText = "display:none;flex-basis:100%;gap:2px 14px;font-weight:500;font-variant-numeric:tabular-nums;";
-    element.append(panel.challengeElement, panel.runButton, panel.readoutsElement, panel.pastRunsElement);
+    element.append(panel.challengeOrQuestionElement, panel.runButton, panel.readoutsElement, panel.pastRunsElement);
     document.documentElement.append(element);
     panel.element = element;
     // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
@@ -525,7 +526,7 @@
     },
     {
       name: "set_control",
-      // A getter, so the model reads the controls this page defines, with their ranges and current values.
+      // A getter, so the model reads the controls this page defines with their ranges. The state holds current values.
       get description() {
         const controlList = simulationControls().map(controlSummary)
           .map((control) => `${control.name} (${control.label}, ${control.min} to ${control.max}${control.unit ? " " + control.unit : ""})`)
