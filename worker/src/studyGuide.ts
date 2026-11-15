@@ -6,6 +6,8 @@
  * Notion as its own page in the token owner's Private section. NOTION_API_KEY must be a personal access token,
  * because only a token that acts as a user may create a page with no parent page. A revision creates the new
  * page first, then trashes the page it replaces, so a failure never leaves the learner without a guide.
+ * A revision with no instruction is a refresh: the previous guide is kept word for word and only the page is rebuilt,
+ * with no model call, so a quiz miss reaches "Review these first" in about a second.
  *
  * parseStudyGuide is the only place the model reply is trusted. studyGuidePageBlocks builds the page, and
  * the "Review these first" section comes from the quiz results in code, never from the model.
@@ -69,7 +71,8 @@ const studyGuideRequestSchema = z.object({
     .object({
       pageHandle: z.string().min(1),
       previousGuide: studyGuideSchema,
-      instruction: z.string().trim().min(1).max(300),
+      /** Absent for a refresh, which rebuilds the page from the previous guide and the new quiz results. */
+      instruction: z.string().trim().min(1).max(300).optional(),
     })
     .optional(),
 });
@@ -541,6 +544,16 @@ export async function handleStudyGuide(request: Request, environment: StudyGuide
     }
   }
 
+  // A refresh keeps the guide as it was and rebuilds only the page, so the new quiz results reach the review section.
+  // The previous guide comes from the app, so it passes the same check as a model reply before it reaches Notion.
+  if (studyGuideRequest.revision !== undefined && studyGuideRequest.revision.instruction === undefined) {
+    const keptGuide = parseStudyGuide(studyGuideRequest.revision.previousGuide, studyGuideRequest.transcriptLines);
+    if (!keptGuide.ok) {
+      return jsonResponse({ error: `previousGuide: ${keptGuide.error}` }, 400);
+    }
+    return await writeTheGuidePage(notionAPIKey, keptGuide.guide, studyGuideRequest, pageIdToReplace);
+  }
+
   // Retries that name the broken rule, because a schema-valid guide still sometimes breaks a count or time rule
   // the schema cannot enforce, and the learner would lose a guide that was otherwise right.
   let lastValidationError = "";
@@ -565,28 +578,36 @@ export async function handleStudyGuide(request: Request, environment: StudyGuide
       console.error(`[/study-guide] attempt ${attempt} rejected: ${parsedGuide.error}`);
       continue;
     }
-    const guide = parsedGuide.guide;
-
-    const createdPage = await createNotionPage(
-      notionAPIKey,
-      guide.title,
-      studyGuidePageBlocks(guide, studyGuideRequest.quizResults, studyGuideRequest.videoTitle, studyGuideRequest.videoURL),
-    );
-    if (!createdPage.ok) {
-      return jsonResponse({ error: createdPage.error }, 502);
-    }
-
-    if (pageIdToReplace !== undefined) {
-      const trashedPage = await trashNotionPage(notionAPIKey, pageIdToReplace);
-      if (!trashedPage.ok) {
-        console.error(`[/study-guide] could not trash the replaced page ${pageIdToReplace}: ${trashedPage.error}`);
-      }
-    }
-
-    return jsonResponse(
-      { pageHandle: await signedPageHandle(notionAPIKey, createdPage.reply.id), pageURL: createdPage.reply.url, guide },
-      200,
-    );
+    return await writeTheGuidePage(notionAPIKey, parsedGuide.guide, studyGuideRequest, pageIdToReplace);
   }
   return jsonResponse({ error: lastValidationError }, 502);
+}
+
+/** Creates the guide's page, then trashes the page it replaces, so a failure never leaves the learner without a guide. */
+async function writeTheGuidePage(
+  notionAPIKey: string,
+  guide: StudyGuide,
+  studyGuideRequest: StudyGuideRequest,
+  pageIdToReplace: string | undefined,
+): Promise<Response> {
+  const createdPage = await createNotionPage(
+    notionAPIKey,
+    guide.title,
+    studyGuidePageBlocks(guide, studyGuideRequest.quizResults, studyGuideRequest.videoTitle, studyGuideRequest.videoURL),
+  );
+  if (!createdPage.ok) {
+    return jsonResponse({ error: createdPage.error }, 502);
+  }
+
+  if (pageIdToReplace !== undefined) {
+    const trashedPage = await trashNotionPage(notionAPIKey, pageIdToReplace);
+    if (!trashedPage.ok) {
+      console.error(`[/study-guide] could not trash the replaced page ${pageIdToReplace}: ${trashedPage.error}`);
+    }
+  }
+
+  return jsonResponse(
+    { pageHandle: await signedPageHandle(notionAPIKey, createdPage.reply.id), pageURL: createdPage.reply.url, guide },
+    200,
+  );
 }

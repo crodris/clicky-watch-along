@@ -1621,6 +1621,7 @@ final class CompanionManager: ObservableObject {
         }
         if videoQuizQuestionIsActive, let studyGuideOutcome = studyGuideQuizOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount) {
             videoQuizSession.recordTheOpenQuestionOutcome(studyGuideOutcome)
+            refreshTheStudyGuideAfterAQuizOutcome(studyGuideOutcome)
         }
         switch grade {
         case .nameAndFunctionWord:
@@ -1929,6 +1930,7 @@ final class CompanionManager: ObservableObject {
     private func skipTheVideoQuizQuestion() {
         // An answered question is already closed, so a skip after the answer adds nothing.
         videoQuizSession.recordTheOpenQuestionOutcome(.skipped)
+        refreshTheStudyGuideAfterAQuizOutcome(.skipped)
         currentResponseTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
@@ -2232,11 +2234,25 @@ final class CompanionManager: ObservableObject {
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
+    /// A missed or skipped question reaches a guide already written for the quiz video, by an update agent in the
+    /// background, so the guide shows the miss without the learner asking. Nothing happens while a guide is being
+    /// written, or for a video with no guide, whose next guide includes the miss anyway.
+    private func refreshTheStudyGuideAfterAQuizOutcome(_ outcome: StudyGuideQuizOutcome) {
+        guard quizOutcomeRefreshesTheStudyGuide(outcome), studyGuideTask == nil,
+              let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
+              savedStudyGuides.record(forVideoURL: quizVideoURL) != nil else {
+            return
+        }
+        print("Study guide: updating the guide with the quiz miss")
+        _ = startWritingTheStudyGuide(.refresh)
+    }
+
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
     /// the chip under it, and the page in a background tab say it instead.
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob) async {
         let startedAt = Date()
-        let agentID = backgroundAgentStore.start(kind: .studyGuide)
+        let agentKind = studyGuideJob.agentKind
+        let agentID = backgroundAgentStore.start(kind: agentKind)
         do {
             let video = try await videoQuizSession.frontVideoForStudyGuide()
             backgroundAgentStore.setSubject(video.title, for: agentID)
@@ -2248,12 +2264,14 @@ final class CompanionManager: ObservableObject {
             switch studyGuideJob {
             case .write(let focus):
                 studyGuideFocus = focus
-            case .revise(let instruction):
+            case .revise, .refresh:
                 guard let previousRecord = savedStudyGuides.record(forVideoURL: video.url) else {
                     print("Study guide: no guide to revise for \(video.url)")
                     throw StudyGuideError.noGuideToRevise
                 }
-                studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: instruction)
+                var revisionInstruction: String?
+                if case .revise(let instruction) = studyGuideJob { revisionInstruction = instruction }
+                studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: revisionInstruction)
                 pageURLTheRevisionReplaces = previousRecord.pageURL
             }
             let studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
@@ -2280,7 +2298,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
             VoiceToolCallChip.shared.show(
                 studyGuideFailureLine(for: error),
-                sender: .backgroundAgent(.studyGuide),
+                sender: .backgroundAgent(agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -2289,6 +2307,7 @@ final class CompanionManager: ObservableObject {
     /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
     /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
     private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
+        let agentKind = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.kind ?? .studyGuide
         backgroundAgentStore.finish(agentID, with: result)
         switch result {
         case .notionPage(let pageURL):
@@ -2305,8 +2324,8 @@ final class CompanionManager: ObservableObject {
                 secondaryChipText = "· opened in a new tab"
             }
             VoiceToolCallChip.shared.show(
-                "Study guide ready",
-                sender: .backgroundAgent(.studyGuide),
+                agentKind.finishedChipText,
+                sender: .backgroundAgent(agentKind),
                 secondaryChipText: secondaryChipText,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -2317,7 +2336,7 @@ final class CompanionManager: ObservableObject {
     func cancelBackgroundAgent(_ agentID: UUID) {
         guard let agent = backgroundAgentStore.agents.first(where: { $0.id == agentID }), agent.isRunning else { return }
         switch agent.kind {
-        case .studyGuide:
+        case .studyGuide, .studyGuideUpdate:
             studyGuideTask?.cancel()
         }
         backgroundAgentStore.cancel(agentID)

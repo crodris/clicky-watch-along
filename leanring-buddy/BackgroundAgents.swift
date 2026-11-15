@@ -16,23 +16,30 @@ import SwiftUI
 
 /// One step of an agent's work, with about how long it takes, which sets how fast the wingman fills while it runs.
 struct BackgroundAgentStep: Equatable {
+    /// The step as a checklist item in the agent list, such as "Read the captions".
     let name: String
+    /// What the wingman's line says while the step runs, such as "Reading the captions".
+    let inProgressText: String
     let expectedSeconds: TimeInterval
 }
 
 /// What a background agent does. A new kind adds a case here and fills in its name, color, and steps.
 enum BackgroundAgentKind {
     case studyGuide
+    /// Rebuilds a guide's page with the newest quiz results after a missed question, keeping the guide's words.
+    case studyGuideUpdate
 
     var displayName: String {
         switch self {
         case .studyGuide: return "Study guide"
+        case .studyGuideUpdate: return "Study guide update"
         }
     }
 
+    /// Both kinds work on the same guide, so they share its amber.
     var color: Color {
         switch self {
-        case .studyGuide: return DS.Colors.backgroundAgentStudyGuideAmber
+        case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmber
         }
     }
 
@@ -40,18 +47,32 @@ enum BackgroundAgentKind {
     /// inside a white outline.
     var chipTextColor: Color {
         switch self {
-        case .studyGuide: return DS.Colors.backgroundAgentStudyGuideAmberText
+        case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmberText
+        }
+    }
+
+    /// What the chip under the cursor says when the agent finishes.
+    var finishedChipText: String {
+        switch self {
+        case .studyGuide: return "Study guide ready"
+        case .studyGuideUpdate: return "Study guide updated"
         }
     }
 
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
     /// Reading the captions with yt-dlp took about 3 seconds, and writing the guide 10 to 14, in the demo recordings.
+    /// An update reads the captions the quiz already holds, and rebuilds the page with no model call.
     var steps: [BackgroundAgentStep] {
         switch self {
         case .studyGuide:
             return [
-                BackgroundAgentStep(name: "Read the captions", expectedSeconds: 3),
-                BackgroundAgentStep(name: "Write the guide in Notion", expectedSeconds: 12),
+                BackgroundAgentStep(name: "Read the captions", inProgressText: "Reading the captions", expectedSeconds: 3),
+                BackgroundAgentStep(name: "Write the guide in Notion", inProgressText: "Writing the guide in Notion", expectedSeconds: 12),
+            ]
+        case .studyGuideUpdate:
+            return [
+                BackgroundAgentStep(name: "Read the quiz results", inProgressText: "Reading your quiz results", expectedSeconds: 1),
+                BackgroundAgentStep(name: "Add the miss to the guide", inProgressText: "Adding your miss to the guide", expectedSeconds: 3),
             ]
         }
     }
@@ -121,6 +142,12 @@ struct BackgroundAgent: Identifiable, Equatable {
             fraction: (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough) / Double(kind.steps.count),
             secondsToGetThere: max(0, stepEndsAt.timeIntervalSince(now))
         )
+    }
+
+    /// The line beside the wingman while it works, or nil once the agent has ended.
+    var inProgressText: String? {
+        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
+        return kind.steps[completedStepCount].inProgressText
     }
 
     var isRunning: Bool {

@@ -36,7 +36,8 @@ nonisolated struct StudyGuideRevision: Encodable, Equatable, Sendable {
     let pageHandle: String
     /// The guide the Worker returned last time, sent back unchanged.
     let previousGuide: JSONValue
-    let instruction: String
+    /// Nil for a refresh, which keeps the guide's words and rebuilds the page with the newest quiz results.
+    let instruction: String?
 }
 
 nonisolated struct StudyGuideRequest: Encodable, Equatable, Sendable {
@@ -54,6 +55,20 @@ nonisolated struct StudyGuideRequest: Encodable, Equatable, Sendable {
 nonisolated enum StudyGuideJob: Equatable, Sendable {
     case write(focus: String?)
     case revise(instruction: String)
+    /// After a missed or skipped quiz question, so it reaches "Review these first" of the guide already written.
+    case refresh
+
+    var agentKind: BackgroundAgentKind {
+        switch self {
+        case .write, .revise: return .studyGuide
+        case .refresh: return .studyGuideUpdate
+        }
+    }
+}
+
+/// A missed or skipped question goes into the guide at once. A question the learner got right changes nothing in it.
+nonisolated func quizOutcomeRefreshesTheStudyGuide(_ outcome: StudyGuideQuizOutcome) -> Bool {
+    outcome != .gotIt
 }
 
 /// The Worker refuses a focus or an instruction over this many characters.

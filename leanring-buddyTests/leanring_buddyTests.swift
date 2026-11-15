@@ -1385,6 +1385,28 @@ struct leanring_buddyTests {
         #expect(wingmanFillHeightShare(forProgress: 0.5) < 0.3)
     }
 
+    @Test func aQuizMissSpawnsAnUpdateAgentThatRefreshesTheGuideWithNoInstruction() async throws {
+        #expect(quizOutcomeRefreshesTheStudyGuide(.missed))
+        #expect(quizOutcomeRefreshesTheStudyGuide(.skipped))
+        #expect(!quizOutcomeRefreshesTheStudyGuide(.gotIt))
+        #expect(StudyGuideJob.refresh.agentKind == .studyGuideUpdate)
+        #expect(StudyGuideJob.write(focus: nil).agentKind == .studyGuide)
+
+        // The Worker reads a revision with no instruction as a refresh, which makes no model call.
+        let refreshRevision = StudyGuideRevision(pageHandle: "handle", previousGuide: .object([:]), instruction: nil)
+        let refreshJSON = String(decoding: try JSONEncoder().encode(refreshRevision), as: UTF8.self)
+        #expect(!refreshJSON.contains("instruction"))
+
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let updateAgent = { (phase: BackgroundAgentPhase) in
+            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
+        }
+        #expect(updateAgent(.running(completedStepCount: 0)).inProgressText == "Reading your quiz results")
+        #expect(updateAgent(.running(completedStepCount: 1)).inProgressText == "Adding your miss to the guide")
+        #expect(updateAgent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).inProgressText == nil)
+        #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
+    }
+
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
         let store = BackgroundAgentStore()
         let olderAgentID = store.start(kind: .studyGuide)

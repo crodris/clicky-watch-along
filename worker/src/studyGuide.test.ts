@@ -348,6 +348,26 @@ describe("handleStudyGuide", () => {
     expect(JSON.parse(String(notionCalls[1][1]?.body))).toEqual({ in_trash: true });
   });
 
+  it("refreshes a revision with no instruction with no model call, keeping the guide and adding the quiz results", async () => {
+    const fetchMock = stubFetch();
+    const previousPageHandle = await signedPageHandle("notion-key", "old-page-id");
+
+    const response = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, revision: { pageHandle: previousPageHandle, previousGuide: validGuide } }),
+      notionEnvironment,
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).guide).toEqual(validGuide);
+    expect(callsTo(fetchMock, "api.anthropic.com")).toHaveLength(0);
+    const notionCalls = callsTo(fetchMock, "api.notion.com");
+    expect(notionCalls.map(([url, init]) => `${init?.method} ${String(url)}`)).toEqual([
+      "POST https://api.notion.com/v1/pages",
+      "PATCH https://api.notion.com/v1/pages/old-page-id",
+    ]);
+    expect(String(notionCalls[0]?.[1]?.body)).toContain("Review these first");
+  });
+
   it("still answers 200 with the new page when trashing the old one fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     stubFetch({ trashStatus: 404 });

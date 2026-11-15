@@ -4,7 +4,8 @@
 //
 //  Each background agent shows as a small triangle, a wingman, that follows Clicky's blue cursor triangle
 //  in formation behind it. The triangle is an outline in the agent's color that fills from tail to tip, moving
-//  through each step while it runs, by area, so half the work fills half the triangle. A finished agent's wingman fills, hops ahead of the blue triangle's
+//  through each step while it runs, by area, so half the work fills half the triangle. The wingman closest to the
+//  blue triangle shows the step it is on in a small line to its right. A finished agent's wingman fills, hops ahead of the blue triangle's
 //  tip, and shows a green check mark, and a failed one turns into a red outline. Each grows and fades away
 //  when it leaves.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on
@@ -120,6 +121,26 @@ struct WingmanTriangleFill: Shape {
     }
 }
 
+/// The step a working wingman is on, such as "Writing the guide in Notion", in a small pill to its right, so the
+/// learner can see what the agent is doing without opening the agent list.
+private struct WingmanStepLine: View {
+    let text: String
+    let textColor: Color
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundColor(textColor)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.94))
+                    .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+            )
+    }
+}
+
 /// A white check on a green dot, at the base of a finished wingman.
 private struct FinishedCheckMark: View {
     let size: CGFloat
@@ -192,6 +213,16 @@ private struct WingmanView: View {
             y: cursorPosition.y + placement.offset.height
         )
         WingmanTriangleView(agent: placement.agent)
+            // Only the wingman closest to the blue triangle says what it is doing, so lines in a formation never overlap.
+            .overlay(alignment: .leading) {
+                if placement.slot == 0, let inProgressText = placement.agent.inProgressText {
+                    WingmanStepLine(text: inProgressText, textColor: placement.agent.kind.chipTextColor)
+                        .fixedSize()
+                        .offset(x: 16)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: placement.agent.inProgressText)
             // Before .position, so it grows around the triangle, not around the screen's center.
             .scaleEffect(isLeaving ? 1.8 : 1)
             .opacity(isLeaving ? 0 : 1)
