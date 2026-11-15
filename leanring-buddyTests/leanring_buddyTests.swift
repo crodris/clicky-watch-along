@@ -1850,6 +1850,9 @@ struct leanring_buddyTests {
         #expect(call("set_control", ["name": .string("mass"), "value": .number(2.5)]).chipPhrase == "Setting mass to 2.5")
         #expect(call("set_control", ["name": .string("angle")]).chipPhrase == nil)
         #expect(call("run_simulation", [:]).chipPhrase == "Running it")
+        #expect(pageVoiceToolNames.contains("set_labels"))
+        #expect(call("set_labels", ["visible": .bool(true)]).chipPhrase == "Showing the labels")
+        #expect(call("set_labels", ["visible": .bool(false)]).chipPhrase == "Hiding the labels")
         #expect(call("build_simulation", [:]).chipPhrase == nil)
 
         let openQuestion = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)

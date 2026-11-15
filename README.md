@@ -49,6 +49,8 @@ HeyClicky's real-time graphics demo inspired this part.
 Clicky pauses the video, and a simulation of that setup rises out of it with sliders and a Run button.
 It sends the same screenshot as a 3D model, and GPT-6.1 Sol writes a three.js scene that moves by simple, correct physics instead of a canned animation.
 Clicky asks a prediction to test, like "Will 30 or 60 degrees land the ball farther?", and says to drag a slider and press Run.
+While you drag, a dashed line shows the path the ball will take and a ring marks where it will land, so 30 and 60 degrees landing on the same spot shows before you run it.
+The parts have no labels at first, so nothing covers the setup, and saying "show the labels" brings them back.
 Drag a slider, press Run, and the ball flies, and the result shows under the buttons, like the landing distance in meters.
 Clicky says the result in one short line after each run.
 You can also say "make it 45 degrees" or "run it", and the scene does it.

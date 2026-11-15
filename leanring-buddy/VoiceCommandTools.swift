@@ -406,6 +406,9 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Setting \(controlName) to \(valueText)"
         case "run_simulation":
             return "Running it"
+        case "set_labels":
+            // The page shows labels only for a true visible, so the chip reads it the same way.
+            return input["visible"]?.boolValue == true ? "Showing the labels" : "Hiding the labels"
         case "close_scene":
             return "Putting it back"
         case "explain_part":
@@ -565,7 +568,7 @@ nonisolated enum VoiceCommandNextStep: Equatable, Sendable {
 
 /// The page tools scene-tools.js defines. A page can rewrite what it lists, so only these names are offered
 /// from it, and none of them can shadow an app tool.
-nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view", "set_control", "run_simulation"]
+nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view", "set_control", "run_simulation", "set_labels"]
 
 nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
     let knownPageTools = pageTools.filter { pageTool in pageVoiceToolNames.contains(pageTool.name) }

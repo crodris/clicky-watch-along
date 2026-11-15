@@ -77,6 +77,32 @@ describe("scene-tools.js simulation tools", () => {
     expect(toolNames(loadSceneTools(simulationPage({ controls: [] })).clickyTools)).not.toContain("run_simulation");
   });
 
+  it("lists set_labels only when the page can show and hide its labels, and tracks whether they show", () => {
+    expect(toolNames(loadSceneTools(simulationPage()).clickyTools)).not.toContain("set_labels");
+
+    const setLabelsVisible = vi.fn(() => true);
+    const { clickyTools } = loadSceneTools(simulationPage({ setLabelsVisible }));
+    expect(toolNames(clickyTools)).toContain("set_labels");
+    expect(clickyTools.state().labelsAreShown).toBe(false);
+
+    expect(clickyTools.call("set_labels", { visible: true }).state.labelsAreShown).toBe(true);
+    expect(setLabelsVisible).toHaveBeenLastCalledWith(true);
+    expect(clickyTools.call("set_labels", { visible: false }).state.labelsAreShown).toBe(false);
+    expect(setLabelsVisible).toHaveBeenLastCalledWith(false);
+    // Anything but a real true hides them, so a model's stray string never shows them.
+    clickyTools.call("set_labels", { visible: true });
+    expect(clickyTools.call("set_labels", { visible: "yes" }).state.labelsAreShown).toBe(false);
+  });
+
+  it("keeps the labels state when the page refuses to change them", () => {
+    const { clickyTools } = loadSceneTools(simulationPage({ setLabelsVisible: () => false }));
+
+    const refused = clickyTools.call("set_labels", { visible: true });
+
+    expect(refused.ok).toBe(false);
+    expect(refused.state.labelsAreShown).toBe(false);
+  });
+
   it("describes each control to the model with its range and current value", () => {
     const setControlTool = loadSceneTools(simulationPage()).clickyTools.list().find((tool) => tool.name === "set_control");
 

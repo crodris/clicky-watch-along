@@ -245,6 +245,10 @@ describe("handleLiveScene model setting", () => {
     const systemTexts = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1].body)).system[0].text as string);
     expect(systemTexts[0]).toContain("THIS REQUEST IS A SIMULATION");
     expect(systemTexts[0]).toContain("setControl(name, value)");
+    // The dashed path preview and the hidden labels are part of what a simulation is asked for.
+    expect(systemTexts[0]).toContain("dashed line");
+    expect(systemTexts[0]).toContain("setLabelsVisible(visible)");
+    expect(systemTexts[0]).toContain("hidden at first");
     expect(systemTexts[1]).not.toContain("SIMULATION");
     expect(systemTexts[2]).toBe(systemTexts[1]);
   });

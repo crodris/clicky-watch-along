@@ -5,7 +5,7 @@
 // Every call ends the camera tour first, because the learner asking for a change means the tour is over.
 // A simulation page also defines liveScene.controls, setControl, and run. This file draws the one panel for them
 // (a slider per control, a Run button, and the readouts), so the model never draws its own, and offers set_control
-// and run_simulation. A finished run is posted to the app as "runFinished:<readouts JSON>" so Clicky can say the result.
+// and run_simulation. A simulation hides its part labels at first, and set_labels shows them again on request. A finished run is posted to the app as "runFinished:<readouts JSON>" so Clicky can say the result.
 (() => {
   const liveScene = () => window.liveScene;
   const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -52,13 +52,15 @@
 
   let runIsGoing = false;
   let latestRunNumber = 0;
+  // A simulation hides its labels until the learner asks, so the model reads whether they show.
+  let labelsAreShown = false;
 
   const pageState = () => ({
     ...(liveScene()?.getState?.() ?? {}),
     labels: labelsOnScreen(),
     explodeAmount,
     insideIsOpen,
-    ...(hasSimulation() ? { controls: simulationControls().map(controlSummary), readouts: currentReadouts(), runIsGoing } : {}),
+    ...(hasSimulation() ? { controls: simulationControls().map(controlSummary), readouts: currentReadouts(), runIsGoing, labelsAreShown } : {}),
   });
 
   const hasParts = () => Array.isArray(liveScene()?.parts) && liveScene().parts.length > 0 && Boolean(liveScene().THREE);
@@ -422,6 +424,22 @@
           return { ok: false, error: `No control is named "${name}". The controls are: ${simulationControls().map((control) => control.name).join(", ")}` };
         }
         refreshPanel();
+        return { ok: true };
+      },
+    },
+    {
+      name: "set_labels",
+      description: "Show or hide the part labels and their leader lines on the simulation. They are hidden at first, because they cover the setup, so show them only when the learner asks for labels or asks what the parts are. The state's labelsAreShown says whether they show now.",
+      inputSchema: {
+        type: "object",
+        properties: { visible: { type: "boolean", description: "true shows the labels, false hides them." } },
+        required: ["visible"],
+      },
+      isAvailable: () => typeof liveScene()?.setLabelsVisible === "function",
+      run: (input) => {
+        const visible = input.visible === true;
+        if (liveScene().setLabelsVisible(visible) === false) return stillLoading;
+        labelsAreShown = visible;
         return { ok: true };
       },
     },
