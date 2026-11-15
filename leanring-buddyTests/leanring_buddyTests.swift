@@ -1099,6 +1099,29 @@ struct leanring_buddyTests {
 
     // MARK: - Study guide
 
+    @Test func aGuideIsSavedUnderItsYouTubeVideoSoTheSameVideoFindsItAfterARelaunch() async throws {
+        #expect(studyGuideVideoKey(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0") == "L24Wf0VlTE0")
+        #expect(studyGuideVideoKey(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0&t=60s&list=PL1") == "L24Wf0VlTE0")
+        #expect(studyGuideVideoKey(forVideoURL: "https://youtu.be/L24Wf0VlTE0?t=5") == "L24Wf0VlTE0")
+        #expect(studyGuideVideoKey(forVideoURL: "https://m.youtube.com/shorts/abc123") == "abc123")
+        #expect(studyGuideVideoKey(forVideoURL: "https://vimeo.com/123") == "https://vimeo.com/123")
+
+        let userDefaultsSuiteName = "studyGuideTest-\(UUID().uuidString)"
+        let testUserDefaults = try #require(UserDefaults(suiteName: userDefaultsSuiteName))
+        defer { testUserDefaults.removePersistentDomain(forName: userDefaultsSuiteName) }
+        let studyGuideRecord = StudyGuideRecord(
+            pageHandle: "handle",
+            pageURL: try #require(URL(string: "https://www.notion.so/p1")),
+            guide: .object(["title": .string("How Jet Engines Work")])
+        )
+        SavedStudyGuides(userDefaults: testUserDefaults).save(studyGuideRecord, forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0")
+        // A fresh instance over the same storage stands in for the app after a relaunch.
+        let savedAfterARelaunch = SavedStudyGuides(userDefaults: testUserDefaults)
+        #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0&t=90s") == studyGuideRecord)
+        #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=otherVideo") == nil)
+        #expect(testUserDefaults.data(forKey: "savedStudyGuide.L24Wf0VlTE0") != nil)
+    }
+
     @Test func studyGuideToolsAreOfferedOnlyWhereTheyCanWork() async throws {
         func context(onYouTube: Bool = true, questionOpen: Bool = false, guideExists: Bool = false) -> AppVoiceTool.Context {
             AppVoiceTool.Context(
@@ -1113,9 +1136,10 @@ struct leanring_buddyTests {
         #expect(!AppVoiceTool.available(in: context()).contains(.openStudyGuide))
         #expect(AppVoiceTool.available(in: context(guideExists: true)).contains(.reviseStudyGuide))
         #expect(AppVoiceTool.available(in: context(guideExists: true)).contains(.openStudyGuide))
+        #expect(!AppVoiceTool.available(in: context(guideExists: true)).contains(.makeStudyGuide))
         for studyGuideTool in studyGuideTools {
-            #expect(!AppVoiceTool.available(in: context(onYouTube: false, guideExists: true)).contains(studyGuideTool))
-            #expect(!AppVoiceTool.available(in: context(questionOpen: true, guideExists: true)).contains(studyGuideTool))
+            #expect(!AppVoiceTool.available(in: context(onYouTube: false, guideExists: studyGuideTool != .makeStudyGuide)).contains(studyGuideTool))
+            #expect(!AppVoiceTool.available(in: context(questionOpen: true, guideExists: studyGuideTool != .makeStudyGuide)).contains(studyGuideTool))
             // None of them reads the spoken request, so the debug MCP endpoint offers them too.
             #expect(!studyGuideTool.needsTheSpokenRequest)
         }

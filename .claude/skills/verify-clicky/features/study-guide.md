@@ -12,7 +12,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
   A handle the Worker did not sign gets a 400 before any model or Notion call.
 - `guide-review-first` builds the "Review these first" section from the quiz results marked `missed` or `skipped`.
 - `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a red outline wingman and no sound.
-- `guide-voice-tools` offers `make_study_guide` with a YouTube video in front and no quiz question open, and `revise_study_guide` and `open_study_guide` once a guide exists for that video.
+- `guide-voice-tools` offers `make_study_guide` with a YouTube video in front, no quiz question open, and no guide saved for that video, and `revise_study_guide` and `open_study_guide` once a guide is saved for it. The guide is saved under `savedStudyGuide.<video id>` in the app's defaults, so it outlives a relaunch, and `defaults delete com.crodris.clicky-watch-along savedStudyGuide.<video id>` makes the video writable again.
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
 - `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, filling through each step, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.

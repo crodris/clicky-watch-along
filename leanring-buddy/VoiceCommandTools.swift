@@ -225,8 +225,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.videoQuizIsRunning
             // The guide is written from the video's captions, which only YouTube's are read. A question's own
             // answers are part of the guide, so it waits until the learner answers or skips.
+            // A video gets one guide, so once it has one the model can only open or revise it.
             case .makeStudyGuide:
-                return context.videoIsInFront && context.videoIsOnYouTube && !context.quizQuestionIsOpen
+                return context.videoIsInFront && context.videoIsOnYouTube && !context.quizQuestionIsOpen && !context.studyGuideExistsForTheFrontVideo
             case .reviseStudyGuide, .openStudyGuide:
                 return context.videoIsInFront && context.videoIsOnYouTube && !context.quizQuestionIsOpen && context.studyGuideExistsForTheFrontVideo
             }
@@ -273,7 +274,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .reviseStudyGuide:
             return "Change the study guide already written for this video, such as making it shorter, adding detail on one part, or adding a section. The new page replaces the old one in Notion and is written in the background. Put what to change in instruction, in the learner's words. Your confirmation says it is being updated, never that it is done."
         case .openStudyGuide:
-            return "Open this video's study guide page in Notion. Use it when the learner asks to see, open, or go to the guide."
+            return "Open this video's study guide page in Notion. Use it when the learner asks to see, open, or go to the guide, and when they ask for a new study guide, since this video already has one. In that case your confirmation says they already have a guide for this video and you are opening it."
         }
     }
 

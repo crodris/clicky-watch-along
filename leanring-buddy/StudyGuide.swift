@@ -141,11 +141,54 @@ nonisolated struct StudyGuideVideo: Equatable, Sendable {
 // MARK: - Worker reply and client
 
 /// The page Notion made and the guide behind it. The guide stays opaque JSON.
-nonisolated struct StudyGuideRecord: Decodable, Equatable, Sendable {
+/// Codable, so a saved guide is stored as JSON and read back after a relaunch.
+nonisolated struct StudyGuideRecord: Codable, Equatable, Sendable {
     /// The page id with the Worker's signature, opaque to the app. Only a signed handle lets a revision trash its page.
     let pageHandle: String
     let pageURL: URL
     let guide: JSONValue
+}
+
+/// The key a guide is saved under: the YouTube video id, so the same video opened at another time or from a playlist
+/// finds the same guide. A URL with no video id in it is its own key.
+nonisolated func studyGuideVideoKey(forVideoURL videoURLText: String) -> String {
+    guard let videoURLComponents = URLComponents(string: videoURLText), let host = videoURLComponents.host?.lowercased() else {
+        return videoURLText
+    }
+    let pathParts = videoURLComponents.path.split(separator: "/").map(String.init)
+    if host == "youtu.be", let videoID = pathParts.first {
+        return videoID
+    }
+    guard host == "youtube.com" || host.hasSuffix(".youtube.com") else { return videoURLText }
+    if let videoID = videoURLComponents.queryItems?.first(where: { $0.name == "v" })?.value, !videoID.isEmpty {
+        return videoID
+    }
+    if pathParts.count >= 2, ["shorts", "live", "embed"].contains(pathParts[0]) {
+        return pathParts[1]
+    }
+    return videoURLText
+}
+
+/// The guides written so far, one UserDefaults entry per video, so a guide outlives a relaunch and a video never gets a
+/// second page. The demo's record-shot.sh deletes its video's entry by this key, so keep the two in step.
+nonisolated struct SavedStudyGuides {
+    static let userDefaultsKeyPrefix = "savedStudyGuide."
+
+    let userDefaults: UserDefaults
+
+    func record(forVideoURL videoURLText: String) -> StudyGuideRecord? {
+        guard let savedJSON = userDefaults.data(forKey: Self.userDefaultsKey(forVideoURL: videoURLText)) else { return nil }
+        return try? JSONDecoder().decode(StudyGuideRecord.self, from: savedJSON)
+    }
+
+    func save(_ studyGuideRecord: StudyGuideRecord, forVideoURL videoURLText: String) {
+        guard let recordJSON = try? JSONEncoder().encode(studyGuideRecord) else { return }
+        userDefaults.set(recordJSON, forKey: Self.userDefaultsKey(forVideoURL: videoURLText))
+    }
+
+    private static func userDefaultsKey(forVideoURL videoURLText: String) -> String {
+        userDefaultsKeyPrefix + studyGuideVideoKey(forVideoURL: videoURLText)
+    }
 }
 
 nonisolated enum StudyGuideError: Error, Equatable {

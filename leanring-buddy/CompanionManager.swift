@@ -118,7 +118,7 @@ final class CompanionManager: ObservableObject {
     private lazy var studyGuideClient = StudyGuideClient(workerBaseURL: Self.workerBaseURL)
     /// The Notion page and guide JSON written for each video, filed under the video's URL when its guide was started,
     /// so a revise or an open finds it later.
-    private var studyGuideRecordsByVideoURL: [String: StudyGuideRecord] = [:]
+    private let savedStudyGuides = SavedStudyGuides(userDefaults: .standard)
     /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
     private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
     /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
@@ -2148,7 +2148,7 @@ final class CompanionManager: ObservableObject {
             return startWritingTheStudyGuide(.revise(instruction: instruction))
         case .openStudyGuide:
             guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
-                  let studyGuideRecord = studyGuideRecordsByVideoURL[frontVideoURL] else {
+                  let studyGuideRecord = savedStudyGuides.record(forVideoURL: frontVideoURL) else {
                 return .failed(error: "No study guide has been written for this video yet", state: nil)
             }
             let pageURL = studyGuideRecord.pageURL
@@ -2164,15 +2164,13 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Study Guide
 
-    /// A guide exists for the video in front only when that video is on YouTube and a record is filed under its URL.
-    /// The tab's URL costs a round trip to Chrome, so it is read only when some guide has been written.
+    /// A guide exists for the video in front only when that video is on YouTube and a guide is saved for it.
     private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?) -> Bool {
-        guard !studyGuideRecordsByVideoURL.isEmpty,
-              frontVideoState?["onYouTube"]?.boolValue == true,
+        guard frontVideoState?["onYouTube"]?.boolValue == true,
               let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
             return false
         }
-        return studyGuideRecordsByVideoURL[frontVideoURL] != nil
+        return savedStudyGuides.record(forVideoURL: frontVideoURL) != nil
     }
 
     /// Starts the guide in the background and returns at once, so the router speaks its own confirmation
@@ -2203,7 +2201,7 @@ final class CompanionManager: ObservableObject {
             case .write(let focus):
                 studyGuideFocus = focus
             case .revise(let instruction):
-                guard let previousRecord = studyGuideRecordsByVideoURL[video.url] else {
+                guard let previousRecord = savedStudyGuides.record(forVideoURL: video.url) else {
                     print("Study guide: no guide to revise for \(video.url)")
                     throw StudyGuideError.noGuideToRevise
                 }
@@ -2220,7 +2218,7 @@ final class CompanionManager: ObservableObject {
             // A guide cancelled from the agent list keeps no record, even when the Worker had already replied.
             try Task.checkCancellation()
             // Filed under the video the guide was written for, not whichever tab is in front now.
-            studyGuideRecordsByVideoURL[video.url] = studyGuideRecord
+            savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
             finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL))
         } catch {
