@@ -190,6 +190,8 @@ final class CompanionManager: ObservableObject {
     private var liveSceneRequestGeneration = 0
     private var liveSceneRequestTask: Task<Void, Never>?
     private var liveSceneTourFinishedTask: Task<Void, Never>?
+    /// The prediction question a simulation page came with, spoken once its tour ends. Cleared at the start of each build.
+    private var simulationInvitationLine: String?
 
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
@@ -328,6 +330,9 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
+        }
+        LiveSceneOverlay.shared.onSimulationRunFinished = { [weak self] readouts in
+            self?.sayTheSimulationReadouts(readouts)
         }
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
@@ -928,6 +933,15 @@ final class CompanionManager: ObservableObject {
             return
         }
 
+        // "Let me try it" always builds a simulation, with no model call to choose it, so a demo never depends on the router.
+        // Once a scene is on screen the same words may mean a slider ("can I try 60 degrees"), which the router reads.
+        if liveSceneKind(for: transcript) == .simulation,
+           !LiveSceneOverlay.shared.isShowingAScene,
+           !liveScenePhaseIsWaitingForAQuizAnswer {
+            respondToTranscript(transcript: transcript, requestedSceneKind: .simulation)
+            return
+        }
+
         let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
         if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
@@ -991,7 +1005,7 @@ final class CompanionManager: ObservableObject {
             }
             return
         }
-        if requestedKind == .explore || requestedKind == .framePopout || requestedKind == .animatedFramePopout {
+        if requestedKind == .explore || requestedKind == .simulation || requestedKind == .framePopout || requestedKind == .animatedFramePopout {
             let quizWatchesTheVideoInFront = videoQuizSession.isRunning && videoQuizSession.quizVideoIsTheTabInFront()
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
             if quizWatchesTheVideoInFront {
@@ -1393,7 +1407,8 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
-        await speakLiveSceneLine("Sure, let me build that for you.")
+        simulationInvitationLine = nil
+        await speakLiveSceneLine(sceneKind == .simulation ? "Sure, let me set that up for you." : "Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var cursorScreenJPEGData: Data?
@@ -1435,7 +1450,9 @@ final class CompanionManager: ObservableObject {
                 )
             }
             liveSceneRequestTask = sceneRequestTask
-            let buildingLineTask = Task { await self.speakLiveSceneStatus("Building your 3D scene") }
+            let buildingLineTask = Task {
+                await self.speakLiveSceneStatus(sceneKind == .simulation ? "Building your simulation" : "Building your 3D scene")
+            }
             await sceneRequestTask.value
             almostThereTask.cancel()
             buildingLineTask.cancel()
@@ -1449,6 +1466,8 @@ final class CompanionManager: ObservableObject {
         }
         if case .landmark(let famousPlace) = liveScenePageOnScreen {
             await speakTheLandmarkLineAfterItsTour(famousPlace)
+        } else if sceneKind == .simulation {
+            await speakTheSimulationInvitationAfterItsTour()
         } else if sceneKind == .explore {
             await speakAboutTheLiveSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
         }
@@ -1508,6 +1527,37 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Said once the simulation's tour ends: the page's prediction question, then how to try it.
+    private func speakTheSimulationInvitationAfterItsTour() async {
+        while case .touring = liveScenePhase, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase, let simulationInvitationLine else { return }
+        await speakLiveSceneLine("\(simulationInvitationLine) Drag a slider, then press Run.")
+        await waitForClickyToFinishSpeaking()
+    }
+
+    /// One short line about the numbers a run measured, said whether the learner pressed Run or asked for it by voice.
+    /// The readouts come from the page, so they are said only while Clicky's own record says a simulation is on screen.
+    private func sayTheSimulationReadouts(_ readouts: [SimulationReadout]) {
+        guard case .simulation = liveScenePageOnScreen,
+              LiveSceneOverlay.shared.isShowingAScene,
+              !liveScenePhaseIsWaitingForAQuizAnswer,
+              let readoutLine = simulationReadoutSpokenLine(for: readouts) else {
+            return
+        }
+        print("Simulation: run finished, saying \"\(readoutLine)\"")
+        currentResponseTask = Task {
+            await self.waitUntilTheVoiceAnswerIsQuiet()
+            guard !Task.isCancelled else { return }
+            await self.speakLiveSceneLine(readoutLine)
+            await self.waitForClickyToFinishSpeaking()
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
     /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
     /// cancelled narration can stay stuck reading label places from a page that is gone, so the clear releases it.
     func clearTheLiveSceneAndReleaseTheBuddy() {
@@ -1549,18 +1599,24 @@ final class CompanionManager: ObservableObject {
         do {
             let liveScene = try await liveSceneClient.requestLiveScene(
                 question: question,
-                cursorScreenJPEGData: cursorScreenJPEGData
+                cursorScreenJPEGData: cursorScreenJPEGData,
+                sceneKind: sceneKind
             )
             guard requestGeneration == liveSceneRequestGeneration else { return }
             // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
             guard let overlayScreen = screenUnderTheMouseCursor() else { return }
-            _ = playGeneratedScenePage(
+            let sceneWasPlayed = playGeneratedScenePage(
                 html: liveScene.html,
+                pageOnScreen: sceneKind == .simulation ? .simulation : .generatedPage,
                 quizToAskAfterTour: sceneKind == .quiz ? liveScene.quiz : nil,
                 overlayScreen: overlayScreen,
                 screenJPEGData: cursorScreenJPEGData,
                 mediaRectToRiseFrom: mediaRectToRiseFrom
             )
+            // The page's prediction question is spoken after the tour. The page's own text, so it is cut like a model reply.
+            if sceneWasPlayed && sceneKind == .simulation {
+                simulationInvitationLine = String(liveScene.quiz.question.prefix(longestSpokenVoiceCommandLine))
+            }
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
@@ -1574,6 +1630,7 @@ final class CompanionManager: ObservableObject {
     /// screenshot of that same screen to rise from. Returns whether the overlay took the page.
     private func playGeneratedScenePage(
         html generatedPageHTML: String,
+        pageOnScreen: LiveScenePageOnScreen,
         quizToAskAfterTour: LiveSceneQuiz?,
         overlayScreen: NSScreen,
         screenJPEGData: Data?,
@@ -1596,7 +1653,7 @@ final class CompanionManager: ObservableObject {
         )
         guard liveSceneWasAccepted else { return false }
         liveScenePhase = .touring(quizToAskAfterTour: quizToAskAfterTour)
-        liveScenePageOnScreen = .generatedPage
+        liveScenePageOnScreen = pageOnScreen
         return true
     }
 
@@ -2179,6 +2236,9 @@ final class CompanionManager: ObservableObject {
         case .buildNewScene:
             respondToTranscript(transcript: transcript, requestedSceneKind: input["asQuiz"]?.boolValue == true ? .quiz : .explore)
             return .handedOff
+        case .buildSimulation:
+            respondToTranscript(transcript: transcript, requestedSceneKind: .simulation)
+            return .handedOff
         case .popOut:
             respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
             return .handedOff
@@ -2450,7 +2510,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.setSubject(whatToBuild, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
-            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData)
+            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: .explore)
             // A model cancelled from the agent list never shows, even when the Worker had already replied.
             try Task.checkCancellation()
             print("3D model: built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
@@ -2550,6 +2610,7 @@ final class CompanionManager: ObservableObject {
         guard let videoScreen = screenAndCaptureShowing(mediaRectToRiseFrom, in: screenCaptures),
               playGeneratedScenePage(
                   html: modelToShow.pageHTML,
+                  pageOnScreen: .generatedPage,
                   quizToAskAfterTour: nil,
                   overlayScreen: videoScreen.screen,
                   screenJPEGData: videoScreen.capture?.imageData,
@@ -2860,6 +2921,7 @@ final class CompanionManager: ObservableObject {
         case _ where !LiveSceneOverlay.shared.isShowingAScene: pageName = "none"
         case .framePopout: pageName = "framePopout"
         case .landmark: pageName = "landmark"
+        case .simulation: pageName = "simulation"
         case .generatedPage, nil: pageName = "generated3DScene"
         }
         sceneStateFields["page"] = .string(pageName)

@@ -1806,4 +1806,57 @@ struct leanring_buddyTests {
         #expect(store.agents[0].stepStatuses.isEmpty)
     }
 
+    @Test func tryItPhrasesBuildASimulationAndOrdinaryTalkDoesNot() async throws {
+        for transcript in ["let me try it", "Let me try it.", "let me play with it", "Can I try this?", "can I try", "Let me try.", "simulate this", "okay, let me try this out"] {
+            #expect(liveSceneKind(for: transcript) == .simulation, "\(transcript)")
+        }
+        // "Let me try to ..." and a how-to question are ordinary talk, and the older triggers keep their kinds.
+        #expect(liveSceneKind(for: "let me try to understand this") == nil)
+        #expect(liveSceneKind(for: "how do I simulate this in python") == nil)
+        #expect(liveSceneKind(for: "can I try the other tab") == nil)
+        #expect(liveSceneKind(for: "show me this in 3D") == .explore)
+        #expect(liveSceneKind(for: "let me try it in 3D") == .simulation)
+        #expect(liveSceneKind(for: "quiz me, then let me try it") == .quiz)
+        // Only a simulation asks the Worker for a simulation page.
+        #expect(LiveSceneKind.simulation.workerRequestKind == "simulation")
+        for modelKind in [LiveSceneKind.explore, .quiz, .framePopout, .animatedFramePopout] {
+            #expect(modelKind.workerRequestKind == "model")
+        }
+    }
+
+    @Test func aFinishedRunPostsReadoutsThatBecomeOneShortSpokenLine() async throws {
+        let readouts = SimulationReadout.readouts(fromPageJSON: """
+        [{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
+         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""}]
+        """)
+        #expect(readouts.map(\.label) == ["Landing distance", "Peak height", "Fourth"])
+        #expect(LiveScenePageEvent(messageBody: "runFinished:[{\"label\":\"Range\",\"value\":12,\"unit\":\"s\"}]")
+            == .simulationRunFinished(readouts: [SimulationReadout(label: "Range", value: 12, unit: "s")]))
+        // A page that posts nothing usable gets no event, and a label is cut to a spoken length.
+        #expect(LiveScenePageEvent(messageBody: "runFinished:[]") == nil)
+        #expect(LiveScenePageEvent(messageBody: "runFinished:not json") == nil)
+        #expect(SimulationReadout.readouts(fromPageJSON: "[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]").first?.label.count == 40)
+
+        #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.8 meters, and a peak height of 10.2 meters.")
+        #expect(simulationReadoutSpokenLine(for: [SimulationReadout(label: "Energy", value: 3, unit: "J")]) == "That run gave an energy of 3 joules.")
+        #expect(simulationReadoutSpokenLine(for: []) == nil)
+    }
+
+    @Test func simulationToolsAreOfferedFromThePageAndTheAppAndChipTheirCall() async throws {
+        let call = { (name: String, input: [String: JSONValue]) in VoiceToolCall(id: "sim", name: name, input: input) }
+        #expect(pageVoiceToolNames.contains("set_control"))
+        #expect(pageVoiceToolNames.contains("run_simulation"))
+        #expect(call("set_control", ["name": .string("angle"), "value": .number(45)]).chipPhrase == "Setting angle to 45")
+        #expect(call("set_control", ["name": .string("mass"), "value": .number(2.5)]).chipPhrase == "Setting mass to 2.5")
+        #expect(call("set_control", ["name": .string("angle")]).chipPhrase == nil)
+        #expect(call("run_simulation", [:]).chipPhrase == "Running it")
+        #expect(call("build_simulation", [:]).chipPhrase == nil)
+
+        let openQuestion = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)
+        let noQuestion = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: noQuestion).contains(.buildSimulation))
+        #expect(!AppVoiceTool.available(in: openQuestion).contains(.buildSimulation))
+        #expect(AppVoiceTool.buildNewScene.descriptor.description.contains("build_simulation"))
+        #expect(AppVoiceTool.buildSimulation.descriptor.description.contains("let me try it"))
+    }
 }

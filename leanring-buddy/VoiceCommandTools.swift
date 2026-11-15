@@ -177,6 +177,7 @@ nonisolated struct VoiceToolDescriptor: Equatable, Sendable {
 nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case answerWithScreen = "answer_with_screen"
     case buildNewScene = "build_new_scene"
+    case buildSimulation = "build_simulation"
     case popOut = "pop_out"
     case closeScene = "close_scene"
     case explainPart = "explain_part"
@@ -217,7 +218,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     static func available(in context: Context) -> [AppVoiceTool] {
         allCases.filter { appVoiceTool in
             switch appVoiceTool {
-            case .answerWithScreen, .buildNewScene, .popOut:
+            case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut:
                 return !context.quizQuestionIsOpen
             // While a question is open the scene is the question's, so closing it or explaining a part,
             // which may be the answer, waits until the learner answers or skips.
@@ -255,7 +256,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
 
     /// These two act on what the learner said, so the debug MCP endpoint, which has no spoken request, leaves them out.
     var needsTheSpokenRequest: Bool {
-        self == .answerWithScreen || self == .buildNewScene
+        self == .answerWithScreen || self == .buildNewScene || self == .buildSimulation
     }
 
     var descriptor: VoiceToolDescriptor {
@@ -267,7 +268,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .answerWithScreen:
             return "Answer a question about what is on screen, using a screenshot. Use it for questions and for anything no other tool can do, not for changing the view."
         case .buildNewScene:
-            return "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. Never use it to turn, zoom, or open the model already showing."
+            return "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. When they want to try it, play with it, or simulate it, use build_simulation instead. Never use it to turn, zoom, or open the model already showing."
+        case .buildSimulation:
+            return "Build a playable simulation of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It pauses the video and takes about 20 seconds. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\"."
         case .popOut:
             return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out."
         case .closeScene:
@@ -317,7 +320,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             .object(["type": .string("number"), "description": .string(description)])
         }
         switch self {
-        case .answerWithScreen, .popOut, .closeScene, .pauseVideo, .playVideo, .endQuiz:
+        case .answerWithScreen, .buildSimulation, .popOut, .closeScene, .pauseVideo, .playVideo, .endQuiz:
             return objectSchema([:], required: [])
         case .buildNewScene:
             return objectSchema(
@@ -396,6 +399,13 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case "set_inside_view":
             // The page opens the cutaway only for a true open, so the chip reads it the same way.
             return input["open"]?.boolValue == true ? "Opening it up" : "Closing it up"
+        case "set_control":
+            // The page refuses a missing name or value, so the chip says nothing for them either.
+            guard let controlName = textInput("name"), let controlValue = numberInput("value") else { return nil }
+            let valueText = Int(exactly: controlValue).map(String.init) ?? String(format: "%.1f", controlValue)
+            return "Setting \(controlName) to \(valueText)"
+        case "run_simulation":
+            return "Running it"
         case "close_scene":
             return "Putting it back"
         case "explain_part":
@@ -431,7 +441,7 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case "start_background_task":
             return "Starting a task"
         default:
-            // pop_out, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
+            // pop_out, build_new_scene, build_simulation, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
             // its own status line, spinner, rising scene, or voice.
             return nil
         }
@@ -555,7 +565,7 @@ nonisolated enum VoiceCommandNextStep: Equatable, Sendable {
 
 /// The page tools scene-tools.js defines. A page can rewrite what it lists, so only these names are offered
 /// from it, and none of them can shadow an app tool.
-nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view"]
+nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view", "set_control", "run_simulation"]
 
 nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
     let knownPageTools = pageTools.filter { pageTool in pageVoiceToolNames.contains(pageTool.name) }

@@ -90,6 +90,7 @@ private final class AppleSpeechTranscriptionSession: NSObject, BuddyStreamingTra
         recognitionRequest.contextualStrings = [
             "quiz", "quiz me", "Clicky", "stop the quiz", "render", "render this in 3D", "in 3D", "pop this out", "show me",
             "put it back", "animate this", "make it move", "make it flow",
+            "let me try it", "let me try", "let me play with it", "can I try", "simulate this",
         ]
 
         if speechRecognizer.supportsOnDeviceRecognition {

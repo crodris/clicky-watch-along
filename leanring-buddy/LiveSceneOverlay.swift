@@ -257,6 +257,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     var onTourFinished: (() -> Void)?
     /// The page posts "partTapped:<label>" when a label is clicked. The label is page text, so it is untrusted.
     var onPartTapped: ((String) -> Void)?
+    /// A simulation page's run ended. The readouts are the page's own numbers, already cut to a short list.
+    var onSimulationRunFinished: (([SimulationReadout]) -> Void)?
     /// An uncaught error or rejection in the page, a failed page load, or a lost web content process.
     /// A page that fails any of these mid-tour never posts tourFinished.
     var onPageError: ((String) -> Void)?
@@ -352,6 +354,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             finishReturnToSource()
         case .partTapped(let untrustedLabel):
             onPartTapped?(untrustedLabel)
+        case .simulationRunFinished(let readouts):
+            onSimulationRunFinished?(readouts)
         }
     }
 

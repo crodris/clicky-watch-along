@@ -17,6 +17,14 @@ enum LiveSceneKind {
     case framePopout
     /// The same pop-out, then streams of what flows through the subject, like air through an engine.
     case animatedFramePopout
+    /// A playable simulation of what the video shows. The page defines controls and a run, scene-tools.js draws
+    /// the sliders and the Run button, and Clicky says the result after each run.
+    case simulation
+
+    /// What POST /live-scene takes as `kind`. Only a simulation changes the page it writes, so every other kind asks for a model.
+    var workerRequestKind: String {
+        self == .simulation ? "simulation" : "model"
+    }
 }
 
 enum LiveScenePhase {
@@ -155,8 +163,9 @@ enum LiveSceneAnswerJudge {
     }
 }
 
-/// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out, then a quiz.
-/// A quiz wins over a 3D scene, because "show me inside and quiz me" wants the quiz.
+/// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out, then a quiz,
+/// then a simulation. A quiz wins over a 3D scene, because "show me inside and quiz me" wants the quiz.
+/// A simulation wins over one too, because "let me try it in 3D" wants something to run.
 nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     let lowercaseTranscript = transcript.lowercased()
     // "Animate" needs an object, so "how do I animate text" and "animation" build nothing.
@@ -186,6 +195,9 @@ nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
     if asksToBeQuizzed {
         return .quiz
     }
+    if asksToTryASimulation(lowercaseTranscript) {
+        return .simulation
+    }
     let asksToLookInside = lowercaseTranscript.contains("inside")
         || lowercaseTranscript.contains("look like")
         || lowercaseTranscript.contains("show me")
@@ -195,6 +207,20 @@ nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
         // "Render" alone means a 3D model, and speech recognition sometimes drops the "3D" after it.
         || lowercaseTranscript.range(of: #"\brender"#, options: .regularExpression) != nil
     return asksToLookInside ? .explore : nil
+}
+
+/// "Let me try it", "let me play with this", "can I try it", "simulate this", or only "let me try" or "can I try".
+/// "Let me try to explain" and "how do I simulate this in Python" are ordinary talk, so they build nothing.
+/// The bare form must be the whole utterance, because "let me try" is also how people start a sentence.
+nonisolated private func asksToTryASimulation(_ lowercaseTranscript: String) -> Bool {
+    let tryItPhrase = #"\b((let me|can i|could i|may i) (try|play with) (it|this|that|them)|simulate (it|this|that|them))\b"#
+    let bareTryPhrase = #"^\W*(let me|can i|could i|may i) (try|play)\W*$"#
+    let asksHowToDoItElsewhere = lowercaseTranscript.range(of: #"\bhow (do|can|would|should|could|to)\b"#, options: .regularExpression) != nil
+    if asksHowToDoItElsewhere {
+        return false
+    }
+    return lowercaseTranscript.range(of: tryItPhrase, options: .regularExpression) != nil
+        || lowercaseTranscript.range(of: bareTryPhrase, options: .regularExpression) != nil
 }
 
 /// "Put it back", "put the engine back", or "put that away" sends a pop-out or scene back where it came from.
