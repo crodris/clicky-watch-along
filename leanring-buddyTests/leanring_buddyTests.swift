@@ -1150,6 +1150,10 @@ struct leanring_buddyTests {
         #expect(rehearsalStepWait("+12.5 build me a 3D model").waitSeconds == 12.5)
         #expect(rehearsalStepWait("+12.5 build me a 3D model").step == "build me a 3D model")
         #expect(rehearsalStepWait("+8 &what did you find").step == "&what did you find")
+        // Steps written as "a | b" arrive with spaces, and every prefix must still be read.
+        #expect(rehearsalStepWait(" +8 make the angle 60 degrees ").waitSeconds == 8)
+        #expect(rehearsalStepWait(" +8 make the angle 60 degrees ").step == "make the angle 60 degrees")
+        #expect(rehearsalStepWait(" ?{answer} ").step == "?{answer}")
         #expect(rehearsalStepWait("build me a 3D model").waitSeconds == 0)
         #expect(rehearsalStepWait("+ten build it").step == "+ten build it")
         #expect(rehearsalStepWait("+inf build it").waitSeconds == 0)

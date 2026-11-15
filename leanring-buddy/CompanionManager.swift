@@ -45,7 +45,9 @@ func rehearsalTranscript(_ transcript: String, answeringWith answerLabel: String
 /// A rehearsal step that starts with "+N " waits N more seconds before it is spoken, so a recorded take can land a
 /// request on a chosen moment of a playing video. Returns the wait and the step without its prefix. A wait that is not
 /// a finite number of seconds up to 10 minutes leaves the step as it is, since a larger one overflows the sleep.
-func rehearsalStepWait(_ rehearsalStep: String) -> (waitSeconds: Double, step: String) {
+/// Steps written as "a | b" keep the spaces around the bar, so the step is trimmed first, or no prefix after the first step is read.
+func rehearsalStepWait(_ untrimmedRehearsalStep: String) -> (waitSeconds: Double, step: String) {
+    let rehearsalStep = untrimmedRehearsalStep.trimmingCharacters(in: .whitespaces)
     guard rehearsalStep.hasPrefix("+"),
           let spaceIndex = rehearsalStep.firstIndex(of: " "),
           let waitSeconds = Double(rehearsalStep[rehearsalStep.index(after: rehearsalStep.startIndex)..<spaceIndex]),
