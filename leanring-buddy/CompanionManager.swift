@@ -2269,7 +2269,13 @@ final class CompanionManager: ObservableObject {
                 switch taskAgentNextStep(after: turn) {
                 case .continueThePausedTurn:
                     continue
-                case .finished(let spokenSummary):
+                case .finish(let spokenSummary, let otherCalls):
+                    for toolCall in otherCalls {
+                        let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
+                        writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
+                    }
+                    try Task.checkCancellation()
+                    guard !spokenSummary.isEmpty else { throw TaskAgentError.endedWithNoAnswer }
                     print("Task agent: finished in \(Int(Date().timeIntervalSince(startedAt))) s after \(turnNumber) turns")
                     finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
                     return

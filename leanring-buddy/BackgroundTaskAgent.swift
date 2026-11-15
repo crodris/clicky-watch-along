@@ -118,19 +118,22 @@ nonisolated enum TaskAgentNextStep: Equatable, Sendable {
     case continueThePausedTurn
     /// Run these app tools and send their results back.
     case runTools([VoiceToolCall])
-    case finished(spokenSummary: String)
+    /// The agent called finish. The other calls of the same turn run first, since it often writes its page and
+    /// finishes in one turn.
+    case finish(spokenSummary: String, afterRunning: [VoiceToolCall])
     /// The agent stopped without calling finish. Its last words stand as the answer, or the task failed with none.
     case endedWithText(String)
 }
 
-/// A finish call ends the task even when other calls come with it, since the agent has decided it is done.
+/// A finish call ends the task once the other calls of its turn have run, since the agent has decided it is done.
 nonisolated func taskAgentNextStep(after turn: TaskAgentTurn) -> TaskAgentNextStep {
     if turn.stopReason == "pause_turn" {
         return .continueThePausedTurn
     }
     if let finishCall = turn.toolCalls.first(where: { $0.name == TaskAgentTool.finish.rawValue }) {
         let spokenSummary = (finishCall.input["spokenSummary"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return spokenSummary.isEmpty ? .endedWithText(turn.text) : .finished(spokenSummary: spokenSummary)
+        let otherCalls = turn.toolCalls.filter { $0.name != TaskAgentTool.finish.rawValue }
+        return .finish(spokenSummary: spokenSummary.isEmpty ? turn.text : spokenSummary, afterRunning: otherCalls)
     }
     if !turn.toolCalls.isEmpty {
         return .runTools(turn.toolCalls)

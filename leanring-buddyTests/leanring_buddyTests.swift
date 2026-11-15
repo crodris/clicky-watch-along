@@ -1340,11 +1340,13 @@ struct leanring_buddyTests {
         let toolTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [stepCall])
         #expect(taskAgentNextStep(after: toolTurn) == .runTools(toolTurn.toolCalls))
 
-        let finishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [stepCall, toolUseBlock(id: "t2", name: "finish", input: ["spokenSummary": .string(" It was caught. ")])])
-        #expect(taskAgentNextStep(after: finishTurn) == .finished(spokenSummary: "It was caught."))
+        // The agent often writes its page and finishes in one turn, so the page call still runs before the finish.
+        let pageCall = toolUseBlock(id: "t2", name: "write_notion_page", input: ["title": .string("Catches")])
+        let finishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [pageCall, toolUseBlock(id: "t3", name: "finish", input: ["spokenSummary": .string(" It was caught. ")])])
+        #expect(taskAgentNextStep(after: finishTurn) == .finish(spokenSummary: "It was caught.", afterRunning: [VoiceToolCall(id: "t2", name: "write_notion_page", input: ["title": .string("Catches")])]))
 
-        let emptyFinishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [.object(["type": .string("text"), "text": .string("It landed.")]), toolUseBlock(id: "t3", name: "finish", input: [:])])
-        #expect(taskAgentNextStep(after: emptyFinishTurn) == .endedWithText("It landed."))
+        let emptyFinishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [.object(["type": .string("text"), "text": .string("It landed.")]), toolUseBlock(id: "t4", name: "finish", input: [:])])
+        #expect(taskAgentNextStep(after: emptyFinishTurn) == .finish(spokenSummary: "It landed.", afterRunning: []))
 
         let textTurn = try taskAgentTurn(stopReason: "end_turn", blocks: [.object(["type": .string("text"), "text": .string("Done.")])])
         #expect(taskAgentNextStep(after: textTurn) == .endedWithText("Done."))
