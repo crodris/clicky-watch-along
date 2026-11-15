@@ -192,6 +192,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case openStudyGuide = "open_study_guide"
     case buildModelInTheBackground = "build_model_in_background"
     case showReadyModel = "show_ready_model"
+    case startBackgroundTask = "start_background_task"
+    case hearTaskAnswer = "hear_task_answer"
 
     /// What the app can do right now. A tool that cannot work is left out, so the model never picks it.
     nonisolated struct Context: Equatable, Sendable {
@@ -208,6 +210,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var studyGuideExistsForTheFrontVideo = false
         /// A 3D model built in the background waits for the learner to ask for it.
         var threeDModelIsReady = false
+        /// A task agent finished, and its answer waits until the learner asks what it found.
+        var taskAnswerIsReady = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -240,6 +244,11 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.videoIsInFront && !context.quizQuestionIsOpen
             case .showReadyModel:
                 return context.threeDModelIsReady && !context.quizQuestionIsOpen
+            // A question's own answer could come from the web, so a task waits until the learner answers or skips.
+            case .startBackgroundTask:
+                return !context.quizQuestionIsOpen
+            case .hearTaskAnswer:
+                return context.taskAnswerIsReady && !context.quizQuestionIsOpen
             }
         }
     }
@@ -289,6 +298,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Build a 3D model of what the video shows in the background, for about 20 seconds, while the video keeps playing. When it is ready it rises out of the video, or waits until the learner asks for it if something else is on screen. Use it when the learner asks to build, make, or create a 3D model, such as \"build me a 3D model of this engine\", or asks for one while they keep watching. Use build_new_scene instead when they ask to show, see, or render something in 3D right now, and for a famous real place, whose real 3D scan only build_new_scene shows. Put what to build in whatToBuild, in the learner's words. Your confirmation is a few plain words that it has started, such as \"starting the model\", never that it is done."
         case .showReadyModel:
             return "Show the 3D model built in the background, which is ready and waiting. It pauses the video and rises out of it. Use it when the learner asks to see, show, or open the model."
+        case .startBackgroundTask:
+            return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the screen, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
+        case .hearTaskAnswer:
+            return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
         }
     }
 
@@ -325,8 +338,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema(["focus": .object(["type": .string("string"), "description": .string("An extra wish for the guide, such as only the part about the engine. Leave it out when they made none.")])], required: [])
         case .reviseStudyGuide:
             return objectSchema(["instruction": .object(["type": .string("string"), "description": .string("What to change about the guide, in the learner's words.")])], required: ["instruction"])
-        case .openStudyGuide, .showReadyModel:
+        case .openStudyGuide, .showReadyModel, .hearTaskAnswer:
             return objectSchema([:], required: [])
+        case .startBackgroundTask:
+            return objectSchema(["goal": .object(["type": .string("string"), "description": .string("The task in the learner's words, with what it refers to on screen.")])], required: ["goal"])
         case .buildModelInTheBackground:
             return objectSchema(["whatToBuild": .object(["type": .string("string"), "description": .string("What to build, in the learner's words, such as this jet engine.")])], required: ["whatToBuild"])
         }
@@ -413,9 +428,11 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Opening your study guide"
         case "build_model_in_background":
             return "Starting your 3D model"
+        case "start_background_task":
+            return "Starting a task"
         default:
-            // pop_out, build_new_scene, answer_with_screen, and show_ready_model hand off to a path with its own status line,
-            // spinner, or rising scene.
+            // pop_out, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
+            // its own status line, spinner, rising scene, or voice.
             return nil
         }
     }

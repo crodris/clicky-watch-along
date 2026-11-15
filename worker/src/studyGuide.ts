@@ -248,7 +248,7 @@ function truncatedForNotion(content: string): string {
   return endsInHalfOfAnEmoji ? truncatedContent.slice(0, -1) : truncatedContent;
 }
 
-function richTextItem(content: string, options: { linkURL?: string; bold?: boolean } = {}): NotionRichTextItem {
+export function richTextItem(content: string, options: { linkURL?: string; bold?: boolean } = {}): NotionRichTextItem {
   return {
     type: "text",
     text: {
@@ -263,15 +263,15 @@ function timestampLinkItem(videoURL: string, seconds: number): NotionRichTextIte
   return richTextItem(` (${formatTimestamp(seconds)})`, { linkURL: videoTimestampURL(videoURL, seconds) });
 }
 
-function paragraphBlock(richText: NotionRichTextItem[]): NotionBlock {
+export function paragraphBlock(richText: NotionRichTextItem[]): NotionBlock {
   return { object: "block", type: "paragraph", paragraph: { rich_text: richText } };
 }
 
-function heading2Block(heading: string): NotionBlock {
+export function heading2Block(heading: string): NotionBlock {
   return { object: "block", type: "heading_2", heading_2: { rich_text: [richTextItem(heading)] } };
 }
 
-function bulletedListItemBlock(richText: NotionRichTextItem[]): NotionBlock {
+export function bulletedListItemBlock(richText: NotionRichTextItem[]): NotionBlock {
   return { object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: richText } };
 }
 
@@ -363,7 +363,7 @@ async function callNotion(
   }
 }
 
-async function createNotionPage(
+export async function createNotionPage(
   notionAPIKey: string,
   title: string,
   children: NotionBlock[],

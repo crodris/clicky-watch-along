@@ -359,7 +359,7 @@ private struct AgentRowView: View {
                         .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
                         .foregroundColor(stepStatus == .done ? DS.Colors.success : stepStatus == .current ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                         .frame(width: 12)
-                    Text(agent.kind.stepNames[stepIndex])
+                    Text(agent.stepNames[stepIndex])
                         .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
                         .foregroundColor(stepStatus == .pending ? DS.Colors.textSecondary : DS.Colors.textPrimary)
                 }
@@ -377,7 +377,7 @@ private struct AgentRowView: View {
             }
             if agent.isRunning {
                 AgentActionButton(title: "Cancel", titleColor: DS.Colors.destructiveText, action: onCancel)
-            } else if case .notionPage(let pageURL) = agent.finishedResult {
+            } else if let pageURL = agent.finishedResult?.pageURL {
                 // Brings the page forward, unlike the background tab the finished guide opened in.
                 AgentActionButton(title: "Open page", titleColor: DS.Colors.textPrimary) {
                     NSWorkspace.shared.open(pageURL)

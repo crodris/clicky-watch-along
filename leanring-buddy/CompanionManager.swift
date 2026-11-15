@@ -132,6 +132,10 @@ final class CompanionManager: ObservableObject {
     /// The newest 3D model a background agent built that has not been shown yet. It waits here when the screen was
     /// busy as it finished, until the learner says "show the model".
     private var readyThreeDModel: ReadyThreeDModel?
+    private lazy var taskAgentClient = TaskAgentClient(workerBaseURL: Self.workerBaseURL)
+    /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
+    /// the video, and it stays so they can ask again.
+    private var readyTaskAnswer: String?
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     let backgroundAgentStore = BackgroundAgentStore()
     private lazy var agentListPanelController = AgentListPanelController(
@@ -2035,7 +2039,8 @@ final class CompanionManager: ObservableObject {
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
             studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo,
-            threeDModelIsReady: readyThreeDModel != nil
+            threeDModelIsReady: readyThreeDModel != nil,
+            taskAnswerIsReady: readyTaskAnswer != nil
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2222,6 +2227,158 @@ final class CompanionManager: ObservableObject {
         case .showReadyModel:
             startShowingTheReadyThreeDModel()
             return .handedOff
+        case .startBackgroundTask:
+            guard let goal = input["goal"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty else {
+                return .failed(error: "goal must say what the task is", state: nil)
+            }
+            return startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)))
+        case .hearTaskAnswer:
+            startSpeakingTheTaskAnswer()
+            return .handedOff
+        }
+    }
+
+    // MARK: - Task Agent
+
+    /// Starts a general agent on the learner's task and returns at once, so the router speaks its confirmation and the
+    /// video keeps playing.
+    private func startTheTaskAgent(goal: String) -> VoiceToolOutcome {
+        let agentID = backgroundAgentStore.start(kind: .task)
+        backgroundAgentStore.setSubject(goal, for: agentID)
+        runInTheBackground(agentID) {
+            await self.runTheTaskAgent(goal: goal, agentID: agentID)
+        }
+        return .changed(state: .object(["task": .string("started")]))
+    }
+
+    /// The loop: one POST /background-agent turn at a time, running the app's tools between turns, until the agent
+    /// calls finish or stops, within mostTaskAgentTurns. Nothing is spoken while it runs.
+    private func runTheTaskAgent(goal: String, agentID: UUID) async {
+        let startedAt = Date()
+        let frontTab = videoQuizSession.frontTabTitleAndURLOfTheFrontWindow()
+        var messages: [JSONValue] = [.object([
+            "role": .string("user"),
+            "content": .string(taskAgentFirstMessage(goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url)),
+        ])]
+        var writtenPageURL: URL?
+        do {
+            for turnNumber in 1...mostTaskAgentTurns {
+                let turn = try await taskAgentClient.requestTurn(messages: messages)
+                try Task.checkCancellation()
+                messages.append(.object(["role": .string("assistant"), "content": .array(turn.assistantContent)]))
+                switch taskAgentNextStep(after: turn) {
+                case .continueThePausedTurn:
+                    continue
+                case .finished(let spokenSummary):
+                    print("Task agent: finished in \(Int(Date().timeIntervalSince(startedAt))) s after \(turnNumber) turns")
+                    finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
+                    return
+                case .endedWithText(let finalText):
+                    guard !finalText.isEmpty else { throw TaskAgentError.endedWithNoAnswer }
+                    print("Task agent: ended without finish in \(Int(Date().timeIntervalSince(startedAt))) s, so its last words are the answer")
+                    finishTheTaskAgent(agentID, spokenSummary: finalText, pageURL: writtenPageURL)
+                    return
+                case .runTools(let toolCalls):
+                    var toolResultBlocks: [JSONValue] = []
+                    for toolCall in toolCalls {
+                        let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
+                        writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
+                        toolResultBlocks.append(toolRun.toolResultBlock)
+                    }
+                    try Task.checkCancellation()
+                    messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
+                }
+            }
+            throw TaskAgentError.ranOutOfTurns
+        } catch {
+            if Task.isCancelled || errorIsACancellation(error) {
+                print("Task agent: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
+                return
+            }
+            print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
+            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .backgroundAgent(.task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+        }
+    }
+
+    /// Runs one app tool for the agent and returns its tool_result block. A tool that fails returns an error result,
+    /// so the agent can work around it instead of the task failing.
+    private func runTaskAgentTool(_ toolCall: VoiceToolCall, agentID: UUID, pageAlreadyWritten: Bool) async -> (toolResultBlock: JSONValue, writtenPageURL: URL?) {
+        func toolResult(_ content: JSONValue, isError: Bool = false) -> JSONValue {
+            .object([
+                "type": .string("tool_result"),
+                "tool_use_id": .string(toolCall.id),
+                "content": content,
+                "is_error": .bool(isError),
+            ])
+        }
+        switch TaskAgentTool(rawValue: toolCall.name) {
+        case .reportStep:
+            let stepText = (toolCall.input["step"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stepText.isEmpty {
+                backgroundAgentStore.reportStep(String(stepText.prefix(60)), for: agentID)
+            }
+            return (toolResult(.string("shown")), nil)
+        case .readVideoCaptions:
+            do {
+                let video = try await videoQuizSession.frontVideoForStudyGuide()
+                let captionText = video.transcriptLines
+                    .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
+                    .joined(separator: "\n")
+                let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
+                return (toolResult(.string(String(captionsResult.prefix(longestTaskAgentCaptionText)))), nil)
+            } catch {
+                return (toolResult(.string((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab"), isError: true), nil)
+            }
+        case .lookAtScreen:
+            do {
+                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                let videoScreen = screenAndCaptureShowing(VideoQuizSession.screenRectOfTheMediaToRiseFrom(), in: screenCaptures)
+                guard let screenJPEGData = (videoScreen?.capture ?? screenCaptures.first)?.imageData else {
+                    return (toolResult(.string("The screen could not be captured"), isError: true), nil)
+                }
+                return (toolResult(.array([.object([
+                    "type": .string("image"),
+                    "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(screenJPEGData.base64EncodedString())]),
+                ])])), nil)
+            } catch {
+                return (toolResult(.string("The screen could not be captured"), isError: true), nil)
+            }
+        case .writeNotionPage:
+            guard !pageAlreadyWritten else {
+                return (toolResult(.string("A page was already written for this task"), isError: true), nil)
+            }
+            backgroundAgentStore.reportStep("Writing the page in Notion", for: agentID)
+            do {
+                let pageURL = try await taskAgentClient.writeNotionPage(toolCall.input)
+                print("Task agent: wrote \(pageURL)")
+                return (toolResult(.string("Written: \(pageURL.absoluteString)")), pageURL)
+            } catch {
+                print("Task agent: the Notion page failed: \(error)")
+                return (toolResult(.string("The page could not be written: \(error)"), isError: true), nil)
+            }
+        case .finish, nil:
+            // finish never reaches here, since the loop ends on it. Any other name was not offered.
+            return (toolResult(.string("\(toolCall.name) is not a tool"), isError: true), nil)
+        }
+    }
+
+    private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
+        readyTaskAnswer = String(spokenSummary.prefix(longestSpokenTaskAnswer))
+        finishTheBackgroundAgent(agentID, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
+    }
+
+    /// Like any spoken reply, a push-to-talk press stops it.
+    private func startSpeakingTheTaskAnswer() {
+        guard let readyTaskAnswer else { return }
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        currentResponseTask = Task {
+            await self.speakLiveSceneLine(readyTaskAnswer)
+            await self.waitForClickyToFinishSpeaking()
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
         }
     }
 
@@ -2527,6 +2684,18 @@ final class CompanionManager: ObservableObject {
             } else {
                 print("3D model: the screen is busy, so the model waits for \"show the model\"")
             }
+        case .answer(_, let pageURL):
+            NSSound(named: "Tink")?.play()
+            // Like a guide's page, a task's page opens behind the video tab.
+            if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
+                studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
+            }
+            VoiceToolCallChip.shared.show(
+                agentKind.finishedChipText,
+                sender: .backgroundAgent(agentKind),
+                secondaryChipText: "· say what did you find",
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
         }
     }
 
@@ -2558,7 +2727,8 @@ final class CompanionManager: ObservableObject {
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
             studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
-            threeDModelIsReady: readyThreeDModel != nil
+            threeDModelIsReady: readyThreeDModel != nil,
+            taskAnswerIsReady: readyTaskAnswer != nil
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)

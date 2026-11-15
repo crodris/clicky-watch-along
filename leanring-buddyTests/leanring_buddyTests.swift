@@ -971,6 +971,19 @@ struct leanring_buddyTests {
         #expect(!AppVoiceTool.available(in: noVideo).contains(.buildModelInTheBackground))
     }
 
+    @Test func aTaskIsStartedOutsideAQuizQuestionAndItsAnswerHeardOnlyOnceReady() async throws {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: context).contains(.startBackgroundTask))
+        #expect(!AppVoiceTool.available(in: context).contains(.hearTaskAnswer))
+
+        context.taskAnswerIsReady = true
+        #expect(AppVoiceTool.available(in: context).contains(.hearTaskAnswer))
+
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.startBackgroundTask))
+        #expect(!AppVoiceTool.available(in: context).contains(.hearTaskAnswer))
+    }
+
     @Test func aPageCannotOfferAToolUnderAnAppToolsNameOrAnUnknownName() async throws {
         let emptySchema: JSONValue = .object(["type": .string("object")])
         let pageTools = [
@@ -1309,6 +1322,52 @@ struct leanring_buddyTests {
 
         store.finish(firstVideoAgentID, with: .notionPage(studyGuidePageURL))
         #expect(!store.aStudyGuideAgentIsRunning(forVideoKey: "video-one"))
+    }
+
+    private func taskAgentTurn(stopReason: String, blocks: [JSONValue]) throws -> TaskAgentTurn {
+        try TaskAgentTurn(responseData: JSONEncoder().encode(JSONValue.object(["content": .array(blocks), "stopReason": .string(stopReason)])))
+    }
+
+    private func toolUseBlock(id: String, name: String, input: [String: JSONValue]) -> JSONValue {
+        .object(["type": .string("tool_use"), "id": .string(id), "name": .string(name), "input": .object(input)])
+    }
+
+    @Test func aTaskAgentTurnLeadsToTheRightNextStep() async throws {
+        let pausedTurn = try taskAgentTurn(stopReason: "pause_turn", blocks: [.object(["type": .string("server_tool_use"), "id": .string("s1"), "name": .string("web_search"), "input": .object([:])])])
+        #expect(taskAgentNextStep(after: pausedTurn) == .continueThePausedTurn)
+
+        let stepCall = toolUseBlock(id: "t1", name: "report_step", input: ["step": .string("Searching")])
+        let toolTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [stepCall])
+        #expect(taskAgentNextStep(after: toolTurn) == .runTools(toolTurn.toolCalls))
+
+        let finishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [stepCall, toolUseBlock(id: "t2", name: "finish", input: ["spokenSummary": .string(" It was caught. ")])])
+        #expect(taskAgentNextStep(after: finishTurn) == .finished(spokenSummary: "It was caught."))
+
+        let emptyFinishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [.object(["type": .string("text"), "text": .string("It landed.")]), toolUseBlock(id: "t3", name: "finish", input: [:])])
+        #expect(taskAgentNextStep(after: emptyFinishTurn) == .endedWithText("It landed."))
+
+        let textTurn = try taskAgentTurn(stopReason: "end_turn", blocks: [.object(["type": .string("text"), "text": .string("Done.")])])
+        #expect(taskAgentNextStep(after: textTurn) == .endedWithText("Done."))
+        // Every block goes back on the next turn, thinking and server results included.
+        #expect(pausedTurn.assistantContent.count == 1)
+    }
+
+    @Test func aTaskAgentShowsTheStepsItReports() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .task)
+        #expect(store.agents.first?.inProgressText == "Getting started")
+        #expect(store.agents.first?.stepStatuses == [.current])
+
+        store.reportStep("Searching the web", for: agentID)
+        store.reportStep("Writing the page in Notion", for: agentID)
+        #expect(store.agents.first?.inProgressText == "Writing the page in Notion")
+        #expect(store.agents.first?.stepNames == ["Searching the web", "Writing the page in Notion"])
+        #expect(store.agents.first?.stepStatuses == [.done, .current])
+
+        let pageURL = try #require(URL(string: "https://www.notion.so/p2"))
+        store.finish(agentID, with: .answer(spokenSummary: "It was caught.", pageURL: pageURL))
+        #expect(store.agents.first?.stepStatuses == [.done, .done])
+        #expect(store.agents.first?.finishedResult?.pageURL == pageURL)
     }
 
     @Test func anAgentThatEndedIgnoresEveryLaterChange() async throws {

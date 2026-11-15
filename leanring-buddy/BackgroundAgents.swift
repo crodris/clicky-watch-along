@@ -30,12 +30,16 @@ enum BackgroundAgentKind {
     case studyGuideUpdate
     /// Builds a 3D model of what the video shows while it keeps playing, and lifts it out of the video when it is ready.
     case threeDModel
+    /// Works on any task the learner hands it, with web search, the video's captions, and a Notion page, and reports its
+    /// own steps, since nobody knows them in advance.
+    case task
 
     var displayName: String {
         switch self {
         case .studyGuide: return "Study guide"
         case .studyGuideUpdate: return "Study guide update"
         case .threeDModel: return "3D model"
+        case .task: return "Task"
         }
     }
 
@@ -44,6 +48,7 @@ enum BackgroundAgentKind {
         switch self {
         case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmber
         case .threeDModel: return DS.Colors.backgroundAgentThreeDModelViolet
+        case .task: return DS.Colors.backgroundAgentTaskTeal
         }
     }
 
@@ -53,6 +58,7 @@ enum BackgroundAgentKind {
         switch self {
         case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmberText
         case .threeDModel: return DS.Colors.backgroundAgentThreeDModelVioletText
+        case .task: return DS.Colors.backgroundAgentTaskTealText
         }
     }
 
@@ -62,6 +68,7 @@ enum BackgroundAgentKind {
         case .studyGuide: return "Study guide ready"
         case .studyGuideUpdate: return "Study guide updated"
         case .threeDModel: return "3D model ready"
+        case .task: return "Task done"
         }
     }
 
@@ -86,6 +93,10 @@ enum BackgroundAgentKind {
                 BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
                 BackgroundAgentStep(name: "Build the 3D model", inProgressText: "Building the 3D model", expectedSeconds: 20),
             ]
+        // A task's steps come from the agent as it works (BackgroundAgent.reportedSteps), so its progress runs as one
+        // step. A web search answer took about 11 seconds in a test, and one with a Notion page takes longer.
+        case .task:
+            return [BackgroundAgentStep(name: "Work on the task", inProgressText: "Getting started", expectedSeconds: 45)]
         }
     }
 
@@ -99,6 +110,16 @@ enum BackgroundAgentResult: Equatable {
     case notionPage(URL)
     /// The page itself waits in CompanionManager until it rises out of the video.
     case threeDModel
+    /// What a task agent found, read aloud when the learner asks, and the Notion page it wrote, if it wrote one.
+    case answer(spokenSummary: String, pageURL: URL?)
+
+    var pageURL: URL? {
+        switch self {
+        case .notionPage(let pageURL): return pageURL
+        case .threeDModel: return nil
+        case .answer(_, let pageURL): return pageURL
+        }
+    }
 }
 
 enum BackgroundAgentPhase: Equatable {
@@ -121,6 +142,14 @@ struct BackgroundAgent: Identifiable, Equatable {
     var currentStepStartedAt: Date
     var endedAt: Date?
     var phase: BackgroundAgentPhase
+    /// The steps a task agent said it was on, oldest first. Empty for every other kind, whose steps are fixed.
+    var reportedSteps: [String] = []
+
+    /// The steps the agent list shows: a task agent's reported steps, or the kind's fixed steps.
+    var stepNames: [String] {
+        guard kind == .task else { return kind.stepNames }
+        return reportedSteps.isEmpty ? [kind.steps[0].inProgressText] : reportedSteps
+    }
 
     /// How much of the wingman's triangle is filled, from its tail to its tip.
     /// A failed or cancelled agent shows an empty outline, because its phase does not keep how far it got.
@@ -164,6 +193,9 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// The line beside the wingman while it works, or nil once the agent has ended.
     var inProgressText: String? {
         guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
+        if kind == .task, let latestReportedStep = reportedSteps.last {
+            return latestReportedStep
+        }
         return kind.steps[completedStepCount].inProgressText
     }
 
@@ -218,8 +250,11 @@ extension BackgroundAgent {
     /// One status per step, in order, for the list's expanded row. A failed or cancelled agent has none,
     /// because its phase does not keep how far it got, and the list shows its reason instead.
     var stepStatuses: [BackgroundAgentStepStatus] {
-        let stepCount = kind.stepNames.count
+        let stepCount = stepNames.count
         switch phase {
+        // A task agent is on its latest reported step and has done the ones before it.
+        case .running where kind == .task:
+            return (0..<stepCount).map { stepIndex in stepIndex == stepCount - 1 ? .current : .done }
         case .running(let completedStepCount):
             return (0..<stepCount).map { stepIndex in
                 if stepIndex < completedStepCount { return .done }
@@ -267,6 +302,15 @@ final class BackgroundAgentStore: ObservableObject {
             agent.subject = subject
         }
     }
+
+    /// A task agent keeps its last few steps, which is all the list has room for.
+    func reportStep(_ stepText: String, for agentID: UUID) {
+        updateRunningAgent(agentID) { agent in
+            agent.reportedSteps = Array((agent.reportedSteps + [stepText]).suffix(Self.mostReportedStepsKept))
+        }
+    }
+
+    private static let mostReportedStepsKept = 6
 
     func completeStep(for agentID: UUID) {
         updateRunningAgent(agentID) { agent in

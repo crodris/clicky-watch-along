@@ -207,6 +207,12 @@ enum DS {
         /// The 3D model agent's chip letters. Tailwind Violet 700.
         static let backgroundAgentThreeDModelVioletText = Color(hex: "#6d28d9")
 
+        /// The wingman of a general task agent. Tailwind Teal 400, apart from the cursor's blue, the guide's amber, and the model's violet.
+        static let backgroundAgentTaskTeal = Color(hex: "#2dd4bf")
+
+        /// The task agent's chip letters. Tailwind Teal 700.
+        static let backgroundAgentTaskTealText = Color(hex: "#0f766e")
+
         // ── Floating Button Gradient ─────────────────────────────────
 
         /// The floating session button gradient colors (unchanged from original —

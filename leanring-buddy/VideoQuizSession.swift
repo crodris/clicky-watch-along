@@ -868,6 +868,12 @@ final class VideoQuizSession {
         try? ChromeVideoTab.frontTabOfTheFrontWindow().url
     }
 
+    /// The page a task agent's "this" refers to. Nil when Chrome has no window.
+    func frontTabTitleAndURLOfTheFrontWindow() -> (title: String, url: String)? {
+        guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+        return (title: frontTab.title, url: frontTab.url)
+    }
+
     /// Opens a page in a new Chrome tab behind the one the learner is on, and returns the new tab's id.
     /// Nil when Chrome would not take it, so the caller can say how to open the page by voice instead.
     func openInABackgroundChromeTab(_ pageURL: URL) -> Int? {
