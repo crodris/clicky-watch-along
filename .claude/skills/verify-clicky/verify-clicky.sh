@@ -439,7 +439,7 @@ command_post() {
   app_secret="$(grep -E '^CLICKY_APP_SECRET=' "$checkout_root/worker/.dev.vars" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
   [[ -n "$app_secret" ]] && printf 'x-clicky-app-secret: %s\n' "$app_secret" >"$secret_header_file"
   local http_status curl_exit_code=0
-  # The header file is removed before any exit, so a failed curl under set -e never leaves the secret behind.
+  # The header file is removed once curl returns, failed or not, so a failed curl under set -e never leaves the secret behind.
   http_status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST "http://127.0.0.1:$port$route" \
     -H 'content-type: application/json' -H @"$secret_header_file" --data-binary @"$body_file" --max-time 180)" || curl_exit_code=$?
   rm -f "$secret_header_file"

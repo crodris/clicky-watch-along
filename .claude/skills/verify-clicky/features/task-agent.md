@@ -8,7 +8,7 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 
 - `task-route` is `/background-agent`, one turn with Sonnet 5.5, web search, web fetch, and the app's tools, which returns every content block and the stop reason.
 - `task-page` is `/notion-page`, which writes a private page with a summary, sections, and linked sources, and returns `{ pageURL }`.
-- `task-router` sends "find out", "look up", "research", and "compare" requests to `start_background_task`, and "what did you find" to `hear_task_answer`.
+- `task-router` sends "find out", "look up", "research", and "compare" requests to `start_background_task`, and "what did you find" to `hear_task_answer`, which the router takes until the answer is heard, even with no video in front.
 - `task-steps` shows each `report_step` on the wingman's line and as the list's checklist.
 - `task-ending` plays "Tink", opens the page behind the video tab, and shows the teal chip, and `hear_task_answer` speaks the answer.
 

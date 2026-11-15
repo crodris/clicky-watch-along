@@ -30,7 +30,7 @@ nonisolated enum TaskAgentTool: String, CaseIterable, Sendable {
         case .lookAtVideo:
             return "See the video in Chrome's front tab as it is now, cropped to the video."
         case .writeNotionPage:
-            return "Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once. The title is at most 120 characters, the summary at most 1500, with at most 8 sections of at most 10 points of 600 characters each, and at most 10 sources, each an https link."
+            return "Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once. No field may be empty. The title is at most 120 characters and the summary at most 1500. There are at most 8 sections, each with a heading of at most 120 characters and 1 to 10 points of at most 600 characters. There are at most 10 sources, each with a title of at most 200 characters and an https link."
         case .finish:
             return "End the task. spokenSummary is read aloud when the learner asks what you found."
         }

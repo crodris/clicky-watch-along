@@ -290,8 +290,8 @@ final class BackgroundAgentStore: ObservableObject {
         let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0))
         agents.insert(agent, at: 0)
         var endedAgentsKept = 0
-        agents = agents.filter { agent in
-            if agent.isRunning { return true }
+        agents = agents.filter { existingAgent in
+            if existingAgent.isRunning { return true }
             endedAgentsKept += 1
             return endedAgentsKept <= Self.mostEndedAgentsKept
         }

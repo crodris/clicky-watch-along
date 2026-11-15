@@ -10,7 +10,7 @@ When something else is on screen, the model waits, and the chip says "3D model r
 - `model-router-split` sends "build me a 3D model of this engine" to `build_model_in_background`, and "show me this in 3D" or a famous place to `build_new_scene`.
 - `model-background` builds without pausing the video and without a status line, and logs `3D model: built "<what>" in N s`.
 - `model-wingman` shows a violet outline wingman with the step line "Grabbing the frame" and then "Building the 3D model".
-- `model-rises` pauses the video and lifts the model out of it when Clicky is idle and nothing is on screen, and logs `3D model: showing "<what>", rising out of the video true`.
+- `model-rises` pauses the video and lifts the model out of it when Clicky is idle, done speaking, and nothing is on screen, and logs `3D model: showing "<what>", rising out of the video true`.
 - `model-waits` logs `3D model: the screen is busy, so the model waits for "show the model"` when a scene or pop-out is up, and `show_ready_model` then clears it and shows the model.
 - `several-agents` runs guide and model agents at once, so the agent list says "2 running" or more, and a second `make_study_guide` on the same video fails with "This video's study guide is still being written".
 

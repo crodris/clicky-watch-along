@@ -121,7 +121,8 @@ final class CompanionManager: ObservableObject {
     private let savedStudyGuides = SavedStudyGuides(userDefaults: .standard)
     /// The hold that keeps the blue cursor on a quiz question's "?" label, so only the end of that question releases it.
     private var quizQuestionPointingID: UUID?
-    /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
+    /// The Chrome tab each Notion page opened in, a guide's or a task agent's, so open_study_guide switches to it
+    /// instead of opening the page twice.
     private var notionPageChromeTabIDsByPageURL: [URL: Int] = [:]
     /// Saved guides whose page Notion confirmed since launch, so the check costs one Worker call per guide per launch.
     private var studyGuidePageHandlesFoundInNotion: Set<String> = []
@@ -136,6 +137,9 @@ final class CompanionManager: ObservableObject {
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
     /// the video, and it stays so they can ask again.
     private var readyTaskAnswer: String?
+    /// True until the newest answer is heard. Only then does the router take a command with no video or scene in front,
+    /// so once it is heard a plain question goes back to the quick path instead of a voice command call.
+    private var taskAnswerWaitsToBeHeard = false
     /// The videos whose guide was being written when a quiz miss landed. That guide read its quiz results when it
     /// started, so a refresh runs once it ends, and the miss still reaches the page.
     private var studyGuideVideoKeysDueARefresh: Set<String> = []
@@ -910,7 +914,7 @@ final class CompanionManager: ObservableObject {
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             videoIsInFront: frontVideoState != nil,
             threeDModelIsReady: readyThreeDModel != nil,
-            taskAnswerIsReady: readyTaskAnswer != nil,
+            taskAnswerIsReady: taskAnswerWaitsToBeHeard,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding
         )
@@ -2377,12 +2381,14 @@ final class CompanionManager: ObservableObject {
 
     private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
         readyTaskAnswer = taskAgentSpokenAnswer(spokenSummary)
+        taskAnswerWaitsToBeHeard = true
         finishTheBackgroundAgent(agentID, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
     }
 
     /// Like any spoken reply, a push-to-talk press stops it.
     private func startSpeakingTheTaskAnswer() {
         guard let readyTaskAnswer else { return }
+        taskAnswerWaitsToBeHeard = false
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         currentResponseTask = Task {
@@ -2508,11 +2514,13 @@ final class CompanionManager: ObservableObject {
         let mediaRectToRiseFrom = sourceVideoIsInFront ? VideoQuizSession.screenRectOfTheMediaToRiseFrom() : nil
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else {
             // A push-to-talk press during the capture cancelled the rise, so the model waits again for "show the model",
-            // unless a newer one took its place, and the video Clicky paused for it plays on.
+            // unless a newer one took its place. A newer scene request holds Clicky's pause for its own scene, so the
+            // video plays on only when none started, and after a cleared pop-out lands, as every resume waits.
             readyThreeDModel = readyThreeDModel ?? modelToShow
-            if sourceVideoIsInFront {
-                videoQuizSession.resumeVideoAfterRequestedScene()
-            }
+            guard requestGeneration == liveSceneRequestGeneration else { return }
+            await LiveSceneOverlay.shared.waitForReturnToFinish()
+            guard requestGeneration == liveSceneRequestGeneration else { return }
+            videoQuizSession.resumeVideoAfterRequestedScene()
             return
         }
         guard let videoScreen = screenAndCaptureShowing(mediaRectToRiseFrom, in: screenCaptures),
