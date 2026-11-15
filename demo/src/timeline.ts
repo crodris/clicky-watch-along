@@ -452,3 +452,38 @@ export const quizMissClipSegments: Segment[] = [
   // The music fades out under this card.
   { kind: "endCard", name: "end-card", recordingFile: "quiz-miss.mov", sourceStartSeconds: 125, durationSeconds: 4.0 },
 ];
+
+/** A shot from one of the clips above, found by name, so the combined clip reuses its times and captions. */
+function shotNamed(clipSegments: Segment[], shotName: string): Segment {
+  const shot = clipSegments.find((segment) => segment.name === shotName);
+  if (!shot) throw new Error(`no shot named ${shotName}`);
+  return shot;
+}
+
+// The study guide and quiz miss clips as one story for the HeyClicky team: the guide is written by a sub-agent, then a
+// quiz miss spawns another that updates it, and the guide opens with the miss on top. The study guide take's key terms
+// click closes it. The pop-out narration and the first take's own opening of the guide are left out.
+export const subAgentsClipSegments: Segment[] = [
+  { ...shotNamed(studyGuideClipSegments, "ask"), name: "guide-ask" },
+  { ...shotNamed(studyGuideClipSegments, "popout"), name: "guide-popout" },
+  { ...shotNamed(quizMissClipSegments, "ask"), name: "quiz-ask" },
+  { ...shotNamed(quizMissClipSegments, "question"), name: "quiz-question" },
+  { ...shotNamed(quizMissClipSegments, "wrong"), name: "quiz-wrong" },
+  { ...shotNamed(quizMissClipSegments, "update"), name: "quiz-update" },
+  { ...shotNamed(quizMissClipSegments, "open"), name: "quiz-open" },
+  {
+    // study-guide.events.txt: the page scrolls to its key terms from 70.6, and the mouse glides to the (1:05) link of a
+    // key term and clicks at about 79.2.
+    kind: "shot",
+    name: "guide-key-terms",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 70.9,
+    durationSeconds: 8.5,
+    cameraMoves: [{ atSeconds: 0, scale: 1.6, focus: keyTermLink, durationFrames: 1 }],
+    captions: [{ fromSeconds: 0.3, toSeconds: 8.2, text: "Every point and key term links back to its moment", accentWords: ["its moment"] }],
+  },
+  { ...shotNamed(studyGuideClipSegments, "jump"), name: "guide-jump" },
+  // The music fades out under this card.
+  { kind: "endCard", name: "end-card", recordingFile: "study-guide.mov", sourceStartSeconds: 82, durationSeconds: 4.0 },
+];

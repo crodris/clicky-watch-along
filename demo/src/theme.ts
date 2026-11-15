@@ -58,3 +58,12 @@ export const quizMissTheme: DemoTheme = {
   ...studyGuideTheme,
   endCard: { ...studyGuideTheme.endCard, tagline: "Notes that remember what you missed" },
 };
+
+/**
+ * The combined clip, posted for the HeyClicky team. Its end card says it is an experiment on Chris's fork of Clicky, so
+ * it never reads as a product of his own.
+ */
+export const subAgentsTheme: DemoTheme = {
+  ...studyGuideTheme,
+  endCard: { ...studyGuideTheme.endCard, title: "Clicky watch-along", tagline: "An experiment on my Clicky fork: background sub-agents" },
+};
