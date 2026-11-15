@@ -15,7 +15,8 @@ export type DemoTheme = {
   accent: { style: "text" | "highlighter"; color: string };
   /** The learner's mic glyph. */
   micColor: string;
-  endCard: { title: string; tagline?: string; handle: string; titleColor: string; handleColor: string; scrim: string };
+  /** credit names the footage the clip uses, in a small line under the handle. */
+  endCard: { title: string; tagline?: string; handle: string; credit?: string; titleColor: string; handleColor: string; scrim: string };
 };
 
 export const watchAlongTheme: DemoTheme = {
@@ -59,5 +60,10 @@ export const studyGuideTheme: DemoTheme = {
  */
 export const quizMissTheme: DemoTheme = {
   ...studyGuideTheme,
-  endCard: { ...studyGuideTheme.endCard, title: "Clicky watch-along", tagline: "An experiment on my Clicky fork: quizzes that update your notes" },
+  endCard: {
+    ...studyGuideTheme.endCard,
+    title: "Clicky watch-along",
+    tagline: "An experiment on my Clicky fork: quizzes that update your notes",
+    credit: "Video: Science ABC, How Submarines Work",
+  },
 };
