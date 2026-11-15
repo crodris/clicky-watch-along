@@ -45,6 +45,16 @@ Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
+**Let me try it.** Over a video about something physical, like a launched ball, a lever, or a pendulum, say "let me try it", "let me play with it", or "simulate this".
+Clicky pauses the video, and a simulation of that setup rises out of it with sliders and a Run button.
+It sends the same screenshot as a 3D model, and GPT-6.1 Sol writes a three.js scene that moves by simple, correct physics instead of a canned animation.
+Clicky asks a prediction to test, like "Will 30 or 60 degrees land the ball farther?", and says to drag a slider and press Run.
+Drag a slider, press Run, and the ball flies, and the result shows under the buttons, like the landing distance in meters.
+Clicky says the result in one short line after each run.
+You can also say "make it 45 degrees" or "run it", and the scene does it.
+The panel is the same on every simulation, because the app draws it, not the model.
+Escape closes it, and the video picks back up.
+
 **Talk to what's already on screen.** Once a 3D model is up, or a video is playing in Chrome on any site, short commands change it right away instead of building something new.
 Say "turn it to the left", "zoom in on the wing", "pull it apart", or "show me inside", and the model moves in about a second.
 Say "no, the other way" and Clicky undoes its last turn.
