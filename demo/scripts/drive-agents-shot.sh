@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs beside record-shot.sh for the two sub-agents shot. Once both sub-agents run, this opens the agent list with
+# Runs beside record-shot.sh for the two sub-agents shot. It first hides the chat replay of a live stream's recording,
+# which shows viewers' comments beside the video. Once both sub-agents run, it opens the agent list with
 # shift + option, so the list shows "2 running", then glides the mouse out and back, so both helper triangles are seen
 # trailing the blue one in formation.
 # Usage, from the main checkout's root, started just before record-shot.sh:
@@ -20,6 +21,11 @@ wait_for_log_line() {
   return 1
 }
 
+# Runs JavaScript in Chrome's front tab and prints what it returns.
+run_in_front_tab() {
+  osascript -e "tell application \"Google Chrome\" to execute active tab of front window javascript \"$1\""
+}
+
 # Moves the mouse from one point to another in 30 eased steps, about 1.5 seconds. The points are worked out in one awk
 # call, since starting a process per step doubles the glide's length.
 glide_mouse() {
@@ -31,10 +37,17 @@ glide_mouse() {
   done
 }
 
-# The 3D model sub-agent spawns about 1.5 seconds after its request, while the study guide sub-agent writes for about
-# 12 seconds more, so the list opens while both run.
+# YouTube opens the chat replay a moment after the page loads, so this keeps trying for about 15 seconds.
+hide_chat_javascript="(() => { const hideButton = [...document.querySelectorAll('ytd-live-chat-frame button')].find(button => /hide chat/i.test(button.getAttribute('aria-label') || button.innerText || '')); if (!hideButton) return 'no hide button'; hideButton.click(); return 'hidden'; })()"
+for _ in $(seq 1 30); do
+  [[ "$(run_in_front_tab "$hide_chat_javascript")" == hidden ]] && echo "hid the chat replay" && break
+  sleep 0.5
+done
+
+# The 3D model sub-agent spawns about 1.5 seconds after its request, and the study guide sub-agent finishes about 4
+# seconds after that, so the list opens as soon as both run.
 wait_for_log_line 'saying "build me' || exit 1
-sleep 2.5
+sleep 1.6
 "$verify_script" key agents-list
 sleep 3.5
 "$verify_script" key agents-list
