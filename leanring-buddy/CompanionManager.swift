@@ -2518,8 +2518,9 @@ final class CompanionManager: ObservableObject {
         let mediaRectToRiseFrom = sourceVideoIsInFront ? VideoQuizSession.screenRectOfTheMediaToRiseFrom() : nil
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else {
             // A push-to-talk press during the capture cancelled the rise, so the model waits again for "show the model",
-            // unless a newer one took its place. A newer scene request holds Clicky's pause for its own scene, so the
-            // video plays on only when none started, and after a cleared pop-out lands, as every resume waits.
+            // unless a newer one took its place. The video plays on only when no newer request started, after a cleared
+            // pop-out lands, as every resume waits. Any newer request counts, since a scene request holds Clicky's
+            // pause for its own scene, so a plain question asked during the capture leaves the video paused.
             readyThreeDModel = readyThreeDModel ?? modelToShow
             guard requestGeneration == liveSceneRequestGeneration else { return }
             await LiveSceneOverlay.shared.waitForReturnToFinish()
