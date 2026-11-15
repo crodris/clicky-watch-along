@@ -115,6 +115,34 @@ final class CompanionManager: ObservableObject {
     }()
 
     private lazy var voiceCommandClient = VoiceCommandClient(workerBaseURL: Self.workerBaseURL)
+    private lazy var studyGuideClient = StudyGuideClient(workerBaseURL: Self.workerBaseURL)
+    /// The Notion page and guide JSON written for each video, filed under the video's URL when its guide was started,
+    /// so a revise or an open finds it later.
+    private let savedStudyGuides = SavedStudyGuides(userDefaults: .standard)
+    /// The hold that keeps the blue cursor on a quiz question's "?" label, so only the end of that question releases it.
+    private var quizQuestionPointingID: UUID?
+    /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
+    private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
+    /// Saved guides whose page Notion confirmed since launch, so the check costs one Worker call per guide per launch.
+    private var studyGuidePageHandlesFoundInNotion: Set<String> = []
+    /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
+    /// and must not cancel a guide that is still being written.
+    private var studyGuideTask: Task<Void, Never>?
+    /// The video in front when a miss landed while a guide was being written. That guide read its quiz results when
+    /// it started, so this video's guide is refreshed once that guide is written, while the video is still in front.
+    /// After a failure, a cancel, or a tab switch the refresh is dropped, and the miss reaches the page only with the
+    /// video's next refresh or revise. PR 21 replaces this queue with one background agent per video.
+    private var studyGuideRefreshIsDueForQuizVideoURL: String?
+    /// True while a refresh checks the page in Notion, before its guide task starts, so a rehearsal step that waits
+    /// for the guide does not run in between.
+    private var studyGuideRefreshIsBeingChecked = false
+    /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
+    let backgroundAgentStore = BackgroundAgentStore()
+    private lazy var agentListPanelController = AgentListPanelController(
+        store: backgroundAgentStore,
+        cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) }
+    )
+    private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
 
@@ -171,6 +199,7 @@ final class CompanionManager: ObservableObject {
 
     private var shortcutTransitionCancellable: AnyCancellable?
     private var escapeKeyCancellable: AnyCancellable?
+    private var agentListShortcutCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
@@ -283,6 +312,7 @@ final class CompanionManager: ObservableObject {
         bindShortcutTransitions()
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
+        bindShiftOptionHoldToTheAgentList()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -407,6 +437,8 @@ final class CompanionManager: ObservableObject {
         shortcutTransitionCancellable?.cancel()
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
+        agentListShortcutCancellable?.cancel()
+        agentListPanelController.close()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
@@ -592,6 +624,16 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    /// Holding shift + option opens the agent list, and holding them again closes it.
+    private func bindShiftOptionHoldToTheAgentList() {
+        agentListShortcutCancellable = globalPushToTalkShortcutMonitor
+            .agentListShortcutPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.agentListPanelController.toggle()
+            }
+    }
+
     private func bindPinchToLiveSceneZoom() {
         pinchCancellable = globalPushToTalkShortcutMonitor
             .pinchMagnificationPublisher
@@ -724,9 +766,9 @@ final class CompanionManager: ObservableObject {
     private static func liveSceneExploreVoiceResponseInstructions(partLabels: [String]) -> String {
         let lengthAndTagInstructions: String
         if partLabels.isEmpty {
-            lengthAndTagInstructions = "reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. the only tag you may write is [POINT:none], at the very end."
+            lengthAndTagInstructions = "reply with one short, plain spoken sentence about what they're seeing inside, with no exclamation marks, at most 20 words. the only tag you may write is [POINT:none], at the very end."
         } else {
-            lengthAndTagInstructions = "the model has these exact part names: \(partLabels.joined(separator: ", ")). reply with two to four short, cheerful spoken sentences about what they're seeing inside, at most 20 words each. start each sentence with [PART:name] using one of those exact names. the only other tag you may write is [POINT:none], at the very end."
+            lengthAndTagInstructions = "the model has these exact part names: \(partLabels.joined(separator: ", ")). reply with two to four short, plain spoken sentences about what they're seeing inside, with no exclamation marks, at most 20 words each. start each sentence with [PART:name] using one of those exact names. the only other tag you may write is [POINT:none], at the very end."
         }
         return """
 
@@ -742,22 +784,39 @@ final class CompanionManager: ObservableObject {
     /// whole voice and quiz loop can be tested unattended. A transcript that
     /// starts with "~" does not wait for Clicky: the next one follows 6 seconds
     /// later, while a scene is still building. In a "?" step, "{answer}" becomes
-    /// the open question's answer label, since the plan picks a new question each run.
+    /// the open question's answer label, since the plan picks a new question each run. A transcript that starts
+    /// with "&" waits until no study guide is being written, so a demo can open the guide it just asked for.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStep in transcripts {
             let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
             // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
             let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
-            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion ? String(rehearsalStep.dropFirst()) : rehearsalStep
+            let stepWaitsForTheStudyGuide = rehearsalStep.hasPrefix("&")
+            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion || stepWaitsForTheStudyGuide
+                ? String(rehearsalStep.dropFirst())
+                : rehearsalStep
+            if stepWaitsForTheStudyGuide {
+                // A guide takes about 15 seconds, so 3 minutes covers every retry the Worker makes.
+                for _ in 0..<720 where studyGuideTask != nil || studyGuideRefreshIsBeingChecked {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+                // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+            }
             if stepWaitsForAQuestion {
-                // A learner answers after hearing the question, so wait for it to start and end.
+                // A learner answers after hearing the question, so wait for it to start and end. A second answer to
+                // the same question comes after Clicky's reply to the first, so 2 quiet seconds with the question
+                // waiting count as heard too.
                 var questionAudioHasStarted = false
+                var quietSecondsWithTheQuestionWaiting = 0.0
                 for _ in 0..<960 {
                     var questionIsWaiting = false
                     if case .awaitingAnswer = liveScenePhase { questionIsWaiting = true }
                     if questionIsWaiting && elevenLabsTTSClient.isPlaying { questionAudioHasStarted = true }
                     if questionIsWaiting && questionAudioHasStarted && !elevenLabsTTSClient.isPlaying { break }
+                    quietSecondsWithTheQuestionWaiting = questionIsWaiting && !elevenLabsTTSClient.isPlaying ? quietSecondsWithTheQuestionWaiting + 0.25 : 0
+                    if quietSecondsWithTheQuestionWaiting >= 2 { break }
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
                 if case .awaitingAnswer(let openQuiz, _) = liveScenePhase {
@@ -1519,7 +1578,7 @@ final class CompanionManager: ObservableObject {
             case .nameOnly:
                 judgedAnswer = LiveSceneJudgedAnswer(
                     verdict: .answer(wordMatchGrade),
-                    spokenReply: "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
+                    spokenReply: "Yes, it's \(quiz.answerLabel.lowercased()). And what does it do?"
                 )
             case .askedForHelp:
                 judgedAnswer = LiveSceneJudgedAnswer(
@@ -1529,7 +1588,7 @@ final class CompanionManager: ObservableObject {
             case .wrong:
                 judgedAnswer = LiveSceneJudgedAnswer(
                     verdict: .answer(wordMatchGrade),
-                    spokenReply: "Ooh, not quite! Take another look."
+                    spokenReply: "Not quite. Take another look."
                 )
             }
         }
@@ -1564,6 +1623,14 @@ final class CompanionManager: ObservableObject {
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
+        // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
+        if !(grade == .wrong && wrongAnswerCount == 0) {
+            releaseTheBuddyFromTheQuizQuestion()
+        }
+        if videoQuizQuestionIsActive, let studyGuideOutcome = studyGuideQuizOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount),
+           videoQuizSession.recordTheOpenQuestionOutcome(studyGuideOutcome) {
+            refreshTheStudyGuideAfterAQuizOutcome(studyGuideOutcome)
+        }
         switch grade {
         case .nameAndFunctionWord:
             liveScenePhase = .allLabelsShowing
@@ -1671,7 +1738,7 @@ final class CompanionManager: ObservableObject {
         switch videoQuizCommand {
         case .start:
             videoQuizSession.start()
-            spokenLine = "Sure! Let me read through this video."
+            spokenLine = "Sure, let me read through this video."
         case .stop:
             // A question's block below resets the phase, so whether a scene was building is read first.
             let aSceneWasBuilding: Bool
@@ -1700,7 +1767,7 @@ final class CompanionManager: ObservableObject {
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }
-            spokenLine = "Okay, I'll stop quizzing. That was fun!"
+            spokenLine = "Okay, I'll stop quizzing."
         }
 
         currentResponseTask = Task {
@@ -1778,9 +1845,9 @@ final class CompanionManager: ObservableObject {
 
     private func spokenLineAfterTheQuizEnds(quiz: LiveSceneQuiz, learnerSaidWhatThePartDoes: Bool) -> String {
         if learnerSaidWhatThePartDoes {
-            return "Yes! \(quiz.explanation) Nice work!"
+            return "Yes. \(quiz.explanation)"
         }
-        return "Good try! \(quiz.explanation)"
+        return "Good try. \(quiz.explanation)"
     }
 
     /// No scene is on screen, so nothing else will resume a video paused for it.
@@ -1810,10 +1877,15 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape ends the scene and anything Clicky is still saying about it.
+    /// Escape closes the agent list when it is open. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
+        // With the agent list open, Escape only closes it.
+        if agentListPanelController.isOpen {
+            agentListPanelController.close()
+            return
+        }
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
             clearTheLiveSceneAndReleaseTheBuddy()
@@ -1864,6 +1936,10 @@ final class CompanionManager: ObservableObject {
     }
 
     private func skipTheVideoQuizQuestion() {
+        // An answered question is already closed, so a skip after the answer records nothing and rebuilds no guide.
+        if videoQuizSession.recordTheOpenQuestionOutcome(.skipped) {
+            refreshTheStudyGuideAfterAQuizOutcome(.skipped)
+        }
         currentResponseTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
@@ -1897,7 +1973,12 @@ final class CompanionManager: ObservableObject {
             // Only after the phase changes, because a new question cancels this
             // task and .touring has no way to release the mouse.
             LiveSceneOverlay.shared.letLearnerDragTheModel()
+            // The "?" label's place is read while the question starts playing, as a narration reads its part's.
+            let settledLabelScreenPointsTask = Task {
+                await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
+            }
             await self.speakLiveSceneLine(quiz.question)
+            self.pointTheBuddyAtTheQuizQuestion(quiz, labelScreenPoints: await settledLabelScreenPointsTask.value)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -1920,17 +2001,19 @@ final class CompanionManager: ObservableObject {
 
     private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
         let commandStartedAt = Date()
-        // The two page reads wait on WebKit, not on each other.
+        // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
         async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
         async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
-        let (pageTools, pageState) = await (pageToolsRead, pageStateRead)
+        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
+        let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
         let appToolContext = AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
             videoIsInFront: frontVideoState != nil,
             videoIsOnYouTube: frontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
-            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2086,7 +2169,229 @@ final class CompanionManager: ObservableObject {
         case .endQuiz:
             handleVideoQuizVoiceCommand(.stop)
             return .handedOff
+        case .makeStudyGuide:
+            return startWritingTheStudyGuide(.write(focus: studyGuideWish(fromModelText: input["focus"]?.stringValue)))
+        case .reviseStudyGuide:
+            guard let instruction = studyGuideWish(fromModelText: input["instruction"]?.stringValue) else {
+                return .failed(error: "instruction must say what to change", state: nil)
+            }
+            return startWritingTheStudyGuide(.revise(instruction: instruction))
+        case .openStudyGuide:
+            guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
+                return .failed(error: "No study guide has been written for this video yet", state: nil)
+            }
+            // Checked again here, since the learner may have trashed the page since the tools were offered.
+            guard let studyGuideRecord = await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: true) else {
+                return .failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil)
+            }
+            let pageURL = studyGuideRecord.pageURL
+            if let chromeTabID = studyGuideChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
+                return .changed(state: nil)
+            }
+            // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
+            guard studyGuidePageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
+                return .failed(error: "The study guide page would not open", state: nil)
+            }
+            return .changed(state: nil)
         }
+    }
+
+    // MARK: - Study Guide
+
+    /// A guide exists for the video in front only when that video is on YouTube and a guide is saved for it whose page
+    /// is still in Notion.
+    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?) async -> Bool {
+        guard frontVideoState?["onYouTube"]?.boolValue == true,
+              let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
+            return false
+        }
+        return await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: false) != nil
+    }
+
+    /// The guide saved for this video, unless its Notion page was trashed or deleted. Then the saved guide is forgotten,
+    /// so the video can get a new one. Each guide is checked once per launch, or every time with checkEvenIfCheckedBefore.
+    /// When the Worker cannot say, the saved guide stands, so a network hiccup never loses it.
+    private func savedStudyGuideStillInNotion(forVideoURL videoURL: String, checkEvenIfCheckedBefore: Bool) async -> StudyGuideRecord? {
+        guard let savedRecord = savedStudyGuides.record(forVideoURL: videoURL) else { return nil }
+        if !checkEvenIfCheckedBefore && studyGuidePageHandlesFoundInNotion.contains(savedRecord.pageHandle) {
+            return savedRecord
+        }
+        do {
+            guard try await studyGuideClient.pageStillExists(pageHandle: savedRecord.pageHandle) else {
+                print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
+                savedStudyGuides.forget(forVideoURL: videoURL)
+                studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
+                studyGuideChromeTabIDsByPageURL[savedRecord.pageURL] = nil
+                return nil
+            }
+            studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
+        } catch {
+            print("Study guide: could not check \(savedRecord.pageURL) in Notion, so the saved guide stands: \(error)")
+        }
+        return savedRecord
+    }
+
+    /// Starts the guide in the background and returns at once, so the router speaks its own confirmation
+    /// and the video keeps playing. One guide is written at a time.
+    private func startWritingTheStudyGuide(_ studyGuideJob: StudyGuideJob) -> VoiceToolOutcome {
+        guard studyGuideTask == nil else {
+            return .failed(error: "A study guide is still being written", state: nil)
+        }
+        studyGuideTask = Task {
+            let guideWasWritten = await self.writeTheStudyGuide(studyGuideJob)
+            self.studyGuideTask = nil
+            let quizVideoURLDueARefresh = self.studyGuideRefreshIsDueForQuizVideoURL
+            self.studyGuideRefreshIsDueForQuizVideoURL = nil
+            // After a failure or a cancel the queued refresh would fail the same way or undo the cancel, and the miss
+            // stays in the quiz log, so the video's next refresh or revise sends it.
+            if guideWasWritten, let quizVideoURLDueARefresh {
+                self.refreshTheStudyGuide(forQuizVideoURL: quizVideoURLDueARefresh)
+            }
+        }
+        return .changed(state: .object(["studyGuide": .string("started")]))
+    }
+
+    /// A missed or skipped question reaches a guide already written for the quiz video, by an update agent in the
+    /// background, so the guide shows the miss without the learner asking.
+    private func refreshTheStudyGuideAfterAQuizOutcome(_ outcome: StudyGuideQuizOutcome) {
+        guard quizOutcomeRefreshesTheStudyGuide(outcome),
+              let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else { return }
+        // A guide being written read its quiz results when it started, so the refresh runs once it ends.
+        guard studyGuideTask == nil else {
+            studyGuideRefreshIsDueForQuizVideoURL = quizVideoURL
+            return
+        }
+        refreshTheStudyGuide(forQuizVideoURL: quizVideoURL)
+    }
+
+    /// Nothing happens for a video with no guide, whose next guide includes the miss anyway. The page is checked in
+    /// Notion first, so a miss never brings back a guide the learner trashed. A guide is written from the video in
+    /// front, so the refresh runs only while the quiz video is still there; otherwise the miss stays in the quiz log
+    /// for that video's next refresh or revise.
+    private func refreshTheStudyGuide(forQuizVideoURL quizVideoURL: String) {
+        guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
+              studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL) else {
+            return
+        }
+        studyGuideRefreshIsBeingChecked = true
+        Task {
+            defer { self.studyGuideRefreshIsBeingChecked = false }
+            guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil else { return }
+            guard self.studyGuideTask == nil else {
+                self.studyGuideRefreshIsDueForQuizVideoURL = quizVideoURL
+                return
+            }
+            print("Study guide: updating the guide with the quiz miss")
+            _ = self.startWritingTheStudyGuide(.refresh)
+        }
+    }
+
+    /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
+    /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
+    @discardableResult
+    private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob) async -> Bool {
+        let startedAt = Date()
+        let agentKind = studyGuideJob.agentKind
+        let agentID = backgroundAgentStore.start(kind: agentKind)
+        do {
+            let video = try await videoQuizSession.frontVideoForStudyGuide()
+            backgroundAgentStore.setSubject(video.title, for: agentID)
+            backgroundAgentStore.completeStep(for: agentID)
+            print("Study guide: read the captions in \(String(format: "%.1f", Date().timeIntervalSince(startedAt))) s")
+            var studyGuideRevision: StudyGuideRevision?
+            var studyGuideFocus: String?
+            var pageURLTheRevisionReplaces: URL?
+            var quizResultsForTheGuide = video.quizResults
+            switch studyGuideJob {
+            case .write(let focus):
+                // The tools were offered for the tab in front when the command arrived, and the learner may have
+                // switched to a video that already has a guide since.
+                guard savedStudyGuides.record(forVideoURL: video.url) == nil else {
+                    throw StudyGuideError.guideAlreadyWritten
+                }
+                studyGuideFocus = focus
+            case .revise, .refresh:
+                guard let previousRecord = savedStudyGuides.record(forVideoURL: video.url) else {
+                    print("Study guide: no guide to revise for \(video.url)")
+                    throw StudyGuideError.noGuideToRevise
+                }
+                var revisionInstruction: String?
+                if case .revise(let instruction) = studyGuideJob { revisionInstruction = instruction }
+                studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: revisionInstruction)
+                pageURLTheRevisionReplaces = previousRecord.pageURL
+                // The Worker rebuilds "Review these first" from the results it gets, so the ones already on the page
+                // go along with the ones logged since launch.
+                quizResultsForTheGuide = studyGuideQuizResults(saved: previousRecord.quizResults, logged: video.quizResults)
+            }
+            var studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
+                videoTitle: video.title,
+                videoURL: video.url,
+                transcriptLines: video.transcriptLines,
+                quizResults: quizResultsForTheGuide,
+                focus: studyGuideFocus,
+                revision: studyGuideRevision
+            ))
+            studyGuideRecord.quizResults = quizResultsForTheGuide
+            // A guide cancelled from the agent list keeps no record, even when the Worker had already replied.
+            try Task.checkCancellation()
+            // Filed under the video the guide was written for, not whichever tab is in front now.
+            savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
+            print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
+            finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
+            return true
+        } catch {
+            if Task.isCancelled || errorIsACancellation(error) {
+                // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip.
+                print("Study guide: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
+                return false
+            }
+            print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
+            VoiceToolCallChip.shared.show(
+                studyGuideFailureLine(for: error),
+                sender: .backgroundAgent(agentKind),
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
+            return false
+        }
+    }
+
+    /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
+    /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
+    private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
+        let agentKind = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.kind ?? .studyGuide
+        backgroundAgentStore.finish(agentID, with: result)
+        switch result {
+        case .notionPage(let pageURL):
+            // "Glass" belongs to quiz answers.
+            NSSound(named: "Tink")?.play()
+            // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
+            var secondaryChipText = "· say open my study guide"
+            if let replacingPageURL, let replacedPageChromeTabID = studyGuideChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
+               videoQuizSession.loadPageInChromeTab(pageURL, tabID: replacedPageChromeTabID) {
+                studyGuideChromeTabIDsByPageURL[pageURL] = replacedPageChromeTabID
+                secondaryChipText = "· updated in its tab"
+            } else if let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
+                studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
+                secondaryChipText = "· opened in a new tab"
+            }
+            VoiceToolCallChip.shared.show(
+                agentKind.finishedChipText,
+                sender: .backgroundAgent(agentKind),
+                secondaryChipText: secondaryChipText,
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
+        }
+    }
+
+    /// Cancels a running agent from the agent list. The cancelled agent keeps no chip and no record.
+    func cancelBackgroundAgent(_ agentID: UUID) {
+        guard let agent = backgroundAgentStore.agents.first(where: { $0.id == agentID }), agent.isRunning else { return }
+        switch agent.kind {
+        case .studyGuide, .studyGuideUpdate:
+            studyGuideTask?.cancel()
+        }
+        backgroundAgentStore.cancel(agentID)
     }
 
     private func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand) -> VoiceToolOutcome {
@@ -2109,7 +2414,8 @@ final class CompanionManager: ObservableObject {
             videoIsInFront: debugFrontVideoState != nil,
             videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
-            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer
+            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
+            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
@@ -2189,14 +2495,17 @@ final class CompanionManager: ObservableObject {
     /// through playback, so the quiz is the next thing Clicky says.
     private func waitUntilTheVoiceAnswerIsQuiet() async {
         while !Task.isCancelled {
-            let voiceAnswerIsStillRunning = voiceState == .processing
-                || voiceState == .listening
-                || elevenLabsTTSClient.isPlaying
             if !voiceAnswerIsStillRunning {
                 return
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
+    }
+
+    private var voiceAnswerIsStillRunning: Bool {
+        voiceState == .processing
+            || voiceState == .listening
+            || elevenLabsTTSClient.isPlaying
     }
 
     /// Waits for the line in progress, because a new line would cut it off.
@@ -2347,6 +2656,33 @@ final class CompanionManager: ObservableObject {
         detectedElementBubbleText = bubbleText
         detectedElementDisplayFrame = displayFrame
         detectedElementScreenLocation = partScreenPoint.globalPoint
+    }
+
+    /// The blue cursor flies to the quiz's "?" label and its bubble shows the question, typed along with the voice, so a
+    /// learner can read a long question again while answering. It stays until the question is answered, or the scene
+    /// clears, which releases any held pointing.
+    private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {
+        var quizAnswerPartLabel: String?
+        if case .framePopout(let framePopoutOnScreen) = liveScenePageOnScreen {
+            quizAnswerPartLabel = framePopoutOnScreen.parts.first(where: \.isQuizAnswer)?.label
+        }
+        guard !Task.isCancelled, case .awaitingAnswer = liveScenePhase,
+              let questionLabelScreenPoint = quizQuestionLabelScreenPoint(
+                in: labelScreenPoints,
+                quizAnswerPartLabel: quizAnswerPartLabel,
+                answerLabel: quiz.answerLabel
+              ) else {
+            return
+        }
+        let questionPointingID = UUID()
+        quizQuestionPointingID = questionPointingID
+        pointTheBuddy(atLiveScenePart: questionLabelScreenPoint, bubbleText: quiz.question, narrationID: questionPointingID)
+    }
+
+    private func releaseTheBuddyFromTheQuizQuestion() {
+        guard let quizQuestionPointingID else { return }
+        releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: quizQuestionPointingID)
+        self.quizQuestionPointingID = nil
     }
 
     /// Only the narration that pointed the buddy releases it, so an older narration that finishes

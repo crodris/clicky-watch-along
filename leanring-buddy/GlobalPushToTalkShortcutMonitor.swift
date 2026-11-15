@@ -16,6 +16,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
     let pinchMagnificationPublisher = PassthroughSubject<Double, Never>()
     let escapeKeyPressPublisher = PassthroughSubject<Void, Never>()
+    /// Sends once each time shift + option is held for 0.3 seconds with nothing else pressed.
+    let agentListShortcutPublisher = PassthroughSubject<Void, Never>()
     private static let escapeKeyCode: UInt16 = 53
 
     // CoreGraphics has no public names for gesture events. These are the values
@@ -32,6 +34,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     /// Published so the overlay can hide immediately on key release without
     /// waiting for the async dictation state pipeline to catch up.
     @Published private(set) var isShortcutCurrentlyPressed = false
+
+    private var agentListShortcutRecognizer = AgentListShortcutRecognizer()
+    /// Wakes the recognizer when a shift + option hold reaches its time, since no event arrives while the keys stay down.
+    private var agentListHoldTimer: Timer?
 
     deinit {
         stop()
@@ -95,6 +101,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
     func stop() {
         isShortcutCurrentlyPressed = false
+        agentListHoldTimer?.invalidate()
+        agentListHoldTimer = nil
+        agentListShortcutRecognizer = AgentListShortcutRecognizer()
 
         if let globalEventTapRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
@@ -129,6 +138,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         if eventType == .keyDown && eventKeyCode == Self.escapeKeyCode {
             escapeKeyPressPublisher.send()
         }
+        feedTheAgentListShortcutRecognizer(eventType: eventType, event: event)
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,
@@ -148,5 +158,29 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func feedTheAgentListShortcutRecognizer(eventType: CGEventType, event: CGEvent) {
+        switch eventType {
+        case .flagsChanged:
+            agentListShortcutRecognizer.modifiersChanged(
+                NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)),
+                at: ProcessInfo.processInfo.systemUptime
+            )
+        case .keyDown:
+            agentListShortcutRecognizer.keyWasPressed()
+        default:
+            return
+        }
+        agentListHoldTimer?.invalidate()
+        agentListHoldTimer = nil
+        guard let holdCompletesAt = agentListShortcutRecognizer.holdCompletesAt else { return }
+        let secondsUntilTheHoldCompletes = max(0, holdCompletesAt - ProcessInfo.processInfo.systemUptime)
+        agentListHoldTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilTheHoldCompletes, repeats: false) { [weak self] _ in
+            guard let self, let holdCompletesAt = self.agentListShortcutRecognizer.holdCompletesAt else { return }
+            if self.agentListShortcutRecognizer.timeAdvanced(to: holdCompletesAt) {
+                self.agentListShortcutPublisher.send()
+            }
+        }
     }
 }

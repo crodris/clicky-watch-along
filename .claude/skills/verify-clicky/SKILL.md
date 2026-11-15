@@ -110,6 +110,7 @@ The app waits 3 seconds, then sends each step as if it were spoken.
 It waits for the step's own work to finish, including a pop-out's narration, and then for any tour or speech still going, before the next step.
 A step that starts with `?` first waits up to 4 minutes for a quiz question to be asked and spoken, then answers it.
 A step that starts with `~` lets the next step interrupt it after 6 seconds.
+A step that starts with `&` first waits up to 3 minutes for a study guide being written to finish, then 4 seconds more for its finish chip.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
 It prints the relevant log lines and saves the usage lines the 8787 Worker logged during the run.
 
@@ -121,7 +122,7 @@ The drive primitives are:
 ```bash
 $V post <route> <body.json> [port]   # default port 8789, a Worker this script started
 $V shot <name>                       # one PNG per display
-$V key <escape|push-to-talk-tap>     # a real key event through System Events
+$V key <escape|push-to-talk-tap|agents-list>     # a real key event through System Events
 ```
 
 `post` saves the response body to the run and prints it.
@@ -152,7 +153,7 @@ app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<ste
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.
-key <escape|push-to-talk-tap>
+key <escape|push-to-talk-tap|agents-list>
                           Press that key through System Events, as the learner would, while the app runs.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 ```

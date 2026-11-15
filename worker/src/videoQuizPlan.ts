@@ -86,7 +86,7 @@ const planOutputSchema = {
           question: {
             type: "string",
             description:
-              "A short cheerful opener such as \"Let's pause here!\", then a question about what was just explained. Does not contain the answer.",
+              "The question itself, about what was just explained, with no opener or greeting before it, since it is also saved word for word in the learner's study guide. Does not contain the answer.",
           },
           answerLabel: {
             type: "string",
@@ -134,8 +134,8 @@ const systemPrompt = [
   "",
   "For each moment:",
   "- Write for a curious learner. Ask what something is and what it does, or why it happens.",
-  "- question opens with one short cheerful line, such as \"Let's pause here!\", then asks one thing about what was just explained. It must not contain the answer or hint at it.",
-  "- question is at most two sentences after the opener, short enough to say aloud.",
+  "- question asks one thing about what was just explained, starting with the question itself, with no opener or greeting such as \"Quick question.\" or \"Let's pause here!\", since it is also saved word for word in the learner's study guide. It must not contain the answer or hint at it.",
+  "- question is at most two sentences, short enough to say aloud, with no exclamation mark.",
   "- answerLabel is the name of one thing, in one or two words the learner would say out loud, with no commas or lists. It is a noun naming a thing, such as a body part, a term, or a substance, never a quality like \"no leaking\". A longer name shrinks to its key word or two, such as \"Ampullae\" for \"ampullae of Lorenzini\". Never use three words or more.",
   "- functionWords are lowercase single words about what the answer does or why, such as \"floats\" or \"buoyancy\". Leave out filler words such as \"because\", \"so\", and \"instead\".",
   "- explanation is two short spoken sentences a 10-year-old can follow. It names the answer and says why it matters, using only what the transcript says.",
@@ -171,7 +171,7 @@ function lineStartAtOrAfter(secondsToSnap: number, lineStartsInOrder: number[]):
  * A source time between two line starts names the line that was playing then, which started before it.
  * A source time before the first line keeps its time, so parseVideoQuizPlan rejects a line the model never saw.
  */
-function lineStartAtOrBefore(secondsToSnap: number, lineStartsInOrder: number[]): number {
+export function lineStartAtOrBefore(secondsToSnap: number, lineStartsInOrder: number[]): number {
   return [...lineStartsInOrder].reverse().find((lineStart) => lineStart <= secondsToSnap) ?? secondsToSnap;
 }
 

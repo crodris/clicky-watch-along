@@ -193,6 +193,14 @@ enum DS {
         /// (screen overlay vs in-app UI).
         static let overlayCursorBlue = Color(hex: "#3380FF")
 
+        // ── Background Agents ────────────────────────────────────────
+
+        /// The wingman of a study guide agent. Each new agent kind gets its own color here.
+        static let backgroundAgentStudyGuideAmber = Color(hex: "#FFB020")
+
+        /// The study guide agent's chip letters. Tailwind Amber 700, the status lines' 700 for text.
+        static let backgroundAgentStudyGuideAmberText = Color(hex: "#b45309")
+
         // ── Floating Button Gradient ─────────────────────────────────
 
         /// The floating session button gradient colors (unchanged from original —

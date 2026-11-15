@@ -596,7 +596,7 @@ struct leanring_buddyTests {
         #expect(partLabelToExplain(untrustedTappedLabel: "aorta", pageOnScreen: framePopoutOnScreen, liveScenePhase: .allLabelsShowing) == nil)
         // A generated page or the landmark page cannot ask for an explanation, even with a matching label.
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: .generatedPage, liveScenePhase: .allLabelsShowing) == nil)
-        let landmarkNamedLikeThePart = FamousPlace(name: "Aorta", latitude: 48.86, longitude: 2.29, heightMeters: 330, radiusMeters: 60)
+        let landmarkNamedLikeThePart = FamousPlace(name: "Aorta", nameTakesThe: false, latitude: 48.86, longitude: 2.29, heightMeters: 330, radiusMeters: 60)
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: .landmark(landmarkNamedLikeThePart), liveScenePhase: .allLabelsShowing) == nil)
         #expect(partLabelToExplain(untrustedTappedLabel: "Aorta", pageOnScreen: nil, liveScenePhase: .allLabelsShowing) == nil)
     }
@@ -1096,4 +1096,568 @@ struct leanring_buddyTests {
         // A URL with no v parameter, such as youtu.be, never matches.
         #expect(!debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://youtu.be/heOiSg21Lx8"))
     }
+
+    // MARK: - Study guide
+
+    @Test func aGuideIsSavedUnderItsYouTubeVideoSoTheSameVideoFindsItAfterARelaunch() async throws {
+        #expect(studyGuideVideoKey(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0") == "L24Wf0VlTE0")
+        #expect(studyGuideVideoKey(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0&t=60s&list=PL1") == "L24Wf0VlTE0")
+        #expect(studyGuideVideoKey(forVideoURL: "https://youtu.be/L24Wf0VlTE0?t=5") == "L24Wf0VlTE0")
+        #expect(studyGuideVideoKey(forVideoURL: "https://m.youtube.com/shorts/abc123") == "abc123")
+        #expect(studyGuideVideoKey(forVideoURL: "https://vimeo.com/123") == "https://vimeo.com/123")
+
+        let userDefaultsSuiteName = "studyGuideTest-\(UUID().uuidString)"
+        let testUserDefaults = try #require(UserDefaults(suiteName: userDefaultsSuiteName))
+        defer { testUserDefaults.removePersistentDomain(forName: userDefaultsSuiteName) }
+        let studyGuideRecord = StudyGuideRecord(
+            pageHandle: "handle",
+            pageURL: try #require(URL(string: "https://www.notion.so/p1")),
+            guide: .object(["title": .string("How Jet Engines Work")])
+        )
+        SavedStudyGuides(userDefaults: testUserDefaults).save(studyGuideRecord, forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0")
+        // A fresh instance over the same storage stands in for the app after a relaunch.
+        let savedAfterARelaunch = SavedStudyGuides(userDefaults: testUserDefaults)
+        #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0&t=90s") == studyGuideRecord)
+        #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=otherVideo") == nil)
+        #expect(testUserDefaults.data(forKey: "savedStudyGuide.L24Wf0VlTE0") != nil)
+        // A guide whose page is gone from Notion is forgotten, so the video can get a new one.
+        savedAfterARelaunch.forget(forVideoURL: "https://youtu.be/L24Wf0VlTE0")
+        #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0") == nil)
+    }
+
+    @Test func studyGuideToolsAreOfferedOnlyWhereTheyCanWork() async throws {
+        func context(onYouTube: Bool = true, questionOpen: Bool = false, guideExists: Bool = false) -> AppVoiceTool.Context {
+            AppVoiceTool.Context(
+                sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: onYouTube,
+                videoQuizIsRunning: false, quizQuestionIsOpen: questionOpen, studyGuideExistsForTheFrontVideo: guideExists
+            )
+        }
+        let studyGuideTools: [AppVoiceTool] = [.makeStudyGuide, .reviseStudyGuide, .openStudyGuide]
+
+        #expect(AppVoiceTool.available(in: context()).contains(.makeStudyGuide))
+        #expect(!AppVoiceTool.available(in: context()).contains(.reviseStudyGuide))
+        #expect(!AppVoiceTool.available(in: context()).contains(.openStudyGuide))
+        #expect(AppVoiceTool.available(in: context(guideExists: true)).contains(.reviseStudyGuide))
+        #expect(AppVoiceTool.available(in: context(guideExists: true)).contains(.openStudyGuide))
+        #expect(!AppVoiceTool.available(in: context(guideExists: true)).contains(.makeStudyGuide))
+        for studyGuideTool in studyGuideTools {
+            #expect(!AppVoiceTool.available(in: context(onYouTube: false, guideExists: studyGuideTool != .makeStudyGuide)).contains(studyGuideTool))
+            #expect(!AppVoiceTool.available(in: context(questionOpen: true, guideExists: studyGuideTool != .makeStudyGuide)).contains(studyGuideTool))
+            // None of them reads the spoken request, so the debug MCP endpoint offers them too.
+            #expect(!studyGuideTool.needsTheSpokenRequest)
+        }
+        let noVideoInFront = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false, studyGuideExistsForTheFrontVideo: true)
+        for studyGuideTool in studyGuideTools {
+            #expect(!AppVoiceTool.available(in: noVideoInFront).contains(studyGuideTool))
+        }
+    }
+
+    @Test func studyGuideToolsSayWhatTheyDoInTheChip() async throws {
+        func call(_ name: String) -> VoiceToolCall { VoiceToolCall(id: "test", name: name, input: [:]) }
+
+        #expect(call("make_study_guide").chipPhrase == "Starting your study guide")
+        #expect(call("revise_study_guide").chipPhrase == "Updating your study guide")
+        #expect(call("open_study_guide").chipPhrase == "Opening your study guide")
+        #expect(call("make_study_guide").chipPhraseToShow(at: .afterTheCall(.changed(state: nil))) == "Starting your study guide")
+        #expect(call("make_study_guide").chipPhraseToShow(at: .afterTheCall(.failed(error: "A study guide is still being written", state: nil))) == nil)
+    }
+
+    @Test func aQuizAnswerCountsTowardTheStudyGuideOnlyOnceTheQuestionIsDecided() async throws {
+        #expect(studyGuideQuizOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 0) == .gotIt)
+        #expect(studyGuideQuizOutcome(grade: .nameOnly, wrongAnswerCount: 0) == .gotIt)
+        #expect(studyGuideQuizOutcome(grade: .nameAndFunctionWord, wrongAnswerCount: 1) == .missed)
+        #expect(studyGuideQuizOutcome(grade: .nameOnly, wrongAnswerCount: 1) == .missed)
+        #expect(studyGuideQuizOutcome(grade: .askedForHelp, wrongAnswerCount: 0) == .missed)
+        #expect(studyGuideQuizOutcome(grade: .wrong, wrongAnswerCount: 0) == nil)
+        #expect(studyGuideQuizOutcome(grade: .wrong, wrongAnswerCount: 1) == .missed)
+    }
+
+    @Test func theQuizLogKeepsOneResultPerQuestionPerVideo() async throws {
+        var quizLog = StudyGuideQuizLog()
+        let closedWithNoQuestionOpen = quizLog.closeTheOpenQuestion(with: .skipped)
+        #expect(!closedWithNoQuestionOpen)
+
+        // A quiz on a playlist URL counts toward the guide saved from the plain watch URL.
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=a&list=PL1", question: "What pumps the blood?", answerLabel: "Heart", explanation: "It pumps blood.", askedAtSeconds: 42)
+        let recordedTheAnswer = quizLog.closeTheOpenQuestion(with: .gotIt)
+        #expect(recordedTheAnswer)
+        // The follow-up grade and an Escape after the answer must not add a second result, so they record nothing and
+        // rebuild no guide.
+        let recordedTheFollowUpGrade = quizLog.closeTheOpenQuestion(with: .missed)
+        let recordedTheEscapeAfterTheAnswer = quizLog.closeTheOpenQuestion(with: .skipped)
+        #expect(!recordedTheFollowUpGrade)
+        #expect(!recordedTheEscapeAfterTheAnswer)
+        quizLog.questionIsAsked(videoURL: "https://youtu.be/a", question: "What is the valve?", answerLabel: "Aorta", explanation: "It carries blood out.", askedAtSeconds: 90)
+        quizLog.closeTheOpenQuestion(with: .skipped)
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=b", question: "Other video", answerLabel: "Wing", explanation: "It lifts.", askedAtSeconds: 5)
+        quizLog.discardTheOpenQuestion()
+        quizLog.closeTheOpenQuestion(with: .gotIt)
+
+        let resultsForFirstVideo = quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=a")
+        #expect(resultsForFirstVideo.map(\.result) == [.gotIt, .skipped])
+        #expect(resultsForFirstVideo.map(\.askedAtSeconds) == [42, 90])
+        #expect(quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=b").isEmpty)
+        // The planner's text has no limit, and the Worker refuses a field over 2,000 UTF-16 units, so the log cuts it.
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=c", question: String(repeating: "q", count: 2_500), answerLabel: "Label", explanation: String(repeating: "🚀", count: 1_500), askedAtSeconds: 7)
+        quizLog.closeTheOpenQuestion(with: .missed)
+        let longResult = try #require(quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=c").first)
+        #expect(longResult.question.utf16.count == 2_000)
+        #expect(longResult.explanation.utf16.count == 2_000)
+        #expect(longResult.answerLabel == "Label")
+    }
+
+    @Test func aRevisedGuideKeepsTheMissesItsPageAlreadyShows() async throws {
+        let savedMiss = StudyGuideQuizResult(question: "What slows the air?", answerLabel: "Stator vanes", explanation: "e", askedAtSeconds: 72, result: .missed)
+        let savedSkip = StudyGuideQuizResult(question: "What mixes the fuel?", answerLabel: "Nozzles", explanation: "e", askedAtSeconds: 124, result: .skipped)
+        let newMiss = StudyGuideQuizResult(question: "What is bypass air?", answerLabel: "Bypass air", explanation: "e", askedAtSeconds: 194, result: .missed)
+        let savedSkipAnsweredAgain = StudyGuideQuizResult(question: savedSkip.question, answerLabel: "Nozzles", explanation: "e", askedAtSeconds: 124, result: .gotIt)
+
+        // After a relaunch the log is empty, so the saved results alone keep the page's misses.
+        #expect(studyGuideQuizResults(saved: [savedMiss, savedSkip], logged: []) == [savedMiss, savedSkip])
+        #expect(studyGuideQuizResults(saved: [savedMiss, savedSkip], logged: [newMiss]) == [savedMiss, savedSkip, newMiss])
+        // A question asked again replaces its saved result.
+        #expect(studyGuideQuizResults(saved: [savedMiss, savedSkip], logged: [savedSkipAnsweredAgain]) == [savedMiss, savedSkipAnsweredAgain])
+        let manyResults = (0..<25).map { questionIndex in
+            StudyGuideQuizResult(question: "q\(questionIndex)", answerLabel: "a", explanation: "e", askedAtSeconds: Double(questionIndex), result: .missed)
+        }
+        #expect(studyGuideQuizResults(saved: manyResults, logged: []).map(\.question) == manyResults.suffix(20).map(\.question))
+
+        // The results a guide was written with survive a relaunch, and a guide saved by an older build reads back with none.
+        let recordWithResults = StudyGuideRecord(
+            pageHandle: "handle",
+            pageURL: try #require(URL(string: "https://www.notion.so/p1")),
+            guide: .object(["title": .string("T")]),
+            quizResults: [savedMiss]
+        )
+        let decodedRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: try JSONEncoder().encode(recordWithResults))
+        #expect(decodedRecord == recordWithResults)
+        let olderRecordData = Data(#"{"pageHandle":"handle","pageURL":"https://www.notion.so/p1","guide":{"title":"T"}}"#.utf8)
+        #expect(try JSONDecoder().decode(StudyGuideRecord.self, from: olderRecordData).quizResults.isEmpty)
+    }
+
+    @Test func studyGuideRequestHasExactlyTheWorkersKeys() async throws {
+        func encodedObject(_ studyGuideRequest: StudyGuideRequest) throws -> [String: Any] {
+            let encodedData = try JSONEncoder().encode(studyGuideRequest)
+            return try #require(try JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
+        }
+        let quizResults = [
+            StudyGuideQuizResult(question: "q1", answerLabel: "a1", explanation: "e1", askedAtSeconds: 12.5, result: .gotIt),
+            StudyGuideQuizResult(question: "q2", answerLabel: "a2", explanation: "e2", askedAtSeconds: 30, result: .missed),
+            StudyGuideQuizResult(question: "q3", answerLabel: "a3", explanation: "e3", askedAtSeconds: 60, result: .skipped),
+        ]
+        let newGuide = StudyGuideRequest(
+            videoTitle: "How engines work",
+            videoURL: "https://www.youtube.com/watch?v=abc",
+            transcriptLines: [VideoQuizTranscriptLine(seconds: 1.5, text: "hello")],
+            quizResults: quizResults,
+            focus: nil,
+            revision: nil
+        )
+        let newGuideObject = try encodedObject(newGuide)
+        #expect(Set(newGuideObject.keys) == ["videoTitle", "videoURL", "transcriptLines", "quizResults"])
+        let transcriptLineObject = try #require((newGuideObject["transcriptLines"] as? [[String: Any]])?.first)
+        #expect(Set(transcriptLineObject.keys) == ["seconds", "text"])
+        let quizResultObjects = try #require(newGuideObject["quizResults"] as? [[String: Any]])
+        #expect(Set(try #require(quizResultObjects.first).keys) == ["question", "answerLabel", "explanation", "askedAtSeconds", "result"])
+        #expect(quizResultObjects.compactMap { $0["result"] as? String } == ["gotIt", "missed", "skipped"])
+
+        let revisedGuide = StudyGuideRequest(
+            videoTitle: newGuide.videoTitle,
+            videoURL: newGuide.videoURL,
+            transcriptLines: newGuide.transcriptLines,
+            quizResults: [],
+            focus: "only the engine",
+            revision: StudyGuideRevision(pageHandle: "page-1.sig", previousGuide: .object(["title": .string("Engines")]), instruction: "make it shorter")
+        )
+        let revisedGuideObject = try encodedObject(revisedGuide)
+        #expect(Set(revisedGuideObject.keys) == ["videoTitle", "videoURL", "transcriptLines", "quizResults", "focus", "revision"])
+        #expect(revisedGuideObject["focus"] as? String == "only the engine")
+        let revisionObject = try #require(revisedGuideObject["revision"] as? [String: Any])
+        #expect(Set(revisionObject.keys) == ["pageHandle", "previousGuide", "instruction"])
+        #expect((revisionObject["previousGuide"] as? [String: Any])?["title"] as? String == "Engines")
+    }
+
+    @Test func studyGuideWishIsTrimmedAndCutToWhatTheWorkerAccepts() async throws {
+        #expect(studyGuideWish(fromModelText: nil) == nil)
+        #expect(studyGuideWish(fromModelText: "  \n ") == nil)
+        #expect(studyGuideWish(fromModelText: "  only the engine ") == "only the engine")
+        #expect(studyGuideWish(fromModelText: String(repeating: "a", count: 500))?.count == 300)
+        // The Worker counts UTF-16 code units, and each of these emoji is two, so 150 of them fill the limit.
+        let emojiWish = try #require(studyGuideWish(fromModelText: String(repeating: "🚀", count: 200)))
+        #expect(emojiWish.utf16.count == 300)
+        #expect(emojiWish.count == 150)
+        // One letter first puts the limit in the middle of an emoji, which is left out whole.
+        let wishEndingMidEmoji = try #require(studyGuideWish(fromModelText: "a" + String(repeating: "🚀", count: 200)))
+        #expect(wishEndingMidEmoji.utf16.count == 299)
+    }
+
+    @Test func studyGuideReplyMapsToARecordOrADistinctError() async throws {
+        let replyData = Data(#"{"pageHandle":"p1.sig","pageURL":"https://www.notion.so/p1","guide":{"title":"T","sections":[]}}"#.utf8)
+        let decodedRecord = try studyGuideRecord(statusCode: 200, responseData: replyData)
+        #expect(decodedRecord.pageHandle == "p1.sig")
+        #expect(decodedRecord.pageURL == URL(string: "https://www.notion.so/p1"))
+        #expect(decodedRecord.guide["title"] == .string("T"))
+
+        #expect(throws: StudyGuideError.notionIsNotConnected) {
+            try studyGuideRecord(statusCode: 503, responseData: Data(#"{"error":"Notion is not connected"}"#.utf8))
+        }
+        #expect(throws: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) {
+            try studyGuideRecord(statusCode: 502, responseData: Data("bad".utf8))
+        }
+        // The app opens the page it saves with NSWorkspace, so a page off Notion is refused.
+        let fileReplyData = Data(#"{"pageHandle":"p1.sig","pageURL":"file:///Applications/Calculator.app","guide":{}}"#.utf8)
+        #expect(throws: StudyGuideError.pageIsNotOnNotion) {
+            try studyGuideRecord(statusCode: 200, responseData: fileReplyData)
+        }
+        #expect(studyGuidePageURLIsOnNotion(try #require(URL(string: "https://app.notion.com/p/Guide-419eb398"))))
+        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "http://www.notion.so/p1"))))
+        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "https://notnotion.so/p1"))))
+    }
+
+    @Test func aHandleTheWorkerRefusesCountsAsAGuideThatIsGone() async throws {
+        #expect(try studyGuidePageExists(statusCode: 200, responseData: Data(#"{"pageExists":true}"#.utf8)))
+        #expect(try !studyGuidePageExists(statusCode: 200, responseData: Data(#"{"pageExists":false}"#.utf8)))
+        // Every saved handle gets a 400 once the Notion token changes, and that guide can never be used again.
+        #expect(try !studyGuidePageExists(statusCode: 400, responseData: Data(#"{"error":"pageHandle was not issued by this Worker"}"#.utf8)))
+        // Anything else means the Worker or Notion cannot say, so the saved guide stands.
+        #expect(throws: StudyGuideError.workerReturned(statusCode: 502, body: "down")) {
+            try studyGuidePageExists(statusCode: 502, responseData: Data("down".utf8))
+        }
+    }
+
+    @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
+        let labelScreenPoints = [
+            LiveScenePartScreenPoint(label: "Rotor blades", globalPoint: CGPoint(x: 10, y: 10)),
+            LiveScenePartScreenPoint(label: "Ampullae of Lorenzini", globalPoint: CGPoint(x: 20, y: 20)),
+        ]
+        // The planner says "Ampullae", but the frame parts call named the marked part "Ampullae of Lorenzini".
+        let questionLabel = quizQuestionLabelScreenPoint(in: labelScreenPoints, quizAnswerPartLabel: "Ampullae of Lorenzini", answerLabel: "Ampullae")
+        #expect(questionLabel?.globalPoint == CGPoint(x: 20, y: 20))
+        #expect(quizQuestionLabelScreenPoint(in: labelScreenPoints, quizAnswerPartLabel: nil, answerLabel: "Rotor blades")?.globalPoint == CGPoint(x: 10, y: 10))
+    }
+
+    // MARK: - Background agents
+
+    private let studyGuidePageURL = URL(string: "https://www.notion.so/p1")!
+
+    @Test func anAgentMovesThroughItsStepsAndFinishesWithItsResult() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        #expect(store.agents.first?.phase == .running(completedStepCount: 0))
+        #expect(store.agents.first?.filledFraction == 0)
+
+        store.setSubject("How a jet engine works", for: agentID)
+        store.completeStep(for: agentID)
+        #expect(store.agents.first?.subject == "How a jet engine works")
+        #expect(store.agents.first?.phase == .running(completedStepCount: 1))
+        #expect(store.agents.first?.filledFraction == 0.5)
+
+        store.finish(agentID, with: .notionPage(studyGuidePageURL))
+        #expect(store.agents.first?.phase == .finished(.notionPage(studyGuidePageURL)))
+        #expect(store.agents.first?.filledFraction == 1)
+        #expect(store.agents.first?.endedAt != nil)
+    }
+
+    @Test func anAgentThatEndedIgnoresEveryLaterChange() async throws {
+        let store = BackgroundAgentStore()
+        let finishedAgentID = store.start(kind: .studyGuide)
+        store.finish(finishedAgentID, with: .notionPage(studyGuidePageURL))
+        store.completeStep(for: finishedAgentID)
+        store.setSubject("Late title", for: finishedAgentID)
+        store.fail(finishedAgentID, reason: "late failure")
+        store.cancel(finishedAgentID)
+        #expect(store.agents.first?.phase == .finished(.notionPage(studyGuidePageURL)))
+        #expect(store.agents.first?.subject == nil)
+
+        let cancelledAgentID = store.start(kind: .studyGuide)
+        store.cancel(cancelledAgentID)
+        store.finish(cancelledAgentID, with: .notionPage(studyGuidePageURL))
+        #expect(store.agents.first?.phase == .cancelled)
+    }
+
+    @Test func aFailedAgentKeepsItsReasonAndShowsAnEmptyOutline() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        store.completeStep(for: agentID)
+        store.fail(agentID, reason: "Notion isn't connected yet")
+        #expect(store.agents.first?.phase == .failed(reason: "Notion isn't connected yet"))
+        #expect(store.agents.first?.filledFraction == 0)
+    }
+
+    @Test func theLastStepIsFinishedByFinishingTheAgentNotByCompletingAStep() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        store.completeStep(for: agentID)
+        store.completeStep(for: agentID)
+        store.completeStep(for: agentID)
+        #expect(store.agents.first?.phase == .running(completedStepCount: 1))
+    }
+
+    @Test func theStoreKeepsTheNewestTenAgentsFirst() async throws {
+        let store = BackgroundAgentStore()
+        let agentIDs = (0..<12).map { _ in store.start(kind: .studyGuide) }
+        #expect(store.agents.count == 10)
+        #expect(store.agents.map(\.id) == Array(agentIDs.suffix(10).reversed()))
+    }
+
+    @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {
+        let endedAt = Date(timeIntervalSince1970: 1_000)
+        func agent(in phase: BackgroundAgentPhase) -> BackgroundAgent {
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
+        }
+        let finishedAgent = agent(in: .finished(.notionPage(studyGuidePageURL)))
+        #expect(agent(in: .running(completedStepCount: 1)).isShownAsAWingman(at: endedAt.addingTimeInterval(500)))
+        #expect(finishedAgent.isShownAsAWingman(at: endedAt.addingTimeInterval(3.9)))
+        #expect(!finishedAgent.isShownAsAWingman(at: endedAt.addingTimeInterval(4)))
+        #expect(agent(in: .failed(reason: "x")).isShownAsAWingman(at: endedAt.addingTimeInterval(1)))
+        #expect(!agent(in: .failed(reason: "x")).isShownAsAWingman(at: endedAt.addingTimeInterval(4)))
+        #expect(!agent(in: .cancelled).isShownAsAWingman(at: endedAt))
+    }
+
+    @Test func elapsedTimeReadsAsMinutesAndSeconds() async throws {
+        #expect(backgroundAgentElapsedTimeText(seconds: 0) == "0:00")
+        #expect(backgroundAgentElapsedTimeText(seconds: 42.9) == "0:42")
+        #expect(backgroundAgentElapsedTimeText(seconds: 725) == "12:05")
+    }
+
+    @Test func fiveRunningAgentsShowThreeWingmenDownAndRightOfTheTriangleAndCountTwoMore() async throws {
+        let store = BackgroundAgentStore()
+        for _ in 0..<5 { store.start(kind: .studyGuide) }
+        let formation = wingmanFormation(for: store.agents)
+        #expect(formation.placements.count == 3)
+        #expect(formation.overflowCount == 2)
+        #expect(formation.placements.map(\.agent.id) == store.agents.prefix(3).map(\.id))
+        #expect(formation.placements.map(\.offset) == [CGSize(width: 15, height: 18), CGSize(width: 30, height: 36), CGSize(width: 45, height: 54)])
+    }
+
+    @Test func progressMovesInAStraightLineThroughEachStepAndNeverShowsAStepDoneEarly() async throws {
+        let stepStartedAt = Date(timeIntervalSince1970: 1_000)
+        let agent = { (phase: BackgroundAgentPhase) in
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: stepStartedAt, currentStepStartedAt: stepStartedAt, endedAt: nil, phase: phase)
+        }
+        let readingTheCaptions = agent(.running(completedStepCount: 0))
+        #expect(readingTheCaptions.progress(at: stepStartedAt) == 0)
+        // Halfway through the 3 expected seconds of the first of two steps.
+        #expect(abs(readingTheCaptions.progress(at: stepStartedAt.addingTimeInterval(1.5)) - 0.2125) < 0.0001)
+        // A step that runs long waits at 85% of its share.
+        #expect(abs(readingTheCaptions.progress(at: stepStartedAt.addingTimeInterval(60)) - 0.425) < 0.0001)
+        let heading = try #require(readingTheCaptions.progressHeading(at: stepStartedAt.addingTimeInterval(1)))
+        #expect(abs(heading.fraction - 0.425) < 0.0001)
+        #expect(abs(heading.secondsToGetThere - 2) < 0.0001)
+
+        let writingTheGuide = agent(.running(completedStepCount: 1))
+        #expect(abs(writingTheGuide.progress(at: stepStartedAt) - 0.5) < 0.0001)
+        #expect(abs(writingTheGuide.progress(at: stepStartedAt.addingTimeInterval(6)) - 0.7125) < 0.0001)
+        #expect(agent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).progress(at: stepStartedAt) == 1)
+        #expect(agent(.failed(reason: "x")).progressHeading(at: stepStartedAt) == nil)
+    }
+
+    @Test func theWingmanFillsByAreaSoHalfTheWorkFillsHalfTheTriangle() async throws {
+        #expect(wingmanFillHeightShare(forProgress: 0) == 0)
+        #expect(wingmanFillHeightShare(forProgress: 1) == 1)
+        // The filled area of a triangle cut at height share h from its base is 1 - (1 - h)^2.
+        for progress in [0.25, 0.5, 0.75] {
+            let heightShare = wingmanFillHeightShare(forProgress: progress)
+            #expect(abs((1 - (1 - heightShare) * (1 - heightShare)) - progress) < 0.0001)
+        }
+        #expect(wingmanFillHeightShare(forProgress: 0.5) < 0.3)
+    }
+
+    @Test func theLandmarkLineSaysTheBeforeANameThatTakesIt() async throws {
+        let colosseum = FamousPlace(name: "Colosseum", nameTakesThe: true, latitude: 41.89021, longitude: 12.49223, heightMeters: 48, radiusMeters: 94)
+        #expect(landmarkNarrationLine(for: colosseum) == "This is the Colosseum, in real 3D. It stands about 48 meters tall, as high as a 16-story building.")
+        let bigBen = FamousPlace(name: "Big Ben", nameTakesThe: false, latitude: 51.50073, longitude: -0.12463, heightMeters: 96, radiusMeters: 6)
+        #expect(landmarkNarrationLine(for: bigBen).hasPrefix("This is Big Ben, in real 3D."))
+    }
+
+    @Test func aQuizMissSpawnsAnUpdateAgentThatRefreshesTheGuideWithNoInstruction() async throws {
+        #expect(quizOutcomeRefreshesTheStudyGuide(.missed))
+        #expect(quizOutcomeRefreshesTheStudyGuide(.skipped))
+        #expect(!quizOutcomeRefreshesTheStudyGuide(.gotIt))
+        #expect(StudyGuideJob.refresh.agentKind == .studyGuideUpdate)
+        #expect(StudyGuideJob.write(focus: nil).agentKind == .studyGuide)
+
+        // The Worker reads a revision with no instruction as a refresh, which makes no model call.
+        let refreshRevision = StudyGuideRevision(pageHandle: "handle", previousGuide: .object([:]), instruction: nil)
+        let refreshJSON = String(decoding: try JSONEncoder().encode(refreshRevision), as: UTF8.self)
+        #expect(!refreshJSON.contains("instruction"))
+
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let updateAgent = { (phase: BackgroundAgentPhase) in
+            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
+        }
+        #expect(updateAgent(.running(completedStepCount: 0)).inProgressText == "Reading your quiz results")
+        #expect(updateAgent(.running(completedStepCount: 1)).inProgressText == "Adding your miss to the guide")
+        #expect(updateAgent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).inProgressText == nil)
+        #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
+    }
+
+    @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
+        let store = BackgroundAgentStore()
+        let olderAgentID = store.start(kind: .studyGuide)
+        let newerAgentID = store.start(kind: .studyGuide)
+        store.finish(newerAgentID, with: .notionPage(studyGuidePageURL))
+        let formation = wingmanFormation(for: store.agents)
+        #expect(formation.placements.map(\.agent.id) == [newerAgentID, olderAgentID])
+        #expect(formation.placements.map(\.offset) == [WingmanFormation.aheadOfTheTipOffset, CGSize(width: 15, height: 18)])
+        #expect(formation.overflowCount == 0)
+        #expect(wingmanFormation(for: []).placements.isEmpty)
+    }
+
+    // MARK: - Agent list shortcut
+
+    @Test func shiftAndOptionHeldForThreeTenthsOfASecondFiresOnce() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift], at: 9.9)
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        #expect(recognizer.holdCompletesAt == 10 + 0.3)
+        let firedTooEarly = recognizer.timeAdvanced(to: 10.29)
+        #expect(!firedTooEarly)
+        let firedOnTime = recognizer.timeAdvanced(to: 10 + 0.3)
+        #expect(firedOnTime)
+        let firedAgain = recognizer.timeAdvanced(to: 12)
+        #expect(!firedAgain)
+        #expect(recognizer.holdCompletesAt == nil)
+
+        // Releasing everything arms it again.
+        recognizer.modifiersChanged([], at: 13)
+        recognizer.modifiersChanged([.shift, .option], at: 14)
+        let firedOnTheNextHold = recognizer.timeAdvanced(to: 14 + 0.3)
+        #expect(firedOnTheNextHold)
+    }
+
+    @Test func releasingBeforeThreeTenthsOfASecondDoesNotFire() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        recognizer.modifiersChanged([.option], at: 10.2)
+        let fired5 = recognizer.timeAdvanced(to: 10.3)
+        #expect(!fired5)
+        let fired6 = recognizer.timeAdvanced(to: 11)
+        #expect(!fired6)
+    }
+
+    @Test func aKeyTypedDuringTheHoldDoesNotFireEvenWhenItIsReleased() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        recognizer.keyWasPressed()
+        let fired7 = recognizer.timeAdvanced(to: 10.3)
+        #expect(!fired7)
+
+        // Still holding both after the key is let go: this hold stays broken until every modifier is released.
+        let fired8 = recognizer.timeAdvanced(to: 12)
+        #expect(!fired8)
+        recognizer.modifiersChanged([], at: 13)
+        recognizer.modifiersChanged([.shift, .option], at: 14)
+        let fired9 = recognizer.timeAdvanced(to: 14.3)
+        #expect(fired9)
+    }
+
+    @Test func ordinaryTypingBeforeTheHoldDoesNotBlockIt() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.keyWasPressed()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        let fired10 = recognizer.timeAdvanced(to: 10.3)
+        #expect(fired10)
+    }
+
+    @Test func controlOrCommandWithShiftAndOptionNeverFiresEvenAfterTheyAreReleased() async throws {
+        for extraModifier in [NSEvent.ModifierFlags.control, .command] {
+            var recognizer = AgentListShortcutRecognizer()
+            recognizer.modifiersChanged([.shift, .option, extraModifier], at: 10)
+            let fired11 = recognizer.timeAdvanced(to: 11)
+            #expect(!fired11)
+            recognizer.modifiersChanged([.shift, .option], at: 11.1)
+            let fired12 = recognizer.timeAdvanced(to: 12)
+            #expect(!fired12)
+        }
+
+        // Push-to-talk first, then shift joins it: ctrl + option is never the list.
+        var pushToTalkRecognizer = AgentListShortcutRecognizer()
+        pushToTalkRecognizer.modifiersChanged([.control, .option], at: 10)
+        pushToTalkRecognizer.modifiersChanged([.control, .option, .shift], at: 10.1)
+        pushToTalkRecognizer.modifiersChanged([.shift, .option], at: 10.2)
+        let fired13 = pushToTalkRecognizer.timeAdvanced(to: 11)
+        #expect(!fired13)
+    }
+
+    // MARK: - Study guide ending
+
+    @Test func aFailedGuideNamesNotionWhenItIsNotConnectedAndOtherwiseSaysItCouldNotBeWritten() async throws {
+        #expect(studyGuideFailureLine(for: StudyGuideError.notionIsNotConnected) == "Notion isn't connected yet")
+        #expect(studyGuideFailureLine(for: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) == "Couldn't write the study guide")
+        #expect(studyGuideFailureLine(for: URLError(.timedOut)) == "Couldn't write the study guide")
+        #expect(studyGuideFailureReason(for: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) == "The Worker answered 502")
+        #expect(studyGuideFailureReason(for: StudyGuideError.noGuideToRevise) == "No study guide has been written for this video yet")
+    }
+
+    @Test func aCancelledRequestIsNotAFailure() async throws {
+        #expect(errorIsACancellation(CancellationError()))
+        #expect(errorIsACancellation(URLError(.cancelled)))
+        #expect(!errorIsACancellation(URLError(.timedOut)))
+        #expect(!errorIsACancellation(StudyGuideError.notionIsNotConnected))
+    }
+
+    @Test func onlyAnHTTPSPageOpensInABackgroundChromeTabAndTheTabInFrontIsPutBack() async throws {
+        let notionPageURL = try #require(URL(string: "https://www.notion.so/p1"))
+        let httpsScript = try #require(appleScriptToOpenInABackgroundTab(pageURL: notionPageURL))
+        #expect(httpsScript.contains(#"{URL:"https://www.notion.so/p1"}"#))
+        #expect(httpsScript.contains("set originalActiveTabIndex to active tab index of frontChromeWindow"))
+        #expect(httpsScript.contains("set active tab index of frontChromeWindow to originalActiveTabIndex"))
+        #expect(httpsScript.contains("return id of newTab"))
+
+        let quotedURL = try #require(URL(string: #"https://example.com/a"b\c"#))
+        let quotedURLScript = try #require(appleScriptToOpenInABackgroundTab(pageURL: quotedURL))
+        #expect(quotedURLScript.contains(#"{URL:"https://example.com/a%22b%5Cc"}"#))
+
+        for refusedURLText in ["http://www.notion.so/p1", "file:///etc/hosts", "javascript:alert(1)"] {
+            let refusedURL = try #require(URL(string: refusedURLText))
+            #expect(appleScriptToOpenInABackgroundTab(pageURL: refusedURL) == nil, "\(refusedURLText)")
+        }
+    }
+
+    @Test func openingAGuideAgainSwitchesToTheTabItOpenedIn() async throws {
+        let bringForwardScript = appleScriptToBringChromeTabForward(tabID: 1234)
+        #expect(bringForwardScript.contains(#"if (item tabIndex of tabIDs as text) is "1234" then"#))
+        #expect(bringForwardScript.contains("set active tab index of chromeWindow to tabIndex"))
+        #expect(bringForwardScript.contains("return \"missing\""))
+
+        let pageURL = try #require(URL(string: "https://www.notion.so/revised"))
+        let loadScript = try #require(appleScriptToLoadPageInChromeTab(pageURL: pageURL, tabID: 1234))
+        #expect(loadScript.contains(#"set URL of tab tabIndex of chromeWindow to "https://www.notion.so/revised""#))
+        #expect(!loadScript.contains("set active tab index"))
+        #expect(appleScriptToLoadPageInChromeTab(pageURL: try #require(URL(string: "http://www.notion.so/revised")), tabID: 1234) == nil)
+    }
+
+    // MARK: - Agent list
+
+    @Test func theAgentListOpensBelowAndRightOfTheMouseAndStaysInsideTheScreen() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 875)
+        let panelSize = CGSize(width: 300, height: 200)
+
+        let nearTheMiddle = agentListPanelOrigin(anchorTopLeft: CGPoint(x: 600, y: 500), panelSize: panelSize, visibleFrame: visibleFrame)
+        #expect(nearTheMiddle == CGPoint(x: 600, y: 300))
+
+        let nearTheBottomRightCorner = agentListPanelOrigin(anchorTopLeft: CGPoint(x: 1400, y: 50), panelSize: panelSize, visibleFrame: visibleFrame)
+        #expect(nearTheBottomRightCorner == CGPoint(x: 1140, y: 0))
+
+        let nearTheTopEdge = agentListPanelOrigin(anchorTopLeft: CGPoint(x: 600, y: 900), panelSize: panelSize, visibleFrame: visibleFrame)
+        #expect(nearTheTopEdge == CGPoint(x: 600, y: 675))
+    }
+
+    @Test func theExpandedRowMarksDoneCurrentAndPendingStepsAndShowsNoneForAnEndedWithoutResult() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .studyGuide)
+        #expect(store.agents[0].stepStatuses == [.current, .pending])
+        #expect(store.agents[0].stepStatuses.map(\.symbol) == ["●", "○"])
+        store.completeStep(for: agentID)
+        #expect(store.agents[0].stepStatuses == [.done, .current])
+        store.finish(agentID, with: .notionPage(studyGuidePageURL))
+        #expect(store.agents[0].stepStatuses == [.done, .done])
+        #expect(store.agents[0].stepStatuses.map(\.symbol) == ["✓", "✓"])
+
+        let failedAgentID = store.start(kind: .studyGuide)
+        store.fail(failedAgentID, reason: "x")
+        #expect(store.agents[0].stepStatuses.isEmpty)
+    }
+
 }

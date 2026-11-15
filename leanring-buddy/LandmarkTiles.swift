@@ -12,6 +12,8 @@ import Foundation
 
 struct FamousPlace: Decodable {
     let name: String
+    /// Whether English says "the" before the name in a sentence, as in "the Colosseum" but not "Big Ben".
+    let nameTakesThe: Bool
     let latitude: Double
     let longitude: Double
     let heightMeters: Double
@@ -21,6 +23,7 @@ struct FamousPlace: Decodable {
 private struct LandmarkResponse: Decodable {
     let isFamousPlace: Bool
     let name: String?
+    let nameTakesThe: Bool?
     let latitude: Double?
     let longitude: Double?
     let heightMeters: Double?
@@ -59,7 +62,7 @@ enum LandmarkClient {
               let radiusMeters = landmarkResponse.radiusMeters else {
             return nil
         }
-        return FamousPlace(name: name, latitude: latitude, longitude: longitude, heightMeters: heightMeters, radiusMeters: radiusMeters)
+        return FamousPlace(name: name, nameTakesThe: landmarkResponse.nameTakesThe ?? false, latitude: latitude, longitude: longitude, heightMeters: heightMeters, radiusMeters: radiusMeters)
     }
 }
 
