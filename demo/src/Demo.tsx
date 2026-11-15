@@ -44,6 +44,7 @@ export function Demo({ segments, cursorTracks, theme }: DemoProps) {
                   theme={theme}
                   muted={segment.muted ?? false}
                   soundEndsAtSeconds={segment.soundEndsAtSeconds}
+                  sourceCredit={segment.sourceCredit}
                 />
               ) : (
                 <EndCard recordingFile={segment.recordingFile} sourceStartSeconds={segment.sourceStartSeconds} theme={theme} />
@@ -52,12 +53,6 @@ export function Demo({ segments, cursorTracks, theme }: DemoProps) {
           </Sequence>
         );
       })}
-      {theme.footageCredit ? (
-        // Above the camera, so it holds still while the shots zoom.
-        <div style={{ position: "absolute", top: 32, right: 40, fontFamily: theme.captionFont, fontSize: 26, fontWeight: 500, color: theme.captionText, opacity: 0.75, textShadow: "0 1px 6px rgba(0, 0, 0, 0.8)" }}>
-          {theme.footageCredit}
-        </div>
-      ) : null}
     </AbsoluteFill>
   );
 }

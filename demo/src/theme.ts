@@ -16,9 +16,8 @@ export type DemoTheme = {
   accent: { style: "text" | "highlighter"; color: string };
   /** The learner's mic glyph. */
   micColor: string;
-  endCard: { title: string; tagline?: string; handle: string; titleColor: string; handleColor: string; scrim: string };
-  /** Names who made the footage, in a corner of every frame, when the clip plays someone else's video. */
-  footageCredit?: string;
+  /** credit names the footage the clip uses, in a small line under the handle. */
+  endCard: { title: string; tagline?: string; handle: string; credit?: string; titleColor: string; handleColor: string; scrim: string };
 };
 
 export const watchAlongTheme: DemoTheme = {
@@ -62,7 +61,12 @@ export const studyGuideTheme: DemoTheme = {
  */
 export const quizMissTheme: DemoTheme = {
   ...studyGuideTheme,
-  endCard: { ...studyGuideTheme.endCard, title: "Clicky watch-along", tagline: "An experiment on my Clicky fork: quizzes that update your notes" },
+  endCard: {
+    ...studyGuideTheme.endCard,
+    title: "Clicky watch-along",
+    tagline: "An experiment on my Clicky fork: quizzes that update your notes",
+    credit: "Video: Science ABC, How Submarines Work",
+  },
 };
 
 const missionFont = loadSpaceGrotesk("normal", { weights: ["500", "600", "700"], subsets: ["latin"] }).fontFamily;
@@ -88,6 +92,6 @@ export const parallelAgentsTheme: DemoTheme = {
     titleColor: "#EEF2FF",
     handleColor: threeDModelViolet,
     scrim: "rgba(8, 11, 24, 0.68)",
+    credit: "Video: SpaceX, Mechazilla catches Starship!",
   },
-  footageCredit: "Footage: SpaceX",
 };

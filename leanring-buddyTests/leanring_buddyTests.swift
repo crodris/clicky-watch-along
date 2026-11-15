@@ -1352,6 +1352,9 @@ struct leanring_buddyTests {
         let emojiWish = try #require(studyGuideWish(fromModelText: String(repeating: "🚀", count: 200)))
         #expect(emojiWish.utf16.count == 300)
         #expect(emojiWish.count == 150)
+        // One letter first puts the limit in the middle of an emoji, which is left out whole.
+        let wishEndingMidEmoji = try #require(studyGuideWish(fromModelText: "a" + String(repeating: "🚀", count: 200)))
+        #expect(wishEndingMidEmoji.utf16.count == 299)
     }
 
     @Test func studyGuideReplyMapsToARecordOrADistinctError() async throws {

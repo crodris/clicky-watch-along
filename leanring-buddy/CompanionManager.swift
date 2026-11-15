@@ -154,8 +154,9 @@ final class CompanionManager: ObservableObject {
     /// so once it is heard a plain question goes back to the quick path instead of a voice command call.
     private var taskAnswerWaitsToBeHeard = false
     /// The quiz video a miss landed on while that video's guide was being written, keyed by the video's key. That guide
-    /// read its quiz results when it started, so the quiz video's guide is refreshed once it ends, and the miss still
-    /// reaches the page.
+    /// read its quiz results when it started, so the quiz video's guide is refreshed once that guide is written, while
+    /// the quiz video is still in front. After a failure, a cancel, or a tab switch the refresh is dropped, and the miss
+    /// reaches the page only with the video's next refresh or revise.
     private var studyGuideRefreshIsDueForQuizVideoURLByVideoKey: [String: String] = [:]
     /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
     /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.

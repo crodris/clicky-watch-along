@@ -188,6 +188,7 @@ export function Shot({
   theme,
   muted,
   soundEndsAtSeconds,
+  sourceCredit,
 }: {
   recordingFile: string;
   sourceStartSeconds: number;
@@ -198,6 +199,7 @@ export function Shot({
   theme: DemoTheme;
   muted: boolean;
   soundEndsAtSeconds?: number;
+  sourceCredit?: string;
 }) {
   const frame = useCurrentFrame();
   const camera = cameraAt(cameraMoves, frame / frameRate, durationSeconds, sourceStartSeconds, cursorTrack);
@@ -219,7 +221,30 @@ export function Shot({
         />
       </AbsoluteFill>
       <CaptionTrack captions={captions} theme={theme} />
+      {sourceCredit ? <SourceCredit text={sourceCredit} theme={theme} /> : null}
     </AbsoluteFill>
+  );
+}
+
+/** A small line in the top left corner naming the footage, so the video's makers get credit where it first shows. */
+function SourceCredit({ text, theme }: { text: string; theme: DemoTheme }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 36,
+        left: 40,
+        padding: "8px 16px",
+        borderRadius: theme.captionCornerRadius,
+        background: "rgba(10, 11, 15, 0.55)",
+        color: "rgba(255, 255, 255, 0.9)",
+        fontFamily: theme.captionFont,
+        fontSize: 26,
+        fontWeight: 500,
+      }}
+    >
+      {text}
+    </div>
   );
 }
 
@@ -251,6 +276,11 @@ export function EndCard({ recordingFile, sourceStartSeconds, theme }: { recordin
         <div style={{ fontSize: 48, fontWeight: 600, color: endCard.handleColor, opacity: handleEnter, transform: `translateY(${(1 - handleEnter) * typographyRisePixels}px)` }}>
           {endCard.handle}
         </div>
+        {endCard.credit ? (
+          <div style={{ fontSize: 28, fontWeight: 500, opacity: handleEnter * 0.6, transform: `translateY(${(1 - handleEnter) * typographyRisePixels}px)` }}>
+            {endCard.credit}
+          </div>
+        ) : null}
       </AbsoluteFill>
     </AbsoluteFill>
   );

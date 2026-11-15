@@ -28,7 +28,11 @@ In the study guide shot, "pop this out" runs while the guide is written, so the 
 Its `&` step waits for the guide to finish before asking to open it.
 Start the driver just before that shot, so it glides the mouse right after the request, opens the agent list with shift + option while the pop-out builds, and once the page opens, scrolls to the key terms and clicks the timestamp of the term about the stator vanes or the compressor.
 The click is a real mouse event from `scripts/recorder/click-mouse.swift`, which needs the Accessibility permission for the app that runs the script.
-The quiz miss shot writes the guide first, which the edit leaves out, then answers one question wrong and then right.
+The quiz miss shot plays Science ABC's "How Submarines Work", a 2D illustration, which lifts out as a puffed-up drawing.
+It writes the guide first, which the edit leaves out, and answers the buoyancy question right.
+It then answers the diving planes question wrong and then right, and the ballast tanks question right on the first try.
+After each right name, Clicky asks what the part does, and the "I'm not sure" step lets the video play on.
+A first-try answer stays off the guide's review list, so the guide opens with only the miss at the top.
 Start the driver before it too, so once the page opens it scrolls to the key terms and clicks the same timestamp.
 That miss spawns a "Study guide update" helper, so the guide opens with the question under "Review these first".
 Each run writes a new private page into the Notion account, so trash the test pages afterwards.
@@ -38,11 +42,11 @@ The app saves one guide per YouTube video and never writes a second, so `record-
 demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
 TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion study guide for this video|pop this out|put it back|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 60 1110 680
 demo/scripts/drive-study-guide-shot.sh demo/public/quiz-miss.events.txt.raw &
-TRAILING_SECONDS=18 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 5 1110 680
+TRAILING_SECONDS=18 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it {answer}|I'm not sure what it does|?is it the propeller|?is it the {answer}|I'm not sure what they do|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=-AiUnUbL5hA" 5 1110 680
 ```
 
 The parallel agents clip uses 1 shot of SpaceX's own 93 second clip of Starship Flight 15's tower catch, on x.com, with Chrome logged in to X.
-The reel credits it with "Footage: SpaceX" in a corner of every frame (`footageCredit` in the clip's theme).
+The reel credits it on its first shot (`sourceCredit`) and on its end card (`endCard.credit`).
 It hands a general task agent a research question with a Notion page, then asks for a 3D model, so the teal and violet sub-agents run at once, and needs the Worker's `NOTION_API_KEY`.
 Its Worker runs without `LIVE_SCENE_MODEL`, so GPT builds the model at medium effort, since a Sonnet model came out plain in two takes.
 The driver's second argument starts the clip at 50 seconds, during the descent, so the catch plays while the task agent searches.
