@@ -128,8 +128,10 @@ final class CompanionManager: ObservableObject {
     /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
     /// and must not cancel a guide that is still being written.
     private var studyGuideTask: Task<Void, Never>?
-    /// The quiz video a miss landed on while a guide was being written. That guide read its quiz results when it
-    /// started, so the quiz video's guide is refreshed once it ends, and the miss still reaches the page.
+    /// The video in front when a miss landed while a guide was being written. That guide read its quiz results when
+    /// it started, so this video's guide is refreshed once that guide is written, while the video is still in front.
+    /// After a failure, a cancel, or a tab switch the refresh is dropped, and the miss reaches the page only with the
+    /// video's next refresh or revise. PR 21 replaces this queue with one background agent per video.
     private var studyGuideRefreshIsDueForQuizVideoURL: String?
     /// True while a refresh checks the page in Notion, before its guide task starts, so a rehearsal step that waits
     /// for the guide does not run in between.

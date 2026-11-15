@@ -83,14 +83,18 @@ nonisolated let mostStudyGuideQuizResults = 20
 /// that writes them has no limit, and a saved result goes with every later revision, so the app cuts them first.
 nonisolated let longestStudyGuideQuizText = 2_000
 
-/// Cuts by whole characters until the UTF-16 count fits, which is how the Worker's limits count, so an emoji or an
-/// accent is never split.
-nonisolated func text(_ text: String, cutToUTF16Count longestUTF16Count: Int) -> String {
-    var cutText = text
-    while cutText.utf16.count > longestUTF16Count {
-        cutText.removeLast()
+/// Keeps whole characters while they fit in the UTF-16 count, which is how the Worker's limits count, so an emoji or
+/// an accent is never split. It walks the text once, since recounting UTF-16 after each cut is slow on long text.
+nonisolated func textCutToUTF16Count(_ text: String, longestUTF16Count: Int) -> String {
+    var keptUTF16Count = 0
+    var endOfKeptText = text.startIndex
+    for character in text {
+        let characterUTF16Count = character.utf16.count
+        guard keptUTF16Count + characterUTF16Count <= longestUTF16Count else { break }
+        keptUTF16Count += characterUTF16Count
+        endOfKeptText = text.index(after: endOfKeptText)
     }
-    return cutText
+    return String(text[..<endOfKeptText])
 }
 
 /// A focus or an instruction comes from the model's reading of the learner's words, so it is trimmed and cut to
@@ -99,7 +103,7 @@ nonisolated func studyGuideWish(fromModelText modelText: String?) -> String? {
     guard let trimmedText = modelText?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedText.isEmpty else {
         return nil
     }
-    return text(trimmedText, cutToUTF16Count: longestStudyGuideWish)
+    return textCutToUTF16Count(trimmedText, longestUTF16Count: longestStudyGuideWish)
 }
 
 /// The quiz results a revised or refreshed guide is written with: the ones its page already shows, from the saved
@@ -167,9 +171,9 @@ nonisolated struct StudyGuideQuizLog: Equatable, Sendable {
         guard let openQuestion else { return false }
         self.openQuestion = nil
         resultsByVideoKey[studyGuideVideoKey(forVideoURL: openQuestion.videoURL), default: []].append(StudyGuideQuizResult(
-            question: text(openQuestion.question, cutToUTF16Count: longestStudyGuideQuizText),
-            answerLabel: text(openQuestion.answerLabel, cutToUTF16Count: longestStudyGuideQuizText),
-            explanation: text(openQuestion.explanation, cutToUTF16Count: longestStudyGuideQuizText),
+            question: textCutToUTF16Count(openQuestion.question, longestUTF16Count: longestStudyGuideQuizText),
+            answerLabel: textCutToUTF16Count(openQuestion.answerLabel, longestUTF16Count: longestStudyGuideQuizText),
+            explanation: textCutToUTF16Count(openQuestion.explanation, longestUTF16Count: longestStudyGuideQuizText),
             askedAtSeconds: openQuestion.askedAtSeconds,
             result: outcome
         ))
