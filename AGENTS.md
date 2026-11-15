@@ -105,7 +105,7 @@ The study guide tools are offered while a YouTube video is in front and no quiz 
 `make_study_guide` and `revise_study_guide` start one background task (`studyGuideTask`, never `currentResponseTask`, so a push-to-talk press does not cancel it) that posts the captions and the video's quiz results to `POST /study-guide`, and return at once so the router speaks its confirmation while the video keeps playing.
 Each guide is a background agent (`BackgroundAgentStore`, owned by `CompanionManager`), so the learner sees the work.
 While it runs, a small amber wingman triangle flies in formation behind the blue cursor triangle, an 11 point outline that fills from tail to tip as each of its two steps finishes (`WingmenView`, `wingmanFormation`).
-Up to three wingmen trail down and to the right with a softer spring each, and more are counted as "+N".
+Up to three wingmen trail down and to the right on slow springs, so each lags the blue triangle on a move and catches up after it stops, with a softer spring for each farther one, and more are counted as "+N".
 Clicky no longer speaks when a guide ends, because the learner is watching a video.
 A finished guide's wingman hops ahead of the blue triangle's tip and turns green, "Tink" plays once, a chip under the cursor says "Study guide ready" in the agent's amber, with an amber triangle for its icon, so it reads as that wingman's line, and the page opens in a Chrome tab behind the one the learner is on (`ChromeVideoTab.openInABackgroundTab`, https only, the active tab index is put back).
 With no Chrome window to open it in, the chip says "· say open my study guide" instead, and `open_study_guide` still opens the page and brings it forward.

@@ -97,9 +97,10 @@ private struct WingmanView: View {
     let placement: WingmanFormation.Placement
     let cursorPosition: CGPoint
 
-    /// Farther wingmen follow with a softer spring, so the line stretches on a fast move and closes at rest.
+    /// A slow spring, so a wingman visibly trails the blue triangle on a move and catches up after it stops, instead
+    /// of moving locked to it. Farther wingmen use a softer one, so the line stretches on a fast move and closes at rest.
     static func followSpring(slot: Int) -> Animation {
-        .spring(response: 0.2 + 0.08 * Double(slot + 1), dampingFraction: 0.7, blendDuration: 0)
+        .spring(response: 0.5 + 0.15 * Double(slot + 1), dampingFraction: 0.75, blendDuration: 0)
     }
 
     /// One bouncy hop, played when the wingman goes ahead of the tip.
