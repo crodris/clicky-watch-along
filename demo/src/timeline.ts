@@ -439,8 +439,8 @@ export const quizMissClipSegments: Segment[] = [
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
     sourceStartSeconds: 150.1,
-    durationSeconds: 3.8,
-    soundEndsAtSeconds: 3.75,
+    durationSeconds: 4.0,
+    soundEndsAtSeconds: 3.95,
     cameraMoves: [{ atSeconds: 0, scale: divingPlanesScale, focus: divingPlanesQuestion, durationFrames: 1 }],
     captions: [{ fromSeconds: 0.3, toSeconds: 2.6, text: "Is it the propeller?", voice: "learner" }],
   },
@@ -664,13 +664,14 @@ export const parallelAgentsClipSegments: Segment[] = [
     // Clicky says what the model shows from 54.71 to 64.71, in one sentence: "Inside the Starship model, you're passing
     // the pointed nose and payload section, then moving down the stainless steel body toward the engine bay with its
     // cluster of Raptor engines." It has no sentence break to cut on, so the shot keeps it whole and drops the silence on
-    // each side, and two captions carry it for viewers with the sound off.
+    // each side, ending late enough that "engines" is heard before the dissolve. For viewers with the sound off, the first
+    // caption names the labels on screen and the second follows the narration.
     kind: "shot",
     name: "narration",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
     sourceStartSeconds: 54.3,
-    durationSeconds: 10.7,
+    durationSeconds: 10.9,
     cameraMoves: [{ atSeconds: 0, scale: 1.0, focus: wholeFrame, durationFrames: 1 }],
     captions: [
       { fromSeconds: 0.6, toSeconds: 4.8, text: "It labels the tower, catch arms, and engines", accentWords: ["labels"] },
