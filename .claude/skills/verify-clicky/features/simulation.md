@@ -1,0 +1,42 @@
+# Let me try it simulation
+
+When the learner says "let me try it", "let me play with it", "can I try it", or "simulate this", Clicky builds a hands-on science experiment of what the screen shows, with sliders and a Run button drawn by `scene-tools.js`.
+`/live-scene` takes `kind: "simulation"`, and the page adds `controls`, `setControl`, `run`, readouts, a hidden dashed path, faded past paths, and a challenge.
+The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, the learner explores with the dashed path, Clicky says whether the guess was right and why once the trials answer it, and a challenge ends with a hit.
+
+## Sub-features
+
+- `simulation-route` is `/live-scene` with `kind: "simulation"`, which rejects a page with no `controls`, `setControl`, or `run`, or with its own input or button.
+- `simulation-panel` is the panel `scene-tools.js` draws: sliders, Run (labeled "Say your guess" while locked), readouts, the challenge line, and the trials table.
+- `simulation-guess` is `record_guess`, which the router picks for an answer to the hypothesis and which unlocks Run and the dashed path.
+- `simulation-check` is the guess check through `/chat` after each explore run, logged as `Simulation: guess check after run N, settled <bool>`.
+- `simulation-challenge` starts once the guess is settled, hides the dashed path, and counts tries until a hit, which plays "Glass".
+- `simulation-voice` is `set_control` and `run_simulation` from the router, such as "make the angle 30 degrees" and "run it".
+
+## How to get to it (user POV)
+
+- With a science video or picture in front, hold ctrl+option and say "let me try it". Answer the question out loud, drag a slider or say a setting, and press Run.
+
+## Driving it with verify-clicky.sh
+
+Preconditions:
+
+- For the route, `$V worker-up` reported the Worker ready on port 8789. Use the default GPT model for anything a demo shows, since Sonnet pages look rough.
+- For the app, a Worker this run started on 8787, a fresh `$V build`, and the experiment's picture showing on the display under the mouse.
+
+- **Route.** Build a body from a bench frame, then post it.
+  Run `RUN="$(readlink .verify-clicky/current)" && python3 -c "import base64,json,sys;print(json.dumps({'question':'let me try it','screenshotBase64':base64.b64encode(open(sys.argv[1],'rb').read()).decode(),'screenshotMediaType':'image/jpeg','kind':'simulation'}))" bench/fixtures/projectile-frame.jpg > "$RUN/sim-body.json"`, then `$V post /live-scene "$RUN/sim-body.json"`.
+  The result is HTTP 200 with one usage line, and the page defines `controls`, `setControl`, `run`, `setPreviewVisible`, and `challenge`.
+  The other bench frames are `lever-frame.jpg`, `pendulum-frame.jpg`, `dissolving-frame.jpg`, and `cooling-frame.jpg`.
+- **Physics.** Load the page in a headless browser with `scene-tools.js` added at document start, call `clickyTools.simulation.guessHeard()`, then `set_control` and `run_simulation`, and compare the readouts with the topic's formula, such as v squared times sin 2 theta over g for the cannon. GPT pages matched within 1 percent on 2026-11-15.
+- **App.** Run `$V app-launch "let me try it | I think 60 degrees will go farther | make the angle 30 degrees | run it | +8 make the angle 60 degrees | run it"`.
+  The log shows `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, and `Simulation: guess check after run N`.
+  Run `$V shot simulation` once the log shows `Simulation: challenge started`.
+- **Cost ceiling.** One `[/live-scene]` usage line per page with GPT output under 10,000 tokens, and one streamed `/chat` request per guess check.
+
+## Gotchas
+
+- The scene is built from the display under the mouse. Put the experiment's picture there and check the tab with AppleScript, because "front window" can be a different Chrome window, such as one a browser tool drives.
+- A guess about something the experiment cannot test never settles, so the challenge starts after 3 checked runs.
+- Chrome's Allow JavaScript from Apple Events must be on to pause a YouTube video for the scene, and the log says `javaScriptFromAppleEventsIsOff` when it is not.
+- A headless harness that adds `scene-tools.js` twice draws two panels, and the first one goes stale. Use a fresh page for each load.

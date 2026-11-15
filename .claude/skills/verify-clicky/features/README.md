@@ -53,6 +53,7 @@ It then uses exactly four H2 sections in this order.
 - [Frame pop-out](./frame-popout.md) covers lifting the subject of a video frame, or of a page image, out in 3D with part labels.
 - [Landmark scan](./landmark.md) covers recognizing a famous place in a video frame and showing Google's 3D scan of it.
 - [Interrupting a reply](./interrupt-reply.md) covers stopping Clicky mid-answer with Escape or a push-to-talk tap.
+- [Let me try it simulation](./simulation.md) covers the science experiment a learner builds with "let me try it": the guess, the trials, the guess check, and the challenge.
 - [Voice commands](./voice-commands.md) covers follow-up commands that change the scene or video on screen through `/voice-command` and the voice tools.
 - [Notion study guide](./study-guide.md) covers writing, revising, and opening a Notion study guide for the YouTube video in front through `/study-guide`.
 - [3D model agent](./three-d-model-agent.md) covers building a 3D model in the background while the video plays, beside other background agents, and showing it when it is ready.

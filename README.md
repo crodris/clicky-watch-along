@@ -45,16 +45,19 @@ Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
-**Let me try it.** Over a video about something physical, like a launched ball, a lever, or a pendulum, say "let me try it", "let me play with it", or "simulate this".
-Clicky pauses the video, and a simulation of that setup rises out of it with sliders and a Run button.
-It sends the same screenshot as a 3D model, and GPT-6.1 Sol writes a three.js scene that moves by simple, correct physics instead of a canned animation.
-Clicky asks a prediction to test, like "Will 30 or 60 degrees land the ball farther?", and says to drag a slider and press Run.
-While you drag, a dashed line shows the path the ball will take and a ring marks where it will land, so 30 and 60 degrees landing on the same spot shows before you run it.
-The parts have no labels at first, so nothing covers the setup, and saying "show the labels" brings them back.
-Drag a slider, press Run, and the ball flies, and the result shows under the buttons, like the landing distance in meters.
-Clicky says the result in one short line after each run.
-You can also say "make it 45 degrees" or "run it", and the scene does it.
-The panel is the same on every simulation, because the app draws it, not the model.
+**Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, or a cup of cocoa cooling, say "let me try it", "let me play with it", or "simulate this".
+Clicky pauses the video, and a hands-on experiment of that idea rises out of it, with sliders for the things you can change and a Run button.
+GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
+Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.
+It works like a real experiment, in four steps:
+1. Clicky asks a hypothesis to test, like "Will 30 or 60 degrees send the ball farther?", and waits for your guess. Run stays locked until you answer out loud, or click it to skip.
+2. Once you guess, a dashed line shows where the ball will go as you drag. Each run leaves a faded path and adds a row to a small results table, so you can compare trials.
+3. When your trials answer the question, Clicky says whether your guess was right and why. If they do not answer it yet, Clicky says which setting to try next.
+4. Then comes a challenge, like "Can you land the ball 30 meters away?". The dashed line hides, so you aim from your earlier trials, and Clicky counts your tries and plays a chime on a hit.
+
+The parts have no labels at first, so nothing covers the experiment, and saying "show the labels" brings them back.
+You can say "make it 45 degrees" or "run it" instead of using the sliders.
+The panel looks the same on every experiment, because the app draws it, not the model.
 Escape closes it, and the video picks back up.
 
 **Talk to what's already on screen.** Once a 3D model is up, or a video is playing in Chrome on any site, short commands change it right away instead of building something new.
