@@ -143,6 +143,16 @@ nonisolated func taskAgentNextStep(after turn: TaskAgentTurn) -> TaskAgentNextSt
     return .endedWithText(turn.text)
 }
 
+/// What is missing from a write_notion_page input, or nil when it can be written. Strict tools guarantee the shape,
+/// not that a string says anything, and an agent that called it before its research sent an empty title and summary.
+nonisolated func taskAgentPageInputProblem(_ pageInput: [String: JSONValue]) -> String? {
+    let emptyFields = ["title", "summary"].filter { fieldName in
+        (pageInput[fieldName]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    guard !emptyFields.isEmpty else { return nil }
+    return "The page needs a \(emptyFields.joined(separator: " and ")). Write it once your research is done."
+}
+
 /// The first message: the learner's words and the page they were on, which "this" in the task refers to.
 nonisolated func taskAgentFirstMessage(goal: String, frontTabTitle: String?, frontTabURL: String?) -> String {
     var lines = ["Task from the learner: \(goal)"]

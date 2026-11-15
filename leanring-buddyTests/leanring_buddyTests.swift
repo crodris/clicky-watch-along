@@ -1354,6 +1354,12 @@ struct leanring_buddyTests {
         #expect(pausedTurn.assistantContent.count == 1)
     }
 
+    @Test func aTaskAgentPageNeedsATitleAndASummaryBeforeItReachesTheWorker() async throws {
+        #expect(taskAgentPageInputProblem(["title": .string("Catches"), "summary": .string("The ship was caught.")]) == nil)
+        #expect(taskAgentPageInputProblem(["title": .string(" "), "summary": .string("")]) == "The page needs a title and summary. Write it once your research is done.")
+        #expect(taskAgentPageInputProblem(["title": .string("Catches")])?.contains("summary") == true)
+    }
+
     @Test func aTaskAgentShowsTheStepsItReports() async throws {
         let store = BackgroundAgentStore()
         let agentID = store.start(kind: .task)

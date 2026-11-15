@@ -2351,6 +2351,9 @@ final class CompanionManager: ObservableObject {
             guard !pageAlreadyWritten else {
                 return (toolResult(.string("A page was already written for this task"), isError: true), nil)
             }
+            if let pageInputProblem = taskAgentPageInputProblem(toolCall.input) {
+                return (toolResult(.string(pageInputProblem), isError: true), nil)
+            }
             backgroundAgentStore.reportStep("Writing the page in Notion", for: agentID)
             do {
                 let pageURL = try await taskAgentClient.writeNotionPage(toolCall.input)
