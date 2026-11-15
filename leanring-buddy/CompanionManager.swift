@@ -1605,9 +1605,15 @@ final class CompanionManager: ObservableObject {
             )
             predictionCheck = SimulationPredictionCheck(replyText: replyText)
         } catch {
-            guard !Task.isCancelled else { return }
-            print("Simulation: the guess check failed, so Clicky says the page's explanation: \(error)")
             predictionCheck = SimulationPredictionCheck(spokenLine: lesson.physicsExplanation, predictionIsSettled: true)
+            if !Task.isCancelled {
+                print("Simulation: the guess check failed, so Clicky says the page's explanation: \(error)")
+            }
+        }
+        // A newer run's narration cancels this one and then waits for Clicky to be quiet, so the processing
+        // state this check set must end here, cancelled or not, or that narration would wait forever.
+        if voiceState == .processing {
+            voiceState = .idle
         }
         guard !Task.isCancelled else { return }
         simulationLesson?.runsChecked += 1
