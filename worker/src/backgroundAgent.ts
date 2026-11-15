@@ -60,7 +60,7 @@ export async function handleBackgroundAgent(request: Request, anthropicAPIKey: s
     input_schema: tool.inputSchema,
     // Strict input keeps a nested page from arriving as a string or with a field left out, which cost a turn in a take.
     strict: true,
-    // Tools render before the system prompt, so a breakpoint on the last tool caches both.
+    // A breakpoint on the last tool caches the tools, and withCachedSystemPrompt caches the system prompt after them.
     ...(toolIndex === tools.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
   }));
 

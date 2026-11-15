@@ -44,7 +44,7 @@ interface Env {
   LIVE_SCENE_EFFORT?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;
-  /** Internal Notion integration token. Without it, /study-guide answers 503. */
+  /** Internal Notion integration token. Without it, /study-guide and /notion-page answer 503. */
   NOTION_API_KEY?: string;
   /** The secret the app sends in x-clicky-app-secret. The Notion routes and /background-agent refuse a request without it. */
   CLICKY_APP_SECRET?: string;

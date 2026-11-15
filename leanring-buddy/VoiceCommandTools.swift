@@ -299,7 +299,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .showReadyModel:
             return "Show the 3D model built in the background, which is ready and waiting. It pauses the video and rises out of it. Use it when the learner asks to see, show, or open the model."
         case .startBackgroundTask:
-            return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the screen, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
+            return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
         case .hearTaskAnswer:
             return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
         }
@@ -628,17 +628,19 @@ nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSO
 }
 
 /// The router takes a command only when something is live to command: a scene on screen, a
-/// video in Chrome's front tab, on any site, or a 3D model built in the background waiting to be shown.
+/// video in Chrome's front tab, on any site, a 3D model built in the background waiting to be shown, or a task answer
+/// waiting to be heard, since "what did you find" may come from the page the task agent opened.
 /// A quiz answer goes to the judge, and a scene still building keeps its keyword path.
 nonisolated func voiceCommandRouterTakesTheTranscript(
     sceneIsOnScreen: Bool,
     videoIsInFront: Bool,
     threeDModelIsReady: Bool = false,
+    taskAnswerIsReady: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool
 ) -> Bool {
     if phaseIsWaitingForAQuizAnswer || sceneIsBuilding { return false }
-    return sceneIsOnScreen || videoIsInFront || threeDModelIsReady
+    return sceneIsOnScreen || videoIsInFront || threeDModelIsReady || taskAnswerIsReady
 }
 
 // MARK: - Finding a moment in the captions

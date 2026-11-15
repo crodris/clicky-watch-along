@@ -82,7 +82,7 @@
     },
     {
       "name": "build_new_scene",
-      "description": "Build a brand new 3D model from scratch, which takes about 10 seconds. Use it only when the learner wants a different model or a 3D view of something not on screen yet, never to turn, zoom, or open the model already showing.",
+      "description": "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. Never use it to turn, zoom, or open the model already showing.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -93,6 +93,23 @@
         },
         "required": [
           "asQuiz"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_model_in_background",
+      "description": "Build a 3D model of what the video shows in the background, for about 20 seconds, while the video keeps playing. When it is ready it rises out of the video, or waits until the learner asks for it if something else is on screen. Use it when the learner asks to build, make, or create a 3D model, such as \"build me a 3D model of this engine\", or asks for one while they keep watching. Use build_new_scene instead when they ask to show, see, or render something in 3D right now, and for a famous real place, whose real 3D scan only build_new_scene shows. Put what to build in whatToBuild, in the learner's words. Your confirmation is a few plain words that it has started, such as \"starting the model\", never that it is done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "whatToBuild": {
+            "type": "string",
+            "description": "What to build, in the learner's words, such as this jet engine."
+          }
+        },
+        "required": [
+          "whatToBuild"
         ]
       },
       "readOnly": false

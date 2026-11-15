@@ -25,7 +25,7 @@ When something else is on screen, the model waits, and the chip says "3D model r
 Preconditions:
 
 - The app and Chrome preconditions in [Video quiz](./video-quiz.md) apply, with a YouTube video playing in the front tab.
-- A Worker this run started on 8787 with `--var LIVE_SCENE_MODEL:sonnet`, and `worker/.dev.vars` with `NOTION_API_KEY` for the guide.
+- A Worker this run started on 8787 with `--var LIVE_SCENE_MODEL:sonnet`, and `worker/.dev.vars` with `NOTION_API_KEY` and `CLICKY_APP_SECRET` for the guide.
 
 - **Router split.** Post `/voice-command` bodies whose `tools` hold the app's descriptions of `build_new_scene` and `build_model_in_background`, one per phrasing.
   The reply's `tool_use` name is `build_model_in_background` for build, make, or create, and `build_new_scene` for show, see, render, and a famous place.

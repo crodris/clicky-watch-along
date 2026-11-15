@@ -1009,6 +1009,7 @@ struct leanring_buddyTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, threeDModelIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, taskAnswerIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
     }
 
     @Test func findingAMomentPicksTheCaptionsThatSayTheQueryWords() async throws {
@@ -1419,11 +1420,17 @@ struct leanring_buddyTests {
         #expect(store.agents.first?.phase == .running(completedStepCount: 1))
     }
 
-    @Test func theStoreKeepsTheNewestTenAgentsFirst() async throws {
+    @Test func theStoreKeepsTheNewestTenEndedAgentsAndEveryRunningOne() async throws {
         let store = BackgroundAgentStore()
-        let agentIDs = (0..<12).map { _ in store.start(kind: .studyGuide) }
-        #expect(store.agents.count == 10)
-        #expect(store.agents.map(\.id) == Array(agentIDs.suffix(10).reversed()))
+        let longTaskID = store.start(kind: .task)
+        let endedAgentIDs = (0..<12).map { _ in
+            let agentID = store.start(kind: .studyGuideUpdate)
+            store.finish(agentID, with: .notionPage(studyGuidePageURL))
+            return agentID
+        }
+        // The store trims when an agent starts, so the newest start trims the ended agents to 10.
+        let newestAgentID = store.start(kind: .studyGuide)
+        #expect(store.agents.map(\.id) == [newestAgentID] + endedAgentIDs.suffix(10).reversed() + [longTaskID])
     }
 
     @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {

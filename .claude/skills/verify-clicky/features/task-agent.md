@@ -22,7 +22,8 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 
 Preconditions:
 
-- A Worker this run started on 8787 or 8789, and `worker/.dev.vars` with `NOTION_API_KEY` for the page.
+- A Worker this run started on 8787 or 8789, and `worker/.dev.vars` with `NOTION_API_KEY` for the page and `CLICKY_APP_SECRET`, which `/background-agent` and `/notion-page` require.
+- **Cost ceiling.** One `[/background-agent]` usage line per turn, and a task ends within 14 turns. A take that compared two booster catches and wrote a page took 4 turns.
 
 - **Route loop.** Post a first turn to `/background-agent` with `{ messages: [{ role: "user", content: "Task from the learner: ..." }], tools: [...] }`, the tools being `TaskAgentTool`'s descriptors, and keep posting with the reply's `content` appended as the assistant turn and a `tool_result` for each `tool_use`.
   The replies hold `server_tool_use` blocks for `web_search`, and the loop ends on a `finish` call within a few turns.

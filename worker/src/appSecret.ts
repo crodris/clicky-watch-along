@@ -6,7 +6,7 @@
 
 export const appSecretHeaderName = "x-clicky-app-secret";
 
-/** Every route that uses the Notion token, and the task agent's route, whose web search costs the most per call. */
+/** Every route that uses the Notion token, and the task agent's route, which runs web search on the owner's key. */
 export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/background-agent"]);
 
 async function sha256Digest(text: string): Promise<Uint8Array> {

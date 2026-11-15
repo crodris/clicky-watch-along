@@ -122,7 +122,7 @@ final class CompanionManager: ObservableObject {
     /// The hold that keeps the blue cursor on a quiz question's "?" label, so only the end of that question releases it.
     private var quizQuestionPointingID: UUID?
     /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
-    private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
+    private var notionPageChromeTabIDsByPageURL: [URL: Int] = [:]
     /// Saved guides whose page Notion confirmed since launch, so the check costs one Worker call per guide per launch.
     private var studyGuidePageHandlesFoundInNotion: Set<String> = []
     /// The task of each running background agent, keyed by the agent's id, so several run at once and the agent list
@@ -793,12 +793,12 @@ final class CompanionManager: ObservableObject {
             let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
             // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
             let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
-            let stepWaitsForTheStudyGuide = rehearsalStep.hasPrefix("&")
-            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion || stepWaitsForTheStudyGuide
+            let stepWaitsForTheBackgroundAgents = rehearsalStep.hasPrefix("&")
+            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion || stepWaitsForTheBackgroundAgents
                 ? String(rehearsalStep.dropFirst())
                 : rehearsalStep
-            if stepWaitsForTheStudyGuide {
-                // A guide takes about 15 seconds, so 3 minutes covers every retry the Worker makes.
+            if stepWaitsForTheBackgroundAgents {
+                // A guide takes about 15 seconds and a task agent about 25, so 3 minutes covers a long task and the Worker's retries.
                 for _ in 0..<720 where !backgroundAgentTasks.isEmpty {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
@@ -907,6 +907,7 @@ final class CompanionManager: ObservableObject {
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             videoIsInFront: frontVideoState != nil,
             threeDModelIsReady: readyThreeDModel != nil,
+            taskAnswerIsReady: readyTaskAnswer != nil,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding
         )
@@ -2212,7 +2213,7 @@ final class CompanionManager: ObservableObject {
                 return .failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil)
             }
             let pageURL = studyGuideRecord.pageURL
-            if let chromeTabID = studyGuideChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
+            if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
                 return .changed(state: nil)
             }
             guard NSWorkspace.shared.open(pageURL) else {
@@ -2458,7 +2459,8 @@ final class CompanionManager: ObservableObject {
     /// pop-out is building or showing, and the video it was built from is in front. Otherwise it would cover
     /// something the learner is looking at, so it waits for "show the model".
     private var aReadyThreeDModelMayRiseNow: Bool {
-        guard let readyThreeDModel, voiceState == .idle, case .idle = liveScenePhase,
+        // voiceState goes idle once a spoken line starts, so isPlaying covers the rest of the line.
+        guard let readyThreeDModel, voiceState == .idle, !elevenLabsTTSClient.isPlaying, case .idle = liveScenePhase,
               !LiveSceneOverlay.shared.isShowingAScene, !videoQuizQuestionIsActive else {
             return false
         }
@@ -2499,7 +2501,15 @@ final class CompanionManager: ObservableObject {
             print("3D model: screen capture for the rise failed, so it shows without rising: \(error)")
         }
         let mediaRectToRiseFrom = sourceVideoIsInFront ? VideoQuizSession.screenRectOfTheMediaToRiseFrom() : nil
-        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
+        guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else {
+            // A push-to-talk press during the capture cancelled the rise, so the model waits again for "show the model",
+            // unless a newer one took its place, and the video Clicky paused for it plays on.
+            readyThreeDModel = readyThreeDModel ?? modelToShow
+            if sourceVideoIsInFront {
+                videoQuizSession.resumeVideoAfterRequestedScene()
+            }
+            return
+        }
         guard let videoScreen = screenAndCaptureShowing(mediaRectToRiseFrom, in: screenCaptures),
               playGeneratedScenePage(
                   html: modelToShow.pageHTML,
@@ -2546,7 +2556,7 @@ final class CompanionManager: ObservableObject {
                 print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
                 savedStudyGuides.forget(forVideoURL: videoURL)
                 studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
-                studyGuideChromeTabIDsByPageURL[savedRecord.pageURL] = nil
+                notionPageChromeTabIDsByPageURL[savedRecord.pageURL] = nil
                 return nil
             }
             studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
@@ -2662,12 +2672,12 @@ final class CompanionManager: ObservableObject {
             NSSound(named: "Tink")?.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
             var secondaryChipText = "· say open my study guide"
-            if let replacingPageURL, let replacedPageChromeTabID = studyGuideChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
+            if let replacingPageURL, let replacedPageChromeTabID = notionPageChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
                videoQuizSession.loadPageInChromeTab(pageURL, tabID: replacedPageChromeTabID) {
-                studyGuideChromeTabIDsByPageURL[pageURL] = replacedPageChromeTabID
+                notionPageChromeTabIDsByPageURL[pageURL] = replacedPageChromeTabID
                 secondaryChipText = "· updated in its tab"
             } else if let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
-                studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
+                notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
                 secondaryChipText = "· opened in a new tab"
             }
             VoiceToolCallChip.shared.show(
@@ -2694,7 +2704,7 @@ final class CompanionManager: ObservableObject {
             NSSound(named: "Tink")?.play()
             // Like a guide's page, a task's page opens behind the video tab.
             if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
-                studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
+                notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
             }
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,

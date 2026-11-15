@@ -31,7 +31,7 @@ run_in_front_tab() {
 # call, since starting a process per step doubles the glide's length.
 glide_mouse() {
   awk -v ax="$1" -v ay="$2" -v bx="$3" -v by="$4" 'BEGIN {
-    for (s = 1; s <= 30; s++) { t = s / 30; e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ^ 2 / 2; printf "%.1f %.1f\n", ax + (bx - ax) * e, ay + (by - ay) * e }
+    for (step = 1; step <= 30; step++) { progress = step / 30; eased = progress < 0.5 ? 2 * progress * progress : 1 - (-2 * progress + 2) ^ 2 / 2; printf "%.1f %.1f\n", ax + (bx - ax) * eased, ay + (by - ay) * eased }
   }' | while read -r point_x point_y; do
     "$move_mouse" "$point_x" "$point_y"
     sleep 0.02

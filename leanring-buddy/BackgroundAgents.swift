@@ -281,14 +281,20 @@ final class BackgroundAgentStore: ObservableObject {
     /// Newest first.
     @Published private(set) var agents: [BackgroundAgent] = []
 
-    private static let mostAgentsKept = 10
+    /// Running agents are always kept, so one is never dropped while its task can still be cancelled or finish.
+    private static let mostEndedAgentsKept = 10
 
     @discardableResult
     func start(kind: BackgroundAgentKind, studyGuideVideoKey: String? = nil) -> UUID {
         let startedAt = Date()
         let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0))
         agents.insert(agent, at: 0)
-        agents = Array(agents.prefix(Self.mostAgentsKept))
+        var endedAgentsKept = 0
+        agents = agents.filter { agent in
+            if agent.isRunning { return true }
+            endedAgentsKept += 1
+            return endedAgentsKept <= Self.mostEndedAgentsKept
+        }
         return agent.id
     }
 
