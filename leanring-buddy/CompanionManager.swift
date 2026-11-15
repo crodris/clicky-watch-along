@@ -781,7 +781,8 @@ final class CompanionManager: ObservableObject {
     /// starts with "~" does not wait for Clicky: the next one follows 6 seconds
     /// later, while a scene is still building. In a "?" step, "{answer}" becomes
     /// the open question's answer label, since the plan picks a new question each run. A transcript that starts
-    /// with "&" waits until no background agent is running, so a demo can open the guide it just asked for.
+    /// with "&" waits until no background agent is running, and then for what their endings set off, such as a 3D model
+    /// rising and its narration, so a demo can open the guide it just asked for or put back the model it just built.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStep in transcripts {
@@ -797,6 +798,8 @@ final class CompanionManager: ObservableObject {
                 for _ in 0..<720 where !backgroundAgentTasks.isEmpty {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
+                await waitForTheLatestResponseTaskToFinish()
+                await waitForTheTourAndSpeechToEnd()
                 // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
             }
@@ -832,13 +835,7 @@ final class CompanionManager: ObservableObject {
             // A quiet moment is not the end of a step: a pop-out's narration starts about a second after its
             // tour ends, so the step's own work is waited out first, then any tour or speech still going.
             await waitForTheLatestResponseTaskToFinish()
-            while true {
-                let tourIsStillPlaying: Bool
-                if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
-                let clickyIsBusy = voiceState == .processing || elevenLabsTTSClient.isPlaying
-                if !tourIsStillPlaying && !clickyIsBusy { break }
-                try? await Task.sleep(nanoseconds: 250_000_000)
-            }
+            await waitForTheTourAndSpeechToEnd()
             print("Live scene rehearsal: finished, phase \(liveScenePhase)")
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
@@ -853,6 +850,16 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         print("Live scene rehearsal: done, phase \(liveScenePhase)")
+    }
+
+    private func waitForTheTourAndSpeechToEnd() async {
+        while true {
+            let tourIsStillPlaying: Bool
+            if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
+            let clickyIsBusy = voiceState == .processing || elevenLabsTTSClient.isPlaying
+            if !tourIsStillPlaying && !clickyIsBusy { return }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
     }
 
     /// A voice command can hand its request to a new response task, such as pop_out starting the pop-out,
