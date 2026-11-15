@@ -177,6 +177,16 @@ describe("handleLiveScene model setting", () => {
     expect(sentBody).toMatchObject({ model: "claude-fable-5-2" });
   });
 
+  it("sends LIVE_SCENE_EFFORT to GPT as its reasoning effort", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_EFFORT: "medium" });
+
+    const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    expect(sentBody).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "medium" } });
+  });
+
   it("sends LIVE_SCENE_EFFORT to a Claude scene model", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
     vi.stubGlobal("fetch", fetchMock);

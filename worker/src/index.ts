@@ -36,7 +36,7 @@ interface Env {
   OPENAI_API_KEY: string;
   /** "gpt" (the default), "sonnet", "opus", or "fable". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
   LIVE_SCENE_MODEL?: string;
-  /** A Claude scene model's effort, "low" by default. GPT keeps low effort. */
+  /** The scene model's effort, "low" by default. GPT takes low, medium, or high. */
   LIVE_SCENE_EFFORT?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;

@@ -5,7 +5,7 @@
  * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet instead,
  * which test runs use because a GPT scene costs about $0.23 and a Sonnet one about $0.04.
  * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT sets a Claude
- * model's effort (low by default), for comparing scene quality. GPT keeps low effort. A reply that fails the check is
+ * model's effort, or GPT's reasoning effort (low by default), for comparing scene quality. A reply that fails the check is
  * retried once, then returned as 422,
  * and the app tells the learner it couldn't build the scene.
  * /judge-answer asks Sonnet whether the learner's spoken answer is right, or whether they asked to skip, repeat,
@@ -233,6 +233,7 @@ async function requestClaudeLiveSceneReply(
 
 async function requestGPTLiveSceneReply(
   openAIAPIKey: string,
+  effort: z.infer<typeof liveSceneEffortSettingSchema>,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -244,7 +245,7 @@ async function requestGPTLiveSceneReply(
     body: JSON.stringify({
       model: "gpt-6.1-sol",
       service_tier: "ultrafast",
-      reasoning: { effort: "low" },
+      reasoning: { effort },
       max_output_tokens: 14000,
       instructions: liveSceneInstructions,
       input: [
@@ -315,7 +316,7 @@ export async function handleLiveScene(
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
     const modelResult =
       liveSceneModel === "gpt"
-        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, sceneRequest)
+        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, parsedEffortSetting.data, sceneRequest)
         : await requestClaudeLiveSceneReply(env.ANTHROPIC_API_KEY, claudeModelIDBySetting[liveSceneModel], parsedEffortSetting.data, sceneRequest);
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {

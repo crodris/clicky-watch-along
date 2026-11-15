@@ -45,7 +45,7 @@ The app never calls external APIs directly. All requests go through a Cloudflare
 | `GET /v1/3dtiles/...` | `tile.googleapis.com` | Google Photorealistic 3D Tiles for the landmark page. Only `root.json` and dataset files pass, and the Worker adds `GOOGLE_MAPS_API_KEY` |
 
 Worker secrets: `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY` (a Maps Platform key with the Map Tiles API enabled and billing linked), `NOTION_API_KEY` (a Notion personal access token, which acts as its owner and may create pages with no parent page, for study guides), and `ASSEMBLYAI_API_KEY` only when Info.plist selects the `assemblyai` provider
-Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by default, `sonnet`, `opus`, or `fable` for Claude Fable 5.2) and `LIVE_SCENE_EFFORT` (a Claude scene model's effort, `low` by default)
+Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by default, `sonnet`, `opus`, or `fable` for Claude Fable 5.2) and `LIVE_SCENE_EFFORT` (the scene model's effort, `low` by default, where GPT takes low, medium, or high)
 
 ### Key Architecture Decisions
 
