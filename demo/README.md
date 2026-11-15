@@ -29,6 +29,7 @@ Its `&` step waits for the guide to finish before asking to open it.
 Start the driver just before that shot, so it glides the mouse right after the request, opens the agent list with shift + option while the pop-out builds, and once the page opens, scrolls to the key terms and clicks the timestamp of the term about the stator vanes or the compressor.
 The click is a real mouse event from `scripts/recorder/click-mouse.swift`, which needs the Accessibility permission for the app that runs the script.
 The quiz miss shot writes the guide first, which the edit leaves out, then answers one question wrong and then right.
+Start the driver before it too, so once the page opens it scrolls to the key terms and clicks the same timestamp.
 That miss spawns a "Study guide update" helper, so the guide opens with the question under "Review these first".
 Each run writes a new private page into the Notion account, so trash the test pages afterwards.
 The app saves one guide per YouTube video and never writes a second, so `record-shot.sh` deletes the saved guide for the shot's video before it launches the app.
@@ -36,7 +37,8 @@ The app saves one guide per YouTube video and never writes a second, so `record-
 ```bash
 demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
 TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion study guide for this video|pop this out|put it back|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 60 1110 680
-TRAILING_SECONDS=12 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 5 1110 680
+demo/scripts/drive-study-guide-shot.sh demo/public/quiz-miss.events.txt.raw &
+TRAILING_SECONDS=18 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 5 1110 680
 ```
 
 The parallel agents clip uses 1 shot of FOX 26 Houston's stream of Starship Flight 15, from just before the ship's tower catch.
@@ -92,7 +94,7 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `quizMissClipSegments` is the quiz miss clip, `subAgentsClipSegments` joins those two into one story for the HeyClicky team, reusing their shots by name, and `parallelAgentsClipSegments` is the parallel agents clip over the Starship catch, posted before the sub-agents clip, which is re-cut around the quiz miss.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `parallelAgentsClipSegments` is the parallel sub-agents clip over the Starship catch, posted first, and `quizMissClipSegments` is the quiz miss clip, which follows it and leaves the sub-agent mechanics to it.
 `src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the parallel agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color, teal for the task agent and violet for the 3D model.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
@@ -103,13 +105,12 @@ pnpm render
 pnpm render-quiz
 pnpm render-study-guide
 pnpm render-quiz-miss
-pnpm render-sub-agents
 pnpm render-parallel-agents
 ```
 
 `pnpm render` writes the voice-only `out/clicky-demo-voice.mp4`, then the mix writes `out/clicky-demo.mp4`.
-`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, `pnpm render-sub-agents` for `out/clicky-sub-agents.mp4`, and `pnpm render-parallel-agents` for `out/clicky-parallel-agents.mp4`.
-`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, `pnpm mix-sub-agents`, and `pnpm mix-parallel-agents` run only the mix, which is enough after changing the music or its levels.
+`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, and `pnpm render-parallel-agents` for `out/clicky-parallel-agents.mp4`.
+`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, and `pnpm mix-parallel-agents` run only the mix, which is enough after changing the music or its levels.
 Set `REMOTION_BROWSER_EXECUTABLE` when Remotion's own headless shell hangs at "Waiting for root component to load".
 
 ## Quiz rehearsal
