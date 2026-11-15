@@ -14,7 +14,7 @@ usage() {
 Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
 
   new-run <name>            Start an evidence folder and make it current.
-  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished.
+  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries, while a source file is newer than the app.
   doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
   worker-up [port] [-- wrangler args]
                             Start wrangler dev from this checkout (default port 8789).
@@ -212,17 +212,16 @@ stop_process_tree() {
 
 # Xcode's own build keeps Clicky's privacy grants, which xcodebuild resets. Xcode's AppleScript build silently does
 # nothing while a project has no active run destination, so this sets "My Mac" first, then checks the app changed.
-command_build() {
-  local project_path="$checkout_root/leanring-buddy.xcodeproj"
-  local built_before=""
-  local app_before
-  app_before="$(debug_app_path)"
-  if [[ -n "$app_before" && "$(debug_app_workspace "$app_before")" == "$project_path" ]]; then
-    built_before="$(stat -f %m "$app_before/Contents/MacOS/Clicky.debug.dylib" 2>/dev/null || true)"
-  fi
-  open -a Xcode "$project_path"
-  local build_status
-  build_status="$(osascript - "$project_path" <<'APPLESCRIPT'
+# The first file under source_directory that is newer than dylib_path, or nothing when the app is at least as new as
+# every source file. Finder's .DS_Store files are not build inputs.
+first_source_newer_than() {
+  local dylib_path="$1" source_directory="$2"
+  find "$source_directory" -type f ! -name .DS_Store -newer "$dylib_path" -print -quit
+}
+
+# Builds the project in Xcode through AppleScript and prints Xcode's build status, such as "succeeded".
+run_xcode_build() {
+  osascript - "$1" <<'APPLESCRIPT'
 on run argv
   set projectPath to item 1 of argv
   tell application "Xcode"
@@ -245,20 +244,48 @@ on run argv
   end tell
 end run
 APPLESCRIPT
-)"
-  local app_after
-  app_after="$(debug_app_path)"
-  local built_after=""
-  if [[ -n "$app_after" && "$(debug_app_workspace "$app_after")" == "$project_path" ]]; then
-    built_after="$(stat -f %m "$app_after/Contents/MacOS/Clicky.debug.dylib" 2>/dev/null || true)"
+}
+
+command_build() {
+  local project_path="$checkout_root/leanring-buddy.xcodeproj"
+  local built_before=""
+  local app_before
+  app_before="$(debug_app_path)"
+  if [[ -n "$app_before" && "$(debug_app_workspace "$app_before")" == "$project_path" ]]; then
+    built_before="$(stat -f %m "$app_before/Contents/MacOS/Clicky.debug.dylib" 2>/dev/null || true)"
   fi
+  open -a Xcode "$project_path"
+  # Right after a checkout, Xcode can build from the files it had loaded before: the build fails, or it succeeds with
+  # the previous checkout's code and nothing to compile. So a build counts only once the app is at least as new as
+  # every source file, and Xcode gets a few seconds to notice the new files before each retry.
+  local build_status app_after built_after stale_source attempt
+  for attempt in 1 2 3; do
+    build_status="$(run_xcode_build "$project_path")"
+    app_after="$(debug_app_path)"
+    built_after=""
+    stale_source=""
+    if [[ -n "$app_after" && "$(debug_app_workspace "$app_after")" == "$project_path" ]]; then
+      built_after="$(stat -f %m "$app_after/Contents/MacOS/Clicky.debug.dylib" 2>/dev/null || true)"
+      if [[ -n "$built_after" ]]; then
+        stale_source="$(first_source_newer_than "$app_after/Contents/MacOS/Clicky.debug.dylib" "$checkout_root/leanring-buddy")"
+      fi
+    fi
+    if [[ "$build_status" == "succeeded" && -n "$built_after" && -z "$stale_source" ]]; then break; fi
+    if (( attempt < 3 )); then
+      echo "build: try $attempt ended with status ${build_status:-unknown}${stale_source:+ and $stale_source newer than the app}, so building again in 5 seconds" >&2
+      sleep 5
+    fi
+  done
   if [[ "$build_status" != "succeeded" ]]; then
-    echo "Xcode build $build_status for $project_path. Read the errors in Xcode's issue navigator." >&2
+    echo "Xcode build $build_status for $project_path after 3 tries. Read the errors in Xcode's issue navigator." >&2
     exit 1
   fi
-  # A build with nothing to compile leaves the app as it was, which still matches this checkout.
   if [[ -z "$built_after" ]]; then
     echo "Xcode reported success, but no Debug app from $project_path exists. Check Xcode's scheme and destination." >&2
+    exit 1
+  fi
+  if [[ -n "$stale_source" ]]; then
+    echo "Xcode reported success 3 times, but $stale_source is newer than the app, so the app holds older code. Close the project in Xcode and build again." >&2
     exit 1
   fi
   if [[ "$built_after" == "$built_before" ]]; then
@@ -587,4 +614,5 @@ main() {
   esac
 }
 
-main "$@"
+# A test sources this file for its functions, so only a direct run dispatches a command.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
