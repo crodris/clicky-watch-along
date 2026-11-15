@@ -3,6 +3,9 @@
 // { name, description, inputSchema } shape WebMCP and MCP use. A tool is listed only while the page
 // has the primitives it needs, so a generated page that skips one simply offers fewer tools.
 // Every call ends the camera tour first, because the learner asking for a change means the tour is over.
+// A simulation page also defines liveScene.controls, setControl, and run. This file draws the one panel for them
+// (a slider per control, a Run button, and the readouts), so the model never draws its own, and offers set_control
+// and run_simulation. A finished run is posted to the app as "runFinished:<readouts JSON>" so Clicky can say the result.
 (() => {
   const liveScene = () => window.liveScene;
   const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -17,11 +20,45 @@
   let explodeAmount = 0;
   let insideIsOpen = false;
 
+  // A simulation page defines up to 3 controls, setControl, and run. Anything less is a plain 3D model.
+  const maximumControls = 3;
+  const isUsableControl = (control) => control !== null && typeof control === "object" && typeof control.name === "string"
+    && Number.isFinite(Number(control.min)) && Number.isFinite(Number(control.max)) && Number(control.max) > Number(control.min);
+  const simulationControls = () => {
+    const controls = liveScene()?.controls;
+    return Array.isArray(controls) ? controls.filter(isUsableControl).slice(0, maximumControls) : [];
+  };
+  const hasSimulation = () => simulationControls().length > 0
+    && typeof liveScene()?.setControl === "function"
+    && typeof liveScene()?.run === "function";
+  const controlSummary = (control) => ({
+    name: control.name,
+    label: String(control.label ?? control.name),
+    min: Number(control.min),
+    max: Number(control.max),
+    step: Number(control.step) > 0 ? Number(control.step) : 1,
+    value: Number(control.value),
+    unit: String(control.unit ?? ""),
+  });
+  // What the page reports is untrusted text that Clicky may say out loud, so it is cut to a few short, plain entries.
+  const currentReadouts = () => {
+    const readouts = liveScene()?.getState?.()?.readouts;
+    if (!Array.isArray(readouts)) return [];
+    return readouts
+      .filter((readout) => readout !== null && typeof readout === "object" && typeof readout.label === "string" && Number.isFinite(Number(readout.value)))
+      .slice(0, maximumControls)
+      .map((readout) => ({ label: readout.label.slice(0, 40), value: Number(readout.value), unit: String(readout.unit ?? "").slice(0, 16) }));
+  };
+
+  let runIsGoing = false;
+  let latestRunNumber = 0;
+
   const pageState = () => ({
     ...(liveScene()?.getState?.() ?? {}),
     labels: labelsOnScreen(),
     explodeAmount,
     insideIsOpen,
+    ...(hasSimulation() ? { controls: simulationControls().map(controlSummary), readouts: currentReadouts(), runIsGoing } : {}),
   });
 
   const hasParts = () => Array.isArray(liveScene()?.parts) && liveScene().parts.length > 0 && Boolean(liveScene().THREE);
@@ -116,6 +153,117 @@
     }
     insideIsOpen = open;
   };
+
+  // The panel is styled like the scene labels, and sits on the document root so the rise animation, which moves
+  // the body, never carries it. It appears when the tour ends, which is when the overlay starts taking the mouse.
+  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null };
+  const decimalsOf = (step) => String(step).split(".")[1]?.length ?? 0;
+  const valueText = (control) => `${control.value.toFixed(decimalsOf(control.step))}${control.unit ? " " + control.unit : ""}`;
+
+  const refreshPanel = () => {
+    if (!panel.element) return;
+    simulationControls().map(controlSummary).forEach((control, index) => {
+      const row = panel.controlRows[index];
+      if (!row) return;
+      row.valueElement.textContent = valueText(control);
+      if (Number(row.slider.value) !== control.value) row.slider.value = String(control.value);
+    });
+    panel.runButton.disabled = runIsGoing;
+    panel.runButton.textContent = runIsGoing ? "Running" : "Run";
+    const readouts = currentReadouts();
+    panel.readoutsElement.replaceChildren(...readouts.map((readout) => {
+      const line = document.createElement("div");
+      line.style.cssText = "display:flex;justify-content:space-between;gap:16px;";
+      const labelElement = document.createElement("span");
+      labelElement.textContent = readout.label;
+      const valueElement = document.createElement("span");
+      valueElement.textContent = `${readout.value} ${readout.unit}`.trim();
+      valueElement.style.fontWeight = "700";
+      line.append(labelElement, valueElement);
+      return line;
+    }));
+    panel.readoutsElement.style.display = readouts.length > 0 ? "flex" : "none";
+  };
+
+  const ensurePanel = () => {
+    if (panel.element || !document.body || !hasSimulation()) return;
+    const element = document.createElement("div");
+    element.id = "clicky-simulation-panel";
+    element.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:10;display:flex;flex-direction:column;gap:10px;min-width:300px;padding:12px 16px;border-radius:12px;background:rgba(250,246,240,0.96);color:#222;font:600 14px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
+    const style = document.createElement("style");
+    style.textContent = "#clicky-simulation-panel input[type=range]{width:100%;margin:4px 0 0;accent-color:#3380ff;cursor:pointer}#clicky-simulation-panel button{cursor:pointer}#clicky-simulation-panel button:hover:not(:disabled){filter:brightness(1.1)}#clicky-simulation-panel button:disabled{cursor:default;opacity:0.7}";
+    element.append(style);
+    // A press or wheel on the panel is the panel's. It must not turn or zoom the model behind it.
+    for (const eventName of ["pointerdown", "mousedown", "touchstart", "wheel"]) {
+      element.addEventListener(eventName, (event) => event.stopPropagation());
+    }
+    panel.controlRows = simulationControls().map(controlSummary).map((control) => {
+      const row = document.createElement("div");
+      const heading = document.createElement("div");
+      heading.style.cssText = "display:flex;justify-content:space-between;gap:16px;";
+      const labelElement = document.createElement("span");
+      labelElement.textContent = control.label;
+      const valueElement = document.createElement("span");
+      heading.append(labelElement, valueElement);
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = String(control.min);
+      slider.max = String(control.max);
+      slider.step = String(control.step);
+      slider.value = String(control.value);
+      slider.addEventListener("input", () => {
+        liveScene().endTour?.();
+        liveScene().setControl(control.name, Number(slider.value));
+        refreshPanel();
+      });
+      row.append(heading, slider);
+      element.append(row);
+      return { slider, valueElement };
+    });
+    panel.runButton = document.createElement("button");
+    panel.runButton.style.cssText = "padding:7px 16px;border:0;border-radius:8px;background:#3380ff;color:#fff;font:700 14px -apple-system,system-ui,sans-serif;";
+    panel.runButton.addEventListener("click", () => {
+      liveScene().endTour?.();
+      startRun();
+    });
+    panel.readoutsElement = document.createElement("div");
+    panel.readoutsElement.style.cssText = "display:none;flex-direction:column;gap:4px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
+    element.append(panel.runButton, panel.readoutsElement);
+    document.documentElement.append(element);
+    panel.element = element;
+    refreshPanel();
+  };
+
+  // Plays the simulation once. A run that never reports its end is given up after 20 seconds, so Run unlocks.
+  // A newer run, from the button or the voice, replaces an older one, and the older one's end is ignored.
+  const startRun = () => {
+    runIsGoing = true;
+    latestRunNumber += 1;
+    const thisRunNumber = latestRunNumber;
+    refreshPanel();
+    // run() starts in this call, so the motion begins at once, and a throw ends the run like a rejection does.
+    let runResult;
+    try {
+      runResult = liveScene().run();
+    } catch (error) {
+      runResult = Promise.reject(error);
+    }
+    const runEnded = Promise.race([Promise.resolve(runResult), new Promise((resolve) => setTimeout(resolve, 20000))]);
+    runEnded.catch((error) => console.error("simulation run failed: " + error)).then(() => {
+      if (thisRunNumber !== latestRunNumber) return;
+      runIsGoing = false;
+      refreshPanel();
+      const readouts = currentReadouts();
+      if (readouts.length > 0) window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("runFinished:" + JSON.stringify(readouts));
+    });
+  };
+
+  // The tour ends by itself or by a call, and either sets __tourFinished. The page defines liveScene during load, so wait for it.
+  const panelWatcher = setInterval(() => {
+    if (window.__tourFinished === true) ensurePanel();
+    if (panel.element) clearInterval(panelWatcher);
+  }, 150);
+  setTimeout(() => clearInterval(panelWatcher), 120000);
 
   const tools = [
     {
@@ -219,6 +367,45 @@
         return { ok: true };
       },
     },
+    {
+      name: "set_control",
+      // A getter, so the model reads the controls this page defines, with their ranges and current values.
+      get description() {
+        const controlList = simulationControls().map(controlSummary)
+          .map((control) => `${control.name} (${control.label}, ${control.min} to ${control.max}${control.unit ? " " + control.unit : ""}, now ${control.value})`)
+          .join("; ");
+        return `Change one number of the simulation on screen and put it back at its start, without running it. The controls are: ${controlList}. Use the control's name and a value in its unit.`;
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The name of one control from the description." },
+          value: { type: "number", description: "The new value in the control's unit. The page clamps it to the control's range." },
+        },
+        required: ["name", "value"],
+      },
+      isAvailable: hasSimulation,
+      run: (input) => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) return { ok: false, error: "value must be a number" };
+        const name = String(input.name ?? "");
+        if (liveScene().setControl(name, value) === false) {
+          return { ok: false, error: `No control is named "${name}". The controls are: ${simulationControls().map((control) => control.name).join(", ")}` };
+        }
+        refreshPanel();
+        return { ok: true };
+      },
+    },
+    {
+      name: "run_simulation",
+      description: "Play the simulation on screen once from its start with the current controls. It takes a few seconds, and the state's readouts hold the result when it ends.",
+      inputSchema: { type: "object", properties: {} },
+      isAvailable: hasSimulation,
+      run: () => {
+        startRun();
+        return { ok: true };
+      },
+    },
   ];
 
   window.clickyTools = {
@@ -230,6 +417,7 @@
       if (!tool || !tool.isAvailable()) return { ok: false, error: `${name} is not available on this scene`, state: pageState() };
       try {
         liveScene().endTour?.();
+        ensurePanel();
         const outcome = tool.run(input && typeof input === "object" ? input : {});
         return { ...outcome, state: pageState() };
       } catch (error) {
