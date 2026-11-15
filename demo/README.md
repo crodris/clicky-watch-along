@@ -45,6 +45,22 @@ demo/scripts/drive-study-guide-shot.sh demo/public/quiz-miss.events.txt.raw &
 TRAILING_SECONDS=18 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it {answer}|I'm not sure what it does|?is it the propeller|?is it the {answer}|I'm not sure what they do|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=-AiUnUbL5hA" 5 1110 680
 ```
 
+The parallel agents clip uses 1 shot of SpaceX's own 93 second clip of Starship Flight 15's tower catch, on x.com, with Chrome logged in to X.
+The reel credits it on its first shot (`sourceCredit`) and on its end card (`endCard.credit`).
+It hands a general task agent a research question with a Notion page, then asks for a 3D model, so the teal and violet sub-agents run at once, and needs the Worker's `NOTION_API_KEY`.
+Its Worker runs without `LIVE_SCENE_MODEL`, so GPT builds the model at medium effort, since a Sonnet model came out plain in two takes.
+The driver's second argument starts the clip at 50 seconds, during the descent, so the catch plays while the task agent searches.
+The `+15` step waits until the wide shot of the ship in the tower arms, about 74 seconds into the clip, before asking for the model.
+The driver hides X's side columns, replies, reply box, and floating buttons, keeps the clip muted, and pauses it 0.6 seconds before its end, so the model rises out of the last frame.
+It also opens the agent list while both sub-agents run, glides the mouse so both wingmen trail the blue one, and brings the task agent's Notion page forward while Clicky speaks its answer.
+Clicky has no captions to read on x.com, so the task agent works from the post, a look at the video, and web search.
+The hiding runs about 3 seconds into the recording, so the edit starts after it, since the page shows the account's name and avatar until then.
+
+```bash
+demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw 50 &
+TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch compares to the first booster catch, and make me a Notion page about it|+15 build me a 3D model of this Starship|&put it back|what did you find" "https://x.com/SpaceX/status/2121715216597827756" "" 1110 680
+```
+
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
 The script exits with an error, and keeps no events file, when the rehearsal never logs that it finished.
 The events file stamps each app log line with seconds since the recording started.
@@ -58,6 +74,7 @@ pnpm track public/volcano.mov public/volcano.cursor.json
 pnpm track public/ejiri.mov public/ejiri.cursor.json
 pnpm track public/study-guide.mov public/study-guide.cursor.json
 pnpm track public/quiz-miss.mov public/quiz-miss.cursor.json
+pnpm track public/agents.mov public/agents.cursor.json
 ```
 
 ## Music
@@ -71,6 +88,7 @@ The first two come from Mixkit under the Mixkit Stock Music Free License (https:
 The study guide clip and the combined clip use "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
 The quiz miss clip uses "Pop - Friends Like Us" (122 second version) by Easy_Eva (https://pixabay.com/music/pop-pop-friends-like-us-122sec-564062/), saved as `demo/public/music/friends-like-us.mp3`, under the same license.
 Neither is registered with YouTube Content ID, so a YouTube upload gets no claim, and neither is AI-generated.
+The parallel agents clip uses the same "Feel Good - It Feels So Good" track as the study guide clip.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
 Download all four before rendering.
@@ -85,8 +103,8 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, and `quizMissClipSegments` is the quiz miss clip, which follows the parallel sub-agents clip on `feature/multiple-agents` and leaves the sub-agent mechanics to it.
-`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, and the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `parallelAgentsClipSegments` is the parallel sub-agents clip over the Starship catch, posted first, and `quizMissClipSegments` is the quiz miss clip, which follows it and leaves the sub-agent mechanics to it.
+`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the parallel agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color, teal for the task agent and violet for the 3D model.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
 ```bash
@@ -96,11 +114,12 @@ pnpm render
 pnpm render-quiz
 pnpm render-study-guide
 pnpm render-quiz-miss
+pnpm render-parallel-agents
 ```
 
 `pnpm render` writes the voice-only `out/clicky-demo-voice.mp4`, then the mix writes `out/clicky-demo.mp4`.
-`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, and `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`.
-`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, and `pnpm mix-quiz-miss` run only the mix, which is enough after changing the music or its levels.
+`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, and `pnpm render-parallel-agents` for `out/clicky-parallel-agents.mp4`.
+`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, and `pnpm mix-parallel-agents` run only the mix, which is enough after changing the music or its levels.
 Set `REMOTION_BROWSER_EXECUTABLE` when Remotion's own headless shell hangs at "Waiting for root component to load".
 
 ## Quiz rehearsal

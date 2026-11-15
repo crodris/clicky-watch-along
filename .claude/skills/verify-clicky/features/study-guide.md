@@ -33,7 +33,8 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 
 Preconditions:
 
-- `worker/.dev.vars` holds `NOTION_API_KEY`, a personal access token made at notion.so/developers.
+- `worker/.dev.vars` holds `NOTION_API_KEY`, a personal access token made at notion.so/developers, and `CLICKY_APP_SECRET`, which `$V post` sends in `x-clicky-app-secret` and `app-launch` copies into the app's defaults, both from `.dev.vars` without printing it.
+- **Secret.** A curl to `/study-guide` without the header returns 401 and the Worker log has no Notion call.
   An internal connection's API token cannot create a page with no parent, so Notion rejects the create.
 - For the app, the app and Chrome preconditions in [Video quiz](./video-quiz.md) apply, and the Debug build is newer than the last commit under `leanring-buddy/`.
 
@@ -45,7 +46,7 @@ Preconditions:
 - **Revise.** Post the fixture again with `revision` set to `{ pageHandle, previousGuide: guide, instruction: "make it shorter" }` from the first reply.
   The result is a new `pageHandle`, and `GET https://api.notion.com/v1/pages/<old page id>` shows `in_trash: true`.
   The same post with the handle's last character changed returns 400, and the Worker log has no new usage line.
-- **Voice tools in the app.** With a YouTube video in front, run `$V app-launch ""`, then post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"make_study_guide","arguments":{}}}` to `http://127.0.0.1:8790/mcp`.
+- **Voice tools in the app.** With a YouTube video in front, run `$V app-launch "play the video"`, since `app-launch` refuses empty steps, then post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"make_study_guide","arguments":{}}}` to `http://127.0.0.1:8790/mcp`.
   The app log shows `Study guide: wrote https://www.notion.so/... in N s`, and `tools/list` then includes `revise_study_guide` and `open_study_guide`.
 
 - **Wingman.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
@@ -64,3 +65,4 @@ Preconditions:
 - A handle is signed with the token itself, so a new token makes every earlier handle fail with 400. The app then forgets each saved guide at its next status check, so its video can get a new one.
 - The Worker reads `.dev.vars` only when it starts, so restart it after changing the token.
 - Notion API version `2026-03-11` trashes a page with `in_trash`, and the older `archived` field is rejected.
+- YouTube can answer yt-dlp's caption download with HTTP 429 after several reads in a row, and the guide then fails with `yt-dlp exited with status 1`. Run yt-dlp by hand with the app's arguments to see the 429, and wait a few minutes or use a video whose captions are already read.

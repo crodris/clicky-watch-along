@@ -166,6 +166,49 @@ describe("handleLiveScene model setting", () => {
     expect(sentBody).toMatchObject({ model: "claude-sonnet-5-5" });
   });
 
+  it("asks Claude Fable 5.2 when LIVE_SCENE_MODEL is fable", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "fable" });
+
+    expect(response.status).toBe(200);
+    const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    expect(sentBody).toMatchObject({ model: "claude-fable-5-2" });
+  });
+
+  it("asks GPT at medium reasoning effort and Sonnet at low effort when LIVE_SCENE_EFFORT is not set", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toMatchObject({ reasoning: { effort: "medium" } });
+
+    fetchMock.mockClear();
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toMatchObject({ output_config: { effort: "low" } });
+  });
+
+  it("sends LIVE_SCENE_EFFORT to GPT as its reasoning effort", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_EFFORT: "medium" });
+
+    const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    expect(sentBody).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "medium" } });
+  });
+
+  it("sends LIVE_SCENE_EFFORT to a Claude scene model", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "opus", LIVE_SCENE_EFFORT: "high" });
+
+    const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    expect(sentBody).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "high" } });
+  });
+
   it("tells the model about the camera and part tools the app drives after the tour", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
     vi.stubGlobal("fetch", fetchMock);
@@ -183,7 +226,7 @@ describe("handleLiveScene model setting", () => {
     const fetchMock = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "opus" });
+    const response = await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "haiku" });
 
     expect(response.status).toBe(500);
     expect(fetchMock).not.toHaveBeenCalled();

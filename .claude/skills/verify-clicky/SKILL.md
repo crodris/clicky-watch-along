@@ -79,7 +79,7 @@ The free probe posts `{}` to `/judge-answer`, and this checkout's Zod check reje
 The command waits up to 60 seconds.
 
 ```bash
-$V worker-up                                        # GPT builds live scenes (about $0.23 each)
+$V worker-up                                        # GPT builds live scenes (about $0.37 each)
 $V worker-up 8789 -- --var LIVE_SCENE_MODEL:sonnet  # Sonnet builds them (about $0.04 each)
 ```
 
@@ -110,7 +110,9 @@ The app waits 3 seconds, then sends each step as if it were spoken.
 It waits for the step's own work to finish, including a pop-out's narration, and then for any tour or speech still going, before the next step.
 A step that starts with `?` first waits up to 4 minutes for a quiz question to be asked and spoken, then answers it.
 A step that starts with `~` lets the next step interrupt it after 6 seconds.
-A step that starts with `&` first waits up to 3 minutes for a study guide being written to finish, then 4 seconds more for its finish chip.
+A step that starts with `&` first waits up to 3 minutes for every background agent to finish, then for a 3D model's rise and narration, then 4 seconds more for the finish chip.
+A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
+It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
 It prints the relevant log lines and saves the usage lines the 8787 Worker logged during the run.
 

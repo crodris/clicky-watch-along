@@ -7,7 +7,7 @@
  * Routes:
  *   POST /chat         → Anthropic Messages API (streaming)
  *   POST /tts          → ElevenLabs TTS API
- *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet (generated live-scene page)
+ *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → Anthropic Messages API (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
@@ -16,9 +16,13 @@
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
  *   POST /study-guide-status → Notion API (whether a saved guide's page is still out of the trash)
+ *   POST /background-agent → Anthropic Messages API (one turn of a general background agent, with web search and web fetch)
+ *   POST /notion-page  → Notion API (a background agent's findings as a private page)
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
+import { appSecretHeaderName, requestCarriesTheAppSecret, routesThatNeedTheAppSecret } from "./appSecret";
+import { handleBackgroundAgent, handleNotionPage } from "./backgroundAgent";
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
 import { handleVideoFrameParts } from "./videoFrameParts";
@@ -34,15 +38,19 @@ interface Env {
   ELEVENLABS_VOICE_ID: string;
   ASSEMBLYAI_API_KEY: string;
   OPENAI_API_KEY: string;
-  /** "gpt" (the default) or "sonnet". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
+  /** "gpt" (the default), "sonnet", "opus", or "fable". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
   LIVE_SCENE_MODEL?: string;
+  /** Overrides the scene model's effort, which is medium for GPT and low for Claude. GPT takes low, medium, or high. */
+  LIVE_SCENE_EFFORT?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;
   /**
    * A Notion personal access token, which acts as its owner across their whole workspace, so /study-guide can create
-   * private pages with no parent. Without it, /study-guide answers 503.
+   * private pages with no parent. Without it, /study-guide and /notion-page answer 503.
    */
   NOTION_API_KEY?: string;
+  /** The secret the app sends in x-clicky-app-secret. The Notion routes and /background-agent refuse a request without it. */
+  CLICKY_APP_SECRET?: string;
 }
 
 export default {
@@ -55,6 +63,14 @@ export default {
 
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
+    }
+
+    // Checked before any handler runs, so a caller without the app's secret never reaches Notion or the task agent.
+    if (routesThatNeedTheAppSecret.has(url.pathname) && !(await requestCarriesTheAppSecret(request, env.CLICKY_APP_SECRET))) {
+      return new Response(JSON.stringify({ error: `Missing or wrong ${appSecretHeaderName}` }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
     }
 
     try {
@@ -100,6 +116,14 @@ export default {
 
       if (url.pathname === "/study-guide-status") {
         return await handleStudyGuideStatus(request, env);
+      }
+
+      if (url.pathname === "/background-agent") {
+        return await handleBackgroundAgent(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/notion-page") {
+        return await handleNotionPage(request, env.NOTION_API_KEY);
       }
 
       if (url.pathname === "/judge-answer") {

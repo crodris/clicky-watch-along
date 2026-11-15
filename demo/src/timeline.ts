@@ -1,5 +1,6 @@
 import type { CameraMove } from "./camera.ts";
 import type { Caption } from "./components.tsx";
+import { subAgentTaskTeal } from "./theme.ts";
 
 /**
  * The edit, shot by shot. Every time is in seconds. A shot's `sourceStartSeconds` is where it starts in its
@@ -21,6 +22,8 @@ export type ShotSegment = {
   soundEndsAtSeconds?: number;
   /** Names the footage in a small corner line, such as "Video: Science ABC", for the shot that first shows it. */
   sourceCredit?: string;
+  /** Holds the shot's first frame, muted, so a viewer can read what is on screen before the take moves on. */
+  holdsStill?: boolean;
 };
 
 /** The closing card over a blurred, muted stretch of a recording. */
@@ -372,8 +375,8 @@ export const studyGuideClipSegments: Segment[] = [
 const divingPlanesQuestion = { x: 0.7, y: 0.7 };
 const divingPlanesScale = 1.6;
 // The ballast tanks "?" sits left of the cross-section, below its other labels, and 1.5 times keeps the whole
-// cross-section in view.
-const ballastTanksQuestion = { x: 0.46, y: 0.58 };
+// cross-section in view. The focus sits low enough that the question's bubble stays above the captions.
+const ballastTanksQuestion = { x: 0.46, y: 0.64 };
 const ballastTanksScale = 1.5;
 // "Review these first" and its first item sit just under the page's summary.
 const reviewTheseFirst = { x: 0.62, y: 0.6 };
@@ -390,13 +393,15 @@ export const quizMissClipSegments: Segment[] = [
     name: "ask",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 29.4,
-    durationSeconds: 5.6,
+    // It starts at 27.6, while the "Study guide ready" chip from that write is still up under the cursor.
+    sourceStartSeconds: 27.6,
+    durationSeconds: 7.4,
     cameraMoves: [{ atSeconds: 0, scale: youtubeVideoScale, focus: youtubeVideo, durationFrames: 1 }],
     sourceCredit: scienceABCCredit,
     captions: [
-      { fromSeconds: 0.2, toSeconds: 2.3, text: "This video already has a study guide in Notion", accentWords: ["study guide"] },
-      { fromSeconds: 2.4, toSeconds: 5.4, text: "Watch this video with me and quiz me", voice: "learner" },
+      { fromSeconds: 0.2, toSeconds: 2.3, text: "My Clicky fork quizzes you while you watch", accentWords: ["quizzes you"] },
+      { fromSeconds: 2.4, toSeconds: 4.1, text: "It already wrote this video's study guide", accentWords: ["study guide"] },
+      { fromSeconds: 4.2, toSeconds: 7.2, text: "Watch this video with me and quiz me", voice: "learner" },
     ],
   },
   {
@@ -434,8 +439,8 @@ export const quizMissClipSegments: Segment[] = [
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
     sourceStartSeconds: 150.1,
-    durationSeconds: 4.3,
-    soundEndsAtSeconds: 3.98,
+    durationSeconds: 4.0,
+    soundEndsAtSeconds: 3.95,
     cameraMoves: [{ atSeconds: 0, scale: divingPlanesScale, focus: divingPlanesQuestion, durationFrames: 1 }],
     captions: [{ fromSeconds: 0.3, toSeconds: 2.6, text: "Is it the propeller?", voice: "learner" }],
   },
@@ -448,14 +453,27 @@ export const quizMissClipSegments: Segment[] = [
     name: "update",
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
-    sourceStartSeconds: 164.2,
-    durationSeconds: 6.2,
-    soundEndsAtSeconds: 5.45,
+    sourceStartSeconds: 164.4,
+    durationSeconds: 6.0,
+    soundEndsAtSeconds: 5.25,
     cameraMoves: [{ atSeconds: 0, scale: divingPlanesScale, focus: divingPlanesQuestion, durationFrames: 1 }],
     captions: [
-      { fromSeconds: 0.3, toSeconds: 2.1, text: "Is it the diving planes?", voice: "learner" },
-      { fromSeconds: 2.4, toSeconds: 6.0, text: "A sub-agent writes the miss into your study guide", accentWords: ["your study guide"] },
+      { fromSeconds: 0.1, toSeconds: 1.9, text: "Is it the diving planes?", voice: "learner" },
+      { fromSeconds: 2.2, toSeconds: 5.8, text: "A sub-agent writes the miss into your study guide", accentWords: ["your study guide"] },
     ],
+  },
+  {
+    // The bubble finishes typing the third question at about 249.6, and the answer comes at 249.94, so this holds the
+    // full question still for a moment first.
+    kind: "shot",
+    name: "next-question",
+    recordingFile: "quiz-miss.mov",
+    cursorTrackFile: "quiz-miss.cursor.json",
+    sourceStartSeconds: 249.8,
+    durationSeconds: 2.2,
+    holdsStill: true,
+    cameraMoves: [{ atSeconds: 0, scale: ballastTanksScale, focus: ballastTanksQuestion, durationFrames: 1 }],
+    captions: [{ fromSeconds: 0.4, toSeconds: 2.0, text: "Next question: which tanks let it dive?", accentWords: ["which tanks"] }],
   },
   {
     // The third question, about ballast tanks, with the cross-section lifted out and the question in the cursor's
@@ -511,10 +529,185 @@ export const quizMissClipSegments: Segment[] = [
     recordingFile: "quiz-miss.mov",
     cursorTrackFile: "quiz-miss.cursor.json",
     sourceStartSeconds: 285.8,
-    durationSeconds: 3.6,
+    durationSeconds: 3.9,
     cameraMoves: [{ atSeconds: 0, scale: youtubeVideoScale, focus: youtubeVideo, durationFrames: 1 }],
-    captions: [{ fromSeconds: 0.2, toSeconds: 3.4, text: "Click one, and the video jumps right there", accentWords: ["jumps right there"] }],
+    // The end card dissolves in over the last 0.5 seconds, so the caption ends before that.
+    captions: [{ fromSeconds: 0.2, toSeconds: 3.3, text: "Click one, and the video jumps right there", accentWords: ["jumps right there"] }],
   },
   // The music fades out under this card.
   { kind: "endCard", name: "end-card", recordingFile: "quiz-miss.mov", sourceStartSeconds: 288, durationSeconds: 4.0 },
+];
+
+// The parallel agents clip, posted first because the catch is the news, so it teaches the sub-agent mechanics itself: a
+// general task agent and a 3D model built in the background, at once, while SpaceX's own clip of Starship Flight 15's
+// tower catch plays on x.com. The clip plays muted, so only Clicky and the music are heard. The driver hides X's side
+// columns and replies, so the player sits alone in the middle of the page, and 2.2 times fills most of the frame with it.
+// The hiding runs at 3.1 seconds, so the clip starts after it.
+const starshipVideo = { x: 0.536, y: 0.401 };
+const starshipVideoScale = 2.2;
+// The agent list opens just below and right of the blue triangle, which rests at about (0.67, 0.69).
+const agentList = { x: 0.745, y: 0.76 };
+const agentChip = { x: 0.72, y: 0.74 };
+// The model rises to fill the screen, so the camera pulls back to the whole frame for it.
+const wholeFrame = { x: 0.5, y: 0.5 };
+// The Notion page's body, right of Chrome's tab sidebar and Notion's own sidebar, which lists private page titles and
+// the account's name, so the camera keeps both out of the frame.
+const notionPageBody = { x: 0.67, y: 0.5 };
+const notionPageScale = 1.6;
+
+export const parallelAgentsClipSegments: Segment[] = [
+  {
+    // agents.events.txt: the request at 5.99, while the ship descends on its landing burn, and start_background_task
+    // spawns the teal task agent at 7.64, whose line says "Getting started" and then the steps it reports.
+    kind: "shot",
+    name: "ask-task",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    // The hiding runs at about 3.1 and the clip jumps to 50 seconds between 3.5 and 3.6, so the shot starts at 3.7.
+    sourceStartSeconds: 3.7,
+    sourceCredit: "Video: SpaceX, Mechazilla catches Starship!",
+    durationSeconds: 8.6,
+    cameraMoves: [
+      { atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 },
+      { atSeconds: 5.1, scale: helperScale, focus: "cursor", durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.2, toSeconds: 2.8, text: "My Clicky fork, an AI on your cursor, watching SpaceX's catch with you", accentWords: ["an AI on your cursor"] },
+      { fromSeconds: 2.9, toSeconds: 5.8, text: "Find out how this catch compares to the first booster catch, and make me a Notion page about it", voice: "learner" },
+      { fromSeconds: 5.9, toSeconds: 8.4, text: "That spawns a general sub-agent that plans its own steps", accentWords: ["general sub-agent"], accentColor: subAgentTaskTeal },
+    ],
+  },
+  {
+    // The ship flies down to the tower from 13.8, and the arms close around it at about 19 while the task agent searches.
+    kind: "shot",
+    name: "catch",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 13.8,
+    durationSeconds: 8.5,
+    cameraMoves: [{ atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.4, toSeconds: 4.0, text: "Sub-agent 1 searches the web in the background", accentWords: ["searches the web"], accentColor: subAgentTaskTeal },
+      { fromSeconds: 4.3, toSeconds: 8.2, text: "The main agent stays free, and the catch plays on", accentWords: ["stays free"] },
+    ],
+  },
+  {
+    // The request at 26.35, over the wide shot of the ship in the tower's arms, build_model_in_background spawns the
+    // violet sub-agent at 27.38, and the agent list is open from about 28.5 to 33.0, saying "2 running".
+    kind: "shot",
+    name: "ask-model",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 26.2,
+    durationSeconds: 6.8,
+    cameraMoves: [
+      { atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 },
+      { atSeconds: 2.5, scale: 2.4, focus: agentList, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.2, toSeconds: 1.9, text: "Build me a 3D model of this Starship", voice: "learner" },
+      { fromSeconds: 2.0, toSeconds: 3.6, text: "Sub-agent 2 builds it, in violet", accentWords: ["Sub-agent 2"] },
+      { fromSeconds: 3.8, toSeconds: 6.6, text: "Shift + option lists them: 2 running at once", accentWords: ["2 running"] },
+    ],
+  },
+  {
+    // The mouse glides out and back from 33.9 to 37.6, and both wingmen trail the blue triangle with their step lines.
+    kind: "shot",
+    name: "formation",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 33.7,
+    durationSeconds: 4.1,
+    cameraMoves: [{ atSeconds: 0, scale: 2.2, focus: "cursor", durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.3, toSeconds: 4.0, text: "One searches the web while the other builds the model", accentWords: ["searches the web"], accentColor: subAgentTaskTeal },
+    ],
+  },
+  {
+    // The task agent finishes at 41.79 while the clip still plays: its wingman fills, gets its check mark, and the chip
+    // says "Task done · say what did you find", since the answer waits to be asked for.
+    kind: "shot",
+    name: "task-done",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 41.3,
+    durationSeconds: 4.8,
+    cameraMoves: [
+      { atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 },
+      { atSeconds: 0.5, scale: labelScale, focus: agentChip, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      // After the chip shows at about 0.6, so the caption never names a result the screen does not show yet.
+      { fromSeconds: 1.2, toSeconds: 4.6, text: "Sub-agent 1 done: web research, written to Notion", accentWords: ["done"], accentColor: finishedCheckGreen },
+    ],
+  },
+  {
+    // The model is built at 46.43 and the chip says "3D model ready". The driver stopped the clip on its last frame at
+    // about 45.6, and nothing else is on screen, so the model rises out of that frame from 47.43.
+    kind: "shot",
+    name: "rise",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 46.0,
+    durationSeconds: 7.8,
+    cameraMoves: [
+      { atSeconds: 0, scale: labelScale, focus: agentChip, durationFrames: 1 },
+      { atSeconds: 1.6, scale: 1.0, focus: wholeFrame, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.5, toSeconds: 1.8, text: "Sub-agent 2 done", accentWords: ["done"], accentColor: finishedCheckGreen },
+      { fromSeconds: 2.0, toSeconds: 4.9, text: "The screen is free, so the model rises out of the video", accentWords: ["rises out of the video"] },
+      { fromSeconds: 5.1, toSeconds: 7.6, text: "GPT-6.1 Sol built it in 19 seconds", accentWords: ["19 seconds"] },
+    ],
+  },
+  {
+    // Clicky says what the model shows from 54.71 to 64.71, in one sentence: "Inside the Starship model, you're passing
+    // the pointed nose and payload section, then moving down the stainless steel body toward the engine bay with its
+    // cluster of Raptor engines." It has no sentence break to cut on, so the shot keeps it whole and drops the silence on
+    // each side, ending late enough that "engines" is heard before the dissolve. For viewers with the sound off, the first
+    // caption names the labels on screen and the second follows the narration.
+    kind: "shot",
+    name: "narration",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 54.3,
+    durationSeconds: 10.9,
+    cameraMoves: [{ atSeconds: 0, scale: 1.0, focus: wholeFrame, durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.6, toSeconds: 4.8, text: "It labels the tower, catch arms, and engines", accentWords: ["labels"] },
+      { fromSeconds: 5.1, toSeconds: 10.2, text: "Then tours the ship from the nose down to its Raptor engines", accentWords: ["Raptor engines"] },
+    ],
+  },
+  {
+    // "Put it back" at 69.21, and the model flattens back into the clip's last frame by about 70.0.
+    kind: "shot",
+    name: "put-back",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 68.9,
+    durationSeconds: 3.4,
+    cameraMoves: [
+      { atSeconds: 0, scale: 1.0, focus: wholeFrame, durationFrames: 1 },
+      { atSeconds: 1.6, scale: starshipVideoScale, focus: starshipVideo, durationFrames: bigMoveFrames },
+    ],
+    captions: [{ fromSeconds: 0.2, toSeconds: 2.1, text: "Put it back", voice: "learner" }],
+  },
+  {
+    // "What did you find" at 72.80, the page comes forward at about 73, and Clicky speaks the task agent's answer from
+    // 74.41 to 92.97 while the page scrolls to its sources by about 83.
+    kind: "shot",
+    name: "answer",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 72.6,
+    durationSeconds: 20.8,
+    cameraMoves: [{ atSeconds: 0, scale: notionPageScale, focus: notionPageBody, durationFrames: 1 }],
+    captions: [
+      { fromSeconds: 0.2, toSeconds: 1.9, text: "What did you find?", voice: "learner" },
+      { fromSeconds: 2.4, toSeconds: 6.0, text: "The answer waits until you ask, so it never talks over the video", accentWords: ["until you ask"], accentColor: subAgentTaskTeal },
+      { fromSeconds: 11.0, toSeconds: 14.6, text: "And the page cites its sources", accentWords: ["cites its sources"], accentColor: subAgentTaskTeal },
+    ],
+  },
+  // The music fades out under this card.
+  { kind: "endCard", name: "end-card", recordingFile: "agents.mov", sourceStartSeconds: 94, durationSeconds: 4.0 },
 ];

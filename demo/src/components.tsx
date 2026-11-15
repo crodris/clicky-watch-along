@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AbsoluteFill, OffthreadVideo, staticFile, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Freeze, OffthreadVideo, staticFile, useCurrentFrame } from "remotion";
 import { cameraAt, cameraTransform, type CameraMove, type CursorTrack } from "./camera.ts";
 import type { DemoTheme } from "./theme.ts";
 import {
@@ -189,6 +189,7 @@ export function Shot({
   muted,
   soundEndsAtSeconds,
   sourceCredit,
+  holdsStill,
 }: {
   recordingFile: string;
   sourceStartSeconds: number;
@@ -200,8 +201,19 @@ export function Shot({
   muted: boolean;
   soundEndsAtSeconds?: number;
   sourceCredit?: string;
+  holdsStill?: boolean;
 }) {
   const frame = useCurrentFrame();
+  const recording = (
+    <OffthreadVideo
+      src={staticFile(recordingFile)}
+      trimBefore={Math.round(sourceStartSeconds * frameRate)}
+      muted={muted || holdsStill === true}
+      volume={(shotFrame) =>
+        shotVolume(shotFrame, Math.round(durationSeconds * frameRate), Math.round((soundEndsAtSeconds ?? durationSeconds) * frameRate))
+      }
+    />
+  );
   const camera = cameraAt(cameraMoves, frame / frameRate, durationSeconds, sourceStartSeconds, cursorTrack);
   return (
     <AbsoluteFill style={{ background: colors.background, overflow: "hidden" }}>
@@ -211,14 +223,7 @@ export function Shot({
           transform: cameraTransform(camera.scale, camera.focus, videoWidth, videoHeight),
         }}
       >
-        <OffthreadVideo
-          src={staticFile(recordingFile)}
-          trimBefore={Math.round(sourceStartSeconds * frameRate)}
-          muted={muted}
-          volume={(shotFrame) =>
-            shotVolume(shotFrame, Math.round(durationSeconds * frameRate), Math.round((soundEndsAtSeconds ?? durationSeconds) * frameRate))
-          }
-        />
+        {holdsStill ? <Freeze frame={0}>{recording}</Freeze> : recording}
       </AbsoluteFill>
       <CaptionTrack captions={captions} theme={theme} />
       {sourceCredit ? <SourceCredit text={sourceCredit} theme={theme} /> : null}

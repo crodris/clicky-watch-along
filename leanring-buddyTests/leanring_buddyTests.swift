@@ -9,6 +9,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
+import JavaScriptCore
 import Testing
 @testable import Clicky
 
@@ -955,6 +956,35 @@ struct leanring_buddyTests {
         #expect(availableTools.contains(.seekRelative))
     }
 
+    @Test func aBackgroundModelIsBuiltOverAVideoAndShownOnlyOnceReadyAndOutsideAQuizQuestion() async throws {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: context).contains(.buildModelInTheBackground))
+        #expect(!AppVoiceTool.available(in: context).contains(.showReadyModel))
+
+        context.threeDModelIsReady = true
+        #expect(AppVoiceTool.available(in: context).contains(.showReadyModel))
+
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.buildModelInTheBackground))
+        #expect(!AppVoiceTool.available(in: context).contains(.showReadyModel))
+
+        let noVideo = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(!AppVoiceTool.available(in: noVideo).contains(.buildModelInTheBackground))
+    }
+
+    @Test func aTaskIsStartedOutsideAQuizQuestionAndItsAnswerHeardOnlyOnceReady() async throws {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: context).contains(.startBackgroundTask))
+        #expect(!AppVoiceTool.available(in: context).contains(.hearTaskAnswer))
+
+        context.taskAnswerIsReady = true
+        #expect(AppVoiceTool.available(in: context).contains(.hearTaskAnswer))
+
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.startBackgroundTask))
+        #expect(!AppVoiceTool.available(in: context).contains(.hearTaskAnswer))
+    }
+
     @Test func aPageCannotOfferAToolUnderAnAppToolsNameOrAnUnknownName() async throws {
         let emptySchema: JSONValue = .object(["type": .string("object")])
         let pageTools = [
@@ -979,6 +1009,8 @@ struct leanring_buddyTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, threeDModelIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, taskAnswerIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
     }
 
     @Test func findingAMomentPicksTheCaptionsThatSayTheQueryWords() async throws {
@@ -1001,6 +1033,30 @@ struct leanring_buddyTests {
         #expect(liveSceneJudgeVerdict(workerVerdict: "wants_hint") == .control(.giveHint))
         #expect(liveSceneJudgeVerdict(workerVerdict: "scene_command") == .control(.sceneCommand))
         #expect(liveSceneJudgeVerdict(workerVerdict: "maybe") == nil)
+    }
+
+    @Test func theRequestedScenePauseAndPlayActOnThePagesLargestVideo() async throws {
+        let javaScriptContext = try #require(JSContext())
+        // A page like x.com can hold a small preview player ahead of the main one.
+        javaScriptContext.evaluateScript("""
+        var calls = [];
+        function fakeVideo(name, width, height) {
+            return { name: name, paused: false, currentTime: 12.5,
+                getBoundingClientRect: function () { return { width: width, height: height }; },
+                pause: function () { this.paused = true; calls.push(name + ' paused'); },
+                play: function () { this.paused = false; calls.push(name + ' played'); } };
+        }
+        var previewVideo = fakeVideo('preview', 160, 90);
+        var document = {
+            querySelectorAll: function () { return [previewVideo, mainVideo]; },
+            querySelector: function () { return previewVideo; }
+        };
+        var mainVideo = fakeVideo('main', 1280, 720);
+        """)
+        #expect(javaScriptContext.evaluateScript(VideoQuizSession.readPlaybackStateJavaScript).toString() == "12.5|false")
+        javaScriptContext.evaluateScript(VideoQuizSession.pauseVideoJavaScript)
+        javaScriptContext.evaluateScript(VideoQuizSession.playVideoJavaScript)
+        #expect(javaScriptContext.evaluateScript("calls.join(',')").toString() == "main paused,main played")
     }
 
     @Test func learnerVideoJavaScriptEmbedsOnlyNumbersAndNoDoubleQuotes() async throws {
@@ -1088,6 +1144,16 @@ struct leanring_buddyTests {
     @Test func aRehearsalAnswersWithTheOpenQuestionsLabel() async throws {
         #expect(rehearsalTranscript("is it the {answer}", answeringWith: "Stylomastoid foramen") == "is it the stylomastoid foramen")
         #expect(rehearsalTranscript("stop the quiz", answeringWith: "Ash") == "stop the quiz")
+    }
+
+    @Test func aRehearsalStepCanWaitBeforeItIsSpoken() async throws {
+        #expect(rehearsalStepWait("+12.5 build me a 3D model").waitSeconds == 12.5)
+        #expect(rehearsalStepWait("+12.5 build me a 3D model").step == "build me a 3D model")
+        #expect(rehearsalStepWait("+8 &what did you find").step == "&what did you find")
+        #expect(rehearsalStepWait("build me a 3D model").waitSeconds == 0)
+        #expect(rehearsalStepWait("+ten build it").step == "+ten build it")
+        #expect(rehearsalStepWait("+inf build it").waitSeconds == 0)
+        #expect(rehearsalStepWait("+99999999999 build it").step == "+99999999999 build it")
     }
 
     @Test func aDebugCaptionsFileAppliesOnlyToTheVideoItIsNamedFor() async throws {
@@ -1358,6 +1424,80 @@ struct leanring_buddyTests {
         #expect(store.agents.first?.endedAt != nil)
     }
 
+    @Test func guideAgentsOnTwoVideosRunAtOnceButOneVideoHasOneAtATime() async throws {
+        let store = BackgroundAgentStore()
+        let firstVideoAgentID = store.start(kind: .studyGuide, studyGuideVideoKey: "video-one")
+        store.start(kind: .studyGuide, studyGuideVideoKey: "video-two")
+        store.start(kind: .studyGuide)
+        #expect(store.agents.filter(\.isRunning).count == 3)
+        #expect(store.aStudyGuideAgentIsRunning(forVideoKey: "video-one"))
+        #expect(store.aStudyGuideAgentIsRunning(forVideoKey: "video-two"))
+        #expect(!store.aStudyGuideAgentIsRunning(forVideoKey: "video-three"))
+
+        store.finish(firstVideoAgentID, with: .notionPage(studyGuidePageURL))
+        #expect(!store.aStudyGuideAgentIsRunning(forVideoKey: "video-one"))
+    }
+
+    private func taskAgentTurn(stopReason: String, blocks: [JSONValue]) throws -> TaskAgentTurn {
+        try TaskAgentTurn(responseData: JSONEncoder().encode(JSONValue.object(["content": .array(blocks), "stopReason": .string(stopReason)])))
+    }
+
+    private func toolUseBlock(id: String, name: String, input: [String: JSONValue]) -> JSONValue {
+        .object(["type": .string("tool_use"), "id": .string(id), "name": .string(name), "input": .object(input)])
+    }
+
+    @Test func aTaskAgentTurnLeadsToTheRightNextStep() async throws {
+        let pausedTurn = try taskAgentTurn(stopReason: "pause_turn", blocks: [.object(["type": .string("server_tool_use"), "id": .string("s1"), "name": .string("web_search"), "input": .object([:])])])
+        #expect(taskAgentNextStep(after: pausedTurn) == .continueThePausedTurn)
+
+        let stepCall = toolUseBlock(id: "t1", name: "report_step", input: ["step": .string("Searching")])
+        let toolTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [stepCall])
+        #expect(taskAgentNextStep(after: toolTurn) == .runTools(toolTurn.toolCalls))
+
+        // The agent often writes its page and finishes in one turn, so the page call still runs before the finish.
+        let pageCall = toolUseBlock(id: "t2", name: "write_notion_page", input: ["title": .string("Catches")])
+        let finishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [pageCall, toolUseBlock(id: "t3", name: "finish", input: ["spokenSummary": .string(" It was caught. ")])])
+        #expect(taskAgentNextStep(after: finishTurn) == .finish(spokenSummary: "It was caught.", afterRunning: [VoiceToolCall(id: "t2", name: "write_notion_page", input: ["title": .string("Catches")])]))
+
+        let emptyFinishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [.object(["type": .string("text"), "text": .string("It landed.")]), toolUseBlock(id: "t4", name: "finish", input: [:])])
+        #expect(taskAgentNextStep(after: emptyFinishTurn) == .finish(spokenSummary: "It landed.", afterRunning: []))
+
+        let textTurn = try taskAgentTurn(stopReason: "end_turn", blocks: [.object(["type": .string("text"), "text": .string("Done.")])])
+        #expect(taskAgentNextStep(after: textTurn) == .endedWithText("Done."))
+        // Every block goes back on the next turn, thinking and server results included.
+        #expect(pausedTurn.assistantContent.count == 1)
+    }
+
+    @Test func aTaskAgentPageNeedsATitleAndASummaryBeforeItReachesTheWorker() async throws {
+        #expect(taskAgentPageInputProblem(["title": .string("Catches"), "summary": .string("The ship was caught.")]) == nil)
+        #expect(taskAgentPageInputProblem(["title": .string(" "), "summary": .string("")]) == "The page needs a title and summary. Write it once your research is done.")
+        #expect(taskAgentPageInputProblem(["title": .string("Catches")])?.contains("summary") == true)
+    }
+
+    @Test func aTaskAgentSpeaksAtMostThreeSentencesOfItsAnswer() async throws {
+        let longAnswer = "The ship was caught. It came back from orbit. The first booster catch came in 2024. That was a different rocket. Both used the tower's arms."
+        #expect(taskAgentSpokenAnswer(longAnswer) == "The ship was caught. It came back from orbit. The first booster catch came in 2024.")
+        #expect(taskAgentSpokenAnswer("It was caught.") == "It was caught.")
+    }
+
+    @Test func aTaskAgentShowsTheStepsItReports() async throws {
+        let store = BackgroundAgentStore()
+        let agentID = store.start(kind: .task)
+        #expect(store.agents.first?.inProgressText == "Getting started")
+        #expect(store.agents.first?.stepStatuses == [.current])
+
+        store.reportStep("Searching the web", for: agentID)
+        store.reportStep("Writing the page in Notion", for: agentID)
+        #expect(store.agents.first?.inProgressText == "Writing the page in Notion")
+        #expect(store.agents.first?.stepNames == ["Searching the web", "Writing the page in Notion"])
+        #expect(store.agents.first?.stepStatuses == [.done, .current])
+
+        let pageURL = try #require(URL(string: "https://www.notion.so/p2"))
+        store.finish(agentID, with: .answer(spokenSummary: "It was caught.", pageURL: pageURL))
+        #expect(store.agents.first?.stepStatuses == [.done, .done])
+        #expect(store.agents.first?.finishedResult?.pageURL == pageURL)
+    }
+
     @Test func anAgentThatEndedIgnoresEveryLaterChange() async throws {
         let store = BackgroundAgentStore()
         let finishedAgentID = store.start(kind: .studyGuide)
@@ -1393,17 +1533,23 @@ struct leanring_buddyTests {
         #expect(store.agents.first?.phase == .running(completedStepCount: 1))
     }
 
-    @Test func theStoreKeepsTheNewestTenAgentsFirst() async throws {
+    @Test func theStoreKeepsTheNewestTenEndedAgentsAndEveryRunningOne() async throws {
         let store = BackgroundAgentStore()
-        let agentIDs = (0..<12).map { _ in store.start(kind: .studyGuide) }
-        #expect(store.agents.count == 10)
-        #expect(store.agents.map(\.id) == Array(agentIDs.suffix(10).reversed()))
+        let longTaskID = store.start(kind: .task)
+        let endedAgentIDs = (0..<12).map { _ in
+            let agentID = store.start(kind: .studyGuideUpdate)
+            store.finish(agentID, with: .notionPage(studyGuidePageURL))
+            return agentID
+        }
+        // The store trims when an agent starts, so the newest start trims the ended agents to 10.
+        let newestAgentID = store.start(kind: .studyGuide)
+        #expect(store.agents.map(\.id) == [newestAgentID] + endedAgentIDs.suffix(10).reversed() + [longTaskID])
     }
 
     @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {
         let endedAt = Date(timeIntervalSince1970: 1_000)
         func agent(in phase: BackgroundAgentPhase) -> BackgroundAgent {
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, studyGuideVideoKey: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
         }
         let finishedAgent = agent(in: .finished(.notionPage(studyGuidePageURL)))
         #expect(agent(in: .running(completedStepCount: 1)).isShownAsAWingman(at: endedAt.addingTimeInterval(500)))
@@ -1433,7 +1579,7 @@ struct leanring_buddyTests {
     @Test func progressMovesInAStraightLineThroughEachStepAndNeverShowsAStepDoneEarly() async throws {
         let stepStartedAt = Date(timeIntervalSince1970: 1_000)
         let agent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: stepStartedAt, currentStepStartedAt: stepStartedAt, endedAt: nil, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, studyGuideVideoKey: nil, startedAt: stepStartedAt, currentStepStartedAt: stepStartedAt, endedAt: nil, phase: phase)
         }
         let readingTheCaptions = agent(.running(completedStepCount: 0))
         #expect(readingTheCaptions.progress(at: stepStartedAt) == 0)
@@ -1484,7 +1630,7 @@ struct leanring_buddyTests {
 
         let startedAt = Date(timeIntervalSince1970: 1_000)
         let updateAgent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, studyGuideVideoKey: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
         }
         #expect(updateAgent(.running(completedStepCount: 0)).inProgressText == "Reading your quiz results")
         #expect(updateAgent(.running(completedStepCount: 1)).inProgressText == "Adding your miss to the guide")

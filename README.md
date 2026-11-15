@@ -72,7 +72,7 @@ Follow the setup below, which includes the OpenAI and Google Maps keys this fork
 - In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
 
 To test for less money, run `pnpm wrangler dev --var LIVE_SCENE_MODEL:sonnet`.
-Sonnet then builds the 3D models for about $0.04 each, instead of about $0.23 with GPT.
+Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 with GPT.
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
@@ -161,8 +161,12 @@ pnpm wrangler secret put ANTHROPIC_API_KEY
 pnpm wrangler secret put ELEVENLABS_API_KEY
 pnpm wrangler secret put OPENAI_API_KEY
 pnpm wrangler secret put GOOGLE_MAPS_API_KEY
-# Optional, for Notion study guides
+# Optional, for Notion study guides and task agent pages
 pnpm wrangler secret put NOTION_API_KEY
+# A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes and
+# /background-agent refuse requests without it. Set it in the app with:
+# defaults write com.crodris.clicky-watch-along clickyAppSecret <the same string>
+pnpm wrangler secret put CLICKY_APP_SECRET
 ```
 
 For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
@@ -198,6 +202,7 @@ ELEVENLABS_VOICE_ID=...
 OPENAI_API_KEY=...
 GOOGLE_MAPS_API_KEY=...
 NOTION_API_KEY=ntn_...
+CLICKY_APP_SECRET=...
 ```
 
 Debug builds already call `http://127.0.0.1:8787`, so a local run needs no URL changes.

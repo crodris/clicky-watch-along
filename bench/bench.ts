@@ -25,8 +25,9 @@ const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrit
   "claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 },
   "claude-haiku-5-5": { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
 };
-// OpenAI's pricing page refuses automated fetches, so a GPT scene uses the repo's measured estimate per call.
-const gptLiveSceneCostPerCallUSD = 0.23;
+// OpenAI's pricing page refuses automated fetches, so a GPT scene uses the repo's estimate per call: $0.23 measured at
+// low effort, scaled by the 1.6 times as many output tokens medium effort wrote on 2026-11-14.
+const gptLiveSceneCostPerCallUSD = 0.37;
 // https://elevenlabs.io/pricing/api (fetched 2026-11-13): multilingual v2 costs $0.08 per 1,000 characters, Flash and Turbo $0.04.
 const elevenLabsPricePerThousandCharacters: Record<string, number> = {
   eleven_v4: 0.08,

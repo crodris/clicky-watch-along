@@ -132,7 +132,8 @@ nonisolated enum LearnerVideoCommand: Equatable {
 
     /// Picks the page's main video: the largest one on screen, so a preview or an ad thumbnail never wins.
     /// A page whose videos all have no size, such as a background tab mid-layout, falls back to the first one.
-    private static let mainVideoJavaScript = "var videos = Array.prototype.slice.call(document.querySelectorAll('video')); var video = videos[0] || null; var largestArea = 0; videos.forEach(function (candidate) { var rect = candidate.getBoundingClientRect(); var area = rect.width * rect.height; if (area > largestArea) { largestArea = area; video = candidate; } });"
+    /// The requested-scene pause and its play use it too, so they act on the same video as the voice tools.
+    static let mainVideoJavaScript = "var videos = Array.prototype.slice.call(document.querySelectorAll('video')); var video = videos[0] || null; var largestArea = 0; videos.forEach(function (candidate) { var rect = candidate.getBoundingClientRect(); var area = rect.width * rect.height; if (area > largestArea) { largestArea = area; video = candidate; } });"
 
     /// NaN and infinity are not JavaScript literals the page can read, so they become 0.
     private static func javaScriptNumber(_ value: Double) -> String {
@@ -389,19 +390,21 @@ final class VideoQuizSession {
         print("Video quiz: stopped")
     }
 
-    /// Pauses the YouTube video in Chrome's front tab for a 3D model or pop-out the learner asked for,
-    /// with or without a quiz, so the video's narrator does not talk over Clicky. Returns what the quiz
-    /// video just said, so "show me that" can be built from it, or "" when no quiz watches this video.
-    /// A running quiz only pauses its own video, and Clicky holds one pause at a time.
+    /// Pauses the main video in Chrome's front tab, on any public https site, for a 3D model or pop-out the learner asked
+    /// for, with or without a quiz, so the video's narrator does not talk over Clicky and the scene rises out of a
+    /// still frame. Returns what the quiz video just said, so "show me that" can be built from it, or "" when no quiz
+    /// watches this video. A running quiz only pauses its own video, and Clicky holds one pause at a time.
     func pauseVideoForRequestedScene() -> String {
-        guard let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else { return "" }
+        guard let frontVideoTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
+              captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) else { return "" }
         let quizWatchesTheFrontVideo = isRunning && currentVideoTab?.isTheSameTab(as: frontVideoTab) == true
         if isRunning && !quizWatchesTheFrontVideo { return "" }
         if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: frontVideoTab) { return "" }
         do {
-            let playbackState = try readPlaybackState(of: frontVideoTab)
+            // Any site can be busy, so these calls get the voice tools' short timeout.
+            let playbackState = try readPlaybackState(of: frontVideoTab, timeoutSeconds: 2)
             if !playbackState.isPaused {
-                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab)
+                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab, timeoutSeconds: 2)
             }
             if clickyHoldsTheVideoPauseAfterASceneRequest(
                 videoIsPlaying: !playbackState.isPaused,
@@ -411,15 +414,34 @@ final class VideoQuizSession {
             }
             print("Video quiz: paused for a requested 3D model, held by Clicky \(videoIsPausedForRequestedScene)")
             guard quizWatchesTheFrontVideo else { return "" }
-            return allTranscriptLines
-                .filter { $0.seconds < playbackState.currentSeconds }
-                .suffix(12)
-                .map(\.text)
-                .joined(separator: " ")
+            return quizCaptionText(heardBefore: playbackState.currentSeconds)
+        } catch VideoQuizFailure.noVideoOnThePage {
+            // A pop-out of a picture on a page with no video has nothing to pause.
+            return ""
         } catch {
             print("Video quiz: could not pause for a 3D model: \(error)")
             return ""
         }
+    }
+
+    /// What the quiz video in front said before its playhead, for a 3D model built in the background while it plays.
+    /// Empty when the quiz does not watch the front video, since only the quiz holds captions.
+    func whatTheQuizVideoInFrontJustSaid() -> String {
+        guard isRunning,
+              let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true),
+              currentVideoTab?.isTheSameTab(as: frontVideoTab) == true,
+              let playbackState = try? readPlaybackState(of: frontVideoTab) else {
+            return ""
+        }
+        return quizCaptionText(heardBefore: playbackState.currentSeconds)
+    }
+
+    private func quizCaptionText(heardBefore playheadSeconds: Double) -> String {
+        allTranscriptLines
+            .filter { $0.seconds < playheadSeconds }
+            .suffix(12)
+            .map(\.text)
+            .joined(separator: " ")
     }
 
     /// Presses play once the scene is gone, but only for a pause Clicky made for it.
@@ -451,7 +473,7 @@ final class VideoQuizSession {
         guard let pausedVideoTab = videoPausedByClicky?.tab else { return }
         videoPausedByClicky = nil
         do {
-            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab)
+            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab, timeoutSeconds: 2)
             print("Video quiz: resumed the video")
         } catch {
             print("Video quiz: could not resume the video: \(error)")
@@ -853,6 +875,12 @@ final class VideoQuizSession {
         try? ChromeVideoTab.frontTabOfTheFrontWindow().url
     }
 
+    /// The page a task agent's "this" refers to. Nil when Chrome has no window.
+    func frontTabTitleAndURLOfTheFrontWindow() -> (title: String, url: String)? {
+        guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+        return (title: frontTab.title, url: frontTab.url)
+    }
+
     /// Opens a page in a new Chrome tab behind the one the learner is on, and returns the new tab's id.
     /// Nil when Chrome would not take it, so the caller can say how to open the page by voice instead.
     func openInABackgroundChromeTab(_ pageURL: URL) -> Int? {
@@ -946,12 +974,13 @@ final class VideoQuizSession {
         let isPaused: Bool
     }
 
-    private static let readPlaybackStateJavaScript = "(function () { var video = document.querySelector('video'); if (!video) { return 'no-video'; } return video.currentTime + '|' + video.paused; })()"
-    private static let pauseVideoJavaScript = "(function () { var video = document.querySelector('video'); if (video) { video.pause(); } return 'ok'; })()"
-    private static let playVideoJavaScript = "(function () { var video = document.querySelector('video'); if (video) { video.play(); } return 'ok'; })()"
-    /// Draws the playing video into a canvas and returns the JPEG and the video's place on screen.
+    // The page's largest video, so a preview or a second player on a page such as x.com is never the one paused.
+    static let readPlaybackStateJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video) { return 'no-video'; } return video.currentTime + '|' + video.paused; })()"
+    static let pauseVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.pause(); } return 'ok'; })()"
+    static let playVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.play(); } return 'ok'; })()"
+    /// Draws the page's main video into a canvas and returns the JPEG and the video's place on screen.
     /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
-    private static let grabFrameJavaScript = "(function () { var video = document.querySelector('video'); if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
+    private static let grabFrameJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
 
     private static func grabFrame(of videoTab: ChromeVideoTab) throws -> VideoFrameGrab {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.grabFrameJavaScript, in: videoTab)
@@ -961,8 +990,8 @@ final class VideoQuizSession {
         return try JSONDecoder().decode(VideoFrameGrab.self, from: Data(javaScriptResult.utf8))
     }
 
-    private func readPlaybackState(of videoTab: ChromeVideoTab) throws -> VideoPlaybackState {
-        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab)
+    private func readPlaybackState(of videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> VideoPlaybackState {
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab, timeoutSeconds: timeoutSeconds)
         if javaScriptResult == "no-video" {
             throw VideoQuizFailure.noVideoOnThePage
         }
@@ -1230,10 +1259,13 @@ private struct ChromeVideoTab {
     }
 
     /// The same media for a pop-out, which says out loud why Chrome refused, such as JavaScript
-    /// from Apple Events being off. Nil when no media is big enough.
+    /// from Apple Events being off. Nil when no media is big enough. The front tab can be any busy site, so the read
+    /// gets the voice tools' 2 second timeout instead of freezing the main actor.
     static func largestVisibleMediaInFrontTabOrNone() throws -> LargestVisibleMediaInFrontTab? {
         let javaScriptResult = try runAppleScript("""
+        with timeout of 2 seconds
         tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
+        end timeout
         """)
         guard let pageGeometry = try? JSONDecoder().decode(ChromePageGeometry.self, from: Data(javaScriptResult.utf8)) else {
             return nil
@@ -1283,7 +1315,7 @@ private struct ChromeVideoTab {
     /// not contain double quotes or backslashes, because it sits inside an AppleScript string.
     @discardableResult
     /// A busy page can hold an Apple Event for about 2 minutes by default, which freezes the main actor,
-    /// so the voice tools, which reach any site, pass a short timeout.
+    /// so the voice tools and the requested scene's pause and resume, which reach any site, pass a short timeout.
     static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> String {
         let executeLine = "tell application \"Google Chrome\" to execute (tab id \(videoTab.tabId) of window id \(videoTab.windowId)) javascript \"\(javaScript)\""
         guard let timeoutSeconds else {

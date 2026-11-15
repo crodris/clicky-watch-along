@@ -1,9 +1,11 @@
 /**
  * POST /live-scene and POST /judge-answer.
  *
- * /live-scene asks GPT-6.1 Sol Ultrafast for a self-contained three.js page
- * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet instead,
- * which test runs use because a GPT scene costs about $0.23 and a Sonnet one about $0.04. A reply that fails the check is retried once, then returned as 422,
+ * /live-scene asks GPT-6.1 Sol Ultrafast, at medium reasoning effort, for a self-contained three.js page
+ * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet at low effort instead,
+ * which test runs use because a GPT scene costs about $0.37 and a Sonnet one about $0.04.
+ * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT overrides the
+ * effort, for comparing scene quality. A reply that fails the check is retried once, then returned as 422,
  * and the app tells the learner it couldn't build the scene.
  * /judge-answer asks Sonnet whether the learner's spoken answer is right, or whether they asked to skip, repeat,
  * get a hint, or change the view instead of answering.
@@ -21,7 +23,28 @@ import { checkLiveSceneModelReply } from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
 
-const liveSceneModelSettingSchema = z.enum(["gpt", "sonnet"]).default("gpt");
+const liveSceneModelSettingSchema = z.enum(["gpt", "sonnet", "opus", "fable"]).default("gpt");
+
+const liveSceneEffortSettingSchema = z.enum(["low", "medium", "high", "xhigh", "max"]).optional();
+
+type LiveSceneEffort = NonNullable<z.infer<typeof liveSceneEffortSettingSchema>>;
+
+/**
+ * Each model's effort when LIVE_SCENE_EFFORT is not set, picked on a Starship frame on 2026-11-14. GPT at medium drew
+ * rounder, tiled ships for about $0.15 more and 2 to 4 seconds longer than low, while high cost 4 times as much with no
+ * better ship and ran into the output cap. Sonnet at medium looked no better than low, and Opus and Fable above low
+ * took 3 to 5 minutes.
+ */
+const defaultLiveSceneEffortByModel: Record<LiveSceneModel, LiveSceneEffort> = { gpt: "medium", sonnet: "low", opus: "low", fable: "low" };
+
+/** The Claude model behind each Claude setting. GPT has its own request shape. */
+const claudeModelIDBySetting = { sonnet: "claude-sonnet-5-5", opus: "claude-opus-5-5", fable: "claude-fable-5-2" } as const;
+
+/**
+ * Thinking counts toward max_tokens. A Sonnet page is about 4,000 tokens, but Fable thinks about 8,000 tokens at low
+ * effort and writes longer pages, so 16,000 cut its pages off, and higher effort thinks longer still.
+ */
+const claudeLiveSceneMaxTokens = 64000;
 
 type LiveSceneModel = z.infer<typeof liveSceneModelSettingSchema>;
 
@@ -95,7 +118,8 @@ const liveSceneInstructions = [
   "",
   "The html block is one complete page: a real-time three.js scene for a learning app, drawn with procedural geometry only. No external models or images.",
   "The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
-  "Make it look real, not like a cartoon. Build the whole subject as it looks from the outside, and label its outer parts.",
+  "Build the subject as the screenshot shows it. When the screenshot shows only part of something, such as the upper stage of a rocket held by a tower, build that part and what it touches in the picture, not the whole vehicle it belongs to.",
+  "Make it look real, not like a cartoon. Build the whole of that subject as it looks from the outside, and label its outer parts.",
   "Only when the learner asks to see inside the subject, also build the parts inside, and fade the outer shell on the last camera move so the inside shows.",
   "The html and body background is transparent, and the renderer uses alpha.",
   "",
@@ -184,15 +208,16 @@ type LiveSceneModelResult =
   | { ok: false; kind: "upstream"; response: Response }
   | { ok: false; kind: "unusable"; reason: string };
 
-async function requestSonnetLiveSceneReply(
+async function requestClaudeLiveSceneReply(
   anthropicAPIKey: string,
+  claudeModelID: (typeof claudeModelIDBySetting)[keyof typeof claudeModelIDBySetting],
+  effort: LiveSceneEffort,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
   const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, "/live-scene", {
-    model: "claude-sonnet-5-5",
-    // Thinking counts toward this limit, and a page is about 4,000 tokens.
-    max_tokens: 16000,
-    output_config: { effort: "low" },
+    model: claudeModelID,
+    max_tokens: claudeLiveSceneMaxTokens,
+    output_config: { effort },
     system: liveSceneInstructions,
     messages: [
       {
@@ -211,13 +236,14 @@ async function requestSonnetLiveSceneReply(
     return { ok: false, kind: "upstream", response: anthropicReply.response };
   }
   if (anthropicReply.replyText === undefined || anthropicReply.replyText.length === 0) {
-    return { ok: false, kind: "unusable", reason: "Sonnet response had no text" };
+    return { ok: false, kind: "unusable", reason: `${claudeModelID} response had no text` };
   }
   return { ok: true, modelReply: anthropicReply.replyText };
 }
 
 async function requestGPTLiveSceneReply(
   openAIAPIKey: string,
+  effort: LiveSceneEffort,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -229,7 +255,7 @@ async function requestGPTLiveSceneReply(
     body: JSON.stringify({
       model: "gpt-6.1-sol",
       service_tier: "ultrafast",
-      reasoning: { effort: "low" },
+      reasoning: { effort },
       max_output_tokens: 14000,
       instructions: liveSceneInstructions,
       input: [
@@ -277,13 +303,18 @@ async function requestGPTLiveSceneReply(
 
 export async function handleLiveScene(
   request: Request,
-  env: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; LIVE_SCENE_MODEL?: string },
+  env: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; LIVE_SCENE_MODEL?: string; LIVE_SCENE_EFFORT?: string },
 ): Promise<Response> {
   const parsedModelSetting = liveSceneModelSettingSchema.safeParse(env.LIVE_SCENE_MODEL || undefined);
   if (!parsedModelSetting.success) {
-    return jsonResponse({ error: `LIVE_SCENE_MODEL must be gpt or sonnet, not ${env.LIVE_SCENE_MODEL}` }, 500);
+    return jsonResponse({ error: `LIVE_SCENE_MODEL must be gpt, sonnet, opus, or fable, not ${env.LIVE_SCENE_MODEL}` }, 500);
   }
   const liveSceneModel: LiveSceneModel = parsedModelSetting.data;
+  const parsedEffortSetting = liveSceneEffortSettingSchema.safeParse(env.LIVE_SCENE_EFFORT || undefined);
+  if (!parsedEffortSetting.success) {
+    return jsonResponse({ error: `LIVE_SCENE_EFFORT must be low, medium, high, xhigh, or max, not ${env.LIVE_SCENE_EFFORT}` }, 500);
+  }
+  const liveSceneEffort = parsedEffortSetting.data ?? defaultLiveSceneEffortByModel[liveSceneModel];
 
   const parsedRequest = await parseJSONRequest(request, sceneRequestSchema);
   if (!parsedRequest.ok) {
@@ -295,9 +326,9 @@ export async function handleLiveScene(
   let lastValidationReason = "The model reply could not be checked";
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
     const modelResult =
-      liveSceneModel === "sonnet"
-        ? await requestSonnetLiveSceneReply(env.ANTHROPIC_API_KEY, sceneRequest)
-        : await requestGPTLiveSceneReply(env.OPENAI_API_KEY, sceneRequest);
+      liveSceneModel === "gpt"
+        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, liveSceneEffort, sceneRequest)
+        : await requestClaudeLiveSceneReply(env.ANTHROPIC_API_KEY, claudeModelIDBySetting[liveSceneModel], liveSceneEffort, sceneRequest);
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {
         return modelResult.response;

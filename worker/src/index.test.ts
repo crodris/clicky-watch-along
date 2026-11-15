@@ -99,3 +99,44 @@ describe("POST /tts", () => {
     ]);
   });
 });
+
+describe("the app secret on the gated routes", () => {
+  const notionEnv = { ...testEnv, NOTION_API_KEY: "notion-key", CLICKY_APP_SECRET: "app-secret" };
+  const notionPageBody = { title: "Catches", summary: "The ship was caught.", sections: [], sources: [] };
+
+  function postTo(path: string, headers: Record<string, string>): Request {
+    return new Request(`http://local${path}`, {
+      method: "POST",
+      body: JSON.stringify(notionPageBody),
+      headers: { "content-type": "application/json", ...headers },
+    });
+  }
+
+  it("refuses every gated route without the secret, with a wrong one, or when the Worker has none, before calling Notion", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/background-agent"]) {
+      expect((await worker.fetch(postTo(path, {}), notionEnv)).status).toBe(401);
+      expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secreT" }), notionEnv)).status).toBe(401);
+      expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);
+      // With no secret on either side, both would hash the empty string and match, so an unset secret refuses on its own.
+      expect((await worker.fetch(postTo(path, {}), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("writes the page when the request carries the secret", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      new Response(JSON.stringify({ id: "page-1", url: "https://www.notion.so/page-1" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(postTo("/notion-page", { "x-clicky-app-secret": "app-secret" }), notionEnv);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ pageURL: "https://www.notion.so/page-1" });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.notion.com/v1/pages");
+  });
+});
