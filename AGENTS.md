@@ -247,6 +247,7 @@ pnpm 12 refuses to install a dependency with an unapproved build script.
 `.github/workflows/ci.yml` runs on every pull request and on pushes to main.
 The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
 The `bench` job typechecks `bench/` and checks that the committed results in `bench/results/` still parse.
+It also runs `verify-clicky.test.sh`, which checks how `verify-clicky.sh build` tells that the app is older than a Swift file.
 The `app` job builds the `leanring-buddy` scheme with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 Pushes and same-repo pull requests run it on the self-hosted runner `clicky-mac` on Chris's Mac, because GitHub's macOS queue can take over 10 minutes.
 That runner runs as the separate `clicky-ci` macOS user and builds into the job's temp folder.

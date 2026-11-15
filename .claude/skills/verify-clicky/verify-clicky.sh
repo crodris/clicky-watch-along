@@ -14,7 +14,7 @@ usage() {
 Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
 
   new-run <name>            Start an evidence folder and make it current.
-  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries, while a source file is newer than the app.
+  build                     Build this checkout's Debug app in Xcode itself (never xcodebuild) and wait until Xcode reports the build finished. Builds again, up to 3 tries 5 seconds apart, while the build fails or a Swift file is newer than the app, then fails naming that file.
   doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
   worker-up [port] [-- wrangler args]
                             Start wrangler dev from this checkout (default port 8789).
@@ -210,18 +210,19 @@ stop_process_tree() {
   kill -KILL $tree_pids 2>/dev/null || true
 }
 
-# Xcode's own build keeps Clicky's privacy grants, which xcodebuild resets. Xcode's AppleScript build silently does
-# nothing while a project has no active run destination, so this sets "My Mac" first, then checks the app changed.
-# The first file under source_directory that is newer than dylib_path, or nothing when the app is at least as new as
-# every source file. Finder's .DS_Store files are not build inputs.
+# The first Swift file under source_directory that is newer than dylib_path, or nothing when the app is at least as new
+# as every Swift file. Only Swift code is linked into the dylib, so an edited page, script, or asset never makes it
+# stale. A find error, such as a file deleted during the walk, counts as fresh, since the next build would not fix it.
 first_source_newer_than() {
   local dylib_path="$1" source_directory="$2"
-  find "$source_directory" -type f ! -name .DS_Store -newer "$dylib_path" -print -quit
+  find "$source_directory" -type f -name '*.swift' -newer "$dylib_path" -print -quit 2>/dev/null || true
 }
 
-# Builds the project in Xcode through AppleScript and prints Xcode's build status, such as "succeeded".
+# Builds the project in Xcode through AppleScript and prints Xcode's build status, such as "succeeded". Xcode's
+# AppleScript build silently does nothing while a project has no active run destination, so this sets "My Mac" first.
 run_xcode_build() {
-  osascript - "$1" <<'APPLESCRIPT'
+  local project_path="$1"
+  osascript - "$project_path" <<'APPLESCRIPT'
 on run argv
   set projectPath to item 1 of argv
   tell application "Xcode"
@@ -246,6 +247,8 @@ end run
 APPLESCRIPT
 }
 
+# Xcode's own build keeps Clicky's privacy grants, which xcodebuild resets. This builds, then checks the app changed and
+# holds every Swift file in the checkout.
 command_build() {
   local project_path="$checkout_root/leanring-buddy.xcodeproj"
   local built_before=""
@@ -257,10 +260,11 @@ command_build() {
   open -a Xcode "$project_path"
   # Right after a checkout, Xcode can build from the files it had loaded before: the build fails, or it succeeds with
   # the previous checkout's code and nothing to compile. So a build counts only once the app is at least as new as
-  # every source file, and Xcode gets a few seconds to notice the new files before each retry.
+  # every Swift file, and Xcode gets a few seconds to notice the new files before each retry. An AppleScript error,
+  # such as a project Xcode has not reloaded yet, counts as a failed try.
   local build_status app_after built_after stale_source attempt
   for attempt in 1 2 3; do
-    build_status="$(run_xcode_build "$project_path")"
+    build_status="$(run_xcode_build "$project_path")" || build_status="error"
     app_after="$(debug_app_path)"
     built_after=""
     stale_source=""
@@ -285,7 +289,7 @@ command_build() {
     exit 1
   fi
   if [[ -n "$stale_source" ]]; then
-    echo "Xcode reported success 3 times, but $stale_source is newer than the app, so the app holds older code. Close the project in Xcode and build again." >&2
+    echo "Xcode's last build succeeded, but $stale_source is newer than the app, so the app holds older code. Close the project in Xcode and build again." >&2
     exit 1
   fi
   if [[ "$built_after" == "$built_before" ]]; then

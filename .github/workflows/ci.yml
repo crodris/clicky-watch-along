@@ -58,6 +58,8 @@ jobs:
       - run: pnpm run typecheck
       # The committed results must still parse, since the charts are built from them.
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
+      # verify-clicky's build checks that the app is newer than every Swift file, and this test pins that check.
+      - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
 
   app:
     # Pushes and same-repo PRs run on the self-hosted runner on Chris's Mac, as the clicky-ci user, because GitHub's macOS queue can take over 10 minutes.
