@@ -29,12 +29,12 @@ Preconditions:
 
 - **Router split.** Post `/voice-command` bodies whose `tools` hold the app's descriptions of `build_new_scene` and `build_model_in_background`, one per phrasing.
   The reply's `tool_use` name is `build_model_in_background` for build, make, or create, and `build_new_scene` for show, see, render, and a famous place.
-- **Several agents.** Run `$V app-launch ""`, then post `tools/call` for `make_study_guide` to `http://127.0.0.1:8790/mcp`, twice.
+- **Several agents.** Run `$V app-launch "play the video"`, then post `tools/call` for `make_study_guide` to `http://127.0.0.1:8790/mcp`, twice.
   The first returns `{"studyGuide":"started"}`, and the second fails with "This video's study guide is still being written".
   Post `tools/call` for `build_model_in_background` with `{"whatToBuild":"this jet engine"}`, then run `$V key agents-list` and `$V shot agents-two`.
   The screenshot shows an amber and a violet wingman behind the blue triangle and a "2 running" header.
-- **Rise.** Leave the screen alone until the app log shows `3D model: showing`, then run `$V shot model-risen`.
-  The video is paused and the model fills the screen above it.
+- **Rise.** Leave the mouse on a display other than Chrome's and the screen alone until the app log shows `3D model: showing`, then run `$V shot model-risen`.
+  The video is paused and the model rises on Chrome's display, not the mouse's.
 - **Wait.** Press Escape to clear the model, post `build_model_in_background` again, then post `pop_out` at once.
   When the build ends the log shows `the model waits`, and `$V shot model-waiting` shows the chip with "say show the model".
   Post `show_ready_model`, and the pop-out goes back and the model rises.
