@@ -7,7 +7,7 @@
  * Routes:
  *   POST /chat         → Anthropic Messages API (streaming)
  *   POST /tts          → ElevenLabs TTS API
- *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet (generated live-scene page)
+ *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → Anthropic Messages API (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
@@ -34,8 +34,10 @@ interface Env {
   ELEVENLABS_VOICE_ID: string;
   ASSEMBLYAI_API_KEY: string;
   OPENAI_API_KEY: string;
-  /** "gpt" (the default) or "sonnet". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
+  /** "gpt" (the default), "sonnet", "opus", or "fable". Test runs start the Worker with --var LIVE_SCENE_MODEL:sonnet. */
   LIVE_SCENE_MODEL?: string;
+  /** A Claude scene model's effort, "low" by default. GPT keeps low effort. */
+  LIVE_SCENE_EFFORT?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;
   /** Internal Notion integration token. Without it, /study-guide answers 503. */
