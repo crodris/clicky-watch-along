@@ -1280,6 +1280,20 @@ struct leanring_buddyTests {
         #expect(store.agents.first?.endedAt != nil)
     }
 
+    @Test func guideAgentsOnTwoVideosRunAtOnceButOneVideoHasOneAtATime() async throws {
+        let store = BackgroundAgentStore()
+        let firstVideoAgentID = store.start(kind: .studyGuide, studyGuideVideoKey: "video-one")
+        store.start(kind: .studyGuide, studyGuideVideoKey: "video-two")
+        store.start(kind: .studyGuide)
+        #expect(store.agents.filter(\.isRunning).count == 3)
+        #expect(store.aStudyGuideAgentIsRunning(forVideoKey: "video-one"))
+        #expect(store.aStudyGuideAgentIsRunning(forVideoKey: "video-two"))
+        #expect(!store.aStudyGuideAgentIsRunning(forVideoKey: "video-three"))
+
+        store.finish(firstVideoAgentID, with: .notionPage(studyGuidePageURL))
+        #expect(!store.aStudyGuideAgentIsRunning(forVideoKey: "video-one"))
+    }
+
     @Test func anAgentThatEndedIgnoresEveryLaterChange() async throws {
         let store = BackgroundAgentStore()
         let finishedAgentID = store.start(kind: .studyGuide)
@@ -1325,7 +1339,7 @@ struct leanring_buddyTests {
     @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {
         let endedAt = Date(timeIntervalSince1970: 1_000)
         func agent(in phase: BackgroundAgentPhase) -> BackgroundAgent {
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, studyGuideVideoKey: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
         }
         let finishedAgent = agent(in: .finished(.notionPage(studyGuidePageURL)))
         #expect(agent(in: .running(completedStepCount: 1)).isShownAsAWingman(at: endedAt.addingTimeInterval(500)))
@@ -1355,7 +1369,7 @@ struct leanring_buddyTests {
     @Test func progressMovesInAStraightLineThroughEachStepAndNeverShowsAStepDoneEarly() async throws {
         let stepStartedAt = Date(timeIntervalSince1970: 1_000)
         let agent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: stepStartedAt, currentStepStartedAt: stepStartedAt, endedAt: nil, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, studyGuideVideoKey: nil, startedAt: stepStartedAt, currentStepStartedAt: stepStartedAt, endedAt: nil, phase: phase)
         }
         let readingTheCaptions = agent(.running(completedStepCount: 0))
         #expect(readingTheCaptions.progress(at: stepStartedAt) == 0)
@@ -1406,7 +1420,7 @@ struct leanring_buddyTests {
 
         let startedAt = Date(timeIntervalSince1970: 1_000)
         let updateAgent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, studyGuideVideoKey: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
         }
         #expect(updateAgent(.running(completedStepCount: 0)).inProgressText == "Reading your quiz results")
         #expect(updateAgent(.running(completedStepCount: 1)).inProgressText == "Adding your miss to the guide")

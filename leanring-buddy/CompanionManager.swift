@@ -125,9 +125,10 @@ final class CompanionManager: ObservableObject {
     private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
     /// Saved guides whose page Notion confirmed since launch, so the check costs one Worker call per guide per launch.
     private var studyGuidePageHandlesFoundInNotion: Set<String> = []
-    /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
-    /// and must not cancel a guide that is still being written.
-    private var studyGuideTask: Task<Void, Never>?
+    /// The task of each running background agent, keyed by the agent's id, so several run at once and the agent list
+    /// cancels one by its id. They are not currentResponseTask, because a push-to-talk press cancels that task and must
+    /// not cancel work in the background.
+    private var backgroundAgentTasks: [UUID: Task<Void, Never>] = [:]
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     let backgroundAgentStore = BackgroundAgentStore()
     private lazy var agentListPanelController = AgentListPanelController(
@@ -777,7 +778,7 @@ final class CompanionManager: ObservableObject {
     /// starts with "~" does not wait for Clicky: the next one follows 6 seconds
     /// later, while a scene is still building. In a "?" step, "{answer}" becomes
     /// the open question's answer label, since the plan picks a new question each run. A transcript that starts
-    /// with "&" waits until no study guide is being written, so a demo can open the guide it just asked for.
+    /// with "&" waits until no background agent is running, so a demo can open the guide it just asked for.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStep in transcripts {
@@ -790,7 +791,7 @@ final class CompanionManager: ObservableObject {
                 : rehearsalStep
             if stepWaitsForTheStudyGuide {
                 // A guide takes about 15 seconds, so 3 minutes covers every retry the Worker makes.
-                for _ in 0..<720 where studyGuideTask != nil {
+                for _ in 0..<720 where !backgroundAgentTasks.isEmpty {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
                 // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
@@ -2222,23 +2223,36 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Starts the guide in the background and returns at once, so the router speaks its own confirmation
-    /// and the video keeps playing. One guide is written at a time.
+    /// and the video keeps playing. Guides for different videos run at once, but one video has one guide agent at a time.
     private func startWritingTheStudyGuide(_ studyGuideJob: StudyGuideJob) -> VoiceToolOutcome {
-        guard studyGuideTask == nil else {
-            return .failed(error: "A study guide is still being written", state: nil)
+        guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
+            return .failed(error: "No video is in Chrome's front tab", state: nil)
         }
-        studyGuideTask = Task {
-            await self.writeTheStudyGuide(studyGuideJob)
-            self.studyGuideTask = nil
+        let videoKey = studyGuideVideoKey(forVideoURL: frontVideoURL)
+        guard !backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: videoKey) else {
+            return .failed(error: "This video's study guide is still being written", state: nil)
+        }
+        let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
+        runInTheBackground(agentID) {
+            await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
         }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
+    /// The agent was started in the store already, so the list shows it before its task runs.
+    private func runInTheBackground(_ agentID: UUID, _ agentWork: @escaping @MainActor () async -> Void) {
+        backgroundAgentTasks[agentID] = Task {
+            await agentWork()
+            self.backgroundAgentTasks[agentID] = nil
+        }
+    }
+
     /// A missed or skipped question reaches a guide already written for the quiz video, by an update agent in the
-    /// background, so the guide shows the miss without the learner asking. Nothing happens while a guide is being
-    /// written, or for a video with no guide, whose next guide includes the miss anyway.
+    /// background, so the guide shows the miss without the learner asking. Nothing happens while that video's guide is
+    /// being written, which startWritingTheStudyGuide refuses, or for a video with no guide, whose next guide includes
+    /// the miss anyway.
     private func refreshTheStudyGuideAfterAQuizOutcome(_ outcome: StudyGuideQuizOutcome) {
-        guard quizOutcomeRefreshesTheStudyGuide(outcome), studyGuideTask == nil,
+        guard quizOutcomeRefreshesTheStudyGuide(outcome),
               let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
               savedStudyGuides.record(forVideoURL: quizVideoURL) != nil else {
             return
@@ -2249,10 +2263,9 @@ final class CompanionManager: ObservableObject {
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
     /// the chip under it, and the page in a background tab say it instead.
-    private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob) async {
+    private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async {
         let startedAt = Date()
         let agentKind = studyGuideJob.agentKind
-        let agentID = backgroundAgentStore.start(kind: agentKind)
         do {
             let video = try await videoQuizSession.frontVideoForStudyGuide()
             backgroundAgentStore.setSubject(video.title, for: agentID)
@@ -2334,11 +2347,7 @@ final class CompanionManager: ObservableObject {
 
     /// Cancels a running agent from the agent list. The cancelled agent keeps no chip and no record.
     func cancelBackgroundAgent(_ agentID: UUID) {
-        guard let agent = backgroundAgentStore.agents.first(where: { $0.id == agentID }), agent.isRunning else { return }
-        switch agent.kind {
-        case .studyGuide, .studyGuideUpdate:
-            studyGuideTask?.cancel()
-        }
+        backgroundAgentTasks[agentID]?.cancel()
         backgroundAgentStore.cancel(agentID)
     }
 

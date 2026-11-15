@@ -99,6 +99,9 @@ struct BackgroundAgent: Identifiable, Equatable {
     let kind: BackgroundAgentKind
     /// The video's title, set once the agent knows which video it works on.
     var subject: String?
+    /// The YouTube video a study guide or update agent works on (`studyGuideVideoKey`), so one video never has two
+    /// guide agents at once. Nil for every other kind.
+    let studyGuideVideoKey: String?
     let startedAt: Date
     /// When the step that runs now began, which times its share of the progress.
     var currentStepStartedAt: Date
@@ -232,12 +235,17 @@ final class BackgroundAgentStore: ObservableObject {
     private static let mostAgentsKept = 10
 
     @discardableResult
-    func start(kind: BackgroundAgentKind) -> UUID {
+    func start(kind: BackgroundAgentKind, studyGuideVideoKey: String? = nil) -> UUID {
         let startedAt = Date()
-        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0))
+        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0))
         agents.insert(agent, at: 0)
         agents = Array(agents.prefix(Self.mostAgentsKept))
         return agent.id
+    }
+
+    /// Two guide agents on one video would write two pages for one guide, or update a page that is about to be replaced.
+    func aStudyGuideAgentIsRunning(forVideoKey videoKey: String) -> Bool {
+        agents.contains { $0.isRunning && $0.studyGuideVideoKey == videoKey }
     }
 
     func setSubject(_ subject: String, for agentID: UUID) {
