@@ -1436,6 +1436,7 @@ struct leanring_buddyTests {
         #expect(httpsScript.contains(#"{URL:"https://www.notion.so/p1"}"#))
         #expect(httpsScript.contains("set originalActiveTabIndex to active tab index of frontChromeWindow"))
         #expect(httpsScript.contains("set active tab index of frontChromeWindow to originalActiveTabIndex"))
+        #expect(httpsScript.contains("return id of newTab"))
 
         let quotedURL = try #require(URL(string: #"https://example.com/a"b\c"#))
         let quotedURLScript = try #require(appleScriptToOpenInABackgroundTab(pageURL: quotedURL))
@@ -1445,6 +1446,13 @@ struct leanring_buddyTests {
             let refusedURL = try #require(URL(string: refusedURLText))
             #expect(appleScriptToOpenInABackgroundTab(pageURL: refusedURL) == nil, "\(refusedURLText)")
         }
+    }
+
+    @Test func openingAGuideAgainSwitchesToTheTabItOpenedIn() async throws {
+        let bringForwardScript = appleScriptToBringChromeTabForward(tabID: 1234)
+        #expect(bringForwardScript.contains(#"if (item tabIndex of tabIDs as text) is "1234" then"#))
+        #expect(bringForwardScript.contains("set active tab index of chromeWindow to tabIndex"))
+        #expect(bringForwardScript.contains("return \"missing\""))
     }
 
     // MARK: - Agent list

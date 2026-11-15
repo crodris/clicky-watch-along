@@ -17,6 +17,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, half filled after the captions are read, and green after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
+- `guide-open-tab` switches to that tab when the learner says "open my study guide", so Chrome holds one tab with the guide, and opens the page again only when that tab was closed.
 
 ## How to get to it (user POV)
 

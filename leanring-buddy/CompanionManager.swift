@@ -119,6 +119,8 @@ final class CompanionManager: ObservableObject {
     /// The Notion page and guide JSON written for each video, filed under the video's URL when its guide was started,
     /// so a revise or an open finds it later.
     private var studyGuideRecordsByVideoURL: [String: StudyGuideRecord] = [:]
+    /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
+    private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
     /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
     /// and must not cancel a guide that is still being written.
     private var studyGuideTask: Task<Void, Never>?
@@ -2149,7 +2151,11 @@ final class CompanionManager: ObservableObject {
                   let studyGuideRecord = studyGuideRecordsByVideoURL[frontVideoURL] else {
                 return .failed(error: "No study guide has been written for this video yet", state: nil)
             }
-            guard NSWorkspace.shared.open(studyGuideRecord.pageURL) else {
+            let pageURL = studyGuideRecord.pageURL
+            if let chromeTabID = studyGuideChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
+                return .changed(state: nil)
+            }
+            guard NSWorkspace.shared.open(pageURL) else {
                 return .failed(error: "The study guide page would not open", state: nil)
             }
             return .changed(state: nil)
@@ -2241,11 +2247,12 @@ final class CompanionManager: ObservableObject {
             // "Glass" belongs to quiz answers.
             NSSound(named: "Tink")?.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
-            let openedInANewTab = videoQuizSession.openInABackgroundChromeTab(pageURL)
+            let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL)
+            studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
             VoiceToolCallChip.shared.show(
                 "Study guide ready",
                 sender: .backgroundAgent(.studyGuide),
-                secondaryChipText: openedInANewTab ? "· opened in a new tab" : "· say open my study guide",
+                secondaryChipText: openedChromeTabID != nil ? "· opened in a new tab" : "· say open my study guide",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
