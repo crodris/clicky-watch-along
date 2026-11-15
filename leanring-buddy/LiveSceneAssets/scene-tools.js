@@ -78,7 +78,7 @@
     const target = Number(challenge.target);
     const tolerance = Number(challenge.tolerance);
     if (!Number.isFinite(target) || !(tolerance > 0) || challenge.prompt.trim() === "") return null;
-    return { prompt: challenge.prompt.trim().slice(0, 200), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
+    return { prompt: challenge.prompt.trim().slice(0, 300), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
   };
   const challengeState = () => {
     const challenge = usableChallenge();
@@ -546,8 +546,10 @@
         const value = Number(input.value);
         if (!Number.isFinite(value)) return { ok: false, error: "value must be a number" };
         const name = String(input.name ?? "");
-        if (liveScene().setControl(name, value) === false) {
-          return { ok: false, error: `No control is named "${name}". The controls are: ${simulationControls().map((control) => control.name).join(", ")}` };
+        // The model saw each name cut to 40 characters, so it matches here on the cut name and the page gets its real one.
+        const control = simulationControls().find((candidate) => candidate.name === name || controlSummary(candidate).name === name);
+        if (!control || liveScene().setControl(control.name, value) === false) {
+          return { ok: false, error: `No control is named "${name.slice(0, 40)}". The controls are: ${simulationControls().map((candidate) => controlSummary(candidate).name).join(", ")}` };
         }
         refreshPanel();
         return { ok: true };

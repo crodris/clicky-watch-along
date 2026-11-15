@@ -1844,6 +1844,12 @@ struct leanring_buddyTests {
         #expect(liveSceneKind(for: "let me try that again") == nil)
         #expect(liveSceneKind(for: "can I try this on my phone") == nil)
         #expect(liveSceneKind(for: "let me try it myself later") == nil)
+        // Up to two short endings still count, and the bare form is only "let me try" or "can I try".
+        for transcript in ["let me try it myself", "let me try it, please", "let me try it out now", "can I try it too"] {
+            #expect(liveSceneKind(for: transcript) == .simulation, "\(transcript)")
+        }
+        #expect(liveSceneKind(for: "let me play") == nil)
+        #expect(liveSceneKind(for: "can I play") == nil)
         #expect(liveSceneKind(for: "can we simulate this circuit") == .simulation)
         #expect(liveSceneKind(for: "how do I simulate this in python") == nil)
         #expect(liveSceneKind(for: "can I try the other tab") == nil)

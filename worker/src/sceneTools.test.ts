@@ -243,6 +243,21 @@ describe("scene-tools.js simulation tools", () => {
     expect(clickyTools.state().pastRuns).toEqual([]);
   });
 
+  it("sets a control by the cut name the model saw, and passes the page its real name", () => {
+    const longName = "angle_of_the_launcher_measured_from_the_ground_in_degrees";
+    const page = simulationPage({ controls: [{ ...angleControl, name: longName }] });
+    page.setControl = vi.fn((name: string) => name === longName);
+    const { clickyTools } = loadSceneTools(page);
+    const nameTheModelSaw = longName.slice(0, 40);
+
+    expect(clickyTools.call("set_control", { name: nameTheModelSaw, value: 30 }).ok).toBe(true);
+    expect(page.setControl).toHaveBeenLastCalledWith(longName, 30);
+
+    const refused = clickyTools.call("set_control", { name: "mass", value: 3 });
+    expect(refused.error).toContain(nameTheModelSaw);
+    expect(refused.error).not.toContain(longName);
+  });
+
   it("cuts a control's page text short before it reaches the model or the panel", () => {
     const { clickyTools } = loadSceneTools(simulationPage({
       controls: [{ name: "angle", label: "A".repeat(90), min: 5, max: 85, step: 1, value: 45, unit: "u".repeat(40) }],

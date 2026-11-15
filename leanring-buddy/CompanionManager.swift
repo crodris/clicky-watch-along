@@ -1547,7 +1547,9 @@ final class CompanionManager: ObservableObject {
         liveSceneTourFinishedTask?.cancel()
         liveSceneTourFinishedTask = Task {
             await self.waitUntilTheVoiceAnswerIsQuiet()
-            guard !Task.isCancelled, self.simulationLesson?.guess == .waiting else { return }
+            // Escape can close the scene during the wait, and a question with nothing on screen makes no sense.
+            guard !Task.isCancelled, self.simulationLesson?.guess == .waiting,
+                  case .simulation = self.liveScenePageOnScreen, LiveSceneOverlay.shared.isShowingAScene else { return }
             await self.speakSimulationLine(simulationLesson.guessInvitation)
             guard !Task.isCancelled, self.voiceState == .responding else { return }
             self.voiceState = .idle
@@ -1560,6 +1562,10 @@ final class CompanionManager: ObservableObject {
     private func recordTheSimulationGuess(_ spokenGuess: String) async -> VoiceToolOutcome {
         guard case .simulation = liveScenePageOnScreen, simulationLesson?.guess == .waiting else {
             return .failed(error: "No simulation is waiting for a guess", state: nil)
+        }
+        // Checked before the page unlocks, so a blank call never uses up the guess.
+        guard !spokenGuess.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failed(error: "The guess was empty, so put the learner's words in guess", state: nil)
         }
         guard await LiveSceneOverlay.shared.unlockTheSimulationAfterTheGuess() else {
             return .failed(error: "The guess was already skipped, or the simulation is not on screen anymore", state: nil)
@@ -1658,10 +1664,14 @@ final class CompanionManager: ObservableObject {
     /// The challenge has started on the page once its prompt waits here, so a narration that a newer run cancels
     /// leaves the prompt for the next narration to say first, and the challenge never starts in silence.
     private func speakTheWaitingChallengePrompt() async {
-        guard let challengePromptLine = simulationLesson?.challengePromptWaitingToBeSpoken else { return }
-        await speakSimulationLine(challengePromptLine)
+        guard let challengePromptLine = simulationLesson?.challengePromptWaitingToBeSpoken, !Task.isCancelled else { return }
+        print("Simulation: saying \"\(challengePromptLine)\"")
+        await speakLiveSceneLine(challengePromptLine)
+        // The audio has started once speaking returns uncancelled, so it is cleared now, before the wait, or a newer
+        // narration that waits for this audio to end would say the prompt a second time.
         guard !Task.isCancelled else { return }
         simulationLesson?.challengePromptWaitingToBeSpoken = nil
+        await waitForClickyToFinishSpeaking()
     }
 
     private func speakSimulationLine(_ line: String) async {

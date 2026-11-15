@@ -22,8 +22,8 @@ export type CheckedLiveSceneReply =
 
 const pageMarkersTheAppCalls = ["liveScene", "tourFinished", "reveal", "zoomBy", "focusPart"] as const;
 
-// What scene-tools.js reads to draw the panel and run the simulation. A name in a comment would not count,
-// so each pattern needs the shape a definition has.
+// What scene-tools.js reads to draw the panel and run the simulation. Each pattern needs the shape a definition has,
+// such as "run(" or "controls:", so a bare mention does not count, though a comment written in that shape still does.
 const simulationMarkers = [
   { name: "controls", pattern: /\bcontrols\s*[:=]/ },
   { name: "setControl", pattern: /\bsetControl\s*[(:=]/ },
