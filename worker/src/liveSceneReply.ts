@@ -9,6 +9,11 @@ export const liveSceneQuizSchema = z.object({
   explanation: z.string().min(1),
 });
 
+/** A 3D model of the subject, or a simulation of it. The app sends the kind, and a request with none is a model. */
+export const liveSceneRequestKindSchema = z.enum(["model", "simulation"]).default("model");
+
+export type LiveSceneRequestKind = z.infer<typeof liveSceneRequestKindSchema>;
+
 export type LiveSceneQuiz = z.infer<typeof liveSceneQuizSchema>;
 
 export type CheckedLiveSceneReply =
@@ -16,6 +21,17 @@ export type CheckedLiveSceneReply =
   | { accepted: false; reason: string };
 
 const pageMarkersTheAppCalls = ["liveScene", "tourFinished", "reveal", "zoomBy", "focusPart"] as const;
+
+// What scene-tools.js reads to draw the panel and run the simulation. A name in a comment would not count,
+// so each pattern needs the shape a definition has.
+const simulationMarkers = [
+  { name: "controls", pattern: /\bcontrols\s*[:=]/ },
+  { name: "setControl", pattern: /\bsetControl\s*[(:=]/ },
+  { name: "run", pattern: /\brun\s*[(:=]/ },
+] as const;
+
+// The app draws the only control panel, so a second one from the page would show twice.
+const controlElementsASimulationMustNotDraw = ["<input", "<button", "<select", "<textarea"] as const;
 
 // The SVG namespace is a URL, and a label leader line may use it. Every other
 // http(s) URL is a network request the generated page is not allowed to make.
@@ -38,7 +54,7 @@ function firstScriptSyntaxError(html: string): string | undefined {
   return undefined;
 }
 
-export function checkLiveSceneModelReply(modelReply: string): CheckedLiveSceneReply {
+export function checkLiveSceneModelReply(modelReply: string, kind: LiveSceneRequestKind = "model"): CheckedLiveSceneReply {
   const htmlFenceStart = modelReply.indexOf("```html");
   const jsonFenceStart = modelReply.indexOf("```json");
   if (htmlFenceStart < 0 || jsonFenceStart < 0 || htmlFenceStart > jsonFenceStart) {
@@ -59,6 +75,18 @@ export function checkLiveSceneModelReply(modelReply: string): CheckedLiveSceneRe
   const missingMarker = pageMarkersTheAppCalls.find((pageMarker) => !html.includes(pageMarker));
   if (missingMarker !== undefined) {
     return { accepted: false, reason: `The page is missing ${missingMarker}` };
+  }
+
+  if (kind === "simulation") {
+    const missingSimulationMarker = simulationMarkers.find((simulationMarker) => !simulationMarker.pattern.test(html));
+    if (missingSimulationMarker !== undefined) {
+      return { accepted: false, reason: `The simulation page is missing ${missingSimulationMarker.name}` };
+    }
+    const lowercaseHTMLForControls = html.toLowerCase();
+    const drawnControl = controlElementsASimulationMustNotDraw.find((controlElement) => lowercaseHTMLForControls.includes(controlElement));
+    if (drawnControl !== undefined) {
+      return { accepted: false, reason: `The simulation page draws its own control (${drawnControl}), and the app draws the only panel` };
+    }
   }
 
   // A typo in the generated script stops the page before it draws, and the app would wait

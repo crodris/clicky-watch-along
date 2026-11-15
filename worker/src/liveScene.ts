@@ -19,7 +19,7 @@ import {
   requestAnthropicReplyJSON,
   requestAnthropicReplyText,
 } from "./anthropic";
-import { checkLiveSceneModelReply } from "./liveSceneReply";
+import { checkLiveSceneModelReply, liveSceneRequestKindSchema, type LiveSceneRequestKind } from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
 
@@ -52,6 +52,8 @@ const sceneRequestSchema = z.object({
   question: z.string(),
   screenshotBase64: z.string(),
   screenshotMediaType: z.enum(["image/jpeg", "image/png"]),
+  /** A 3D model of the subject, or a simulation of it the learner can run. An older app sends none and gets a model. */
+  kind: liveSceneRequestKindSchema,
 });
 
 const judgeAnswerRequestSchema = z.object({
@@ -152,6 +154,32 @@ const liveSceneInstructions = [
   "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
 ].join("\n");
 
+/**
+ * Added after liveSceneInstructions for a simulation, so a model page's prompt stays exactly as it was and a simulation
+ * keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 12.
+ */
+const simulationInstructions = [
+  "",
+  "THIS REQUEST IS A SIMULATION. The learner said something like \"let me try it\", and they will change a few numbers and press Run. These rules replace any rule above they conflict with.",
+  "Pick one setup, driven by up to 3 numbers, that the screenshot and the learner's words show, such as a launched ball, a lever with weights, or a pendulum. Build only that setup, from procedural geometry, within the same size and dependency rules as above.",
+  "Simulate it with simple, correct physics: a closed-form solution or a fixed-step integrator, in real units (meters, kilograms, seconds, degrees). Never fake or hard-code a result. Every readout is measured from where the simulated objects actually ended up or from the simulated clock, never read off a formula of the controls. Playback may be faster or slower than real time, but a run lasts 2 to 8 seconds on screen.",
+  "Do not draw any control UI: no input, button, select, or text for the controls or the results. The app draws one panel from window.liveScene.controls, and part labels are the only text you draw.",
+  'Label up to 4 parts of the setup with their real names. No label is "?", so reveal() may do nothing, but it must exist.',
+  "Camera tour: hold 0.5 seconds, then over 2 seconds move to a three-quarter view that shows the whole motion path with room to spare, and stay there. Do not move closer to one part. Rules 4 to 7 still apply.",
+  "Besides rules 1 to 7, window.liveScene defines these before any await:",
+  "8. controls is an array of 1 to 3 objects { name, label, min, max, step, value, unit }. name is a short lowercase word, label is words a 10-year-old can read, and value is the current number, which you keep up to date. Each control is one number the learner can change, such as the launch angle in degrees. Start each at a value that makes a clear first run.",
+  "9. setControl(name, value) clamps value to min and max, snaps it to step, stores it in that control's value, updates the scene to show the new setup, puts the simulation back at its start, and returns true. It returns false for a name that is not in controls.",
+  "10. run() plays the simulation once from the start with the current controls, animating with requestAnimationFrame. It returns a Promise that resolves when the run has ended and the readouts are updated. Calling it during a run restarts the run.",
+  "11. reset() puts the simulation back at its start with no run going, and keeps the readouts.",
+  "12. getState() also returns readouts: an array of { label, value, unit } with 1 to 3 entries, such as the landing distance in meters. value is a number rounded to 1 decimal. The array is empty before the first run, and it is updated when a run ends.",
+  "",
+  "For a simulation the json block's fields mean this. question is a prediction the learner can test with the controls, in one or two short sentences with no exclamation mark and without giving the answer, such as \"Will 30 or 60 degrees land the ball farther?\". answerLabel is the label of the control the prediction is about. functionWords is an empty list. explanation is two short spoken sentences that say what the physics shows.",
+].join("\n");
+
+function liveSceneInstructionsFor(kind: LiveSceneRequestKind): string {
+  return kind === "simulation" ? liveSceneInstructions + "\n" + simulationInstructions : liveSceneInstructions;
+}
+
 const judgeAnswerSystemPrompt = [
   "You grade a learner's spoken answer about one part of a 3D live scene.",
   "Reply with the verdict as JSON.",
@@ -218,7 +246,7 @@ async function requestClaudeLiveSceneReply(
     model: claudeModelID,
     max_tokens: claudeLiveSceneMaxTokens,
     output_config: { effort },
-    system: liveSceneInstructions,
+    system: liveSceneInstructionsFor(sceneRequest.kind),
     messages: [
       {
         role: "user",
@@ -257,7 +285,7 @@ async function requestGPTLiveSceneReply(
       service_tier: "ultrafast",
       reasoning: { effort },
       max_output_tokens: 14000,
-      instructions: liveSceneInstructions,
+      instructions: liveSceneInstructionsFor(sceneRequest.kind),
       input: [
         {
           role: "user",
@@ -338,7 +366,7 @@ export async function handleLiveScene(
       continue;
     }
 
-    const checkedReply = checkLiveSceneModelReply(modelResult.modelReply);
+    const checkedReply = checkLiveSceneModelReply(modelResult.modelReply, sceneRequest.kind);
     if (checkedReply.accepted) {
       return jsonResponse({ html: checkedReply.html, quiz: checkedReply.quiz }, 200);
     }
