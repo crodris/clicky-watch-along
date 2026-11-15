@@ -390,7 +390,7 @@ final class VideoQuizSession {
         print("Video quiz: stopped")
     }
 
-    /// Pauses the main video in Chrome's front tab, on any https site, for a 3D model or pop-out the learner asked
+    /// Pauses the main video in Chrome's front tab, on any public https site, for a 3D model or pop-out the learner asked
     /// for, with or without a quiz, so the video's narrator does not talk over Clicky and the scene rises out of a
     /// still frame. Returns what the quiz video just said, so "show me that" can be built from it, or "" when no quiz
     /// watches this video. A running quiz only pauses its own video, and Clicky holds one pause at a time.
@@ -978,7 +978,7 @@ final class VideoQuizSession {
     static let readPlaybackStateJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video) { return 'no-video'; } return video.currentTime + '|' + video.paused; })()"
     static let pauseVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.pause(); } return 'ok'; })()"
     static let playVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.play(); } return 'ok'; })()"
-    /// Draws the playing video into a canvas and returns the JPEG and the video's place on screen.
+    /// Draws the page's main video into a canvas and returns the JPEG and the video's place on screen.
     /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
     private static let grabFrameJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
 
@@ -1259,10 +1259,13 @@ private struct ChromeVideoTab {
     }
 
     /// The same media for a pop-out, which says out loud why Chrome refused, such as JavaScript
-    /// from Apple Events being off. Nil when no media is big enough.
+    /// from Apple Events being off. Nil when no media is big enough. The front tab can be any busy site, so the read
+    /// gets the voice tools' 2 second timeout instead of freezing the main actor.
     static func largestVisibleMediaInFrontTabOrNone() throws -> LargestVisibleMediaInFrontTab? {
         let javaScriptResult = try runAppleScript("""
+        with timeout of 2 seconds
         tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
+        end timeout
         """)
         guard let pageGeometry = try? JSONDecoder().decode(ChromePageGeometry.self, from: Data(javaScriptResult.utf8)) else {
             return nil
