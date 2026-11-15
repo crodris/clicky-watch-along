@@ -14,7 +14,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a red outline wingman and no sound.
 - `guide-voice-tools` offers `make_study_guide` with a YouTube video in front and no quiz question open, and `revise_study_guide` and `open_study_guide` once a guide exists for that video.
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
-- `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, half filled after the captions are read, and green after "Tink" and the chip "Study guide ready" when the page exists.
+- `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, half filled after the captions are read, and green after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
 

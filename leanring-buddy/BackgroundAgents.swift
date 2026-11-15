@@ -30,6 +30,14 @@ enum BackgroundAgentKind {
         }
     }
 
+    /// A darker shade of the same hue for the chip's letters, since the wingman's color is too light to read
+    /// inside a white outline.
+    var chipTextColor: Color {
+        switch self {
+        case .studyGuide: return DS.Colors.backgroundAgentStudyGuideAmberText
+        }
+    }
+
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
     var stepNames: [String] {
         switch self {

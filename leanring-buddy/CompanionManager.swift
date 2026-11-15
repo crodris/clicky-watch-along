@@ -2225,7 +2225,11 @@ final class CompanionManager: ObservableObject {
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
-            VoiceToolCallChip.shared.show(studyGuideFailureLine(for: error), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            VoiceToolCallChip.shared.show(
+                studyGuideFailureLine(for: error),
+                sender: .backgroundAgent(.studyGuide),
+                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+            )
         }
     }
 
@@ -2240,6 +2244,7 @@ final class CompanionManager: ObservableObject {
             let openedInANewTab = videoQuizSession.openInABackgroundChromeTab(pageURL)
             VoiceToolCallChip.shared.show(
                 "Study guide ready",
+                sender: .backgroundAgent(.studyGuide),
                 secondaryChipText: openedInANewTab ? "· opened in a new tab" : "· say open my study guide",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
