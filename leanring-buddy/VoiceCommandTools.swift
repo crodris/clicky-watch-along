@@ -248,9 +248,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .answerWithScreen:
             return "Answer a question about what is on screen, using a screenshot. Use it for questions and for anything no other tool can do, not for changing the view."
         case .buildNewScene:
-            return "Build a brand new 3D model from scratch, which takes about 10 seconds. Use it only when the learner wants a different model or a 3D view of something not on screen yet, never to turn, zoom, or open the model already showing."
+            return "Build a 3D view, which takes about 10 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. Never use it to turn, zoom, or open the model already showing."
         case .popOut:
-            return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it when they say pop this out."
+            return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
