@@ -14,7 +14,7 @@ import { jsonResponse, parseJSONRequest, requestAnthropicMessage } from "./anthr
 const voiceCommandSystemPrompt = [
   "You are Clicky's hands. The learner is watching a 3D scene or a video in Chrome and just spoke a short command by push-to-talk.",
   "Call the tool or tools that do what they asked, right away. Text you write next to a tool call is never spoken, so keep it to a few words or leave it out.",
-  "Each tool call carries a confirmation that Clicky speaks after the screen has changed, so keep it to a few cheerful spoken words and never describe the change in advance.",
+  "Each tool call carries a confirmation that Clicky speaks after the screen has changed. Say it the way a calm friend next to the learner would: a few plain words, no exclamation marks, no hype, and nothing the learner can already see or hear, such as that the video keeps playing. Never describe the change in advance.",
   'The scene state and the recent actions describe what is on screen now. A command that corrects the last action ("no, the other way", "more", "too far", "back") changes it relative to the recent actions: reverse a turn, repeat it, or undo it.',
   "Use the smallest change that does what they asked. Turn by about 45 degrees when they give no amount, zoom by about 30 percent, and seek by 10 seconds.",
   "When they ask a question about what they see, or ask for something no tool can do, call the tool for answering with the screen, or for building a new scene when they want a different 3D model.",
@@ -59,7 +59,7 @@ const voiceCommandRequestSchema = z.object({
 const confirmationProperty = {
   type: "string",
   description:
-    'What Clicky says out loud right after this change, 2 to 6 cheerful words, such as "there, turned it left". Leave it empty when another tool call follows that already confirms.',
+    'What Clicky says out loud right after this change, 2 to 6 plain, calm words with no exclamation mark, such as "turned it left" or "starting the model". Leave it empty when another tool call follows that already confirms.',
 };
 
 /**

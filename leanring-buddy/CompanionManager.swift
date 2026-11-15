@@ -762,9 +762,9 @@ final class CompanionManager: ObservableObject {
     private static func liveSceneExploreVoiceResponseInstructions(partLabels: [String]) -> String {
         let lengthAndTagInstructions: String
         if partLabels.isEmpty {
-            lengthAndTagInstructions = "reply with one short, cheerful spoken sentence about what they're seeing inside, at most 20 words. the only tag you may write is [POINT:none], at the very end."
+            lengthAndTagInstructions = "reply with one short, plain spoken sentence about what they're seeing inside, with no exclamation marks, at most 20 words. the only tag you may write is [POINT:none], at the very end."
         } else {
-            lengthAndTagInstructions = "the model has these exact part names: \(partLabels.joined(separator: ", ")). reply with two to four short, cheerful spoken sentences about what they're seeing inside, at most 20 words each. start each sentence with [PART:name] using one of those exact names. the only other tag you may write is [POINT:none], at the very end."
+            lengthAndTagInstructions = "the model has these exact part names: \(partLabels.joined(separator: ", ")). reply with two to four short, plain spoken sentences about what they're seeing inside, with no exclamation marks, at most 20 words each. start each sentence with [PART:name] using one of those exact names. the only other tag you may write is [POINT:none], at the very end."
         }
         return """
 
