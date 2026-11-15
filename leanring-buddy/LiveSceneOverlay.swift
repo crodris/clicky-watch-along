@@ -257,8 +257,10 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     var onTourFinished: (() -> Void)?
     /// The page posts "partTapped:<label>" when a label is clicked. The label is page text, so it is untrusted.
     var onPartTapped: ((String) -> Void)?
-    /// A simulation page's run ended. The readouts are the page's own numbers, already cut to a short list.
-    var onSimulationRunFinished: (([SimulationReadout]) -> Void)?
+    /// A simulation page's run ended. The report is the page's own numbers, already cut to a short list.
+    var onSimulationRunFinished: ((SimulationRunReport) -> Void)?
+    /// The learner clicked the locked Run button of a simulation, which skips the guess.
+    var onSimulationGuessSkipped: (() -> Void)?
     /// An uncaught error or rejection in the page, a failed page load, or a lost web content process.
     /// A page that fails any of these mid-tour never posts tourFinished.
     var onPageError: ((String) -> Void)?
@@ -354,8 +356,10 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             finishReturnToSource()
         case .partTapped(let untrustedLabel):
             onPartTapped?(untrustedLabel)
-        case .simulationRunFinished(let readouts):
-            onSimulationRunFinished?(readouts)
+        case .simulationRunFinished(let runReport):
+            onSimulationRunFinished?(runReport)
+        case .simulationGuessSkipped:
+            onSimulationGuessSkipped?()
         }
     }
 
@@ -738,6 +742,21 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// The camera pose, labels, and tour state the page reports, or nil when no page is showing.
     func pageVoiceState() async -> JSONValue? {
         await callThePageForVoiceTools("return window.clickyTools?.state?.() ?? null")
+    }
+
+    /// Unlocks a simulation's Run button and dashed path once the learner guessed. False when no simulation waits for a guess.
+    func unlockTheSimulationAfterTheGuess() async -> Bool {
+        await callThePageForVoiceTools("return window.clickyTools?.simulation?.guessHeard?.() ?? false")?.boolValue == true
+    }
+
+    /// Starts the simulation's challenge and returns its spoken prompt, or nil when the page has none to start.
+    /// The prompt is page text, so it is cut to a sentence's length.
+    func startTheSimulationChallenge() async -> String? {
+        guard let challengePrompt = await callThePageForVoiceTools("return window.clickyTools?.simulation?.startChallenge?.() ?? null")?.stringValue else {
+            return nil
+        }
+        let trimmedPrompt = challengePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedPrompt.isEmpty ? nil : String(trimmedPrompt.prefix(200))
     }
 
     /// Runs one page tool. The page answers { ok, error?, state }.

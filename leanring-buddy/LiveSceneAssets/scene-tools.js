@@ -4,8 +4,10 @@
 // has the primitives it needs, so a generated page that skips one simply offers fewer tools.
 // Every call ends the camera tour first, because the learner asking for a change means the tour is over.
 // A simulation page also defines liveScene.controls, setControl, and run. This file draws the one panel for them
-// (a slider per control, a Run button, and the readouts), so the model never draws its own, and offers set_control
-// and run_simulation. A simulation hides its part labels at first, and set_labels shows them again on request. A finished run is posted to the app as "runFinished:<readouts JSON>" so Clicky can say the result.
+// (a slider per control, a Run button, the readouts, and the past runs), so the model never draws its own, and offers
+// set_control, run_simulation, and set_labels. It also runs the lesson: the learner guesses first, then explores with
+// the dashed path showing, then takes the page's challenge with the path hidden.
+// A finished run is posted to the app as "runFinished:<report JSON>" so Clicky can say the result.
 (() => {
   const liveScene = () => window.liveScene;
   const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -55,12 +57,50 @@
   // A simulation hides its labels until the learner asks, so the model reads whether they show.
   let labelsAreShown = false;
 
+  // The lesson moves one way: "guess" (Run and the dashed path are locked until the learner guesses or skips),
+  // "explore" (the path shows while dragging), "challenge" (the app starts it once the guess is settled, and the path
+  // hides so the learner reasons from past runs), and "done" after a hit.
+  let lessonStage = "guess";
+  let challengeAttempts = 0;
+  const mostPastRuns = 3;
+  const pastRuns = [];
+  const setPathPreview = (visible) => liveScene()?.setPreviewVisible?.(visible);
+  // The page's challenge is untrusted text Clicky says out loud, so only a short prompt and real numbers pass.
+  const usableChallenge = () => {
+    const challenge = liveScene()?.challenge;
+    if (challenge === null || typeof challenge !== "object" || typeof challenge.prompt !== "string" || typeof challenge.readoutLabel !== "string") return null;
+    const target = Number(challenge.target);
+    const tolerance = Number(challenge.tolerance);
+    if (!Number.isFinite(target) || !(tolerance > 0) || challenge.prompt.trim() === "") return null;
+    return { prompt: challenge.prompt.trim().slice(0, 200), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
+  };
+  const challengeState = () => {
+    const challenge = usableChallenge();
+    if (challenge === null || (lessonStage !== "challenge" && lessonStage !== "done")) return null;
+    return { prompt: challenge.prompt, readoutLabel: challenge.readoutLabel, target: challenge.target, attempts: challengeAttempts, hit: lessonStage === "done" };
+  };
+  const leaveTheGuessStage = () => {
+    if (lessonStage !== "guess") return false;
+    lessonStage = "explore";
+    setPathPreview(true);
+    refreshPanel();
+    return true;
+  };
+
   const pageState = () => ({
     ...(liveScene()?.getState?.() ?? {}),
     labels: labelsOnScreen(),
     explodeAmount,
     insideIsOpen,
-    ...(hasSimulation() ? { controls: simulationControls().map(controlSummary), readouts: currentReadouts(), runIsGoing, labelsAreShown } : {}),
+    ...(hasSimulation() ? {
+      controls: simulationControls().map(controlSummary),
+      readouts: currentReadouts(),
+      runIsGoing,
+      labelsAreShown,
+      lessonStage,
+      challenge: challengeState(),
+      pastRuns,
+    } : {}),
   });
 
   const hasParts = () => Array.isArray(liveScene()?.parts) && liveScene().parts.length > 0 && Boolean(liveScene().THREE);
@@ -158,7 +198,7 @@
 
   // The panel is styled like the scene labels, and sits on the document root so the rise animation, which moves
   // the body, never carries it. It appears when the tour ends, which is when the overlay starts taking the mouse.
-  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null };
+  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null, challengeElement: null, pastRunsElement: null };
   const decimalsOf = (step) => String(step).split(".")[1]?.length ?? 0;
   const valueText = (control) => `${control.value.toFixed(decimalsOf(control.step))}${control.unit ? " " + control.unit : ""}`;
 
@@ -195,7 +235,23 @@
       if (Number(row.slider.value) !== control.value) row.slider.value = String(control.value);
     });
     panel.runButton.disabled = runIsGoing;
-    panel.runButton.textContent = runIsGoing ? "Running" : "Run";
+    // Clicking the locked button skips the guess, so a voice mix-up never leaves the learner stuck.
+    panel.runButton.textContent = lessonStage === "guess" ? "Say your guess" : runIsGoing ? "Running" : "Run";
+    panel.runButton.style.background = lessonStage === "guess" ? "#8a94a3" : "#3380ff";
+    const challenge = challengeState();
+    panel.challengeElement.style.display = challenge ? "block" : "none";
+    if (challenge) {
+      const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
+      panel.challengeElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
+    }
+    // The newest run is the readouts above, so the row lists the runs before it.
+    const earlierRuns = pastRuns.slice(1);
+    panel.pastRunsElement.style.display = earlierRuns.length > 0 ? "block" : "none";
+    panel.pastRunsElement.textContent = "Earlier: " + earlierRuns.map((pastRun) => {
+      const settings = pastRun.controls.map((control) => `${control.value}${control.unit ? " " + control.unit : ""}`).join(", ");
+      const firstReadout = pastRun.readouts[0];
+      return firstReadout ? `${settings} gave ${firstReadout.value} ${firstReadout.unit}`.trim() : settings;
+    }).join("   |   ");
     const readouts = currentReadouts();
     panel.readoutsElement.replaceChildren(...readouts.map((readout) => {
       const line = document.createElement("div");
@@ -253,11 +309,19 @@
     panel.runButton.style.cssText = "flex:0 0 auto;min-width:84px;padding:7px 18px;border:0;border-radius:8px;background:#3380ff;color:#fff;font:700 14px -apple-system,system-ui,sans-serif;";
     panel.runButton.addEventListener("click", () => {
       liveScene().endTour?.();
+      if (leaveTheGuessStage()) {
+        window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("guessSkipped");
+        return;
+      }
       startRun();
     });
+    panel.challengeElement = document.createElement("div");
+    panel.challengeElement.style.cssText = "display:none;flex-basis:100%;order:-1;color:#1f5fcc;font-weight:700;";
     panel.readoutsElement = document.createElement("div");
     panel.readoutsElement.style.cssText = "display:none;flex-basis:100%;flex-wrap:wrap;gap:4px 18px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
-    element.append(panel.runButton, panel.readoutsElement);
+    panel.pastRunsElement = document.createElement("div");
+    panel.pastRunsElement.style.cssText = "display:none;flex-basis:100%;font-weight:500;opacity:0.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+    element.append(panel.challengeElement, panel.runButton, panel.readoutsElement, panel.pastRunsElement);
     document.documentElement.append(element);
     panel.element = element;
     // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
@@ -268,6 +332,7 @@
   // Plays the simulation once. A run that never reports its end is given up after 20 seconds, so Run unlocks.
   // A newer run, from the button or the voice, replaces an older one, and the older one's end is ignored.
   const startRun = () => {
+    const controlsAtTheStart = simulationControls().map(controlSummary).map(({ label, value, unit }) => ({ label, value, unit }));
     runIsGoing = true;
     latestRunNumber += 1;
     const thisRunNumber = latestRunNumber;
@@ -283,10 +348,46 @@
     runEnded.catch((error) => console.error("simulation run failed: " + error)).then(() => {
       if (thisRunNumber !== latestRunNumber) return;
       runIsGoing = false;
-      refreshPanel();
       const readouts = currentReadouts();
-      if (readouts.length > 0) window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("runFinished:" + JSON.stringify(readouts));
+      if (readouts.length === 0) {
+        refreshPanel();
+        return;
+      }
+      pastRuns.unshift({ controls: controlsAtTheStart, readouts });
+      pastRuns.splice(mostPastRuns);
+      const report = { readouts, pastRuns, challenge: null };
+      if (lessonStage === "challenge") report.challenge = scoreTheChallengeRun(readouts);
+      refreshPanel();
+      window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("runFinished:" + JSON.stringify(report));
     });
+  };
+
+  // One try at the challenge. A hit ends it and brings the dashed path back. The difference is the readout minus the target.
+  const scoreTheChallengeRun = (readouts) => {
+    const challenge = usableChallenge();
+    if (challenge === null) return null;
+    challengeAttempts += 1;
+    const wantedLabel = challenge.readoutLabel.trim().toLowerCase();
+    const readout = readouts.find((candidate) => candidate.label.trim().toLowerCase() === wantedLabel) ?? readouts[0];
+    const difference = readout.value - challenge.target;
+    const hit = Math.abs(difference) <= challenge.tolerance;
+    if (hit) {
+      lessonStage = "done";
+      setPathPreview(true);
+    }
+    return { status: hit ? "hit" : "missed", attempts: challengeAttempts, difference: Math.round(difference * 100) / 100, unit: readout.unit, readoutLabel: readout.label };
+  };
+
+  // The app starts the challenge once the guess is settled. The path hides so the learner reasons from past runs.
+  const startChallenge = () => {
+    const challenge = usableChallenge();
+    if (challenge === null || lessonStage !== "explore") return null;
+    lessonStage = "challenge";
+    challengeAttempts = 0;
+    setPathPreview(false);
+    liveScene().setChallengeVisible?.(true);
+    refreshPanel();
+    return challenge.prompt;
   };
 
   // The tour ends by itself or by a call, and either sets __tourFinished. The page defines liveScene during load, so wait for it.
@@ -449,6 +550,9 @@
       inputSchema: { type: "object", properties: {} },
       isAvailable: hasSimulation,
       run: () => {
+        if (lessonStage === "guess") {
+          return { ok: false, error: "The learner has not guessed yet. Ask for their guess to the prediction question before running it." };
+        }
         startRun();
         return { ok: true };
       },
@@ -472,5 +576,10 @@
       }
     },
     state: pageState,
+    // The app's side of the lesson. Neither is a model tool: the app calls them after it hears the guess or settles it.
+    simulation: {
+      guessHeard: () => leaveTheGuessStage(),
+      startChallenge,
+    },
   };
 })();

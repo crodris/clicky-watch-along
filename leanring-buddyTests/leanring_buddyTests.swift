@@ -1830,11 +1830,10 @@ struct leanring_buddyTests {
          {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]
         """)
         #expect(readouts.map(\.label) == ["Landing distance", "Peak height", "Fourth"])
-        #expect(LiveScenePageEvent(messageBody: "runFinished:[{\"label\":\"Range\",\"value\":12,\"unit\":\"s\"}]")
-            == .simulationRunFinished(readouts: [SimulationReadout(label: "Range", value: 12, unit: "s")]))
         // A page that posts nothing usable gets no event, and a label is cut to a spoken length.
-        #expect(LiveScenePageEvent(messageBody: "runFinished:[]") == nil)
+        #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[]}") == nil)
         #expect(LiveScenePageEvent(messageBody: "runFinished:not json") == nil)
+        #expect(LiveScenePageEvent(messageBody: "guessSkipped") == .simulationGuessSkipped)
         #expect(SimulationReadout.readouts(fromPageJSON: "[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]").first?.label.count == 40)
 
         #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters.")
@@ -1861,5 +1860,67 @@ struct leanring_buddyTests {
         #expect(!AppVoiceTool.available(in: openQuestion).contains(.buildSimulation))
         #expect(AppVoiceTool.buildNewScene.descriptor.description.contains("build_simulation"))
         #expect(AppVoiceTool.buildSimulation.descriptor.description.contains("let me try it"))
+    }
+
+    @Test func aRunReportCarriesThePastRunsAndHowAChallengeTryWent() async throws {
+        let missedReport = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Landing distance","value":40.8,"unit":"m"}],
+         "pastRuns":[{"controls":[{"label":"Launch angle","value":45,"unit":"degrees"}],"readouts":[{"label":"Landing distance","value":40.8,"unit":"m"}]},
+                     {"controls":[{"label":"Launch angle","value":30,"unit":"degrees"}],"readouts":[{"label":"Landing distance","value":35.3,"unit":"m"}]},
+                     {"controls":[],"readouts":[]},{"controls":[],"readouts":[]}],
+         "challenge":{"status":"missed","attempts":2,"difference":10.8,"unit":"m"}}
+        """))
+        #expect(missedReport.pastRuns.count == 3)
+        #expect(missedReport.pastRuns[1].controlSettings == [SimulationReadout(label: "Launch angle", value: 30, unit: "degrees")])
+        #expect(missedReport.challengeOutcome == .missed(attempts: 2, difference: 10.8, unit: "m"))
+        #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[{\"label\":\"Range\",\"value\":12,\"unit\":\"m\"}],\"challenge\":{\"status\":\"hit\",\"attempts\":3}}")
+            == .simulationRunFinished(try #require(SimulationRunReport(pageJSON: "{\"readouts\":[{\"label\":\"Range\",\"value\":12,\"unit\":\"m\"}],\"challenge\":{\"status\":\"hit\",\"attempts\":3}}"))))
+        // A challenge entry the page got wrong is read as no challenge, never as a hit.
+        for brokenChallenge in [#"{"status":"hit","attempts":0}"#, #"{"status":"missed","attempts":1}"#, #"{"status":"won","attempts":1}"#] {
+            let report = SimulationRunReport(pageJSON: #"{"readouts":[{"label":"Range","value":12,"unit":"m"}],"challenge":"# + brokenChallenge + "}")
+            #expect(report?.challengeOutcome == nil, "\(brokenChallenge)")
+        }
+
+        #expect(simulationChallengeSpokenLine(for: .missed(attempts: 2, difference: 10.8, unit: "m")) == "That was 10.8 meters over the target. Try again.")
+        #expect(simulationChallengeSpokenLine(for: .missed(attempts: 1, difference: -0.25, unit: "s")) == "That was 0.25 seconds under the target. Try again.")
+        #expect(simulationChallengeSpokenLine(for: .hit(attempts: 1)) == "You hit the target on the first try.")
+        #expect(simulationChallengeSpokenLine(for: .hit(attempts: 3)) == "You hit the target in 3 tries.")
+    }
+
+    @Test func theLessonKeepsTheFirstGuessAndTheCheckReadsItsTag() async throws {
+        var lesson = SimulationLesson(predictionQuestion: "Will 30 or 60 degrees land farther?", physicsExplanation: "Both angles split the speed the same way.")
+        #expect(lesson.guessInvitation == "Will 30 or 60 degrees land farther? What's your guess?")
+        let blankGuessWasTaken = lesson.recordGuess("   ")
+        let firstGuessWasTaken = lesson.recordGuess("60 goes farther")
+        let secondGuessWasTaken = lesson.recordGuess("actually 30")
+        #expect(!blankGuessWasTaken)
+        #expect(firstGuessWasTaken)
+        #expect(!secondGuessWasTaken)
+        #expect(lesson.guess == .heard("60 goes farther"))
+
+        let runReport = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Range","value":35.31,"unit":"m"}],"pastRuns":[{"controls":[{"label":"Launch <angle>","value":60,"unit":"degrees"}],"readouts":[{"label":"Range","value":35.31,"unit":"m"}]}]}
+        """))
+        let userPrompt = simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport)
+        #expect(userPrompt.contains("<guess>60 goes farther</guess>"))
+        #expect(userPrompt.contains("run 1: Launch  angle  60 degrees gave Range 35.31 m"))
+        lesson.guess = .skipped
+        #expect(simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport).contains("(they did not guess)"))
+
+        #expect(SimulationPredictionCheck(replyText: "[SETTLED] You guessed 60, and both tied.") == SimulationPredictionCheck(spokenLine: "You guessed 60, and both tied.", predictionIsSettled: true))
+        #expect(SimulationPredictionCheck(replyText: " [OPEN] Now try 30 degrees.") == SimulationPredictionCheck(spokenLine: "Now try 30 degrees.", predictionIsSettled: false))
+        // With no tag the lesson keeps checking, so a confused reply never skips ahead.
+        #expect(SimulationPredictionCheck(replyText: "They tied.").predictionIsSettled == false)
+    }
+
+    @Test func recordGuessIsOfferedOnlyWhileASimulationWaitsForAGuess() async throws {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(!AppVoiceTool.available(in: context).contains(.recordGuess))
+        context.simulationIsWaitingForAGuess = true
+        #expect(AppVoiceTool.available(in: context).contains(.recordGuess))
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.recordGuess))
+        #expect(VoiceToolCall(id: "guess", name: "record_guess", input: ["guess": .string("60")]).chipPhrase == "Got your guess")
+        #expect(AppVoiceTool.recordGuess.descriptor.description.contains("predictionQuestion"))
     }
 }

@@ -38,8 +38,10 @@ enum LiveScenePageEvent: Equatable {
     case returnFinished
     /// The label text comes from the page, so it is untrusted until matched against Clicky's parts list.
     case partTapped(untrustedLabel: String)
-    /// A simulation run ended. scene-tools.js posts the readouts, which are the page's text and values.
-    case simulationRunFinished(readouts: [SimulationReadout])
+    /// A simulation run ended. scene-tools.js posts the report, which holds the page's text and values.
+    case simulationRunFinished(SimulationRunReport)
+    /// The learner clicked the locked Run button, which skips the guess.
+    case simulationGuessSkipped
 
     private static let partTappedPrefix = "partTapped:"
     private static let runFinishedPrefix = "runFinished:"
@@ -54,73 +56,18 @@ enum LiveScenePageEvent: Equatable {
             self = .returnFinished
             return
         }
+        if messageText == "guessSkipped" {
+            self = .simulationGuessSkipped
+            return
+        }
         if messageText.hasPrefix(Self.runFinishedPrefix) {
-            let readouts = SimulationReadout.readouts(fromPageJSON: String(messageText.dropFirst(Self.runFinishedPrefix.count)))
-            guard !readouts.isEmpty else { return nil }
-            self = .simulationRunFinished(readouts: readouts)
+            guard let runReport = SimulationRunReport(pageJSON: String(messageText.dropFirst(Self.runFinishedPrefix.count))) else { return nil }
+            self = .simulationRunFinished(runReport)
             return
         }
         guard messageText.hasPrefix(Self.partTappedPrefix) else { return nil }
         self = .partTapped(untrustedLabel: String(messageText.dropFirst(Self.partTappedPrefix.count)))
     }
-}
-
-/// One number a simulation measured in its last run, such as the landing distance in meters.
-/// The page wrote the label and unit, and Clicky says them aloud, so each is cut to a short length here.
-struct SimulationReadout: Equatable {
-    let label: String
-    let value: Double
-    let unit: String
-
-    private static let mostReadouts = 3
-    private static let longestLabel = 40
-    private static let longestUnit = 16
-
-    /// Up to 3 readouts with a non-empty label and a finite value. Anything else in the JSON is dropped.
-    static func readouts(fromPageJSON pageJSON: String) -> [SimulationReadout] {
-        guard let jsonData = pageJSON.data(using: .utf8),
-              let jsonEntries = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] else {
-            return []
-        }
-        let readouts: [SimulationReadout] = jsonEntries.compactMap { jsonEntry in
-            guard let label = (jsonEntry["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !label.isEmpty,
-                  let value = jsonEntry["value"] as? Double,
-                  value.isFinite else {
-                return nil
-            }
-            let unit = (jsonEntry["unit"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return SimulationReadout(label: String(label.prefix(longestLabel)), value: value, unit: String(unit.prefix(longestUnit)))
-        }
-        return Array(readouts.prefix(mostReadouts))
-    }
-}
-
-/// The one short line Clicky says after a simulation run, built from the readouts with no model call so it never lags
-/// or misreads a number. "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters."
-/// Only the first two readouts are said, and nil means there is nothing to say.
-func simulationReadoutSpokenLine(for readouts: [SimulationReadout]) -> String? {
-    let sentenceParts = readouts.prefix(2).map { readout in
-        let lowercaseLabel = readout.label.prefix(1).lowercased() + readout.label.dropFirst()
-        let valueText = readout.value.formatted(
-            .number.precision(.fractionLength(0...2)).grouping(.never).locale(Locale(identifier: "en_US_POSIX"))
-        )
-        let spokenUnit = spokenSimulationUnit(readout.unit)
-        let article = lowercaseLabel.first.map { "aeiou".contains($0) } == true ? "an" : "a"
-        return "\(article) \(lowercaseLabel) of \(valueText)\(spokenUnit.isEmpty ? "" : " " + spokenUnit)"
-    }
-    guard !sentenceParts.isEmpty else { return nil }
-    return "That run gave " + sentenceParts.joined(separator: ", and ") + "."
-}
-
-/// Text to speech reads "m" as a letter, so a short unit becomes its word. A unit the table does not know is said as written.
-private func spokenSimulationUnit(_ unit: String) -> String {
-    let spokenUnitsByWrittenUnit = [
-        "m": "meters", "cm": "centimeters", "s": "seconds", "m/s": "meters per second", "m/s2": "meters per second squared",
-        "m/s^2": "meters per second squared", "kg": "kilograms", "N": "newtons", "N·m": "newton meters", "Nm": "newton meters",
-        "J": "joules", "W": "watts", "Hz": "hertz", "deg": "degrees", "°": "degrees", "rad": "radians",
-    ]
-    return spokenUnitsByWrittenUnit[unit] ?? unit
 }
 
 /// The part label a tap asks about, taken from Clicky's own parts list, or nil when the tap is ignored.

@@ -195,6 +195,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case showReadyModel = "show_ready_model"
     case startBackgroundTask = "start_background_task"
     case hearTaskAnswer = "hear_task_answer"
+    case recordGuess = "record_guess"
 
     /// What the app can do right now. A tool that cannot work is left out, so the model never picks it.
     nonisolated struct Context: Equatable, Sendable {
@@ -213,6 +214,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var threeDModelIsReady = false
         /// A task agent finished, and its answer waits until the learner asks what it found.
         var taskAnswerIsReady = false
+        /// A simulation asked its prediction question, and Run stays locked until the learner guesses.
+        var simulationIsWaitingForAGuess = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -250,6 +253,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return !context.quizQuestionIsOpen
             case .hearTaskAnswer:
                 return context.taskAnswerIsReady && !context.quizQuestionIsOpen
+            case .recordGuess:
+                return context.simulationIsWaitingForAGuess && !context.quizQuestionIsOpen
             }
         }
     }
@@ -305,6 +310,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
         case .hearTaskAnswer:
             return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
+        case .recordGuess:
+            return "Record the learner's guess to the simulation's prediction question, the scene state's predictionQuestion, which unlocks the Run button and the dashed path. Use it for any answer to that question, even a short or unsure one, such as \"60 goes farther\", \"they tie\", or \"the first one\". Do not use it for a command such as changing a control or running it. Put the guess in guess, in the learner's words. Your confirmation is a few plain words, such as \"got it, now try it\"."
         }
     }
 
@@ -339,6 +346,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema(["query": .object(["type": .string("string"), "description": .string("A few words that would be said at that moment.")])], required: ["query"])
         case .makeStudyGuide:
             return objectSchema(["focus": .object(["type": .string("string"), "description": .string("An extra wish for the guide, such as only the part about the engine. Leave it out when they made none.")])], required: [])
+        case .recordGuess:
+            return objectSchema(["guess": .object(["type": .string("string"), "description": .string("The learner's guess, in their words.")])], required: ["guess"])
         case .reviseStudyGuide:
             return objectSchema(["instruction": .object(["type": .string("string"), "description": .string("What to change about the guide, in the learner's words.")])], required: ["instruction"])
         case .openStudyGuide, .showReadyModel, .hearTaskAnswer:
@@ -406,6 +415,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Setting \(controlName) to \(valueText)"
         case "run_simulation":
             return "Running it"
+        case "record_guess":
+            return "Got your guess"
         case "set_labels":
             // The page shows labels only for a true visible, so the chip reads it the same way.
             return input["visible"]?.boolValue == true ? "Showing the labels" : "Hiding the labels"

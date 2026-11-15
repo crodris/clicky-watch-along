@@ -249,6 +249,9 @@ describe("handleLiveScene model setting", () => {
     expect(systemTexts[0]).toContain("dashed line");
     expect(systemTexts[0]).toContain("setLabelsVisible(visible)");
     expect(systemTexts[0]).toContain("hidden at first");
+    expect(systemTexts[0]).toContain("setPreviewVisible(visible)");
+    expect(systemTexts[0]).toContain("setChallengeVisible(visible)");
+    expect(systemTexts[0]).toContain("keep the path it took as a thin, solid, faded line");
     expect(systemTexts[1]).not.toContain("SIMULATION");
     expect(systemTexts[2]).toBe(systemTexts[1]);
   });

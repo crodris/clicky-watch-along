@@ -190,8 +190,11 @@ final class CompanionManager: ObservableObject {
     private var liveSceneRequestGeneration = 0
     private var liveSceneRequestTask: Task<Void, Never>?
     private var liveSceneTourFinishedTask: Task<Void, Never>?
-    /// The prediction question a simulation page came with, spoken once its tour ends. Cleared at the start of each build.
-    private var simulationInvitationLine: String?
+    /// The lesson of the simulation on screen: its prediction question, the learner's guess, and how far it got.
+    /// Made when a simulation page plays, and cleared at the start of each build.
+    private var simulationLesson: SimulationLesson?
+    /// What Clicky says after a run. A newer run's line replaces it.
+    private var simulationRunNarrationTask: Task<Void, Never>?
 
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
@@ -331,8 +334,13 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
         }
-        LiveSceneOverlay.shared.onSimulationRunFinished = { [weak self] readouts in
-            self?.sayTheSimulationReadouts(readouts)
+        LiveSceneOverlay.shared.onSimulationRunFinished = { [weak self] runReport in
+            self?.narrateTheSimulationRun(runReport)
+        }
+        LiveSceneOverlay.shared.onSimulationGuessSkipped = { [weak self] in
+            guard let self, self.simulationLesson?.guess == .waiting else { return }
+            self.simulationLesson?.guess = .skipped
+            print("Simulation: the learner skipped the guess")
         }
         refreshAllPermissions()
         print("🔑 Clicky start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
@@ -1407,7 +1415,7 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
-        simulationInvitationLine = nil
+        simulationLesson = nil
         await speakLiveSceneLine(sceneKind == .simulation ? "Sure, let me set that up for you." : "Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
@@ -1527,35 +1535,104 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Said once the simulation's tour ends: the page's prediction question, then how to try it.
+    /// Said once the simulation's tour ends: the page's prediction question, then the ask for a guess.
+    /// Run stays locked until the learner answers, which `record_guess` hears.
     private func speakTheSimulationInvitationAfterItsTour() async {
         while case .touring = liveScenePhase, !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase, let simulationInvitationLine else { return }
-        await speakLiveSceneLine("\(simulationInvitationLine) Drag a slider, then press Run.")
+        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase, let simulationLesson else { return }
+        await speakLiveSceneLine(simulationLesson.guessInvitation)
         await waitForClickyToFinishSpeaking()
     }
 
-    /// One short line about the numbers a run measured, said whether the learner pressed Run or asked for it by voice.
-    /// The readouts come from the page, so they are said only while Clicky's own record says a simulation is on screen.
-    private func sayTheSimulationReadouts(_ readouts: [SimulationReadout]) {
+    /// The router heard an answer to the prediction question. The guess is kept for the check after the runs.
+    private func recordTheSimulationGuess(_ spokenGuess: String) async -> VoiceToolOutcome {
+        guard case .simulation = liveScenePageOnScreen, simulationLesson?.recordGuess(spokenGuess) == true else {
+            return .failed(error: "No simulation is waiting for a guess", state: nil)
+        }
+        guard await LiveSceneOverlay.shared.unlockTheSimulationAfterTheGuess() else {
+            return .failed(error: "The simulation is not on screen anymore", state: nil)
+        }
+        print("Simulation: guess recorded")
+        return .changed(state: await LiveSceneOverlay.shared.pageVoiceState())
+    }
+
+    /// What Clicky says after a run, whether the learner pressed Run or asked for it by voice. In the challenge it is
+    /// how close the try was. Before that it is the readouts, then, until the runs answer the prediction, the guess check:
+    /// whether the guess was right and why, or what to try next. Once settled the challenge starts.
+    /// The report comes from the page, so it is used only while Clicky's own record says a simulation is on screen.
+    private func narrateTheSimulationRun(_ runReport: SimulationRunReport) {
         guard case .simulation = liveScenePageOnScreen,
               LiveSceneOverlay.shared.isShowingAScene,
               !liveScenePhaseIsWaitingForAQuizAnswer,
-              let readoutLine = simulationReadoutSpokenLine(for: readouts) else {
+              simulationLesson != nil else {
             return
         }
-        print("Simulation: run finished, saying \"\(readoutLine)\"")
-        currentResponseTask = Task {
+        simulationRunNarrationTask?.cancel()
+        let narrationTask = Task {
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            await self.speakLiveSceneLine(readoutLine)
-            await self.waitForClickyToFinishSpeaking()
+            if let challengeOutcome = runReport.challengeOutcome {
+                if case .hit = challengeOutcome {
+                    NSSound(named: NSSound.Name("Glass"))?.play()
+                }
+                await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
+            } else {
+                if let readoutLine = simulationReadoutSpokenLine(for: runReport.readouts) {
+                    await self.speakSimulationLine(readoutLine)
+                }
+                await self.checkTheSimulationGuessAndStartTheChallenge(runReport: runReport)
+            }
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
         }
+        simulationRunNarrationTask = narrationTask
+        currentResponseTask = narrationTask
+    }
+
+    private func checkTheSimulationGuessAndStartTheChallenge(runReport: SimulationRunReport) async {
+        guard let lesson = simulationLesson, !lesson.predictionIsSettled else { return }
+        voiceState = .processing
+        let predictionCheck: SimulationPredictionCheck
+        do {
+            let (replyText, _) = try await claudeAPI.analyzeImageStreaming(
+                images: [],
+                systemPrompt: simulationPredictionCheckSystemPrompt,
+                userPrompt: simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport),
+                onTextChunk: { _ in }
+            )
+            predictionCheck = SimulationPredictionCheck(replyText: replyText)
+        } catch {
+            guard !Task.isCancelled else { return }
+            print("Simulation: the guess check failed, so Clicky says the page's explanation: \(error)")
+            predictionCheck = SimulationPredictionCheck(spokenLine: lesson.physicsExplanation, predictionIsSettled: true)
+        }
+        guard !Task.isCancelled else { return }
+        simulationLesson?.runsChecked += 1
+        let runsChecked = simulationLesson?.runsChecked ?? 0
+        let lessonMovesOn = predictionCheck.predictionIsSettled || runsChecked >= SimulationLesson.mostRunsCheckedBeforeTheChallenge
+        print("Simulation: guess check after run \(runsChecked), settled \(predictionCheck.predictionIsSettled)")
+        if !predictionCheck.spokenLine.isEmpty {
+            await speakSimulationLine(predictionCheck.spokenLine)
+        }
+        // The check never settled but the lesson moves on, so the learner still hears why before the challenge.
+        if lessonMovesOn && !predictionCheck.predictionIsSettled {
+            await speakSimulationLine(lesson.physicsExplanation)
+        }
+        guard lessonMovesOn, !Task.isCancelled else { return }
+        simulationLesson?.predictionIsSettled = true
+        guard let challengePrompt = await LiveSceneOverlay.shared.startTheSimulationChallenge() else { return }
+        print("Simulation: challenge started")
+        await speakSimulationLine("\(challengePrompt) \(simulationChallengeStartSuffix)")
+    }
+
+    private func speakSimulationLine(_ line: String) async {
+        guard !Task.isCancelled else { return }
+        print("Simulation: saying \"\(line)\"")
+        await speakLiveSceneLine(line)
+        await waitForClickyToFinishSpeaking()
     }
 
     /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
@@ -1613,9 +1690,9 @@ final class CompanionManager: ObservableObject {
                 screenJPEGData: cursorScreenJPEGData,
                 mediaRectToRiseFrom: mediaRectToRiseFrom
             )
-            // The page's prediction question is spoken after the tour. The page's own text, so it is cut like a model reply.
+            // The page's prediction question is asked after the tour. The quiz fields are the page's text, so the lesson cuts them.
             if sceneWasPlayed && sceneKind == .simulation {
-                simulationInvitationLine = String(liveScene.quiz.question.prefix(longestSpokenVoiceCommandLine))
+                simulationLesson = SimulationLesson(predictionQuestion: liveScene.quiz.question, physicsExplanation: liveScene.quiz.explanation)
             }
         } catch is CancellationError {
             return
@@ -2129,7 +2206,8 @@ final class CompanionManager: ObservableObject {
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
             studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo,
             threeDModelIsReady: readyThreeDModel != nil,
-            taskAnswerIsReady: readyTaskAnswer != nil
+            taskAnswerIsReady: readyTaskAnswer != nil,
+            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2328,6 +2406,8 @@ final class CompanionManager: ObservableObject {
         case .hearTaskAnswer:
             startSpeakingTheTaskAnswer()
             return .handedOff
+        case .recordGuess:
+            return await recordTheSimulationGuess(input["guess"]?.stringValue ?? "")
         }
     }
 
@@ -2884,7 +2964,8 @@ final class CompanionManager: ObservableObject {
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
             studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
             threeDModelIsReady: readyThreeDModel != nil,
-            taskAnswerIsReady: readyTaskAnswer != nil
+            taskAnswerIsReady: readyTaskAnswer != nil,
+            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
@@ -2931,6 +3012,9 @@ final class CompanionManager: ObservableObject {
         sceneStateFields["videoQuizIsRunning"] = .bool(videoQuizSession.isRunning)
         if liveScenePhaseIsWaitingForAQuizAnswer {
             sceneStateFields["quizQuestionIsOpen"] = .bool(true)
+        }
+        if case .simulation = liveScenePageOnScreen, let simulationLesson {
+            sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
         }
         return .object(sceneStateFields)
     }
