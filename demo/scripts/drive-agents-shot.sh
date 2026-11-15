@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Runs beside record-shot.sh for the two sub-agents shot. It first hides the chat replay of a live stream's recording,
-# which shows viewers' comments beside the video. When the learner asks what the task agent found, it brings the agent's
-# Notion page forward and scrolls through it while Clicky speaks. Once both sub-agents run, it opens the agent list with
+# Runs beside record-shot.sh for the two sub-agents shot. On YouTube it first hides the chat replay of a live stream's
+# recording, which shows viewers' comments beside the video. On x.com it hides the side columns and the replies, starts
+# the clip at video_start_seconds once the app launches, muted so its sound never covers Clicky, and pauses it 0.6
+# seconds before its end, so X's replay button never shows and the last frame stays up. When the learner asks what the
+# task agent found, it brings the agent's Notion page forward and scrolls through it while Clicky speaks. Once both sub-agents run, it opens the agent list with
 # shift + option, so the list shows "2 running", then glides the mouse out and back, so both helper triangles are seen
 # trailing the blue one in formation.
 # Usage, from the main checkout's root, started just before record-shot.sh:
-#   demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw &
+#   demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw [video_start_seconds] &
 set -u
 raw_events_path="$1"
+video_start_seconds="${2:-}"
 checkout_root="$(git rev-parse --show-toplevel)"
 verify_script="$checkout_root/.claude/skills/verify-clicky/verify-clicky.sh"
 # record-shot.sh builds move-mouse before the recording starts.
@@ -40,13 +43,26 @@ glide_mouse() {
 
 # A style rule hides the chat replay whether YouTube shows it open or collapsed, so this waits until the page has one.
 hide_chat_javascript="(() => { if (!document.querySelector('ytd-live-chat-frame')) return 'no chat'; const style = document.createElement('style'); style.textContent = 'ytd-live-chat-frame { display: none !important; }'; document.head.appendChild(style); return 'hidden'; })()"
-for _ in $(seq 1 40); do
-  [[ "$(run_in_front_tab "$hide_chat_javascript")" == hidden ]] && echo "hid the chat replay" && break
-  sleep 0.5
-done
+# X's post page keeps its navigation, its trends column, and the replies beside the clip.
+hide_x_page_javascript="(() => { const style = document.createElement('style'); style.textContent = 'header[role=banner], [data-testid=sidebarColumn], [data-testid=BottomBar], [aria-label*=Conversation] [data-testid=cellInnerDiv]:not(:first-child) { visibility: hidden !important; }'; document.head.appendChild(style); return 'hidden'; })()"
+# The largest video, as Clicky picks it, starts at the chosen second and stops just before its end.
+start_x_clip_javascript="(() => { const videos = [...document.querySelectorAll('video')]; const video = videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]; if (!video) return 'no video'; video.muted = true; video.currentTime = ${video_start_seconds:-0}; video.addEventListener('timeupdate', () => { if (video.duration && video.currentTime >= video.duration - 0.6) video.pause(); }); video.play(); return 'started at ' + video.currentTime; })()"
 
-# The 3D model sub-agent spawns about 1.5 seconds after its request, and the study guide sub-agent finishes about 4
-# seconds after that, so the list opens as soon as both run.
+# A start time means the x.com clip. The driver starts before record-shot.sh opens the demo window, so it touches the
+# page only once the app has launched, when that window's page has loaded. The edit starts after this point.
+if [[ -n "$video_start_seconds" ]]; then
+  wait_for_log_line 'Clicky: Starting' || exit 1
+  echo "x.com page: $(run_in_front_tab "$hide_x_page_javascript")"
+  echo "x.com clip: $(run_in_front_tab "$start_x_clip_javascript")"
+else
+  for _ in $(seq 1 40); do
+    [[ "$(run_in_front_tab "$hide_chat_javascript")" == hidden ]] && echo "hid the chat replay" && break
+    sleep 0.5
+  done
+fi
+
+# The 3D model sub-agent spawns about 1.5 seconds after its request, while the task sub-agent is still working, so the
+# list opens as soon as both run.
 wait_for_log_line 'saying "build me' || exit 1
 sleep 1.6
 "$verify_script" key agents-list

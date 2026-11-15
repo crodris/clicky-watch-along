@@ -52,6 +52,16 @@ demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw &
 TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch compares to the first booster catch, and make me a Notion page about it|build me a 3D model of this Starship|&put it back|what did you find" "https://www.youtube.com/watch?v=y2QIIhQjZkM" 1212 1110 680
 ```
 
+The re-record plays SpaceX's own 93 second catch clip on x.com instead, with Chrome logged in to X.
+The driver's second argument starts the clip at 50 seconds, during the descent, and the `+15` step waits until the wide shot of the ship in the tower arms, about 74 seconds into the clip, before asking for the model.
+The driver hides X's side columns and replies, keeps the clip muted, and pauses it 0.6 seconds before its end, so the model rises out of the last frame.
+Clicky has no captions to read on x.com, so the task agent works from the post, a look at the video, and web search.
+
+```bash
+demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw 50 &
+TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch compares to the first booster catch, and make me a Notion page about it|+15 build me a 3D model of this Starship|&put it back|what did you find" "https://x.com/SpaceX/status/2121715216597827756" "" 1110 680
+```
+
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
 The script exits with an error, and keeps no events file, when the rehearsal never logs that it finished.
 The events file stamps each app log line with seconds since the recording started.
