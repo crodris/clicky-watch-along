@@ -603,20 +603,21 @@ export const parallelAgentsClipSegments: Segment[] = [
   {
     // The model is built at 36.81 and the chip says "3D model ready". Nothing else is on screen, so the video pauses at
     // 37.84 and the model rises out of it from 38.25. It is only the ship in the tower's arms, as the video shows.
+    // The "3D model ready" chip fades in from about 37.5, so the shot starts just before it and the caption waits for it.
     kind: "shot",
     name: "rise",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 36.6,
-    durationSeconds: 8.4,
+    sourceStartSeconds: 37.2,
+    durationSeconds: 7.8,
     cameraMoves: [
       { atSeconds: 0, scale: labelScale, focus: agentChip, durationFrames: 1 },
-      { atSeconds: 1.4, scale: 1.0, focus: wholeFrame, durationFrames: bigMoveFrames },
+      { atSeconds: 1.6, scale: 1.0, focus: wholeFrame, durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.2, toSeconds: 1.6, text: "Sub-agent 2 done", accentWords: ["done"], accentColor: finishedCheckGreen },
-      { fromSeconds: 1.8, toSeconds: 5.0, text: "The screen is free, so the model rises out of the video", accentWords: ["rises out of the video"] },
-      { fromSeconds: 5.2, toSeconds: 8.2, text: "GPT-6.1 Sol built it in 23 seconds", accentWords: ["23 seconds"] },
+      { fromSeconds: 0.5, toSeconds: 1.8, text: "Sub-agent 2 done", accentWords: ["done"], accentColor: finishedCheckGreen },
+      { fromSeconds: 2.0, toSeconds: 4.9, text: "The screen is free, so the model rises out of the video", accentWords: ["rises out of the video"] },
+      { fromSeconds: 5.1, toSeconds: 7.6, text: "GPT-6.1 Sol built it in 23 seconds", accentWords: ["23 seconds"] },
     ],
   },
   {
