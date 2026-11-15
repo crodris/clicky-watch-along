@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   handleStudyGuide,
+  handleStudyGuideStatus,
   parseStudyGuide,
   signedPageHandle,
   studyGuidePageBlocks,
@@ -292,6 +293,31 @@ describe("handleStudyGuide", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 for a transcript past the character limit, or a page handle past its limit", async () => {
+    const fetchMock = stubFetch();
+    const longLines = Array.from({ length: 300 }, (_, lineIndex) => ({ seconds: lineIndex, text: "a".repeat(2_000) }));
+    // Correctly signed, so only the length cap stops it before Notion.
+    const longHandle = await signedPageHandle("notion-key", "p".repeat(200));
+
+    const longTranscriptResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, transcriptLines: longLines }),
+      notionEnvironment,
+    );
+    const longRevisionHandleResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, revision: { pageHandle: longHandle, previousGuide: validGuide } }),
+      notionEnvironment,
+    );
+    const longStatusHandleResponse = await handleStudyGuideStatus(
+      new Request("https://worker.test/study-guide-status", { method: "POST", body: JSON.stringify({ pageHandle: longHandle }) }),
+      notionEnvironment,
+    );
+
+    expect(longTranscriptResponse.status).toBe(400);
+    expect(longRevisionHandleResponse.status).toBe(400);
+    expect(longStatusHandleResponse.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

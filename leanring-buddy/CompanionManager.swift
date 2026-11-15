@@ -140,9 +140,13 @@ final class CompanionManager: ObservableObject {
     /// True until the newest answer is heard. Only then does the router take a command with no video or scene in front,
     /// so once it is heard a plain question goes back to the quick path instead of a voice command call.
     private var taskAnswerWaitsToBeHeard = false
-    /// The videos whose guide was being written when a quiz miss landed. That guide read its quiz results when it
-    /// started, so a refresh runs once it ends, and the miss still reaches the page.
-    private var studyGuideVideoKeysDueARefresh: Set<String> = []
+    /// The quiz video a miss landed on while that video's guide was being written, keyed by the video's key. That guide
+    /// read its quiz results when it started, so the quiz video's guide is refreshed once it ends, and the miss still
+    /// reaches the page.
+    private var studyGuideRefreshIsDueForQuizVideoURLByVideoKey: [String: String] = [:]
+    /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
+    /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.
+    private var studyGuideRefreshesBeingChecked = 0
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     let backgroundAgentStore = BackgroundAgentStore()
     private lazy var agentListPanelController = AgentListPanelController(
@@ -806,7 +810,7 @@ final class CompanionManager: ObservableObject {
                 : rehearsalStep
             if stepWaitsForTheBackgroundAgents {
                 // A guide takes about 15 seconds and a task agent about 25, so 3 minutes covers a long task and the Worker's retries.
-                for _ in 0..<720 where !backgroundAgentTasks.isEmpty {
+                for _ in 0..<720 where !backgroundAgentTasks.isEmpty || studyGuideRefreshesBeingChecked > 0 {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
                 await waitForTheLatestResponseTaskToFinish()
@@ -1612,7 +1616,7 @@ final class CompanionManager: ObservableObject {
             case .nameOnly:
                 judgedAnswer = LiveSceneJudgedAnswer(
                     verdict: .answer(wordMatchGrade),
-                    spokenReply: "Yes, it's \(quiz.answerLabel.lowercased())! And what does it do?"
+                    spokenReply: "Yes, it's \(quiz.answerLabel.lowercased()). And what does it do?"
                 )
             case .askedForHelp:
                 judgedAnswer = LiveSceneJudgedAnswer(
@@ -2591,9 +2595,12 @@ final class CompanionManager: ObservableObject {
         }
         let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
         runInTheBackground(agentID) {
-            await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
-            if self.studyGuideVideoKeysDueARefresh.remove(videoKey) != nil {
-                self.refreshTheQuizVideosStudyGuide()
+            let guideWasWritten = await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
+            let quizVideoURLDueARefresh = self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey.removeValue(forKey: videoKey)
+            // After a failure or a cancel the queued refresh would fail the same way or undo the cancel, and the miss
+            // stays in the quiz log, so the video's next refresh or revise sends it.
+            if guideWasWritten, let quizVideoURLDueARefresh {
+                self.refreshTheStudyGuide(forQuizVideoURL: quizVideoURLDueARefresh)
             }
         }
         return .changed(state: .object(["studyGuide": .string("started")]))
@@ -2610,27 +2617,33 @@ final class CompanionManager: ObservableObject {
     /// A missed or skipped question reaches a guide already written for the quiz video, by an update agent in the
     /// background, so the guide shows the miss without the learner asking.
     private func refreshTheStudyGuideAfterAQuizOutcome(_ outcome: StudyGuideQuizOutcome) {
-        guard quizOutcomeRefreshesTheStudyGuide(outcome) else { return }
+        guard quizOutcomeRefreshesTheStudyGuide(outcome),
+              let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else { return }
         // A guide being written read its quiz results when it started, so the refresh runs once it ends.
-        if let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() {
-            let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
-            if backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) {
-                studyGuideVideoKeysDueARefresh.insert(quizVideoKey)
-                return
-            }
+        let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
+        guard !backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) else {
+            studyGuideRefreshIsDueForQuizVideoURLByVideoKey[quizVideoKey] = quizVideoURL
+            return
         }
-        refreshTheQuizVideosStudyGuide()
+        refreshTheStudyGuide(forQuizVideoURL: quizVideoURL)
     }
 
     /// Nothing happens for a video with no guide, whose next guide includes the miss anyway. The page is checked in
-    /// Notion first, so a miss never brings back a guide the learner trashed.
-    private func refreshTheQuizVideosStudyGuide() {
-        guard let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else { return }
+    /// Notion first, so a miss never brings back a guide the learner trashed. A guide is written from the video in
+    /// front, so the refresh runs only while the quiz video is still there; otherwise the miss stays in the quiz log
+    /// for that video's next refresh or revise.
+    private func refreshTheStudyGuide(forQuizVideoURL quizVideoURL: String) {
+        guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
+              studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL) else {
+            return
+        }
+        studyGuideRefreshesBeingChecked += 1
         Task {
+            defer { self.studyGuideRefreshesBeingChecked -= 1 }
             guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil else { return }
             let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
             guard !self.backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) else {
-                self.studyGuideVideoKeysDueARefresh.insert(quizVideoKey)
+                self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey[quizVideoKey] = quizVideoURL
                 return
             }
             print("Study guide: updating the guide with the quiz miss")
@@ -2639,8 +2652,9 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
-    /// the chip under it, and the page in a background tab say it instead.
-    private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async {
+    /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
+    @discardableResult
+    private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async -> Bool {
         let startedAt = Date()
         let agentKind = studyGuideJob.agentKind
         do {
@@ -2688,11 +2702,12 @@ final class CompanionManager: ObservableObject {
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
             finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
+            return true
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
                 // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip.
                 print("Study guide: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
-                return
+                return false
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
@@ -2701,6 +2716,7 @@ final class CompanionManager: ObservableObject {
                 sender: .backgroundAgent(agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
+            return false
         }
     }
 

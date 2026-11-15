@@ -79,19 +79,27 @@ nonisolated let longestStudyGuideWish = 300
 /// The Worker refuses more quiz results than this.
 nonisolated let mostStudyGuideQuizResults = 20
 
+/// The Worker refuses a quiz result's question, answer, or explanation over this many UTF-16 code units. The planner
+/// that writes them has no limit, and a saved result goes with every later revision, so the app cuts them first.
+nonisolated let longestStudyGuideQuizText = 2_000
+
+/// Cuts by whole characters until the UTF-16 count fits, which is how the Worker's limits count, so an emoji or an
+/// accent is never split.
+nonisolated func text(_ text: String, cutToUTF16Count longestUTF16Count: Int) -> String {
+    var cutText = text
+    while cutText.utf16.count > longestUTF16Count {
+        cutText.removeLast()
+    }
+    return cutText
+}
+
 /// A focus or an instruction comes from the model's reading of the learner's words, so it is trimmed and cut to
 /// what the Worker accepts. Nil when nothing is left, which keeps an empty focus out of the request.
 nonisolated func studyGuideWish(fromModelText modelText: String?) -> String? {
     guard let trimmedText = modelText?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedText.isEmpty else {
         return nil
     }
-    // Cut by whole characters until the UTF-16 count fits, so an emoji or an accent is never split and the Worker
-    // never sees more code units than it accepts.
-    var wish = trimmedText
-    while wish.utf16.count > longestStudyGuideWish {
-        wish.removeLast()
-    }
-    return wish
+    return text(trimmedText, cutToUTF16Count: longestStudyGuideWish)
 }
 
 /// The quiz results a revised or refreshed guide is written with: the ones its page already shows, from the saved
@@ -159,9 +167,9 @@ nonisolated struct StudyGuideQuizLog: Equatable, Sendable {
         guard let openQuestion else { return false }
         self.openQuestion = nil
         resultsByVideoKey[studyGuideVideoKey(forVideoURL: openQuestion.videoURL), default: []].append(StudyGuideQuizResult(
-            question: openQuestion.question,
-            answerLabel: openQuestion.answerLabel,
-            explanation: openQuestion.explanation,
+            question: text(openQuestion.question, cutToUTF16Count: longestStudyGuideQuizText),
+            answerLabel: text(openQuestion.answerLabel, cutToUTF16Count: longestStudyGuideQuizText),
+            explanation: text(openQuestion.explanation, cutToUTF16Count: longestStudyGuideQuizText),
             askedAtSeconds: openQuestion.askedAtSeconds,
             result: outcome
         ))
@@ -386,9 +394,9 @@ nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws ->
     guard statusCode == 200 else {
         throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
     }
-    let studyGuideRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
-    guard studyGuidePageURLIsOnNotion(studyGuideRecord.pageURL) else {
+    let decodedStudyGuideRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
+    guard studyGuidePageURLIsOnNotion(decodedStudyGuideRecord.pageURL) else {
         throw StudyGuideError.pageIsNotOnNotion
     }
-    return studyGuideRecord
+    return decodedStudyGuideRecord
 }

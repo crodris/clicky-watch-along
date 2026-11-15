@@ -1228,6 +1228,13 @@ struct leanring_buddyTests {
         #expect(resultsForFirstVideo.map(\.result) == [.gotIt, .skipped])
         #expect(resultsForFirstVideo.map(\.askedAtSeconds) == [42, 90])
         #expect(quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=b").isEmpty)
+        // The planner's text has no limit, and the Worker refuses a field over 2,000 UTF-16 units, so the log cuts it.
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=c", question: String(repeating: "q", count: 2_500), answerLabel: "Label", explanation: String(repeating: "🚀", count: 1_500), askedAtSeconds: 7)
+        quizLog.closeTheOpenQuestion(with: .missed)
+        let longResult = try #require(quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=c").first)
+        #expect(longResult.question.utf16.count == 2_000)
+        #expect(longResult.explanation.utf16.count == 2_000)
+        #expect(longResult.answerLabel == "Label")
     }
 
     @Test func aRevisedGuideKeepsTheMissesItsPageAlreadyShows() async throws {

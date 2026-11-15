@@ -7,7 +7,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 
 ## Sub-features
 
-- `guide-route` is `/study-guide`, which returns `{ pageHandle, pageURL, guide }` after creating the Notion page.
+- `guide-route` is `/study-guide`, which returns `{ pageHandle, pageURL, guide }` after creating the Notion page. It answers 400 before any model or Notion call for a video off youtube.com, its subdomains, and youtu.be, a transcript over 10,000 lines or 500,000 characters, a text field over 2,000 characters, or a handle over 200 characters.
 - `guide-revise` sends `revision` with the previous page handle and guide, creates the new page, and trashes the old one.
   A handle the Worker did not sign gets a 400 before any model or Notion call.
 - `guide-review-first` builds the "Review these first" section from the quiz results marked `missed` or `skipped`.
