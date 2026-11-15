@@ -39,6 +39,17 @@ TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion st
 TRAILING_SECONDS=12 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 5 1110 680
 ```
 
+The two sub-agents clip uses 1 shot of FOX 26 Houston's stream of Starship Flight 15, from just before the ship's tower catch.
+It asks for a study guide and then a 3D model, so the amber and violet sub-agents run at once, and needs the Worker's `NOTION_API_KEY`.
+Its Worker runs without `LIVE_SCENE_MODEL`, so GPT builds the model at medium effort, since a Sonnet model came out plain in two takes.
+The driver hides the stream's chat replay with a style rule, opens the agent list while both sub-agents run, and glides the mouse so both wingmen trail the blue one.
+When YouTube rate-limits the captions, save the transcript from the video page's "Show transcript" panel as `y2QIIhQjZkM.json3`, and point the Debug app at it as the Quiz rehearsal section says.
+
+```bash
+demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw &
+TRAILING_SECONDS=8 demo/scripts/record-shot.sh agents "make me a Notion study guide for this video|build me a 3D model of this Starship|&put it back" "https://www.youtube.com/watch?v=y2QIIhQjZkM" 1212 1110 680
+```
+
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
 The script exits with an error, and keeps no events file, when the rehearsal never logs that it finished.
 The events file stamps each app log line with seconds since the recording started.
@@ -52,6 +63,7 @@ pnpm track public/volcano.mov public/volcano.cursor.json
 pnpm track public/ejiri.mov public/ejiri.cursor.json
 pnpm track public/study-guide.mov public/study-guide.cursor.json
 pnpm track public/quiz-miss.mov public/quiz-miss.cursor.json
+pnpm track public/agents.mov public/agents.cursor.json
 ```
 
 ## Music
@@ -65,9 +77,10 @@ The first two come from Mixkit under the Mixkit Stock Music Free License (https:
 The study guide clip uses "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
 The quiz miss clip uses "Pop - Friends Like Us" (122 second version) by Easy_Eva (https://pixabay.com/music/pop-pop-friends-like-us-122sec-564062/), saved as `demo/public/music/friends-like-us.mp3`, under the same license.
 Neither is registered with YouTube Content ID, so a YouTube upload gets no claim, and neither is AI-generated.
+The two sub-agents clip uses "Driving Ambition" by Ahjay Stelino (https://mixkit.co/free-stock-music/tag/driving-ambition/), saved as `demo/public/music/driving-ambition.mp3`, under the Mixkit Stock Music Free License.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
-Download all four before rendering.
+Download all five before rendering.
 
 `scripts/mix-music.ts` runs after the Remotion render.
 It gives the voice a high-pass at 80 Hz, a small lift at 3 kHz, and light compression.
@@ -79,8 +92,8 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, and `quizMissClipSegments` is the quiz miss clip posted beside it.
-`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, and the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `quizMissClipSegments` is the quiz miss clip posted beside it, and `subAgentsClipSegments` is the two sub-agents clip over the Starship catch.
+`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the two sub-agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
 ```bash
@@ -90,11 +103,12 @@ pnpm render
 pnpm render-quiz
 pnpm render-study-guide
 pnpm render-quiz-miss
+pnpm render-sub-agents
 ```
 
 `pnpm render` writes the voice-only `out/clicky-demo-voice.mp4`, then the mix writes `out/clicky-demo.mp4`.
-`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, and `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`.
-`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, and `pnpm mix-quiz-miss` run only the mix, which is enough after changing the music or its levels.
+`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, and `pnpm render-sub-agents` for `out/clicky-sub-agents.mp4`.
+`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, and `pnpm mix-sub-agents` run only the mix, which is enough after changing the music or its levels.
 Set `REMOTION_BROWSER_EXECUTABLE` when Remotion's own headless shell hangs at "Waiting for root component to load".
 
 ## Quiz rehearsal

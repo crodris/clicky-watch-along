@@ -1,4 +1,5 @@
 import { loadFont as loadFraunces } from "@remotion/google-fonts/Fraunces";
+import { loadFont as loadSpaceGrotesk } from "@remotion/google-fonts/SpaceGrotesk";
 import { bodyFont, colors } from "./motion.ts";
 
 /**
@@ -57,4 +58,29 @@ export const studyGuideTheme: DemoTheme = {
 export const quizMissTheme: DemoTheme = {
   ...studyGuideTheme,
   endCard: { ...studyGuideTheme.endCard, tagline: "Notes that remember what you missed" },
+};
+
+const missionFont = loadSpaceGrotesk("normal", { weights: ["500", "600", "700"], subsets: ["latin"] }).fontFamily;
+// The 3D model wingman's violet (DS.Colors.backgroundAgentThreeDModelViolet in the app). Captions about the study guide
+// sub-agent switch their accent to studyGuideAmber, so each sub-agent's words share its wingman's color.
+export const threeDModelViolet = "#A78BFA";
+export const subAgentStudyGuideAmber = studyGuideAmber;
+
+/** A mission-control readout for the Starship clip: grotesk type on a deep navy card, with each sub-agent's own color. */
+export const subAgentsTheme: DemoTheme = {
+  captionFont: missionFont,
+  captionText: "#EEF2FF",
+  captionFill: "rgba(11, 16, 32, 0.92)",
+  captionBorder: "rgba(167, 139, 250, 0.35)",
+  captionCornerRadius: 14,
+  accent: { style: "text", color: threeDModelViolet },
+  micColor: threeDModelViolet,
+  endCard: {
+    title: "Clicky watch-along",
+    tagline: "Two sub-agents, one cursor",
+    handle: "@HayloCR",
+    titleColor: "#EEF2FF",
+    handleColor: threeDModelViolet,
+    scrim: "rgba(8, 11, 24, 0.68)",
+  },
 };
