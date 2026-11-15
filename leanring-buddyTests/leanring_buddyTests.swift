@@ -1837,7 +1837,7 @@ struct leanring_buddyTests {
         #expect(LiveScenePageEvent(messageBody: "runFinished:not json") == nil)
         #expect(SimulationReadout.readouts(fromPageJSON: "[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]").first?.label.count == 40)
 
-        #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.8 meters, and a peak height of 10.2 meters.")
+        #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters.")
         #expect(simulationReadoutSpokenLine(for: [SimulationReadout(label: "Energy", value: 3, unit: "J")]) == "That run gave an energy of 3 joules.")
         #expect(simulationReadoutSpokenLine(for: []) == nil)
     }

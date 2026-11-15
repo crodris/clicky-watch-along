@@ -97,13 +97,13 @@ struct SimulationReadout: Equatable {
 }
 
 /// The one short line Clicky says after a simulation run, built from the readouts with no model call so it never lags
-/// or misreads a number. "That run gave a landing distance of 40.8 meters, and a peak height of 10.2 meters."
+/// or misreads a number. "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters."
 /// Only the first two readouts are said, and nil means there is nothing to say.
 func simulationReadoutSpokenLine(for readouts: [SimulationReadout]) -> String? {
     let sentenceParts = readouts.prefix(2).map { readout in
         let lowercaseLabel = readout.label.prefix(1).lowercased() + readout.label.dropFirst()
         let valueText = readout.value.formatted(
-            .number.precision(.fractionLength(0...1)).grouping(.never).locale(Locale(identifier: "en_US_POSIX"))
+            .number.precision(.fractionLength(0...2)).grouping(.never).locale(Locale(identifier: "en_US_POSIX"))
         )
         let spokenUnit = spokenSimulationUnit(readout.unit)
         let article = lowercaseLabel.first.map { "aeiou".contains($0) } == true ? "an" : "a"

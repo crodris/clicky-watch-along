@@ -161,7 +161,7 @@ const liveSceneInstructions = [
 const simulationInstructions = [
   "",
   "THIS REQUEST IS A SIMULATION. The learner said something like \"let me try it\", and they will change a few numbers and press Run. These rules replace any rule above they conflict with.",
-  "Pick one setup, driven by up to 3 numbers, that the screenshot and the learner's words show, such as a launched ball, a lever with weights, or a pendulum. Build only that setup, from procedural geometry, within the same size and dependency rules as above.",
+  "Pick one setup, driven by up to 3 numbers, that the screenshot and the learner's words show, such as a launched ball, a lever with weights, or a pendulum. Build only that setup, from procedural geometry, within the same size and dependency rules as above. Take the starting values from the frame, and keep its geometry: a ball launched from the ground launches and lands at ground level, so the textbook formulas hold.",
   "Simulate it with simple, correct physics: a closed-form solution or a fixed-step integrator, in real units (meters, kilograms, seconds, degrees). Never fake or hard-code a result. Every readout is measured from where the simulated objects actually ended up or from the simulated clock, never read off a formula of the controls. Playback may be faster or slower than real time, but a run lasts 2 to 8 seconds on screen.",
   "Do not draw any control UI: no input, button, select, or text for the controls or the results. The app draws one panel from window.liveScene.controls, and part labels are the only text you draw.",
   'Label up to 4 parts of the setup with their real names. No label is "?", so reveal() may do nothing, but it must exist.',
@@ -171,7 +171,7 @@ const simulationInstructions = [
   "9. setControl(name, value) clamps value to min and max, snaps it to step, stores it in that control's value, updates the scene to show the new setup, puts the simulation back at its start, and returns true. It returns false for a name that is not in controls.",
   "10. run() plays the simulation once from the start with the current controls, animating with requestAnimationFrame. It returns a Promise that resolves when the run has ended and the readouts are updated. Calling it during a run restarts the run.",
   "11. reset() puts the simulation back at its start with no run going, and keeps the readouts.",
-  "12. getState() also returns readouts: an array of { label, value, unit } with 1 to 3 entries, such as the landing distance in meters. value is a number rounded to 1 decimal. The array is empty before the first run, and it is updated when a run ends.",
+  "12. getState() also returns readouts: an array of { label, value, unit } with 1 to 3 entries, such as the landing distance in meters. value is a number rounded to 2 decimals. A readout means what the frame or the learner asks about, in the sense they use it: a pendulum's period is the time for one full swing there and back. The array is empty before the first run, and it is updated when a run ends.",
   "",
   "For a simulation the json block's fields mean this. question is a prediction the learner can test with the controls, in one or two short sentences with no exclamation mark and without giving the answer, such as \"Will 30 or 60 degrees land the ball farther?\". answerLabel is the label of the control the prediction is about. functionWords is an empty list. explanation is two short spoken sentences that say what the physics shows.",
 ].join("\n");
