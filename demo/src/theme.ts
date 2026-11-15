@@ -87,7 +87,7 @@ export const parallelAgentsTheme: DemoTheme = {
   micColor: threeDModelViolet,
   endCard: {
     title: "Clicky watch-along",
-    tagline: "An experiment on my Clicky fork: parallel sub-agents",
+    tagline: "An experiment on my Clicky fork: background sub-agents",
     handle: "@HayloCR",
     titleColor: "#EEF2FF",
     handleColor: threeDModelViolet,

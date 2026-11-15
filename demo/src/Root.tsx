@@ -76,7 +76,7 @@ export function Root() {
         defaultProps={{ segments: subAgentsClipSegments, cursorTracks: {}, theme: subAgentsTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
-      {/* Posted after the sub-agents clip: two sub-agents at once, a general task agent and a 3D model, over the Starship tower catch. */}
+      {/* Posted first: two sub-agents at once, a general task agent and a 3D model, over the Starship tower catch. */}
       <Composition
         id="ClickyParallelAgentsClip"
         component={Demo}

@@ -519,9 +519,9 @@ export const subAgentsClipSegments: Segment[] = [
   { kind: "endCard", name: "end-card", recordingFile: "study-guide.mov", sourceStartSeconds: 82, durationSeconds: 4.0 },
 ];
 
-// The parallel agents clip, posted after the sub-agents clip above, which introduces the mechanics: a general task
-// agent and a 3D model built in the background, at once, while FOX 26 Houston's stream of Starship Flight 15 plays its
-// tower catch. The video plays muted, so only Clicky and the music are heard.
+// The parallel agents clip, posted first because the catch is the news of the day, so it teaches the sub-agent
+// mechanics itself: a general task agent and a 3D model built in the background, at once, while FOX 26 Houston's
+// stream of Starship Flight 15 plays its tower catch. The video plays muted, so only Clicky and the music are heard.
 // The stream's page keeps a column for the chat replay, which the driver hides, so the player fills about 62% of the
 // frame's width, and 1.5 times fills the frame with it.
 const starshipVideo = { x: 0.45, y: 0.49 };
@@ -538,135 +538,146 @@ const notionPageScale = 1.6;
 
 export const parallelAgentsClipSegments: Segment[] = [
   {
-    // agents.events.txt: the request at 5.80, and start_background_task spawns the teal task agent at 7.67, whose line
+    // agents.events.txt: the request at 5.92, and start_background_task spawns the teal task agent at 8.30, whose line
     // says "Getting started" and then the steps it reports.
     kind: "shot",
     name: "ask-task",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 3.6,
-    durationSeconds: 8.1,
+    sourceStartSeconds: 3.7,
+    durationSeconds: 8.3,
     cameraMoves: [
       { atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 },
-      { atSeconds: 4.5, scale: helperScale, focus: "cursor", durationFrames: bigMoveFrames },
+      { atSeconds: 4.8, scale: helperScale, focus: "cursor", durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.2, toSeconds: 1.9, text: "Now two sub-agents at once, on today's Starship catch", accentWords: ["two sub-agents at once"] },
-      { fromSeconds: 2.0, toSeconds: 5.0, text: "Find out how this catch compares to the first booster catch, and make me a Notion page about it", voice: "learner" },
-      { fromSeconds: 5.1, toSeconds: 8.0, text: "That spawns a general sub-agent that plans its own steps", accentWords: ["general sub-agent"], accentColor: subAgentTaskTeal },
+      { fromSeconds: 0.2, toSeconds: 1.9, text: "Clicky watching today's Starship catch with you", accentWords: ["today's Starship catch"] },
+      { fromSeconds: 2.0, toSeconds: 5.1, text: "Find out how this catch compares to the first booster catch, and make me a Notion page about it", voice: "learner" },
+      { fromSeconds: 5.2, toSeconds: 8.1, text: "That spawns a general sub-agent that plans its own steps", accentWords: ["general sub-agent"], accentColor: subAgentTaskTeal },
     ],
   },
   {
-    // The request at 11.43, build_model_in_background spawns the violet sub-agent at 12.89, and the agent list is open
-    // from about 13.8 to 18.0, saying "2 running".
+    // The request at 12.05, build_model_in_background spawns the violet sub-agent at 13.40, and the agent list is open
+    // from about 14.5 to 18.7, saying "2 running".
     kind: "shot",
     name: "ask-model",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 11.3,
-    durationSeconds: 6.6,
+    sourceStartSeconds: 11.9,
+    durationSeconds: 6.8,
     cameraMoves: [
       { atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 },
-      { atSeconds: 2.3, scale: 2.4, focus: agentList, durationFrames: bigMoveFrames },
+      { atSeconds: 2.5, scale: 2.4, focus: agentList, durationFrames: bigMoveFrames },
     ],
     captions: [
       { fromSeconds: 0.2, toSeconds: 1.9, text: "Build me a 3D model of this Starship", voice: "learner" },
       { fromSeconds: 2.0, toSeconds: 3.6, text: "Sub-agent 2 builds it, in violet", accentWords: ["Sub-agent 2"] },
-      { fromSeconds: 3.8, toSeconds: 6.4, text: "2 running in parallel, each in its own color", accentWords: ["in parallel"] },
+      { fromSeconds: 3.8, toSeconds: 6.6, text: "Shift + option lists them: 2 running, side by side", accentWords: ["2 running"] },
     ],
   },
   {
-    // The mouse glides out and back from 19.1 to 22.6, and both wingmen trail the blue triangle with their step lines.
+    // The mouse glides out and back from 19.7 to 23.1, and both wingmen trail the blue triangle with their step lines.
     kind: "shot",
     name: "formation",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 18.9,
+    sourceStartSeconds: 19.5,
     durationSeconds: 4.1,
     cameraMoves: [{ atSeconds: 0, scale: 2.2, focus: "cursor", durationFrames: 1 }],
-    captions: [{ fromSeconds: 0.3, toSeconds: 4.0, text: "One searches the web while the other builds the model", accentWords: ["searches the web"], accentColor: subAgentTaskTeal }],
+    captions: [
+      { fromSeconds: 0.3, toSeconds: 2.1, text: "Each cursor fills as its task progresses", accentWords: ["fills"] },
+      { fromSeconds: 2.2, toSeconds: 4.0, text: "One searches the web while the other builds the model", accentWords: ["searches the web"], accentColor: subAgentTaskTeal },
+    ],
   },
   {
-    // The ship sits in the tower arms, and the task agent finishes at 26.91 after writing its Notion page: its wingman
-    // fills, gets its check mark, and the chip says "Task done · say what did you find".
+    // The ship sits in the tower arms while both sub-agents work.
     kind: "shot",
     name: "catch",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 23.0,
-    durationSeconds: 6.8,
-    cameraMoves: [
-      { atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 },
-      { atSeconds: 3.2, scale: labelScale, focus: agentChip, durationFrames: bigMoveFrames },
-    ],
-    captions: [
-      { fromSeconds: 0.3, toSeconds: 3.6, text: "The video keeps playing through the catch", accentWords: ["keeps playing"] },
-      // After the chip shows at 3.91, so the caption never names a result the screen does not show yet.
-      { fromSeconds: 4.3, toSeconds: 6.6, text: "Sub-agent 1 done: web research, written to Notion", accentWords: ["done"], accentColor: finishedCheckGreen },
-    ],
+    sourceStartSeconds: 24.0,
+    durationSeconds: 4.4,
+    cameraMoves: [{ atSeconds: 0, scale: starshipVideoScale, focus: starshipVideo, durationFrames: 1 }],
+    captions: [{ fromSeconds: 0.3, toSeconds: 4.2, text: "The main agent stays free, and the catch plays on", accentWords: ["stays free"] }],
   },
   {
-    // The model is built at 33.21 and the chip says "3D model ready". Nothing else is on screen, so the video pauses at
-    // 33.86 and the model rises out of it from 34.27. It is only the ship in the tower's arms, as the video shows.
+    // The model is built at 36.81 and the chip says "3D model ready". Nothing else is on screen, so the video pauses at
+    // 37.84 and the model rises out of it from 38.25. It is only the ship in the tower's arms, as the video shows.
     kind: "shot",
     name: "rise",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 33.0,
-    durationSeconds: 8.2,
+    sourceStartSeconds: 36.6,
+    durationSeconds: 8.4,
     cameraMoves: [
       { atSeconds: 0, scale: labelScale, focus: agentChip, durationFrames: 1 },
-      { atSeconds: 1.3, scale: 1.0, focus: wholeFrame, durationFrames: bigMoveFrames },
+      { atSeconds: 1.4, scale: 1.0, focus: wholeFrame, durationFrames: bigMoveFrames },
     ],
     captions: [
       { fromSeconds: 0.2, toSeconds: 1.6, text: "Sub-agent 2 done", accentWords: ["done"], accentColor: finishedCheckGreen },
       { fromSeconds: 1.8, toSeconds: 5.0, text: "The screen is free, so the model rises out of the video", accentWords: ["rises out of the video"] },
-      { fromSeconds: 5.2, toSeconds: 8.1, text: "GPT-6.1 Sol built it in 20 seconds", accentWords: ["20 seconds"] },
+      { fromSeconds: 5.2, toSeconds: 8.2, text: "GPT-6.1 Sol built it in 23 seconds", accentWords: ["23 seconds"] },
     ],
   },
   {
-    // Clicky says what the model shows from 41.17 to 49.78. Its words are heard, so they get no caption.
+    // Clicky says what the model shows from 45.24 to 52.83. Its words are heard, so they get no caption.
     kind: "shot",
     name: "narration",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 41.0,
-    durationSeconds: 9.0,
+    sourceStartSeconds: 45.0,
+    durationSeconds: 8.1,
     cameraMoves: [{ atSeconds: 0, scale: 1.0, focus: wholeFrame, durationFrames: 1 }],
     captions: [],
   },
   {
-    // "Put it back" at 54.45, Clicky says "Okay, back to the video." from 55.06, and the video plays again at 57.85.
+    // The task agent finishes at 60.34 while the model is up: its wingman fills, gets its check mark, and the chip says
+    // "Task done · say what did you find", which never covers the model, since the answer waits to be asked for.
+    kind: "shot",
+    name: "task-done",
+    recordingFile: "agents.mov",
+    cursorTrackFile: "agents.cursor.json",
+    sourceStartSeconds: 59.7,
+    durationSeconds: 4.8,
+    cameraMoves: [
+      { atSeconds: 0, scale: 1.0, focus: wholeFrame, durationFrames: 1 },
+      { atSeconds: 0.5, scale: labelScale, focus: agentChip, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      // After the chip shows at 0.64, so the caption never names a result the screen does not show yet.
+      { fromSeconds: 1.2, toSeconds: 4.6, text: "Sub-agent 1 done: web research, written to Notion", accentWords: ["done"], accentColor: finishedCheckGreen },
+    ],
+  },
+  {
+    // "Put it back" at 64.81, Clicky says "Okay, back to the video." from 65.42, and the video plays again at 67.98.
     kind: "shot",
     name: "put-back",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 54.2,
-    durationSeconds: 4.6,
+    sourceStartSeconds: 64.6,
+    durationSeconds: 4.3,
     cameraMoves: [
       { atSeconds: 0, scale: 1.0, focus: wholeFrame, durationFrames: 1 },
-      { atSeconds: 2.8, scale: starshipVideoScale, focus: starshipVideo, durationFrames: bigMoveFrames },
+      { atSeconds: 2.6, scale: starshipVideoScale, focus: starshipVideo, durationFrames: bigMoveFrames },
     ],
     captions: [{ fromSeconds: 0.2, toSeconds: 2.1, text: "Put it back", voice: "learner" }],
   },
   {
-    // "What did you find" at 58.97, the page comes forward at about 59.1, and Clicky speaks the task agent's answer from
-    // 61.90 to 82.77 while the page scrolls to its sources at about 70.1.
+    // "What did you find" at 68.97, the page comes forward at about 69.1, and Clicky speaks the task agent's answer from
+    // 70.83 to 86.61 while the page scrolls to its sources at about 80.1.
     kind: "shot",
     name: "answer",
     recordingFile: "agents.mov",
     cursorTrackFile: "agents.cursor.json",
-    sourceStartSeconds: 58.8,
-    durationSeconds: 24.2,
-    cameraMoves: [
-      { atSeconds: 0, scale: notionPageScale, focus: notionPageBody, durationFrames: 1 },
-    ],
+    sourceStartSeconds: 68.9,
+    durationSeconds: 18.0,
+    cameraMoves: [{ atSeconds: 0, scale: notionPageScale, focus: notionPageBody, durationFrames: 1 }],
     captions: [
       { fromSeconds: 0.2, toSeconds: 1.9, text: "What did you find?", voice: "learner" },
       { fromSeconds: 2.4, toSeconds: 6.0, text: "The answer waits until you ask, so it never talks over the video", accentWords: ["until you ask"], accentColor: subAgentTaskTeal },
-      { fromSeconds: 12.6, toSeconds: 16.2, text: "And the page cites its sources", accentWords: ["cites its sources"], accentColor: subAgentTaskTeal },
+      { fromSeconds: 11.6, toSeconds: 15.2, text: "And the page cites its sources", accentWords: ["cites its sources"], accentColor: subAgentTaskTeal },
     ],
   },
   // The music fades out under this card.
-  { kind: "endCard", name: "end-card", recordingFile: "agents.mov", sourceStartSeconds: 84, durationSeconds: 4.0 },
+  { kind: "endCard", name: "end-card", recordingFile: "agents.mov", sourceStartSeconds: 88, durationSeconds: 4.0 },
 ];

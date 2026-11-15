@@ -92,7 +92,7 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `quizMissClipSegments` is the quiz miss clip, `subAgentsClipSegments` joins those two into one story for the HeyClicky team, reusing their shots by name, and `parallelAgentsClipSegments` is the parallel agents clip over the Starship catch, posted after the sub-agents clip.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `quizMissClipSegments` is the quiz miss clip, `subAgentsClipSegments` joins those two into one story for the HeyClicky team, reusing their shots by name, and `parallelAgentsClipSegments` is the parallel agents clip over the Starship catch, posted before the sub-agents clip, which is re-cut around the quiz miss.
 `src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the parallel agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color, teal for the task agent and violet for the 3D model.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
