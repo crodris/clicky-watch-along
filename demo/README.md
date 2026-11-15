@@ -70,12 +70,13 @@ The first two come from Mixkit under the Mixkit Stock Music Free License (https:
 - The demo uses "Happy Times" by Alejandro Magaña (https://mixkit.co/free-stock-music/happy-times/), saved as `demo/public/music/happy-times.mp3`.
 - The quiz clip uses "It's Love" by Michael Ramir C. (https://mixkit.co/free-stock-music/its-love/), saved as `demo/public/music/its-love.mp3`.
 
-The study guide and quiz miss clips use "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
+The study guide clip uses "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
+The quiz miss clip uses "Pop - Friends Like Us" (122 second version) by Easy_Eva (https://pixabay.com/music/pop-pop-friends-like-us-122sec-564062/), saved as `demo/public/music/friends-like-us.mp3`, under the same license.
 The landmark clip uses "Positive" by AtlasAudio (https://pixabay.com/music/upbeat-positive-631940/), saved as `demo/public/music/positive.mp3`, under the same license.
-Neither is registered with YouTube Content ID, so a YouTube upload gets no claim, and neither is AI-generated.
+None of the three is registered with YouTube Content ID, so a YouTube upload gets no claim, and none is AI-generated.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
-Download all four before rendering.
+Download all five before rendering.
 
 `scripts/mix-music.ts` runs after the Remotion render.
 It gives the voice a high-pass at 80 Hz, a small lift at 3 kHz, and light compression.

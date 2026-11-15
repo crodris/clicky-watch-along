@@ -167,6 +167,15 @@ export function BlurDissolve({ durationInFrames, children, fadesOut }: { duratio
   );
 }
 
+/**
+ * The sound crossfades with the picture: it rises over a shot's first dissolve and falls over its last, so two shots
+ * that overlap never play their sound at full volume together. When the next shot starts where this one's last
+ * dissolve begins, the two halves are the same moments and add back up to the full sound.
+ */
+function shotVolume(shotFrame: number, shotDurationInFrames: number): number {
+  return Math.min(1, shotFrame / dissolveFrames, (shotDurationInFrames - shotFrame) / dissolveFrames);
+}
+
 /** A stretch of a recording, with its camera moves, Ken Burns drift, and captions. */
 export function Shot({
   recordingFile,
@@ -176,6 +185,7 @@ export function Shot({
   cursorTrack,
   captions,
   theme,
+  muted,
 }: {
   recordingFile: string;
   sourceStartSeconds: number;
@@ -184,6 +194,7 @@ export function Shot({
   cursorTrack?: CursorTrack;
   captions: Caption[];
   theme: DemoTheme;
+  muted: boolean;
 }) {
   const frame = useCurrentFrame();
   const camera = cameraAt(cameraMoves, frame / frameRate, durationSeconds, sourceStartSeconds, cursorTrack);
@@ -195,7 +206,12 @@ export function Shot({
           transform: cameraTransform(camera.scale, camera.focus, videoWidth, videoHeight),
         }}
       >
-        <OffthreadVideo src={staticFile(recordingFile)} trimBefore={Math.round(sourceStartSeconds * frameRate)} />
+        <OffthreadVideo
+          src={staticFile(recordingFile)}
+          trimBefore={Math.round(sourceStartSeconds * frameRate)}
+          muted={muted}
+          volume={(shotFrame) => shotVolume(shotFrame, Math.round(durationSeconds * frameRate))}
+        />
       </AbsoluteFill>
       <CaptionTrack captions={captions} theme={theme} />
     </AbsoluteFill>

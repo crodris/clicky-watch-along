@@ -14,7 +14,7 @@
     "render-study-guide": "remotion render src/index.ts ClickyStudyGuideClip out/clicky-study-guide-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-study-guide",
     "mix-study-guide": "node scripts/mix-music.ts out/clicky-study-guide-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-study-guide.mp4",
     "render-quiz-miss": "remotion render src/index.ts ClickyQuizMissClip out/clicky-quiz-miss-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-quiz-miss",
-    "mix-quiz-miss": "node scripts/mix-music.ts out/clicky-quiz-miss-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-quiz-miss.mp4",
+    "mix-quiz-miss": "node scripts/mix-music.ts out/clicky-quiz-miss-voice.mp4 public/music/friends-like-us.mp3 out/clicky-quiz-miss.mp4",
     "render-landmark": "remotion render src/index.ts ClickyLandmarkClip out/clicky-landmark-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-landmark",
     "mix-landmark": "node scripts/mix-music.ts out/clicky-landmark-voice.mp4 public/music/positive.mp3 out/clicky-landmark.mp4"
   },

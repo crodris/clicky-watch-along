@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs beside record-shot.sh for the study guide shot. The rehearsal pops the engine out while the guide is written, so
-# the blue cursor flies between the parts with the helper cursor trailing it, and needs no help from here. Once the
-# guide's page opens, this scrolls to the first point about the compressor and clicks its timestamp link, which opens
+# Runs beside record-shot.sh for the study guide shot. Right after the request it glides the mouse out and back, so the
+# helper cursor is seen trailing the blue one. The rehearsal then pops the engine out while the guide is written. Once
+# the guide's page opens, this scrolls to the first point about the compressor and clicks its timestamp link, which opens
 # the video at that moment in a new tab.
 # Usage, from the main checkout's root, started just before record-shot.sh:
 #   demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
@@ -48,6 +48,15 @@ glide_mouse() {
 pick_link_javascript="(() => { const links = [...document.querySelectorAll('a[href]')].filter(link => /youtu/.test(link.href) && /[?&]t=[0-9]+/.test(link.href)); const link = links.find(candidate => /compress/i.test((candidate.closest('[data-block-id]') || candidate.parentElement).textContent)) || links[0]; if (!link) return 'none'; window.demoLinkAddress = link.href; link.scrollIntoView({ behavior: 'smooth', block: 'center' }); return link.textContent; })()"
 # The link's center on screen, in points. Chrome's tab sidebar sits left of the page, so the window's extra width is on the left.
 link_point_javascript="(() => { const link = [...document.querySelectorAll('a[href]')].find(candidate => candidate.href === window.demoLinkAddress); if (!link) return 'none'; const box = link.getBoundingClientRect(); const pageLeft = window.screenX + (window.outerWidth - window.innerWidth); const pageTop = window.screenY + (window.outerHeight - window.innerHeight); return Math.round(pageLeft + box.left + box.width / 2) + ' ' + Math.round(pageTop + box.top + box.height / 2); })()"
+
+# The helper cursor appears about 1.5 seconds after the request. A glide out and back while Clicky confirms shows it
+# trailing the blue cursor, and ends before the rehearsal says "pop this out" about 7 seconds after the request.
+# It starts and ends at record-shot.sh's default mouse point.
+wait_for_log_line 'saying "make me' || exit 1
+sleep 2.3
+glide_mouse 1110 680 880 560
+sleep 0.4
+glide_mouse 880 560 1110 680
 
 # The Notion tab comes forward about 2 seconds after the request, and the page takes a few more to draw.
 wait_for_log_line 'saying "open my study guide' || exit 1
