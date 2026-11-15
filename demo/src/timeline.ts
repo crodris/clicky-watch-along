@@ -454,7 +454,7 @@ export const quizMissClipSegments: Segment[] = [
   { kind: "endCard", name: "end-card", recordingFile: "quiz-miss.mov", sourceStartSeconds: 125, durationSeconds: 4.0 },
 ];
 
-// The two sub-agents clip: a general task agent and a 3D model built in the background, at once, while FOX 26 Houston's
+// The parallel agents clip, posted after the sub-agents clip that introduces the mechanics: a general task agent and a 3D model built in the background, at once, while FOX 26 Houston's
 // stream of Starship Flight 15 plays its tower catch. The video plays muted, so only Clicky and the music are heard.
 // The stream's page keeps a column for the chat replay, which the driver hides, so the player fills about 62% of the
 // frame's width, and 1.5 times fills the frame with it.
@@ -470,7 +470,7 @@ const wholeFrame = { x: 0.5, y: 0.5 };
 const notionPageBody = { x: 0.67, y: 0.5 };
 const notionPageScale = 1.6;
 
-export const subAgentsClipSegments: Segment[] = [
+export const parallelAgentsClipSegments: Segment[] = [
   {
     // agents.events.txt: the request at 5.80, and start_background_task spawns the teal task agent at 7.67, whose line
     // says "Getting started" and then the steps it reports.
@@ -485,8 +485,8 @@ export const subAgentsClipSegments: Segment[] = [
       { atSeconds: 4.5, scale: helperScale, focus: "cursor", durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.2, toSeconds: 1.7, text: "Starship coming home, live" },
-      { fromSeconds: 1.9, toSeconds: 5.0, text: "Find out how this catch compares to the first booster catch, and make me a Notion page about it", voice: "learner" },
+      { fromSeconds: 0.2, toSeconds: 1.9, text: "Now two sub-agents at once, on today's Starship catch", accentWords: ["two sub-agents at once"] },
+      { fromSeconds: 2.0, toSeconds: 5.0, text: "Find out how this catch compares to the first booster catch, and make me a Notion page about it", voice: "learner" },
       { fromSeconds: 5.1, toSeconds: 8.0, text: "That spawns a general sub-agent that plans its own steps", accentWords: ["general sub-agent"], accentColor: subAgentTaskTeal },
     ],
   },
@@ -506,7 +506,7 @@ export const subAgentsClipSegments: Segment[] = [
     captions: [
       { fromSeconds: 0.2, toSeconds: 1.9, text: "Build me a 3D model of this Starship", voice: "learner" },
       { fromSeconds: 2.0, toSeconds: 3.6, text: "Sub-agent 2 builds it, in violet", accentWords: ["Sub-agent 2"] },
-      { fromSeconds: 3.8, toSeconds: 6.4, text: "Shift + option: 2 running, side by side", accentWords: ["2 running"] },
+      { fromSeconds: 3.8, toSeconds: 6.4, text: "2 running in parallel, each in its own color", accentWords: ["in parallel"] },
     ],
   },
   {
@@ -518,7 +518,7 @@ export const subAgentsClipSegments: Segment[] = [
     sourceStartSeconds: 18.9,
     durationSeconds: 4.1,
     cameraMoves: [{ atSeconds: 0, scale: 2.2, focus: "cursor", durationFrames: 1 }],
-    captions: [{ fromSeconds: 0.3, toSeconds: 4.1, text: "Each runs on its own task, so both work at once", accentWords: ["both work at once"] }],
+    captions: [{ fromSeconds: 0.3, toSeconds: 4.0, text: "One searches the web while the other builds the model", accentWords: ["searches the web"], accentColor: subAgentTaskTeal }],
   },
   {
     // The ship sits in the tower arms, and the task agent finishes at 26.91 after writing its Notion page: its wingman
@@ -534,7 +534,7 @@ export const subAgentsClipSegments: Segment[] = [
       { atSeconds: 3.2, scale: labelScale, focus: agentChip, durationFrames: bigMoveFrames },
     ],
     captions: [
-      { fromSeconds: 0.3, toSeconds: 3.6, text: "The main agent stays free, and the catch plays on", accentWords: ["stays free"] },
+      { fromSeconds: 0.3, toSeconds: 3.6, text: "The video keeps playing through the catch", accentWords: ["keeps playing"] },
       // After the chip shows at 3.91, so the caption never names a result the screen does not show yet.
       { fromSeconds: 4.3, toSeconds: 6.6, text: "Sub-agent 1 done: web research, written to Notion", accentWords: ["done"], accentColor: finishedCheckGreen },
     ],

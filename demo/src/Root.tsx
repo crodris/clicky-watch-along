@@ -2,8 +2,8 @@ import { type CalculateMetadataFunction, Composition, staticFile } from "remotio
 import type { CursorTrack } from "./camera.ts";
 import { Demo, demoDurationInFrames, type DemoProps } from "./Demo.tsx";
 import { frameRate, videoHeight, videoWidth } from "./motion.ts";
-import { quizMissTheme, studyGuideTheme, subAgentsTheme, watchAlongTheme } from "./theme.ts";
-import { quizClipSegments, quizMissClipSegments, segments, studyGuideClipSegments, subAgentsClipSegments } from "./timeline.ts";
+import { quizMissTheme, studyGuideTheme, parallelAgentsTheme, watchAlongTheme } from "./theme.ts";
+import { quizClipSegments, quizMissClipSegments, segments, studyGuideClipSegments, parallelAgentsClipSegments } from "./timeline.ts";
 
 /** The tracker writes these next to the recordings, and each composition reads its own once before rendering. */
 const loadCursorTracks: CalculateMetadataFunction<DemoProps> = async ({ props }) => {
@@ -65,15 +65,15 @@ export function Root() {
         defaultProps={{ segments: quizMissClipSegments, cursorTracks: {}, theme: quizMissTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
-      {/* Two sub-agents at once, a study guide and a 3D model, over the Starship tower catch. */}
+      {/* Two sub-agents at once, a general task agent and a 3D model, over the Starship tower catch. */}
       <Composition
-        id="ClickySubAgentsClip"
+        id="ClickyParallelAgentsClip"
         component={Demo}
         width={videoWidth}
         height={videoHeight}
         fps={frameRate}
-        durationInFrames={demoDurationInFrames(subAgentsClipSegments)}
-        defaultProps={{ segments: subAgentsClipSegments, cursorTracks: {}, theme: subAgentsTheme } satisfies DemoProps}
+        durationInFrames={demoDurationInFrames(parallelAgentsClipSegments)}
+        defaultProps={{ segments: parallelAgentsClipSegments, cursorTracks: {}, theme: parallelAgentsTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
     </>

@@ -68,7 +68,7 @@ export const threeDModelViolet = "#A78BFA";
 export const subAgentTaskTeal = "#2DD4BF";
 
 /** A mission-control readout for the Starship clip: grotesk type on a deep navy card, with each sub-agent's own color. */
-export const subAgentsTheme: DemoTheme = {
+export const parallelAgentsTheme: DemoTheme = {
   captionFont: missionFont,
   captionText: "#EEF2FF",
   captionFill: "rgba(11, 16, 32, 0.92)",
@@ -78,7 +78,7 @@ export const subAgentsTheme: DemoTheme = {
   micColor: threeDModelViolet,
   endCard: {
     title: "Clicky watch-along",
-    tagline: "Two sub-agents, one cursor",
+    tagline: "An experiment on my Clicky fork: parallel sub-agents",
     handle: "@HayloCR",
     titleColor: "#EEF2FF",
     handleColor: threeDModelViolet,
