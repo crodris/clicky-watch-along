@@ -295,7 +295,9 @@
     for (const eventName of ["pointerdown", "mousedown", "touchstart", "wheel"]) {
       element.addEventListener(eventName, (event) => event.stopPropagation());
     }
-    panel.controlRows = simulationControls().map(controlSummary).map((control) => {
+    panel.controlRows = simulationControls().map((pageControl) => {
+      // The panel shows the cut text, and the slider hands the page its control's real name.
+      const control = controlSummary(pageControl);
       const row = document.createElement("div");
       row.style.cssText = "flex:1 1 140px;min-width:0;";
       const heading = document.createElement("div");
@@ -312,7 +314,7 @@
       slider.value = String(control.value);
       slider.addEventListener("input", () => {
         liveScene().endTour?.();
-        liveScene().setControl(control.name, Number(slider.value));
+        liveScene().setControl(pageControl.name, Number(slider.value));
         refreshPanel();
       });
       row.append(heading, slider);

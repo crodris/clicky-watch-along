@@ -258,6 +258,36 @@ describe("scene-tools.js simulation tools", () => {
     expect(refused.error).not.toContain(longName);
   });
 
+  it("has the panel's slider hand the page a long control's real name", () => {
+    const longName = "angle_of_the_launcher_measured_from_the_ground_in_degrees";
+    const inputHandlers: Array<{ element: Record<string, unknown>; handler: () => void }> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {} };
+        element.addEventListener = (eventName: string, handler: () => void) => {
+          if (eventName === "input") inputHandlers.push({ element, handler });
+        };
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    const page = simulationPage({ controls: [{ ...angleControl, name: longName }] });
+    page.setControl = vi.fn((name: string) => name === longName);
+    const { clickyTools } = loadSceneTools(page, fakeDocument);
+    // Any tool call draws the panel, as the end of the tour does in the app.
+    clickyTools.call("rotate_model", { yawDegrees: 0 });
+
+    const slider = inputHandlers[0];
+    expect(slider).toBeDefined();
+    if (!slider) return;
+    slider.element.value = "30";
+    slider.handler();
+
+    expect(page.setControl).toHaveBeenLastCalledWith(longName, 30);
+  });
+
   it("cuts a control's page text short before it reaches the model or the panel", () => {
     const { clickyTools } = loadSceneTools(simulationPage({
       controls: [{ name: "angle", label: "A".repeat(90), min: 5, max: 85, step: 1, value: 45, unit: "u".repeat(40) }],

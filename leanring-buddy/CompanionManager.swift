@@ -1463,7 +1463,7 @@ final class CompanionManager: ObservableObject {
             }
             liveSceneRequestTask = sceneRequestTask
             let buildingLineTask = Task {
-                await self.speakLiveSceneStatus(sceneKind == .simulation ? "Building your simulation" : "Building your 3D scene")
+                await self.speakLiveSceneStatus(sceneKind == .simulation ? "Building your experiment" : "Building your 3D scene")
             }
             await sceneRequestTask.value
             almostThereTask.cancel()
