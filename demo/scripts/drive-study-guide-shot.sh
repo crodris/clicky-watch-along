@@ -29,6 +29,16 @@ wait_for_log_line() {
   return 1
 }
 
+# Waits up to 30 seconds for Chrome's front tab to be a Notion page. Clicky checks the guide's page in Notion before it
+# brings the tab forward, and that check can take 5 seconds or more when Notion is slow.
+wait_for_the_notion_tab_in_front() {
+  for _ in $(seq 1 120); do
+    [[ "$(osascript -e 'tell application "Google Chrome" to get URL of active tab of front window' 2>/dev/null)" == *notion* ]] && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
 # Runs JavaScript in Chrome's front tab and prints what it returns.
 run_in_front_tab() {
   osascript -e "tell application \"Google Chrome\" to execute active tab of front window javascript \"$1\""
@@ -52,11 +62,12 @@ glide_mouse() {
 # Notion draws blocks far down the page only once they scroll near, so the page first scrolls to its end, where the key
 # terms are, and the pick runs once they are drawn.
 scroll_to_the_end_javascript="(() => { const scroller = [...document.querySelectorAll('.notion-scroller')].sort((a, b) => b.scrollHeight - a.scrollHeight)[0]; if (!scroller) return 'no scroller'; scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' }); return 'scrolling'; })()"
-# The timestamp link of the first key term about the stator vanes or the compressor, or the first key term, or the first
-# timestamp on the page when it has no key terms. Only a link whose text is a time such as (0:50) counts, since the
+# The timestamp link of the first key term about the stator vanes or the compressor, or else the first key term, and
+# none when the key terms have not drawn, so the shot never clicks a link above them, such as a review item's. Only a
+# link whose text is a time such as (0:50) counts, since the
 # video link at the top of the page carries a t= parameter too. Notion redraws links while the page scrolls, so the pick
 # is remembered by its address, not by the element.
-pick_link_javascript="(() => { const links = [...document.querySelectorAll('a[href]')].filter(link => /youtu/.test(link.href) && /^[(]?[0-9]+:[0-9]{2}[)]?$/.test(link.textContent.trim())); const heading = [...document.querySelectorAll('h1, h2, h3, [class*=header-block]')].find(element => /key terms/i.test(element.textContent)); const headingTop = heading ? heading.getBoundingClientRect().top : Infinity; const termLinks = links.filter(link => link.getBoundingClientRect().top > headingTop); const link = termLinks.find(candidate => /stator|compress/i.test((candidate.closest('[data-block-id]') || candidate.parentElement).textContent)) || termLinks[0] || links[0]; if (!link) return 'none'; window.demoLinkAddress = link.href; link.scrollIntoView({ behavior: 'smooth', block: 'center' }); return link.textContent; })()"
+pick_link_javascript="(() => { const links = [...document.querySelectorAll('a[href]')].filter(link => /youtu/.test(link.href) && /^[(]?[0-9]+:[0-9]{2}[)]?$/.test(link.textContent.trim())); const heading = [...document.querySelectorAll('h1, h2, h3, [class*=header-block]')].find(element => /key terms/i.test(element.textContent)); const headingTop = heading ? heading.getBoundingClientRect().top : Infinity; const termLinks = links.filter(link => link.getBoundingClientRect().top > headingTop); const link = termLinks.find(candidate => /stator|compress/i.test((candidate.closest('[data-block-id]') || candidate.parentElement).textContent)) || termLinks[0]; if (!link) return 'none'; window.demoLinkAddress = link.href; link.scrollIntoView({ behavior: 'smooth', block: 'center' }); return link.textContent; })()"
 # The link's center on screen, in points. Chrome's tab sidebar sits left of the page, so the window's extra width is on the left.
 link_point_javascript="(() => { const link = [...document.querySelectorAll('a[href]')].find(candidate => candidate.href === window.demoLinkAddress); if (!link) return 'none'; const box = link.getBoundingClientRect(); const pageLeft = window.screenX + (window.outerWidth - window.innerWidth); const pageTop = window.screenY + (window.outerHeight - window.innerHeight); return Math.round(pageLeft + box.left + box.width / 2) + ' ' + Math.round(pageTop + box.top + box.height / 2); })()"
 
@@ -80,9 +91,14 @@ if [[ "$(basename "$raw_events_path")" == study-guide.* ]]; then
   "$verify_script" key agents-list
 fi
 
-# The Notion tab comes forward about 2 seconds after the request, and the page takes a few more to draw.
+# The Notion tab comes forward about 2 seconds after the request, or later when Notion is slow, and the page takes a
+# few more seconds to draw.
 wait_for_log_line 'saying "open my study guide' || exit 1
-sleep 6
+if ! wait_for_the_notion_tab_in_front; then
+  echo "the study guide's Notion tab never came forward" >&2
+  exit 1
+fi
+sleep 4
 run_in_front_tab "$scroll_to_the_end_javascript" > /dev/null
 sleep 2.5
 echo "picked link: $(run_in_front_tab "$pick_link_javascript")"
