@@ -431,7 +431,7 @@ command_post() {
   response_file="$run_dir/response${route//\//-}-$(date +%H%M%S)-$RANDOM.json"
   local usage_from_line
   usage_from_line="$(worker_log_line_count "$port")"
-  # The Notion routes need the app's secret. It goes in a header file, so it never shows in the process list or the output.
+  # The Notion routes and /background-agent need the app's secret. It goes in a header file, so it never shows in the process list or the output.
   local secret_header_file="$run_dir/.app-secret-header"
   : >"$secret_header_file"
   chmod 600 "$secret_header_file"

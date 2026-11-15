@@ -1360,6 +1360,12 @@ struct leanring_buddyTests {
         #expect(taskAgentPageInputProblem(["title": .string("Catches")])?.contains("summary") == true)
     }
 
+    @Test func aTaskAgentSpeaksAtMostThreeSentencesOfItsAnswer() async throws {
+        let longAnswer = "The ship was caught. It came back from orbit. The first booster catch came in 2024. That was a different rocket. Both used the tower's arms."
+        #expect(taskAgentSpokenAnswer(longAnswer) == "The ship was caught. It came back from orbit. The first booster catch came in 2024.")
+        #expect(taskAgentSpokenAnswer("It was caught.") == "It was caught.")
+    }
+
     @Test func aTaskAgentShowsTheStepsItReports() async throws {
         let store = BackgroundAgentStore()
         let agentID = store.start(kind: .task)

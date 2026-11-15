@@ -1,12 +1,13 @@
 /**
  * The shared secret between the Clicky app and this Worker. The Worker answers any caller that can reach it, so the
- * routes that spend the Notion token check that the request carries the app's secret before they do anything else.
+ * routes that spend the Notion token, or a task agent's web search, check that the request carries the app's secret
+ * before they do anything else.
  */
 
 export const appSecretHeaderName = "x-clicky-app-secret";
 
-/** Every route that uses the Notion token. A new route that writes or reads Notion goes here too. */
-export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status"]);
+/** Every route that uses the Notion token, and the task agent's route, whose web search costs the most per call. */
+export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/background-agent"]);
 
 async function sha256Digest(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
@@ -18,7 +19,7 @@ async function sha256Digest(text: string): Promise<Uint8Array> {
  */
 export async function requestCarriesTheAppSecret(request: Request, expectedSecret: string | undefined): Promise<boolean> {
   if (expectedSecret === undefined || expectedSecret.length === 0) {
-    console.error("CLICKY_APP_SECRET is not set, so the Notion routes refuse every request");
+    console.error("CLICKY_APP_SECRET is not set, so the gated routes refuse every request");
     return false;
   }
   const [sentDigest, expectedDigest] = await Promise.all([

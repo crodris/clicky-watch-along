@@ -46,7 +46,7 @@ interface Env {
   GOOGLE_MAPS_API_KEY?: string;
   /** Internal Notion integration token. Without it, /study-guide answers 503. */
   NOTION_API_KEY?: string;
-  /** The secret the app sends in x-clicky-app-secret. The routes that use NOTION_API_KEY refuse a request without it. */
+  /** The secret the app sends in x-clicky-app-secret. The Notion routes and /background-agent refuse a request without it. */
   CLICKY_APP_SECRET?: string;
   /** The Notion page that study guides are created under. It must be shared with the integration. */
 }
@@ -63,7 +63,7 @@ export default {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    // Checked before any handler runs, so a caller without the app's secret never reaches Notion.
+    // Checked before any handler runs, so a caller without the app's secret never reaches Notion or the task agent.
     if (routesThatNeedTheAppSecret.has(url.pathname) && !(await requestCarriesTheAppSecret(request, env.CLICKY_APP_SECRET))) {
       return new Response(JSON.stringify({ error: `Missing or wrong ${appSecretHeaderName}` }), {
         status: 401,

@@ -174,6 +174,19 @@ nonisolated let longestTaskAgentCaptionText = 30_000
 /// The spoken answer comes from a model that read web pages, so it is cut to about half a minute of speech.
 nonisolated let longestSpokenTaskAnswer = 600
 
+/// The prompt asks for two or three sentences, and an answer in a take ran to five and about 20 seconds, so the app
+/// speaks at most the first three, then cuts to longestSpokenTaskAnswer.
+nonisolated func taskAgentSpokenAnswer(_ spokenSummary: String) -> String {
+    var firstSentences: [String] = []
+    spokenSummary.enumerateSubstrings(in: spokenSummary.startIndex..., options: .bySentences) { sentence, _, _, stop in
+        if let sentence = sentence?.trimmingCharacters(in: .whitespacesAndNewlines), !sentence.isEmpty {
+            firstSentences.append(sentence)
+        }
+        if firstSentences.count == 3 { stop = true }
+    }
+    return String(firstSentences.joined(separator: " ").prefix(longestSpokenTaskAnswer))
+}
+
 final class TaskAgentClient {
     private let backgroundAgentURL: URL
     private let notionPageURL: URL

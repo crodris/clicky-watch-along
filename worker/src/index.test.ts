@@ -100,7 +100,7 @@ describe("POST /tts", () => {
   });
 });
 
-describe("the app secret on the Notion routes", () => {
+describe("the app secret on the gated routes", () => {
   const notionEnv = { ...testEnv, NOTION_API_KEY: "notion-key", CLICKY_APP_SECRET: "app-secret" };
   const notionPageBody = { title: "Catches", summary: "The ship was caught.", sections: [], sources: [] };
 
@@ -112,12 +112,12 @@ describe("the app secret on the Notion routes", () => {
     });
   }
 
-  it("refuses every Notion route without the secret, with a wrong one, or when the Worker has none, before calling Notion", async () => {
+  it("refuses every gated route without the secret, with a wrong one, or when the Worker has none, before calling Notion", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    for (const path of ["/notion-page", "/study-guide", "/study-guide-status"]) {
+    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/background-agent"]) {
       expect((await worker.fetch(postTo(path, {}), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secreT" }), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);

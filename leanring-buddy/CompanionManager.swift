@@ -2370,7 +2370,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
-        readyTaskAnswer = String(spokenSummary.prefix(longestSpokenTaskAnswer))
+        readyTaskAnswer = taskAgentSpokenAnswer(spokenSummary)
         finishTheBackgroundAgent(agentID, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
     }
 
