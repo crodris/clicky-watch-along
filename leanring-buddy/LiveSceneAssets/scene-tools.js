@@ -160,6 +160,30 @@
   const decimalsOf = (step) => String(step).split(".")[1]?.length ?? 0;
   const valueText = (control) => `${control.value.toFixed(decimalsOf(control.step))}${control.unit ? " " + control.unit : ""}`;
 
+  // The panel covers the bottom of the view, so the camera's view moves up by half the panel's height and the scene
+  // stays centered in the space above it. The view offset is part of the projection, so the labels the page projects follow.
+  let sceneLift = 0;
+  let panelHeightTheLiftFits = 0;
+  const applySceneLift = () => {
+    const camera = liveScene()?.camera;
+    const canvas = liveScene()?.renderer?.domElement;
+    if (typeof camera?.setViewOffset !== "function" || !canvas) return;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (width > 0 && height > 0) camera.setViewOffset(width, height, 0, sceneLift, width, height);
+  };
+  const keepSceneAbovePanel = () => {
+    const panelHeight = panel.element.offsetHeight;
+    if (panelHeight === panelHeightTheLiftFits) return;
+    panelHeightTheLiftFits = panelHeight;
+    const startLift = sceneLift;
+    const targetLift = Math.round((panelHeight + 16) / 2);
+    tween(0.4, (progress) => {
+      sceneLift = startLift + (targetLift - startLift) * progress;
+      applySceneLift();
+    });
+  };
+
   const refreshPanel = () => {
     if (!panel.element) return;
     simulationControls().map(controlSummary).forEach((control, index) => {
@@ -173,9 +197,10 @@
     const readouts = currentReadouts();
     panel.readoutsElement.replaceChildren(...readouts.map((readout) => {
       const line = document.createElement("div");
-      line.style.cssText = "display:flex;justify-content:space-between;gap:16px;";
+      line.style.cssText = "display:flex;gap:6px;white-space:nowrap;";
       const labelElement = document.createElement("span");
       labelElement.textContent = readout.label;
+      labelElement.style.opacity = "0.7";
       const valueElement = document.createElement("span");
       valueElement.textContent = `${readout.value} ${readout.unit}`.trim();
       valueElement.style.fontWeight = "700";
@@ -183,13 +208,14 @@
       return line;
     }));
     panel.readoutsElement.style.display = readouts.length > 0 ? "flex" : "none";
+    keepSceneAbovePanel();
   };
 
   const ensurePanel = () => {
     if (panel.element || !document.body || !hasSimulation()) return;
     const element = document.createElement("div");
     element.id = "clicky-simulation-panel";
-    element.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:10;display:flex;flex-direction:column;gap:10px;min-width:300px;padding:12px 16px;border-radius:12px;background:rgba(250,246,240,0.96);color:#222;font:600 14px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
+    element.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10;box-sizing:border-box;width:min(560px,calc(100vw - 32px));display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px;padding:10px 14px;border-radius:12px;background:rgba(250,246,240,0.96);color:#222;font:600 13px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
     const style = document.createElement("style");
     style.textContent = "#clicky-simulation-panel input[type=range]{width:100%;margin:4px 0 0;accent-color:#3380ff;cursor:pointer}#clicky-simulation-panel button{cursor:pointer}#clicky-simulation-panel button:hover:not(:disabled){filter:brightness(1.1)}#clicky-simulation-panel button:disabled{cursor:default;opacity:0.7}";
     element.append(style);
@@ -199,8 +225,9 @@
     }
     panel.controlRows = simulationControls().map(controlSummary).map((control) => {
       const row = document.createElement("div");
+      row.style.cssText = "flex:1 1 140px;min-width:0;";
       const heading = document.createElement("div");
-      heading.style.cssText = "display:flex;justify-content:space-between;gap:16px;";
+      heading.style.cssText = "display:flex;justify-content:space-between;gap:8px;white-space:nowrap;";
       const labelElement = document.createElement("span");
       labelElement.textContent = control.label;
       const valueElement = document.createElement("span");
@@ -221,16 +248,18 @@
       return { slider, valueElement };
     });
     panel.runButton = document.createElement("button");
-    panel.runButton.style.cssText = "padding:7px 16px;border:0;border-radius:8px;background:#3380ff;color:#fff;font:700 14px -apple-system,system-ui,sans-serif;";
+    panel.runButton.style.cssText = "flex:0 0 auto;min-width:84px;padding:7px 18px;border:0;border-radius:8px;background:#3380ff;color:#fff;font:700 14px -apple-system,system-ui,sans-serif;";
     panel.runButton.addEventListener("click", () => {
       liveScene().endTour?.();
       startRun();
     });
     panel.readoutsElement = document.createElement("div");
-    panel.readoutsElement.style.cssText = "display:none;flex-direction:column;gap:4px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
+    panel.readoutsElement.style.cssText = "display:none;flex-basis:100%;flex-wrap:wrap;gap:4px 18px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
     element.append(panel.runButton, panel.readoutsElement);
     document.documentElement.append(element);
     panel.element = element;
+    // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
+    window.addEventListener("resize", () => requestAnimationFrame(applySceneLift));
     refreshPanel();
   };
 

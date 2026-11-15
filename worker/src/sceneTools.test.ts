@@ -5,14 +5,14 @@ import sceneToolsSource from "../../leanring-buddy/LiveSceneAssets/scene-tools.j
 type ToolDescriptor = { name: string; description: string; inputSchema: unknown };
 type ToolCallResult = { ok: boolean; error?: string; state: Record<string, unknown> };
 
-/** Runs scene-tools.js against a page whose window.liveScene is `liveScene`, with no document body, so no panel is drawn. */
-function loadSceneTools(liveScene: Record<string, unknown>) {
+/** Runs scene-tools.js against a page whose window.liveScene is `liveScene`. With no document given there is no body, so no panel is drawn. */
+function loadSceneTools(liveScene: Record<string, unknown>, fakeDocument: Record<string, unknown> = { body: null, querySelectorAll: () => [] }) {
   const postedEvents: string[] = [];
   const fakeWindow: Record<string, unknown> = {
     liveScene,
     webkit: { messageHandlers: { liveSceneEvent: { postMessage: (message: string) => postedEvents.push(message) } } },
+    addEventListener: () => {},
   };
-  const fakeDocument = { body: null, querySelectorAll: () => [] };
   new Function(
     "window",
     "document",
@@ -147,5 +147,32 @@ describe("scene-tools.js simulation tools", () => {
 
     const readouts: Array<{ label: string }> = JSON.parse(postedEvents[0]!.slice("runFinished:".length));
     expect(readouts.map((readout) => readout.label)).toEqual(["x".repeat(40), "Two", "Three"]);
+  });
+
+  it("moves the camera's view up by half the panel's height, so the panel does not cover the scene", () => {
+    const fakeElement = (): Record<string, unknown> => ({
+      style: {},
+      offsetHeight: 92,
+      append: () => {},
+      addEventListener: () => {},
+      replaceChildren: () => {},
+    });
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: fakeElement,
+      querySelectorAll: () => [],
+    };
+    const setViewOffset = vi.fn();
+    const page = simulationPage({
+      camera: { setViewOffset },
+      renderer: { domElement: { clientWidth: 800, clientHeight: 450 } },
+    });
+    const { clickyTools } = loadSceneTools(page, fakeDocument);
+
+    clickyTools.call("set_control", { name: "angle", value: 30 });
+
+    // Reduce Motion is on in this harness, so the lift jumps straight to (92 + 16) / 2.
+    expect(setViewOffset).toHaveBeenLastCalledWith(800, 450, 0, 54, 800, 450);
   });
 });
