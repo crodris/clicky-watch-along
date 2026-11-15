@@ -1,4 +1,5 @@
 import { loadFont as loadFraunces } from "@remotion/google-fonts/Fraunces";
+import { loadFont as loadSpaceGrotesk } from "@remotion/google-fonts/SpaceGrotesk";
 import { bodyFont, colors } from "./motion.ts";
 
 /**
@@ -50,5 +51,33 @@ export const studyGuideTheme: DemoTheme = {
     titleColor: "#FAF6ED",
     handleColor: studyGuideAmber,
     scrim: "rgba(18, 16, 12, 0.66)",
+  },
+};
+
+/** The quiz miss clip posts beside the study guide clip, so it keeps the notebook look with its own end card line. */
+export const quizMissTheme: DemoTheme = {
+  ...studyGuideTheme,
+  endCard: { ...studyGuideTheme.endCard, tagline: "Notes that remember what you missed" },
+};
+
+const travelSans = loadSpaceGrotesk("normal", { weights: ["500", "600", "700"], subsets: ["latin"] }).fontFamily;
+const skyTeal = "#5EEAD4";
+
+/** A dark map-like card with teal words, for the landmark clip's aerial footage and its 3D scan. */
+export const landmarkTheme: DemoTheme = {
+  captionFont: travelSans,
+  captionText: "#F1F5F9",
+  captionFill: "rgba(15, 23, 42, 0.88)",
+  captionBorder: "rgba(94, 234, 212, 0.35)",
+  captionCornerRadius: 10,
+  accent: { style: "text", color: skyTeal },
+  micColor: skyTeal,
+  endCard: {
+    title: "Clicky watch-along",
+    tagline: "Step into the places you watch",
+    handle: "@HayloCR",
+    titleColor: "#F1F5F9",
+    handleColor: skyTeal,
+    scrim: "rgba(8, 13, 26, 0.66)",
   },
 };

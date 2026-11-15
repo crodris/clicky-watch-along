@@ -2,8 +2,8 @@ import { type CalculateMetadataFunction, Composition, staticFile } from "remotio
 import type { CursorTrack } from "./camera.ts";
 import { Demo, demoDurationInFrames, type DemoProps } from "./Demo.tsx";
 import { frameRate, videoHeight, videoWidth } from "./motion.ts";
-import { studyGuideTheme, watchAlongTheme } from "./theme.ts";
-import { quizClipSegments, segments, studyGuideClipSegments } from "./timeline.ts";
+import { landmarkTheme, quizMissTheme, studyGuideTheme, watchAlongTheme } from "./theme.ts";
+import { landmarkClipSegments, quizClipSegments, quizMissClipSegments, segments, studyGuideClipSegments } from "./timeline.ts";
 
 /** The tracker writes these next to the recordings, and each composition reads its own once before rendering. */
 const loadCursorTracks: CalculateMetadataFunction<DemoProps> = async ({ props }) => {
@@ -52,6 +52,28 @@ export function Root() {
         fps={frameRate}
         durationInFrames={demoDurationInFrames(studyGuideClipSegments)}
         defaultProps={{ segments: studyGuideClipSegments, cursorTracks: {}, theme: studyGuideTheme } satisfies DemoProps}
+        calculateMetadata={loadCursorTracks}
+      />
+      {/* Posted beside the study guide clip: a quiz miss that lands at the top of the guide. */}
+      <Composition
+        id="ClickyQuizMissClip"
+        component={Demo}
+        width={videoWidth}
+        height={videoHeight}
+        fps={frameRate}
+        durationInFrames={demoDurationInFrames(quizMissClipSegments)}
+        defaultProps={{ segments: quizMissClipSegments, cursorTracks: {}, theme: quizMissTheme } satisfies DemoProps}
+        calculateMetadata={loadCursorTracks}
+      />
+      {/* Google's real 3D scan of the Colosseum, out of a drone video. */}
+      <Composition
+        id="ClickyLandmarkClip"
+        component={Demo}
+        width={videoWidth}
+        height={videoHeight}
+        fps={frameRate}
+        durationInFrames={demoDurationInFrames(landmarkClipSegments)}
+        defaultProps={{ segments: landmarkClipSegments, cursorTracks: {}, theme: landmarkTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
     </>

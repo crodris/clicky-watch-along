@@ -23,15 +23,27 @@ TRAILING_SECONDS=6 demo/scripts/record-shot.sh nerve-quiz "watch this video with
 TRAILING_SECONDS=6 demo/scripts/record-shot.sh earth "pop this out" "https://commons.wikimedia.org/wiki/File:Rotating_earth_(large).gif" "" 1110 570
 ```
 
-The study guide clip uses 1 more shot, with the Worker's `NOTION_API_KEY` set.
+The study guide clip and the quiz miss clip use 1 shot each, with the Worker's `NOTION_API_KEY` set.
+In the study guide shot, "pop this out" runs while the guide is written, so the guide finishes during the pop-out's tour.
 Its `&` step waits for the guide to finish before asking to open it.
-Start the driver just before the shot, so it glides the mouse out and back while the guide is written, opens the agent list, and scrolls the Notion page once it opens.
+Start the driver just before that shot, so it scrolls the guide's page to a point about the compressor and clicks its timestamp link once the page opens.
+The click is a real mouse event from `scripts/recorder/click-mouse.swift`, which needs the Accessibility permission for the app that runs the script.
+The quiz miss shot answers one question wrong, then right, so the guide opens on "Review these first".
+Its second `?` step waits out a 4 minute timeout, since the wrong answer's reply has already played, and the edit cuts the wait.
 Each run writes a new private page into the Notion account, so trash the test pages afterwards.
 The app saves one guide per YouTube video and never writes a second, so `record-shot.sh` deletes the saved guide for the shot's video before it launches the app.
 
 ```bash
 demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
-TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion study guide for this video|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 60 1110 680
+TRAILING_SECONDS=16 demo/scripts/record-shot.sh study-guide "make me a Notion study guide for this video|pop this out|put it back|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 60 1110 680
+TRAILING_SECONDS=12 demo/scripts/record-shot.sh quiz-miss "watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|make me a Notion study guide for this video|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 20 1110 680
+```
+
+The landmark clip uses a drone video of the Colosseum, with `GOOGLE_MAPS_API_KEY` in `worker/.dev.vars`.
+At 20 seconds in, the video shows the Colosseum whole, which `/landmark` names, so "show me this in 3D" brings up Google's real 3D scan.
+
+```bash
+TRAILING_SECONDS=6 demo/scripts/record-shot.sh landmark "show me this in 3D|turn it to the left|zoom in|put it back" "https://www.youtube.com/watch?v=56tlOtVn40c" 20 1110 680
 ```
 
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
@@ -46,6 +58,8 @@ pnpm install
 pnpm track public/volcano.mov public/volcano.cursor.json
 pnpm track public/ejiri.mov public/ejiri.cursor.json
 pnpm track public/study-guide.mov public/study-guide.cursor.json
+pnpm track public/quiz-miss.mov public/quiz-miss.cursor.json
+pnpm track public/landmark.mov public/landmark.cursor.json
 ```
 
 ## Music
@@ -56,11 +70,12 @@ The first two come from Mixkit under the Mixkit Stock Music Free License (https:
 - The demo uses "Happy Times" by Alejandro Magaña (https://mixkit.co/free-stock-music/happy-times/), saved as `demo/public/music/happy-times.mp3`.
 - The quiz clip uses "It's Love" by Michael Ramir C. (https://mixkit.co/free-stock-music/its-love/), saved as `demo/public/music/its-love.mp3`.
 
-The study guide clip uses "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
-It is not registered with YouTube Content ID, so a YouTube upload gets no claim, and it is not AI-generated.
+The study guide and quiz miss clips use "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
+The landmark clip uses "Positive" by AtlasAudio (https://pixabay.com/music/upbeat-positive-631940/), saved as `demo/public/music/positive.mp3`, under the same license.
+Neither is registered with YouTube Content ID, so a YouTube upload gets no claim, and neither is AI-generated.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
-Download all three before rendering.
+Download all four before rendering.
 
 `scripts/mix-music.ts` runs after the Remotion render.
 It gives the voice a high-pass at 80 Hz, a small lift at 3 kHz, and light compression.
@@ -72,8 +87,8 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), and `studyGuideClipSegments` is the Notion study guide clip.
-`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, and the study guide clip uses Fraunces on a paper card with an amber highlighter.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `quizMissClipSegments` is the quiz miss clip posted beside it, and `landmarkClipSegments` is the Colosseum clip.
+`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the landmark clip uses Space Grotesk on a dark card with teal accent words.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
 ```bash
@@ -82,11 +97,13 @@ export REMOTION_BROWSER_EXECUTABLE=~/Library/Caches/ms-playwright/chromium_headl
 pnpm render
 pnpm render-quiz
 pnpm render-study-guide
+pnpm render-quiz-miss
+pnpm render-landmark
 ```
 
 `pnpm render` writes the voice-only `out/clicky-demo-voice.mp4`, then the mix writes `out/clicky-demo.mp4`.
-`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, and `pnpm render-study-guide` for `out/clicky-study-guide.mp4`.
-`pnpm mix`, `pnpm mix-quiz`, and `pnpm mix-study-guide` run only the mix, which is enough after changing the music or its levels.
+`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, and `pnpm render-landmark` for `out/clicky-landmark.mp4`.
+`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, and `pnpm mix-landmark` run only the mix, which is enough after changing the music or its levels.
 Set `REMOTION_BROWSER_EXECUTABLE` when Remotion's own headless shell hangs at "Waiting for root component to load".
 
 ## Quiz rehearsal

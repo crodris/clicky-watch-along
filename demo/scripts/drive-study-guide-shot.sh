@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Runs beside record-shot.sh for the study guide shot. While the guide is written it glides the mouse out and back, so
-# the wingman is seen following the blue cursor, then opens the agent list with shift + option and closes it 4 seconds
-# later. It scrolls the Notion page once it has opened.
+# Runs beside record-shot.sh for the study guide shot. The rehearsal pops the engine out while the guide is written, so
+# the blue cursor flies between the parts with the helper cursor trailing it, and needs no help from here. Once the
+# guide's page opens, this scrolls to the first point about the compressor and clicks its timestamp link, which opens
+# the video at that moment in a new tab.
 # Usage, from the main checkout's root, started just before record-shot.sh:
 #   demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
 set -u
 raw_events_path="$1"
 checkout_root="$(git rev-parse --show-toplevel)"
-verify_script="$checkout_root/.claude/skills/verify-clicky/verify-clicky.sh"
-# record-shot.sh builds it before the recording starts.
+demo_folder="$(cd "$(dirname "$0")/.." && pwd)"
+# record-shot.sh builds move-mouse before the recording starts, and this builds click-mouse the first time.
 move_mouse="$checkout_root/demo/out/bin/move-mouse"
+click_mouse="$checkout_root/demo/out/bin/click-mouse"
+if [[ ! -x "$click_mouse" ]]; then
+  mkdir -p "$(dirname "$click_mouse")"
+  swiftc -O -o "$click_mouse" "$demo_folder/scripts/recorder/click-mouse.swift" || exit 1
+fi
 
 # Waits up to 5 minutes for the app log to contain the text.
 wait_for_log_line() {
@@ -20,7 +26,12 @@ wait_for_log_line() {
   return 1
 }
 
-# Moves the mouse from one point to another in 30 eased steps, about 1 second. The points are worked out in one awk
+# Runs JavaScript in Chrome's front tab and prints what it returns.
+run_in_front_tab() {
+  osascript -e "tell application \"Google Chrome\" to execute active tab of front window javascript \"$1\""
+}
+
+# Moves the mouse from one point to another in 30 eased steps, about 1.5 seconds. The points are worked out in one awk
 # call, since starting a process per step doubles the glide's length.
 glide_mouse() {
   awk -v ax="$1" -v ay="$2" -v bx="$3" -v by="$4" 'BEGIN {
@@ -31,22 +42,25 @@ glide_mouse() {
   done
 }
 
-# The glide starts once Clicky has confirmed the request and the chip under the cursor has faded.
-# It starts and ends at record-shot.sh's default mouse point.
-wait_for_log_line 'saying "make me' || exit 1
-sleep 4.2
-glide_mouse 1110 680 880 560
-sleep 0.6
-glide_mouse 880 560 1110 680
-sleep 0.7
-"$verify_script" key agents-list
-sleep 4
-"$verify_script" key agents-list
+# The timestamp link of the first point that mentions the compressor, or the first link when no point does. Notion
+# links each point's time to the video with a t= parameter, and it redraws links while the page scrolls, so the pick is
+# remembered by its address, not by the element.
+pick_link_javascript="(() => { const links = [...document.querySelectorAll('a[href]')].filter(link => /youtu/.test(link.href) && /[?&]t=[0-9]+/.test(link.href)); const link = links.find(candidate => /compress/i.test((candidate.closest('[data-block-id]') || candidate.parentElement).textContent)) || links[0]; if (!link) return 'none'; window.demoLinkAddress = link.href; link.scrollIntoView({ behavior: 'smooth', block: 'center' }); return link.textContent; })()"
+# The link's center on screen, in points. Chrome's tab sidebar sits left of the page, so the window's extra width is on the left.
+link_point_javascript="(() => { const link = [...document.querySelectorAll('a[href]')].find(candidate => candidate.href === window.demoLinkAddress); if (!link) return 'none'; const box = link.getBoundingClientRect(); const pageLeft = window.screenX + (window.outerWidth - window.innerWidth); const pageTop = window.screenY + (window.outerHeight - window.innerHeight); return Math.round(pageLeft + box.left + box.width / 2) + ' ' + Math.round(pageTop + box.top + box.height / 2); })()"
 
 # The Notion tab comes forward about 2 seconds after the request, and the page takes a few more to draw.
 wait_for_log_line 'saying "open my study guide' || exit 1
 sleep 6
-for scroll_pixels in 520 520 620; do
-  osascript -e "tell application \"Google Chrome\" to execute active tab of front window javascript \"(() => { const scroller = [...document.querySelectorAll('.notion-scroller')].sort((a, b) => b.scrollHeight - a.scrollHeight)[0]; if (!scroller) return 'no scroller'; scroller.scrollBy({ top: $scroll_pixels, behavior: 'smooth' }); return 'scrolled'; })()\""
-  sleep 3
-done
+echo "picked link: $(run_in_front_tab "$pick_link_javascript")"
+sleep 2
+read -r link_x link_y <<< "$(run_in_front_tab "$link_point_javascript")"
+if [[ ! "$link_x" =~ ^[0-9]+$ || ! "$link_y" =~ ^[0-9]+$ ]]; then
+  echo "no timestamp link to click" >&2
+  exit 1
+fi
+# record-shot.sh leaves the mouse at its default point, 1110, 680.
+glide_mouse 1110 680 "$link_x" "$link_y"
+sleep 0.6
+"$click_mouse" "$link_x" "$link_y"
+echo "clicked $link_x $link_y"
