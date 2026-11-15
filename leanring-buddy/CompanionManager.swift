@@ -2225,6 +2225,7 @@ final class CompanionManager: ObservableObject {
             let video = try await videoQuizSession.frontVideoForStudyGuide()
             backgroundAgentStore.setSubject(video.title, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
+            print("Study guide: read the captions in \(String(format: "%.1f", Date().timeIntervalSince(startedAt))) s")
             var studyGuideRevision: StudyGuideRevision?
             var studyGuideFocus: String?
             var pageURLTheRevisionReplaces: URL?

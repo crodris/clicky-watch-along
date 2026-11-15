@@ -1325,7 +1325,7 @@ struct leanring_buddyTests {
     @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {
         let endedAt = Date(timeIntervalSince1970: 1_000)
         func agent(in phase: BackgroundAgentPhase) -> BackgroundAgent {
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
         }
         let finishedAgent = agent(in: .finished(.notionPage(studyGuidePageURL)))
         #expect(agent(in: .running(completedStepCount: 1)).isShownAsAWingman(at: endedAt.addingTimeInterval(500)))
@@ -1352,19 +1352,37 @@ struct leanring_buddyTests {
         #expect(formation.placements.map(\.offset) == [CGSize(width: 15, height: 18), CGSize(width: 30, height: 36), CGSize(width: 45, height: 54)])
     }
 
-    @Test func aRunningWingmanEasesTowardMostOfItsCurrentStepButNeverClaimsTheStepIsDone() async throws {
-        let startedAt = Date(timeIntervalSince1970: 1_000)
+    @Test func progressMovesInAStraightLineThroughEachStepAndNeverShowsAStepDoneEarly() async throws {
+        let stepStartedAt = Date(timeIntervalSince1970: 1_000)
         let agent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: startedAt, endedAt: nil, phase: phase)
+            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, startedAt: stepStartedAt, currentStepStartedAt: stepStartedAt, endedAt: nil, phase: phase)
         }
-        let readingTheCaptions = try #require(agent(.running(completedStepCount: 0)).fillWhileTheStepRuns)
-        #expect(readingTheCaptions.fraction == 0.425)
-        #expect(readingTheCaptions.seconds == 4)
-        let writingTheGuide = try #require(agent(.running(completedStepCount: 1)).fillWhileTheStepRuns)
-        #expect(writingTheGuide.fraction == 0.925)
-        #expect(writingTheGuide.seconds == 12)
-        #expect(agent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).fillWhileTheStepRuns == nil)
-        #expect(agent(.failed(reason: "x")).fillWhileTheStepRuns == nil)
+        let readingTheCaptions = agent(.running(completedStepCount: 0))
+        #expect(readingTheCaptions.progress(at: stepStartedAt) == 0)
+        // Halfway through the 3 expected seconds of the first of two steps.
+        #expect(abs(readingTheCaptions.progress(at: stepStartedAt.addingTimeInterval(1.5)) - 0.2125) < 0.0001)
+        // A step that runs long waits at 85% of its share.
+        #expect(abs(readingTheCaptions.progress(at: stepStartedAt.addingTimeInterval(60)) - 0.425) < 0.0001)
+        let heading = try #require(readingTheCaptions.progressHeading(at: stepStartedAt.addingTimeInterval(1)))
+        #expect(abs(heading.fraction - 0.425) < 0.0001)
+        #expect(abs(heading.secondsToGetThere - 2) < 0.0001)
+
+        let writingTheGuide = agent(.running(completedStepCount: 1))
+        #expect(abs(writingTheGuide.progress(at: stepStartedAt) - 0.5) < 0.0001)
+        #expect(abs(writingTheGuide.progress(at: stepStartedAt.addingTimeInterval(6)) - 0.7125) < 0.0001)
+        #expect(agent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).progress(at: stepStartedAt) == 1)
+        #expect(agent(.failed(reason: "x")).progressHeading(at: stepStartedAt) == nil)
+    }
+
+    @Test func theWingmanFillsByAreaSoHalfTheWorkFillsHalfTheTriangle() async throws {
+        #expect(wingmanFillHeightShare(forProgress: 0) == 0)
+        #expect(wingmanFillHeightShare(forProgress: 1) == 1)
+        // The filled area of a triangle cut at height share h from its base is 1 - (1 - h)^2.
+        for progress in [0.25, 0.5, 0.75] {
+            let heightShare = wingmanFillHeightShare(forProgress: progress)
+            #expect(abs((1 - (1 - heightShare) * (1 - heightShare)) - progress) < 0.0001)
+        }
+        #expect(wingmanFillHeightShare(forProgress: 0.5) < 0.3)
     }
 
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {

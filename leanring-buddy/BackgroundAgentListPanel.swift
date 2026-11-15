@@ -333,17 +333,23 @@ private struct AgentRowView: View {
         }
     }
 
-    /// One segment per step. A finished step is solid and the step in progress is faint.
+    /// One segment per step, filled by the same progress the wingman shows, so the list and the cursor agree.
     private var stepMeter: some View {
-        HStack(spacing: 3) {
-            ForEach(Array(agent.kind.stepNames.indices), id: \.self) { stepIndex in
-                let stepStatus = agent.stepStatuses.indices.contains(stepIndex) ? agent.stepStatuses[stepIndex] : .pending
-                Capsule()
-                    .fill(stepStatus == .done ? meterColor : stepStatus == .current ? meterColor.opacity(0.35) : DS.Colors.surface3)
-                    .frame(height: 3)
+        ZStack {
+            HStack(spacing: Self.stepMeterGap) {
+                ForEach(Array(agent.kind.stepNames.indices), id: \.self) { _ in
+                    Capsule().fill(DS.Colors.surface3)
+                }
+            }
+            AgentProgressView(agent: agent) { shownProgress in
+                StepMeterFill(progress: shownProgress, stepCount: agent.kind.steps.count, gap: Self.stepMeterGap)
+                    .fill(meterColor)
             }
         }
+        .frame(height: 3)
     }
+
+    private static let stepMeterGap: CGFloat = 3
 
     private var expandedDetails: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -405,5 +411,36 @@ private struct AgentActionButton: View {
         .buttonStyle(.plain)
         .hoverAndPointer { isHovered = $0 }
         .padding(.top, 2)
+    }
+}
+
+/// The filled part of the list's step meter: each step's segment fills by its share of the progress.
+/// Animatable, so it moves in step with the wingman's fill.
+private struct StepMeterFill: Shape {
+    var progress: Double
+    let stepCount: Int
+    let gap: CGFloat
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard stepCount > 0 else { return path }
+        let segmentWidth = (rect.width - gap * CGFloat(stepCount - 1)) / CGFloat(stepCount)
+        for stepIndex in 0..<stepCount {
+            let shareOfThisStepDone = min(1, max(0, progress * Double(stepCount) - Double(stepIndex)))
+            guard shareOfThisStepDone > 0 else { continue }
+            let segmentRect = CGRect(
+                x: rect.minX + CGFloat(stepIndex) * (segmentWidth + gap),
+                y: rect.minY,
+                width: segmentWidth * CGFloat(shareOfThisStepDone),
+                height: rect.height
+            )
+            path.addRoundedRect(in: segmentRect, cornerSize: CGSize(width: rect.height / 2, height: rect.height / 2))
+        }
+        return path
     }
 }

@@ -45,12 +45,12 @@ enum BackgroundAgentKind {
     }
 
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
-    /// Reading the captions took about 4 seconds and writing the guide 9 to 13 in the demo recordings.
+    /// Reading the captions with yt-dlp took about 3 seconds, and writing the guide 10 to 14, in the demo recordings.
     var steps: [BackgroundAgentStep] {
         switch self {
         case .studyGuide:
             return [
-                BackgroundAgentStep(name: "Read the captions", expectedSeconds: 4),
+                BackgroundAgentStep(name: "Read the captions", expectedSeconds: 3),
                 BackgroundAgentStep(name: "Write the guide in Notion", expectedSeconds: 12),
             ]
         }
@@ -79,6 +79,8 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// The video's title, set once the agent knows which video it works on.
     var subject: String?
     let startedAt: Date
+    /// When the step that runs now began, which times its share of the progress.
+    var currentStepStartedAt: Date
     var endedAt: Date?
     var phase: BackgroundAgentPhase
 
@@ -95,15 +97,29 @@ struct BackgroundAgent: Identifiable, Equatable {
         }
     }
 
-    /// Where the wingman's fill heads while the current step runs, and how long it takes to get there. It stops short
-    /// of the step's end, so the fill never claims a step is done before it is, and a long step still shows movement.
-    /// Nil for an agent that is not running.
-    var fillWhileTheStepRuns: (fraction: Double, seconds: TimeInterval)? {
+    /// A running step moves the progress through this much of its share, then waits, so the progress never shows a
+    /// step done before it is.
+    static let shareOfAStepTheProgressMovesThrough = 0.85
+
+    /// How far the work is, from 0 to 1, which the wingman and the agent list both show. A running step moves in a
+    /// straight line from its start toward 85% of its share over its expected seconds, and waits there if it runs long.
+    func progress(at now: Date) -> Double {
+        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else {
+            return filledFraction
+        }
+        let secondsIntoTheStep = max(0, now.timeIntervalSince(currentStepStartedAt))
+        let shareOfTheStepDone = min(1, secondsIntoTheStep / kind.steps[completedStepCount].expectedSeconds)
+        return (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough * shareOfTheStepDone) / Double(kind.steps.count)
+    }
+
+    /// Where the progress heads while the current step runs, and how many seconds until it gets there.
+    /// Nil once the agent has ended.
+    func progressHeading(at now: Date) -> (fraction: Double, secondsToGetThere: TimeInterval)? {
         guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
-        let shareOfTheStepToFill = 0.85
+        let stepEndsAt = currentStepStartedAt.addingTimeInterval(kind.steps[completedStepCount].expectedSeconds)
         return (
-            fraction: (Double(completedStepCount) + shareOfTheStepToFill) / Double(kind.steps.count),
-            seconds: kind.steps[completedStepCount].expectedSeconds
+            fraction: (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough) / Double(kind.steps.count),
+            secondsToGetThere: max(0, stepEndsAt.timeIntervalSince(now))
         )
     }
 
@@ -190,7 +206,8 @@ final class BackgroundAgentStore: ObservableObject {
 
     @discardableResult
     func start(kind: BackgroundAgentKind) -> UUID {
-        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, startedAt: Date(), endedAt: nil, phase: .running(completedStepCount: 0))
+        let startedAt = Date()
+        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0))
         agents.insert(agent, at: 0)
         agents = Array(agents.prefix(Self.mostAgentsKept))
         return agent.id
@@ -207,6 +224,7 @@ final class BackgroundAgentStore: ObservableObject {
             guard case .running(let completedStepCount) = agent.phase,
                   completedStepCount < agent.kind.stepNames.count - 1 else { return }
             agent.phase = .running(completedStepCount: completedStepCount + 1)
+            agent.currentStepStartedAt = Date()
         }
     }
 
