@@ -61,10 +61,11 @@ export const quizMissTheme: DemoTheme = {
 };
 
 const missionFont = loadSpaceGrotesk("normal", { weights: ["500", "600", "700"], subsets: ["latin"] }).fontFamily;
-// The 3D model wingman's violet (DS.Colors.backgroundAgentThreeDModelViolet in the app). Captions about the study guide
-// sub-agent switch their accent to studyGuideAmber, so each sub-agent's words share its wingman's color.
+// The 3D model wingman's violet (DS.Colors.backgroundAgentThreeDModelViolet in the app). Captions about the task
+// sub-agent switch their accent to its teal, so each sub-agent's words share its wingman's color.
 export const threeDModelViolet = "#A78BFA";
-export const subAgentStudyGuideAmber = studyGuideAmber;
+// The task agent wingman's teal (DS.Colors.backgroundAgentTaskTeal in the app).
+export const subAgentTaskTeal = "#2DD4BF";
 
 /** A mission-control readout for the Starship clip: grotesk type on a deep navy card, with each sub-agent's own color. */
 export const subAgentsTheme: DemoTheme = {

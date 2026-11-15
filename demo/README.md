@@ -40,14 +40,14 @@ TRAILING_SECONDS=12 demo/scripts/record-shot.sh quiz-miss "make me a Notion stud
 ```
 
 The two sub-agents clip uses 1 shot of FOX 26 Houston's stream of Starship Flight 15, from just before the ship's tower catch.
-It asks for a study guide and then a 3D model, so the amber and violet sub-agents run at once, and needs the Worker's `NOTION_API_KEY`.
+It hands a general task agent a research question with a Notion page, then asks for a 3D model, so the teal and violet sub-agents run at once, and needs the Worker's `NOTION_API_KEY`.
 Its Worker runs without `LIVE_SCENE_MODEL`, so GPT builds the model at medium effort, since a Sonnet model came out plain in two takes.
-The driver hides the stream's chat replay with a style rule, opens the agent list while both sub-agents run, and glides the mouse so both wingmen trail the blue one.
+The driver hides the stream's chat replay with a style rule, opens the agent list while both sub-agents run, glides the mouse so both wingmen trail the blue one, and brings the task agent's Notion page forward while Clicky speaks its answer.
 When YouTube rate-limits the captions, save the transcript from the video page's "Show transcript" panel as `y2QIIhQjZkM.json3`, and point the Debug app at it as the Quiz rehearsal section says.
 
 ```bash
 demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw &
-TRAILING_SECONDS=8 demo/scripts/record-shot.sh agents "make me a Notion study guide for this video|build me a 3D model of this Starship|&put it back" "https://www.youtube.com/watch?v=y2QIIhQjZkM" 1212 1110 680
+TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch compares to the first booster catch, and make me a Notion page about it|build me a 3D model of this Starship|&put it back|what did you find" "https://www.youtube.com/watch?v=y2QIIhQjZkM" 1212 1110 680
 ```
 
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
@@ -93,7 +93,7 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
 `segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `quizMissClipSegments` is the quiz miss clip posted beside it, and `subAgentsClipSegments` is the two sub-agents clip over the Starship catch.
-`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the two sub-agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color.
+`src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the two sub-agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color, teal for the task agent and violet for the 3D model.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
 ```bash
