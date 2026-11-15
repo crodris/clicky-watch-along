@@ -136,6 +136,9 @@ final class CompanionManager: ObservableObject {
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
     /// the video, and it stays so they can ask again.
     private var readyTaskAnswer: String?
+    /// The videos whose guide was being written when a quiz miss landed. That guide read its quiz results when it
+    /// started, so a refresh runs once it ends, and the miss still reaches the page.
+    private var studyGuideVideoKeysDueARefresh: Set<String> = []
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     let backgroundAgentStore = BackgroundAgentStore()
     private lazy var agentListPanelController = AgentListPanelController(
@@ -1615,7 +1618,7 @@ final class CompanionManager: ObservableObject {
             case .wrong:
                 judgedAnswer = LiveSceneJudgedAnswer(
                     verdict: .answer(wordMatchGrade),
-                    spokenReply: "Ooh, not quite! Take another look."
+                    spokenReply: "Not quite. Take another look."
                 )
             }
         }
@@ -1654,8 +1657,8 @@ final class CompanionManager: ObservableObject {
         if !(grade == .wrong && wrongAnswerCount == 0) {
             releaseTheBuddyFromTheQuizQuestion()
         }
-        if videoQuizQuestionIsActive, let studyGuideOutcome = studyGuideQuizOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount) {
-            videoQuizSession.recordTheOpenQuestionOutcome(studyGuideOutcome)
+        if videoQuizQuestionIsActive, let studyGuideOutcome = studyGuideQuizOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount),
+           videoQuizSession.recordTheOpenQuestionOutcome(studyGuideOutcome) {
             refreshTheStudyGuideAfterAQuizOutcome(studyGuideOutcome)
         }
         switch grade {
@@ -1765,7 +1768,7 @@ final class CompanionManager: ObservableObject {
         switch videoQuizCommand {
         case .start:
             videoQuizSession.start()
-            spokenLine = "Sure! Let me read through this video."
+            spokenLine = "Sure, let me read through this video."
         case .stop:
             // A question's block below resets the phase, so whether a scene was building is read first.
             let aSceneWasBuilding: Bool
@@ -1794,7 +1797,7 @@ final class CompanionManager: ObservableObject {
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }
-            spokenLine = "Okay, I'll stop quizzing. That was fun!"
+            spokenLine = "Okay, I'll stop quizzing."
         }
 
         currentResponseTask = Task {
@@ -1872,9 +1875,9 @@ final class CompanionManager: ObservableObject {
 
     private func spokenLineAfterTheQuizEnds(quiz: LiveSceneQuiz, learnerSaidWhatThePartDoes: Bool) -> String {
         if learnerSaidWhatThePartDoes {
-            return "Yes! \(quiz.explanation) Nice work!"
+            return "Yes. \(quiz.explanation)"
         }
-        return "Good try! \(quiz.explanation)"
+        return "Good try. \(quiz.explanation)"
     }
 
     /// No scene is on screen, so nothing else will resume a video paused for it.
@@ -1963,9 +1966,10 @@ final class CompanionManager: ObservableObject {
     }
 
     private func skipTheVideoQuizQuestion() {
-        // An answered question is already closed, so a skip after the answer adds nothing.
-        videoQuizSession.recordTheOpenQuestionOutcome(.skipped)
-        refreshTheStudyGuideAfterAQuizOutcome(.skipped)
+        // An answered question is already closed, so a skip after the answer records nothing and rebuilds no guide.
+        if videoQuizSession.recordTheOpenQuestionOutcome(.skipped) {
+            refreshTheStudyGuideAfterAQuizOutcome(.skipped)
+        }
         currentResponseTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
@@ -2216,7 +2220,8 @@ final class CompanionManager: ObservableObject {
             if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
                 return .changed(state: nil)
             }
-            guard NSWorkspace.shared.open(pageURL) else {
+            // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
+            guard studyGuidePageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
                 return .failed(error: "The study guide page would not open", state: nil)
             }
             return .changed(state: nil)
@@ -2579,6 +2584,9 @@ final class CompanionManager: ObservableObject {
         let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
         runInTheBackground(agentID) {
             await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
+            if self.studyGuideVideoKeysDueARefresh.remove(videoKey) != nil {
+                self.refreshTheQuizVideosStudyGuide()
+            }
         }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
@@ -2592,17 +2600,34 @@ final class CompanionManager: ObservableObject {
     }
 
     /// A missed or skipped question reaches a guide already written for the quiz video, by an update agent in the
-    /// background, so the guide shows the miss without the learner asking. Nothing happens while that video's guide is
-    /// being written, which startWritingTheStudyGuide refuses, or for a video with no guide, whose next guide includes
-    /// the miss anyway.
+    /// background, so the guide shows the miss without the learner asking.
     private func refreshTheStudyGuideAfterAQuizOutcome(_ outcome: StudyGuideQuizOutcome) {
-        guard quizOutcomeRefreshesTheStudyGuide(outcome),
-              let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
-              savedStudyGuides.record(forVideoURL: quizVideoURL) != nil else {
-            return
+        guard quizOutcomeRefreshesTheStudyGuide(outcome) else { return }
+        // A guide being written read its quiz results when it started, so the refresh runs once it ends.
+        if let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() {
+            let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
+            if backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) {
+                studyGuideVideoKeysDueARefresh.insert(quizVideoKey)
+                return
+            }
         }
-        print("Study guide: updating the guide with the quiz miss")
-        _ = startWritingTheStudyGuide(.refresh)
+        refreshTheQuizVideosStudyGuide()
+    }
+
+    /// Nothing happens for a video with no guide, whose next guide includes the miss anyway. The page is checked in
+    /// Notion first, so a miss never brings back a guide the learner trashed.
+    private func refreshTheQuizVideosStudyGuide() {
+        guard let quizVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else { return }
+        Task {
+            guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil else { return }
+            let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
+            guard !self.backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) else {
+                self.studyGuideVideoKeysDueARefresh.insert(quizVideoKey)
+                return
+            }
+            print("Study guide: updating the guide with the quiz miss")
+            _ = self.startWritingTheStudyGuide(.refresh)
+        }
     }
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
@@ -2618,8 +2643,14 @@ final class CompanionManager: ObservableObject {
             var studyGuideRevision: StudyGuideRevision?
             var studyGuideFocus: String?
             var pageURLTheRevisionReplaces: URL?
+            var quizResultsForTheGuide = video.quizResults
             switch studyGuideJob {
             case .write(let focus):
+                // The tools were offered for the tab in front when the command arrived, and the learner may have
+                // switched to a video that already has a guide since.
+                guard savedStudyGuides.record(forVideoURL: video.url) == nil else {
+                    throw StudyGuideError.guideAlreadyWritten
+                }
                 studyGuideFocus = focus
             case .revise, .refresh:
                 guard let previousRecord = savedStudyGuides.record(forVideoURL: video.url) else {
@@ -2630,15 +2661,19 @@ final class CompanionManager: ObservableObject {
                 if case .revise(let instruction) = studyGuideJob { revisionInstruction = instruction }
                 studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: revisionInstruction)
                 pageURLTheRevisionReplaces = previousRecord.pageURL
+                // The Worker rebuilds "Review these first" from the results it gets, so the ones already on the page
+                // go along with the ones logged since launch.
+                quizResultsForTheGuide = studyGuideQuizResults(saved: previousRecord.quizResults, logged: video.quizResults)
             }
-            let studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
+            var studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
                 videoTitle: video.title,
                 videoURL: video.url,
                 transcriptLines: video.transcriptLines,
-                quizResults: video.quizResults,
+                quizResults: quizResultsForTheGuide,
                 focus: studyGuideFocus,
                 revision: studyGuideRevision
             ))
+            studyGuideRecord.quizResults = quizResultsForTheGuide
             // A guide cancelled from the agent list keeps no record, even when the Worker had already replied.
             try Task.checkCancellation()
             // Filed under the video the guide was written for, not whichever tab is in front now.
@@ -2991,8 +3026,16 @@ final class CompanionManager: ObservableObject {
     /// learner can read a long question again while answering. It stays until the question is answered, or the scene
     /// clears, which releases any held pointing.
     private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {
+        var quizAnswerPartLabel: String?
+        if case .framePopout(let framePopoutOnScreen) = liveScenePageOnScreen {
+            quizAnswerPartLabel = framePopoutOnScreen.parts.first(where: \.isQuizAnswer)?.label
+        }
         guard !Task.isCancelled, case .awaitingAnswer = liveScenePhase,
-              let questionLabelScreenPoint = labelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == quiz.answerLabel }) else {
+              let questionLabelScreenPoint = quizQuestionLabelScreenPoint(
+                in: labelScreenPoints,
+                quizAnswerPartLabel: quizAnswerPartLabel,
+                answerLabel: quiz.answerLabel
+              ) else {
             return
         }
         let questionPointingID = UUID()

@@ -1205,24 +1205,58 @@ struct leanring_buddyTests {
 
     @Test func theQuizLogKeepsOneResultPerQuestionPerVideo() async throws {
         var quizLog = StudyGuideQuizLog()
-        quizLog.closeTheOpenQuestion(with: .skipped)
-        #expect(quizLog.resultsByVideoURL.isEmpty)
+        let closedWithNoQuestionOpen = quizLog.closeTheOpenQuestion(with: .skipped)
+        #expect(!closedWithNoQuestionOpen)
 
-        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=a", question: "What pumps the blood?", answerLabel: "Heart", explanation: "It pumps blood.", askedAtSeconds: 42)
-        quizLog.closeTheOpenQuestion(with: .gotIt)
-        // The follow-up grade and an Escape after the answer must not add a second result.
-        quizLog.closeTheOpenQuestion(with: .missed)
-        quizLog.closeTheOpenQuestion(with: .skipped)
-        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=a", question: "What is the valve?", answerLabel: "Aorta", explanation: "It carries blood out.", askedAtSeconds: 90)
+        // A quiz on a playlist URL counts toward the guide saved from the plain watch URL.
+        quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=a&list=PL1", question: "What pumps the blood?", answerLabel: "Heart", explanation: "It pumps blood.", askedAtSeconds: 42)
+        let recordedTheAnswer = quizLog.closeTheOpenQuestion(with: .gotIt)
+        #expect(recordedTheAnswer)
+        // The follow-up grade and an Escape after the answer must not add a second result, so they record nothing and
+        // rebuild no guide.
+        let recordedTheFollowUpGrade = quizLog.closeTheOpenQuestion(with: .missed)
+        let recordedTheEscapeAfterTheAnswer = quizLog.closeTheOpenQuestion(with: .skipped)
+        #expect(!recordedTheFollowUpGrade)
+        #expect(!recordedTheEscapeAfterTheAnswer)
+        quizLog.questionIsAsked(videoURL: "https://youtu.be/a", question: "What is the valve?", answerLabel: "Aorta", explanation: "It carries blood out.", askedAtSeconds: 90)
         quizLog.closeTheOpenQuestion(with: .skipped)
         quizLog.questionIsAsked(videoURL: "https://www.youtube.com/watch?v=b", question: "Other video", answerLabel: "Wing", explanation: "It lifts.", askedAtSeconds: 5)
         quizLog.discardTheOpenQuestion()
         quizLog.closeTheOpenQuestion(with: .gotIt)
 
-        let resultsForFirstVideo = try #require(quizLog.resultsByVideoURL["https://www.youtube.com/watch?v=a"])
+        let resultsForFirstVideo = quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=a")
         #expect(resultsForFirstVideo.map(\.result) == [.gotIt, .skipped])
         #expect(resultsForFirstVideo.map(\.askedAtSeconds) == [42, 90])
-        #expect(quizLog.resultsByVideoURL["https://www.youtube.com/watch?v=b"] == nil)
+        #expect(quizLog.results(forVideoURL: "https://www.youtube.com/watch?v=b").isEmpty)
+    }
+
+    @Test func aRevisedGuideKeepsTheMissesItsPageAlreadyShows() async throws {
+        let savedMiss = StudyGuideQuizResult(question: "What slows the air?", answerLabel: "Stator vanes", explanation: "e", askedAtSeconds: 72, result: .missed)
+        let savedSkip = StudyGuideQuizResult(question: "What mixes the fuel?", answerLabel: "Nozzles", explanation: "e", askedAtSeconds: 124, result: .skipped)
+        let newMiss = StudyGuideQuizResult(question: "What is bypass air?", answerLabel: "Bypass air", explanation: "e", askedAtSeconds: 194, result: .missed)
+        let savedSkipAnsweredAgain = StudyGuideQuizResult(question: savedSkip.question, answerLabel: "Nozzles", explanation: "e", askedAtSeconds: 124, result: .gotIt)
+
+        // After a relaunch the log is empty, so the saved results alone keep the page's misses.
+        #expect(studyGuideQuizResults(saved: [savedMiss, savedSkip], logged: []) == [savedMiss, savedSkip])
+        #expect(studyGuideQuizResults(saved: [savedMiss, savedSkip], logged: [newMiss]) == [savedMiss, savedSkip, newMiss])
+        // A question asked again replaces its saved result.
+        #expect(studyGuideQuizResults(saved: [savedMiss, savedSkip], logged: [savedSkipAnsweredAgain]) == [savedMiss, savedSkipAnsweredAgain])
+        let manyResults = (0..<25).map { questionIndex in
+            StudyGuideQuizResult(question: "q\(questionIndex)", answerLabel: "a", explanation: "e", askedAtSeconds: Double(questionIndex), result: .missed)
+        }
+        #expect(studyGuideQuizResults(saved: manyResults, logged: []).map(\.question) == manyResults.suffix(20).map(\.question))
+
+        // The results a guide was written with survive a relaunch, and a guide saved by an older build reads back with none.
+        let recordWithResults = StudyGuideRecord(
+            pageHandle: "handle",
+            pageURL: try #require(URL(string: "https://www.notion.so/p1")),
+            guide: .object(["title": .string("T")]),
+            quizResults: [savedMiss]
+        )
+        let decodedRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: try JSONEncoder().encode(recordWithResults))
+        #expect(decodedRecord == recordWithResults)
+        let olderRecordData = Data(#"{"pageHandle":"handle","pageURL":"https://www.notion.so/p1","guide":{"title":"T"}}"#.utf8)
+        #expect(try JSONDecoder().decode(StudyGuideRecord.self, from: olderRecordData).quizResults.isEmpty)
     }
 
     @Test func studyGuideRequestHasExactlyTheWorkersKeys() async throws {
@@ -1272,6 +1306,10 @@ struct leanring_buddyTests {
         #expect(studyGuideWish(fromModelText: "  \n ") == nil)
         #expect(studyGuideWish(fromModelText: "  only the engine ") == "only the engine")
         #expect(studyGuideWish(fromModelText: String(repeating: "a", count: 500))?.count == 300)
+        // The Worker counts UTF-16 code units, and each of these emoji is two, so 150 of them fill the limit.
+        let emojiWish = try #require(studyGuideWish(fromModelText: String(repeating: "🚀", count: 200)))
+        #expect(emojiWish.utf16.count == 300)
+        #expect(emojiWish.count == 150)
     }
 
     @Test func studyGuideReplyMapsToARecordOrADistinctError() async throws {
@@ -1287,6 +1325,36 @@ struct leanring_buddyTests {
         #expect(throws: StudyGuideError.workerReturned(statusCode: 502, body: "bad")) {
             try studyGuideRecord(statusCode: 502, responseData: Data("bad".utf8))
         }
+        // The app opens the page it saves with NSWorkspace, so a page off Notion is refused.
+        let fileReplyData = Data(#"{"pageHandle":"p1.sig","pageURL":"file:///Applications/Calculator.app","guide":{}}"#.utf8)
+        #expect(throws: StudyGuideError.pageIsNotOnNotion) {
+            try studyGuideRecord(statusCode: 200, responseData: fileReplyData)
+        }
+        #expect(studyGuidePageURLIsOnNotion(try #require(URL(string: "https://app.notion.com/p/Guide-419eb398"))))
+        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "http://www.notion.so/p1"))))
+        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "https://notnotion.so/p1"))))
+    }
+
+    @Test func aHandleTheWorkerRefusesCountsAsAGuideThatIsGone() async throws {
+        #expect(try studyGuidePageExists(statusCode: 200, responseData: Data(#"{"pageExists":true}"#.utf8)))
+        #expect(try !studyGuidePageExists(statusCode: 200, responseData: Data(#"{"pageExists":false}"#.utf8)))
+        // Every saved handle gets a 400 once the Notion token changes, and that guide can never be used again.
+        #expect(try !studyGuidePageExists(statusCode: 400, responseData: Data(#"{"error":"pageHandle was not issued by this Worker"}"#.utf8)))
+        // Anything else means the Worker or Notion cannot say, so the saved guide stands.
+        #expect(throws: StudyGuideError.workerReturned(statusCode: 502, body: "down")) {
+            try studyGuidePageExists(statusCode: 502, responseData: Data("down".utf8))
+        }
+    }
+
+    @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
+        let labelScreenPoints = [
+            LiveScenePartScreenPoint(label: "Rotor blades", globalPoint: CGPoint(x: 10, y: 10)),
+            LiveScenePartScreenPoint(label: "Ampullae of Lorenzini", globalPoint: CGPoint(x: 20, y: 20)),
+        ]
+        // The planner says "Ampullae", but the frame parts call named the marked part "Ampullae of Lorenzini".
+        let questionLabel = quizQuestionLabelScreenPoint(in: labelScreenPoints, quizAnswerPartLabel: "Ampullae of Lorenzini", answerLabel: "Ampullae")
+        #expect(questionLabel?.globalPoint == CGPoint(x: 20, y: 20))
+        #expect(quizQuestionLabelScreenPoint(in: labelScreenPoints, quizAnswerPartLabel: nil, answerLabel: "Rotor blades")?.globalPoint == CGPoint(x: 10, y: 10))
     }
 
     // MARK: - Background agents

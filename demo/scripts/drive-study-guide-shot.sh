@@ -37,8 +37,12 @@ run_in_front_tab() {
 # Moves the mouse from one point to another in 30 eased steps, about 1.5 seconds. The points are worked out in one awk
 # call, since starting a process per step doubles the glide's length.
 glide_mouse() {
-  awk -v ax="$1" -v ay="$2" -v bx="$3" -v by="$4" 'BEGIN {
-    for (s = 1; s <= 30; s++) { t = s / 30; e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ^ 2 / 2; printf "%.1f %.1f\n", ax + (bx - ax) * e, ay + (by - ay) * e }
+  awk -v start_x="$1" -v start_y="$2" -v end_x="$3" -v end_y="$4" 'BEGIN {
+    for (step = 1; step <= 30; step++) {
+      progress = step / 30
+      eased = progress < 0.5 ? 2 * progress * progress : 1 - (-2 * progress + 2) ^ 2 / 2
+      printf "%.1f %.1f\n", start_x + (end_x - start_x) * eased, start_y + (end_y - start_y) * eased
+    }
   }' | while read -r point_x point_y; do
     "$move_mouse" "$point_x" "$point_y"
     sleep 0.02
