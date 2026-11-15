@@ -186,6 +186,11 @@ nonisolated struct SavedStudyGuides {
         userDefaults.set(recordJSON, forKey: Self.userDefaultsKey(forVideoURL: videoURLText))
     }
 
+    /// For a guide whose Notion page is gone, so the video can get a new one.
+    func forget(forVideoURL videoURLText: String) {
+        userDefaults.removeObject(forKey: Self.userDefaultsKey(forVideoURL: videoURLText))
+    }
+
     private static func userDefaultsKey(forVideoURL videoURLText: String) -> String {
         userDefaultsKeyPrefix + studyGuideVideoKey(forVideoURL: videoURLText)
     }
@@ -229,13 +234,16 @@ nonisolated func errorIsACancellation(_ error: Error) -> Bool {
 @MainActor
 final class StudyGuideClient {
     private let studyGuideURL: URL
+    private let studyGuideStatusURL: URL
     private let session: URLSession
 
     init(workerBaseURL: String) {
-        guard let studyGuideURL = URL(string: "\(workerBaseURL)/study-guide") else {
-            preconditionFailure("Worker base URL did not form the study guide URL: \(workerBaseURL)")
+        guard let studyGuideURL = URL(string: "\(workerBaseURL)/study-guide"),
+              let studyGuideStatusURL = URL(string: "\(workerBaseURL)/study-guide-status") else {
+            preconditionFailure("Worker base URL did not form the study guide URLs: \(workerBaseURL)")
         }
         self.studyGuideURL = studyGuideURL
+        self.studyGuideStatusURL = studyGuideStatusURL
         let configuration = URLSessionConfiguration.default
         // Sonnet drafts the guide in 20 to 60 seconds, and Notion takes a few more.
         configuration.timeoutIntervalForRequest = 150
@@ -252,6 +260,24 @@ final class StudyGuideClient {
         // URLSession returns URLResponse. The Worker answers over HTTP.
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         return try studyGuideRecord(statusCode: statusCode, responseData: responseData)
+    }
+
+    /// Whether the guide's page is still in Notion and out of the trash. Throws when the Worker or Notion cannot say.
+    func pageStillExists(pageHandle: String) async throws -> Bool {
+        var request = URLRequest(url: studyGuideStatusURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // A lookup on the voice command path, so it gives up long before the 150 seconds a guide gets.
+        request.timeoutInterval = 5
+        request.httpBody = try JSONEncoder().encode(["pageHandle": pageHandle])
+        let (responseData, response) = try await session.data(for: request)
+        // URLSession returns URLResponse. The Worker answers over HTTP.
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard statusCode == 200 else {
+            throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
+        }
+        struct StudyGuideStatusReply: Decodable { let pageExists: Bool }
+        return try JSONDecoder().decode(StudyGuideStatusReply.self, from: responseData).pageExists
     }
 }
 

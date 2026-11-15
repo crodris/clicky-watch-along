@@ -15,6 +15,7 @@
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
+ *   POST /study-guide-status → Notion API (whether a saved guide's page is still out of the trash)
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
@@ -25,7 +26,7 @@ import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
-import { handleStudyGuide } from "./studyGuide";
+import { handleStudyGuide, handleStudyGuideStatus } from "./studyGuide";
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -93,6 +94,10 @@ export default {
 
       if (url.pathname === "/study-guide") {
         return await handleStudyGuide(request, env);
+      }
+
+      if (url.pathname === "/study-guide-status") {
+        return await handleStudyGuideStatus(request, env);
       }
 
       if (url.pathname === "/judge-answer") {

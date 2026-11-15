@@ -863,6 +863,18 @@ final class VideoQuizSession {
         }
     }
 
+    /// Loads a page in the tab with this id without switching to it. False when the learner closed the tab, the page is
+    /// not https, or Chrome would not take the script, so the caller opens a new tab instead.
+    func loadPageInChromeTab(_ pageURL: URL, tabID: Int) -> Bool {
+        guard let appleScriptSource = appleScriptToLoadPageInChromeTab(pageURL: pageURL, tabID: tabID) else { return false }
+        do {
+            return try ChromeVideoTab.runTabScript(appleScriptSource) == "found"
+        } catch {
+            print("Background tab: could not load \(pageURL) in tab \(tabID): \(error)")
+            return false
+        }
+    }
+
     /// Switches Chrome to the tab with this id and brings its window to the front.
     /// False when the learner closed the tab or Chrome would not take the script, so the caller opens the page again.
     func bringChromeTabForward(tabID: Int) -> Bool {
@@ -983,6 +995,24 @@ nonisolated func appleScriptToOpenInABackgroundTab(pageURL: URL) -> String? {
 /// Finds the tab by id in any Chrome window, makes it the window's active tab, and brings the window and Chrome forward.
 /// Returns "found" or "missing". It reads each window's tab ids in one Apple Event, since one event per tab is slow with many tabs.
 /// Chrome gives tab ids as text, so a comparison with a number never matches.
+nonisolated func appleScriptToLoadPageInChromeTab(pageURL: URL, tabID: Int) -> String? {
+    guard pageURL.scheme?.lowercased() == "https" else { return nil }
+    return """
+    tell application "Google Chrome"
+        repeat with chromeWindow in windows
+            set tabIDs to id of every tab of chromeWindow
+            repeat with tabIndex from 1 to count of tabIDs
+                if (item tabIndex of tabIDs as text) is "\(tabID)" then
+                    set URL of tab tabIndex of chromeWindow to "\(pageURL.absoluteString)"
+                    return "found"
+                end if
+            end repeat
+        end repeat
+        return "missing"
+    end tell
+    """
+}
+
 nonisolated func appleScriptToBringChromeTabForward(tabID: Int) -> String {
     """
     tell application "Google Chrome"
@@ -1173,10 +1203,15 @@ private struct ChromeVideoTab {
 
     /// Whether a tab with this id was found and brought forward. Throws when Chrome is not running or refuses the script.
     static func bringTabForward(tabID: Int) throws -> Bool {
+        try runTabScript(appleScriptToBringChromeTabForward(tabID: tabID)) == "found"
+    }
+
+    /// Runs a script that finds a tab by id. Throws when Chrome is not running or refuses the script.
+    static func runTabScript(_ appleScriptSource: String) throws -> String {
         guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
             throw VideoQuizFailure.chromeIsNotRunning
         }
-        return try runAppleScript(appleScriptToBringChromeTabForward(tabID: tabID)) == "found"
+        return try runAppleScript(appleScriptSource)
     }
 
     /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,

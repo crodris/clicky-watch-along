@@ -330,13 +330,13 @@ const notionAPIVersion = "2026-03-11";
 
 const notionPageReplySchema = z.object({ id: z.string(), url: z.string() });
 
-type NotionCallResult<Reply> = { ok: true; reply: Reply } | { ok: false; error: string };
+type NotionCallResult<Reply> = { ok: true; reply: Reply } | { ok: false; error: string; status?: number };
 
 async function callNotion(
   notionAPIKey: string,
-  method: "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH",
   path: string,
-  requestBody: unknown,
+  requestBody?: unknown,
 ): Promise<NotionCallResult<unknown>> {
   try {
     const notionResponse = await fetch(`${notionAPIBaseURL}${path}`, {
@@ -346,12 +346,12 @@ async function callNotion(
         "notion-version": notionAPIVersion,
         "content-type": "application/json",
       },
-      body: JSON.stringify(requestBody),
+      body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
     });
     if (!notionResponse.ok) {
       const errorText = await notionResponse.text();
       console.error(`[/study-guide] Notion API error ${notionResponse.status} on ${method} ${path}: ${errorText}`);
-      return { ok: false, error: `Notion returned ${notionResponse.status}` };
+      return { ok: false, error: `Notion returned ${notionResponse.status}`, status: notionResponse.status };
     }
     return { ok: true, reply: await notionResponse.json() };
   } catch (error) {
@@ -480,6 +480,39 @@ function userTurn(studyGuideRequest: StudyGuideRequest, rejectedReplyError: stri
       ...uncachedTexts.map((text) => ({ type: "text" as const, text })),
     ],
   };
+}
+
+const studyGuideStatusRequestSchema = z.object({ pageHandle: z.string().min(1) });
+const notionPageTrashStateSchema = z.object({ in_trash: z.boolean().optional(), archived: z.boolean().optional() });
+
+/**
+ * POST /study-guide-status: whether the page behind a saved guide is still in Notion and out of the trash, so the app
+ * stops reusing a guide the learner deleted. Returns `{ pageExists }`. A handle this Worker did not sign gets a 400,
+ * so it can never read another page.
+ */
+export async function handleStudyGuideStatus(request: Request, environment: StudyGuideEnvironment): Promise<Response> {
+  const parsedRequest = await parseJSONRequest(request, studyGuideStatusRequestSchema);
+  if (!parsedRequest.ok) {
+    return parsedRequest.response;
+  }
+  const notionAPIKey = environment.NOTION_API_KEY;
+  if (!notionAPIKey) {
+    return jsonResponse({ error: "Notion is not connected" }, 503);
+  }
+  const pageId = await pageIdFromSignedHandle(notionAPIKey, parsedRequest.requestBody.pageHandle);
+  if (pageId === undefined) {
+    return jsonResponse({ error: "pageHandle was not issued by this Worker" }, 400);
+  }
+  const notionPage = await callNotion(notionAPIKey, "GET", `/pages/${encodeURIComponent(pageId)}`);
+  if (!notionPage.ok) {
+    // A page deleted from the trash, or no longer shared with the token, is gone for the learner too.
+    return notionPage.status === 404 ? jsonResponse({ pageExists: false }, 200) : jsonResponse({ error: notionPage.error }, 502);
+  }
+  const trashState = notionPageTrashStateSchema.safeParse(notionPage.reply);
+  if (!trashState.success) {
+    return jsonResponse({ error: "Notion's page reply had no trash state" }, 502);
+  }
+  return jsonResponse({ pageExists: !(trashState.data.in_trash ?? false) && !(trashState.data.archived ?? false) }, 200);
 }
 
 export interface StudyGuideEnvironment {

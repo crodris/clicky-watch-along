@@ -121,6 +121,8 @@ final class CompanionManager: ObservableObject {
     private let savedStudyGuides = SavedStudyGuides(userDefaults: .standard)
     /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
     private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
+    /// Saved guides whose page Notion confirmed since launch, so the check costs one Worker call per guide per launch.
+    private var studyGuidePageHandlesFoundInNotion: Set<String> = []
     /// The guide being written. It is not currentResponseTask, because a push-to-talk press cancels that task
     /// and must not cancel a guide that is still being written.
     private var studyGuideTask: Task<Void, Never>?
@@ -1972,10 +1974,11 @@ final class CompanionManager: ObservableObject {
 
     private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
         let commandStartedAt = Date()
-        // The two page reads wait on WebKit, not on each other.
+        // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
         async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
         async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
-        let (pageTools, pageState) = await (pageToolsRead, pageStateRead)
+        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
+        let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
         let appToolContext = AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
@@ -1983,7 +1986,7 @@ final class CompanionManager: ObservableObject {
             videoIsOnYouTube: frontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
-            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2147,9 +2150,12 @@ final class CompanionManager: ObservableObject {
             }
             return startWritingTheStudyGuide(.revise(instruction: instruction))
         case .openStudyGuide:
-            guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
-                  let studyGuideRecord = savedStudyGuides.record(forVideoURL: frontVideoURL) else {
+            guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
                 return .failed(error: "No study guide has been written for this video yet", state: nil)
+            }
+            // Checked again here, since the learner may have trashed the page since the tools were offered.
+            guard let studyGuideRecord = await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: true) else {
+                return .failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil)
             }
             let pageURL = studyGuideRecord.pageURL
             if let chromeTabID = studyGuideChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
@@ -2164,13 +2170,37 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Study Guide
 
-    /// A guide exists for the video in front only when that video is on YouTube and a guide is saved for it.
-    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?) -> Bool {
+    /// A guide exists for the video in front only when that video is on YouTube and a guide is saved for it whose page
+    /// is still in Notion.
+    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?) async -> Bool {
         guard frontVideoState?["onYouTube"]?.boolValue == true,
               let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
             return false
         }
-        return savedStudyGuides.record(forVideoURL: frontVideoURL) != nil
+        return await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: false) != nil
+    }
+
+    /// The guide saved for this video, unless its Notion page was trashed or deleted. Then the saved guide is forgotten,
+    /// so the video can get a new one. Each guide is checked once per launch, or every time with checkEvenIfCheckedBefore.
+    /// When the Worker cannot say, the saved guide stands, so a network hiccup never loses it.
+    private func savedStudyGuideStillInNotion(forVideoURL videoURL: String, checkEvenIfCheckedBefore: Bool) async -> StudyGuideRecord? {
+        guard let savedRecord = savedStudyGuides.record(forVideoURL: videoURL) else { return nil }
+        if !checkEvenIfCheckedBefore && studyGuidePageHandlesFoundInNotion.contains(savedRecord.pageHandle) {
+            return savedRecord
+        }
+        do {
+            guard try await studyGuideClient.pageStillExists(pageHandle: savedRecord.pageHandle) else {
+                print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
+                savedStudyGuides.forget(forVideoURL: videoURL)
+                studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
+                studyGuideChromeTabIDsByPageURL[savedRecord.pageURL] = nil
+                return nil
+            }
+            studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
+        } catch {
+            print("Study guide: could not check \(savedRecord.pageURL) in Notion, so the saved guide stands: \(error)")
+        }
+        return savedRecord
     }
 
     /// Starts the guide in the background and returns at once, so the router speaks its own confirmation
@@ -2197,6 +2227,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.completeStep(for: agentID)
             var studyGuideRevision: StudyGuideRevision?
             var studyGuideFocus: String?
+            var pageURLTheRevisionReplaces: URL?
             switch studyGuideJob {
             case .write(let focus):
                 studyGuideFocus = focus
@@ -2206,6 +2237,7 @@ final class CompanionManager: ObservableObject {
                     throw StudyGuideError.noGuideToRevise
                 }
                 studyGuideRevision = StudyGuideRevision(pageHandle: previousRecord.pageHandle, previousGuide: previousRecord.guide, instruction: instruction)
+                pageURLTheRevisionReplaces = previousRecord.pageURL
             }
             let studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
                 videoTitle: video.title,
@@ -2220,7 +2252,7 @@ final class CompanionManager: ObservableObject {
             // Filed under the video the guide was written for, not whichever tab is in front now.
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
-            finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL))
+            finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
                 // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip.
@@ -2237,20 +2269,28 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// The ending Clicky plays for a finished agent depends on what it made.
-    private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult) {
+    /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
+    /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
+    private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
         backgroundAgentStore.finish(agentID, with: result)
         switch result {
         case .notionPage(let pageURL):
             // "Glass" belongs to quiz answers.
             NSSound(named: "Tink")?.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
-            let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL)
-            studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
+            var secondaryChipText = "· say open my study guide"
+            if let replacingPageURL, let replacedPageChromeTabID = studyGuideChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
+               videoQuizSession.loadPageInChromeTab(pageURL, tabID: replacedPageChromeTabID) {
+                studyGuideChromeTabIDsByPageURL[pageURL] = replacedPageChromeTabID
+                secondaryChipText = "· updated in its tab"
+            } else if let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
+                studyGuideChromeTabIDsByPageURL[pageURL] = openedChromeTabID
+                secondaryChipText = "· opened in a new tab"
+            }
             VoiceToolCallChip.shared.show(
                 "Study guide ready",
                 sender: .backgroundAgent(.studyGuide),
-                secondaryChipText: openedChromeTabID != nil ? "· opened in a new tab" : "· say open my study guide",
+                secondaryChipText: secondaryChipText,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -2287,7 +2327,7 @@ final class CompanionManager: ObservableObject {
             videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
-            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
+            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)

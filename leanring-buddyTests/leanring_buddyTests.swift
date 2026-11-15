@@ -1120,6 +1120,9 @@ struct leanring_buddyTests {
         #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0&t=90s") == studyGuideRecord)
         #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=otherVideo") == nil)
         #expect(testUserDefaults.data(forKey: "savedStudyGuide.L24Wf0VlTE0") != nil)
+        // A guide whose page is gone from Notion is forgotten, so the video can get a new one.
+        savedAfterARelaunch.forget(forVideoURL: "https://youtu.be/L24Wf0VlTE0")
+        #expect(savedAfterARelaunch.record(forVideoURL: "https://www.youtube.com/watch?v=L24Wf0VlTE0") == nil)
     }
 
     @Test func studyGuideToolsAreOfferedOnlyWhereTheyCanWork() async throws {
@@ -1492,6 +1495,12 @@ struct leanring_buddyTests {
         #expect(bringForwardScript.contains(#"if (item tabIndex of tabIDs as text) is "1234" then"#))
         #expect(bringForwardScript.contains("set active tab index of chromeWindow to tabIndex"))
         #expect(bringForwardScript.contains("return \"missing\""))
+
+        let pageURL = try #require(URL(string: "https://www.notion.so/revised"))
+        let loadScript = try #require(appleScriptToLoadPageInChromeTab(pageURL: pageURL, tabID: 1234))
+        #expect(loadScript.contains(#"set URL of tab tabIndex of chromeWindow to "https://www.notion.so/revised""#))
+        #expect(!loadScript.contains("set active tab index"))
+        #expect(appleScriptToLoadPageInChromeTab(pageURL: try #require(URL(string: "http://www.notion.so/revised")), tabID: 1234) == nil)
     }
 
     // MARK: - Agent list
