@@ -132,7 +132,8 @@ nonisolated enum LearnerVideoCommand: Equatable {
 
     /// Picks the page's main video: the largest one on screen, so a preview or an ad thumbnail never wins.
     /// A page whose videos all have no size, such as a background tab mid-layout, falls back to the first one.
-    private static let mainVideoJavaScript = "var videos = Array.prototype.slice.call(document.querySelectorAll('video')); var video = videos[0] || null; var largestArea = 0; videos.forEach(function (candidate) { var rect = candidate.getBoundingClientRect(); var area = rect.width * rect.height; if (area > largestArea) { largestArea = area; video = candidate; } });"
+    /// The requested-scene pause and its play use it too, so they act on the same video as the voice tools.
+    static let mainVideoJavaScript = "var videos = Array.prototype.slice.call(document.querySelectorAll('video')); var video = videos[0] || null; var largestArea = 0; videos.forEach(function (candidate) { var rect = candidate.getBoundingClientRect(); var area = rect.width * rect.height; if (area > largestArea) { largestArea = area; video = candidate; } });"
 
     /// NaN and infinity are not JavaScript literals the page can read, so they become 0.
     private static func javaScriptNumber(_ value: Double) -> String {
@@ -389,12 +390,13 @@ final class VideoQuizSession {
         print("Video quiz: stopped")
     }
 
-    /// Pauses the YouTube video in Chrome's front tab for a 3D model or pop-out the learner asked for,
-    /// with or without a quiz, so the video's narrator does not talk over Clicky. Returns what the quiz
-    /// video just said, so "show me that" can be built from it, or "" when no quiz watches this video.
-    /// A running quiz only pauses its own video, and Clicky holds one pause at a time.
+    /// Pauses the main video in Chrome's front tab, on any https site, for a 3D model or pop-out the learner asked
+    /// for, with or without a quiz, so the video's narrator does not talk over Clicky and the scene rises out of a
+    /// still frame. Returns what the quiz video just said, so "show me that" can be built from it, or "" when no quiz
+    /// watches this video. A running quiz only pauses its own video, and Clicky holds one pause at a time.
     func pauseVideoForRequestedScene() -> String {
-        guard let frontVideoTab = try? ChromeVideoTab.findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: true) else { return "" }
+        guard let frontVideoTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
+              captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) else { return "" }
         let quizWatchesTheFrontVideo = isRunning && currentVideoTab?.isTheSameTab(as: frontVideoTab) == true
         if isRunning && !quizWatchesTheFrontVideo { return "" }
         if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: frontVideoTab) { return "" }
@@ -412,6 +414,9 @@ final class VideoQuizSession {
             print("Video quiz: paused for a requested 3D model, held by Clicky \(videoIsPausedForRequestedScene)")
             guard quizWatchesTheFrontVideo else { return "" }
             return quizCaptionText(heardBefore: playbackState.currentSeconds)
+        } catch VideoQuizFailure.noVideoOnThePage {
+            // A pop-out of a picture on a page with no video has nothing to pause.
+            return ""
         } catch {
             print("Video quiz: could not pause for a 3D model: \(error)")
             return ""
@@ -968,9 +973,10 @@ final class VideoQuizSession {
         let isPaused: Bool
     }
 
-    private static let readPlaybackStateJavaScript = "(function () { var video = document.querySelector('video'); if (!video) { return 'no-video'; } return video.currentTime + '|' + video.paused; })()"
-    private static let pauseVideoJavaScript = "(function () { var video = document.querySelector('video'); if (video) { video.pause(); } return 'ok'; })()"
-    private static let playVideoJavaScript = "(function () { var video = document.querySelector('video'); if (video) { video.play(); } return 'ok'; })()"
+    // The page's largest video, so a preview or a second player on a page such as x.com is never the one paused.
+    static let readPlaybackStateJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video) { return 'no-video'; } return video.currentTime + '|' + video.paused; })()"
+    static let pauseVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.pause(); } return 'ok'; })()"
+    static let playVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.play(); } return 'ok'; })()"
     /// Draws the playing video into a canvas and returns the JPEG and the video's place on screen.
     /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
     private static let grabFrameJavaScript = "(function () { var video = document.querySelector('video'); if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"

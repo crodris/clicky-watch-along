@@ -10,6 +10,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Testing
+import JavaScriptCore
 @testable import Clicky
 
 @MainActor
@@ -1032,6 +1033,30 @@ struct leanring_buddyTests {
         #expect(liveSceneJudgeVerdict(workerVerdict: "wants_hint") == .control(.giveHint))
         #expect(liveSceneJudgeVerdict(workerVerdict: "scene_command") == .control(.sceneCommand))
         #expect(liveSceneJudgeVerdict(workerVerdict: "maybe") == nil)
+    }
+
+    @Test func theRequestedScenePauseAndPlayActOnThePagesLargestVideo() async throws {
+        let javaScriptContext = try #require(JSContext())
+        // A page like x.com can hold a small preview player ahead of the main one.
+        javaScriptContext.evaluateScript("""
+        var calls = [];
+        function fakeVideo(name, width, height) {
+            return { name: name, paused: false, currentTime: 12.5,
+                getBoundingClientRect: function () { return { width: width, height: height }; },
+                pause: function () { this.paused = true; calls.push(name + ' paused'); },
+                play: function () { this.paused = false; calls.push(name + ' played'); } };
+        }
+        var previewVideo = fakeVideo('preview', 160, 90);
+        var document = {
+            querySelectorAll: function () { return [previewVideo, mainVideo]; },
+            querySelector: function () { return previewVideo; }
+        };
+        var mainVideo = fakeVideo('main', 1280, 720);
+        """)
+        #expect(javaScriptContext.evaluateScript(VideoQuizSession.readPlaybackStateJavaScript).toString() == "12.5|false")
+        javaScriptContext.evaluateScript(VideoQuizSession.pauseVideoJavaScript)
+        javaScriptContext.evaluateScript(VideoQuizSession.playVideoJavaScript)
+        #expect(javaScriptContext.evaluateScript("calls.join(',')").toString() == "main paused,main played")
     }
 
     @Test func learnerVideoJavaScriptEmbedsOnlyNumbersAndNoDoubleQuotes() async throws {
