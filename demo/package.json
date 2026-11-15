@@ -18,7 +18,7 @@
     "render-sub-agents": "remotion render src/index.ts ClickySubAgentsClip out/clicky-sub-agents-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-sub-agents",
     "mix-sub-agents": "node scripts/mix-music.ts out/clicky-sub-agents-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-sub-agents.mp4",
     "render-parallel-agents": "remotion render src/index.ts ClickyParallelAgentsClip out/clicky-parallel-agents-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-parallel-agents",
-    "mix-parallel-agents": "node scripts/mix-music.ts out/clicky-parallel-agents-voice.mp4 public/music/driving-ambition.mp3 out/clicky-parallel-agents.mp4"
+    "mix-parallel-agents": "node scripts/mix-music.ts out/clicky-parallel-agents-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-parallel-agents.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.539",

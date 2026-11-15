@@ -77,10 +77,10 @@ The first two come from Mixkit under the Mixkit Stock Music Free License (https:
 The study guide clip and the combined clip use "Feel Good - It Feels So Good" (96 second version) by Easy_Eva (https://pixabay.com/music/small-emotions-feel-good-it-feels-so-good-96sec-605780/), saved as `demo/public/music/it-feels-so-good.mp3`, under the Pixabay Content License (https://pixabay.com/service/license-summary/).
 The quiz miss clip uses "Pop - Friends Like Us" (122 second version) by Easy_Eva (https://pixabay.com/music/pop-pop-friends-like-us-122sec-564062/), saved as `demo/public/music/friends-like-us.mp3`, under the same license.
 Neither is registered with YouTube Content ID, so a YouTube upload gets no claim, and neither is AI-generated.
-The parallel agents clip uses "Driving Ambition" by Ahjay Stelino (https://mixkit.co/free-stock-music/tag/driving-ambition/), saved as `demo/public/music/driving-ambition.mp3`, under the Mixkit Stock Music Free License.
+The parallel agents clip uses the same "Feel Good - It Feels So Good" track as the study guide clip.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
-Download all five before rendering.
+Download all four before rendering.
 
 `scripts/mix-music.ts` runs after the Remotion render.
 It gives the voice a high-pass at 80 Hz, a small lift at 3 kHz, and light compression.
