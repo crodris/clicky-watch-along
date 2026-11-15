@@ -119,6 +119,8 @@ final class CompanionManager: ObservableObject {
     /// The Notion page and guide JSON written for each video, filed under the video's URL when its guide was started,
     /// so a revise or an open finds it later.
     private let savedStudyGuides = SavedStudyGuides(userDefaults: .standard)
+    /// The hold that keeps the blue cursor on a quiz question's "?" label, so only the end of that question releases it.
+    private var quizQuestionPointingID: UUID?
     /// The Chrome tab each guide opened in, so open_study_guide switches to it instead of opening the page twice.
     private var studyGuideChromeTabIDsByPageURL: [URL: Int] = [:]
     /// Saved guides whose page Notion confirmed since launch, so the check costs one Worker call per guide per launch.
@@ -795,13 +797,18 @@ final class CompanionManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
             }
             if stepWaitsForAQuestion {
-                // A learner answers after hearing the question, so wait for it to start and end.
+                // A learner answers after hearing the question, so wait for it to start and end. A second answer to
+                // the same question comes after Clicky's reply to the first, so 2 quiet seconds with the question
+                // waiting count as heard too.
                 var questionAudioHasStarted = false
+                var quietSecondsWithTheQuestionWaiting = 0.0
                 for _ in 0..<960 {
                     var questionIsWaiting = false
                     if case .awaitingAnswer = liveScenePhase { questionIsWaiting = true }
                     if questionIsWaiting && elevenLabsTTSClient.isPlaying { questionAudioHasStarted = true }
                     if questionIsWaiting && questionAudioHasStarted && !elevenLabsTTSClient.isPlaying { break }
+                    quietSecondsWithTheQuestionWaiting = questionIsWaiting && !elevenLabsTTSClient.isPlaying ? quietSecondsWithTheQuestionWaiting + 0.25 : 0
+                    if quietSecondsWithTheQuestionWaiting >= 2 { break }
                     try? await Task.sleep(nanoseconds: 250_000_000)
                 }
                 if case .awaitingAnswer(let openQuiz, _) = liveScenePhase {
@@ -1608,6 +1615,10 @@ final class CompanionManager: ObservableObject {
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
+        // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
+        if !(grade == .wrong && wrongAnswerCount == 0) {
+            releaseTheBuddyFromTheQuizQuestion()
+        }
         if videoQuizQuestionIsActive, let studyGuideOutcome = studyGuideQuizOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount) {
             videoQuizSession.recordTheOpenQuestionOutcome(studyGuideOutcome)
         }
@@ -1951,7 +1962,12 @@ final class CompanionManager: ObservableObject {
             // Only after the phase changes, because a new question cancels this
             // task and .touring has no way to release the mouse.
             LiveSceneOverlay.shared.letLearnerDragTheModel()
+            // The "?" label's place is read while the question starts playing, as a narration reads its part's.
+            let settledLabelScreenPointsTask = Task {
+                await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
+            }
             await self.speakLiveSceneLine(quiz.question)
+            self.pointTheBuddyAtTheQuizQuestion(quiz, labelScreenPoints: await settledLabelScreenPointsTask.value)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -2569,6 +2585,25 @@ final class CompanionManager: ObservableObject {
         detectedElementBubbleText = bubbleText
         detectedElementDisplayFrame = displayFrame
         detectedElementScreenLocation = partScreenPoint.globalPoint
+    }
+
+    /// The blue cursor flies to the quiz's "?" label and its bubble shows the question, typed along with the voice, so a
+    /// learner can read a long question again while answering. It stays until the question is answered, or the scene
+    /// clears, which releases any held pointing.
+    private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {
+        guard !Task.isCancelled, case .awaitingAnswer = liveScenePhase,
+              let questionLabelScreenPoint = labelScreenPoints.first(where: { labelScreenPoint in labelScreenPoint.label == quiz.answerLabel }) else {
+            return
+        }
+        let questionPointingID = UUID()
+        quizQuestionPointingID = questionPointingID
+        pointTheBuddy(atLiveScenePart: questionLabelScreenPoint, bubbleText: quiz.question, narrationID: questionPointingID)
+    }
+
+    private func releaseTheBuddyFromTheQuizQuestion() {
+        guard let quizQuestionPointingID else { return }
+        releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: quizQuestionPointingID)
+        self.quizQuestionPointingID = nil
     }
 
     /// Only the narration that pointed the buddy releases it, so an older narration that finishes
