@@ -276,6 +276,37 @@ describe("scene-tools.js simulation tools", () => {
     expect(report.readouts.map((readout) => readout.label)).toEqual(["x".repeat(40), "Two", "Three"]);
   });
 
+  it("skips the guess when the learner clicks the locked Run button, and tells the app", () => {
+    const clickHandlers: Array<() => void> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: (tagName: string) => ({
+        style: {},
+        offsetHeight: 60,
+        append: () => {},
+        replaceChildren: () => {},
+        addEventListener: (eventName: string, handler: () => void) => {
+          if (tagName === "button" && eventName === "click") clickHandlers.push(handler);
+        },
+      }),
+      querySelectorAll: () => [],
+    };
+    const page = simulationPage();
+    const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
+    clickyTools.call("set_control", { name: "angle", value: 30 });
+    const clickRun = clickHandlers[0];
+    expect(clickRun).toBeDefined();
+
+    clickRun?.();
+
+    expect(postedEvents).toEqual(["guessSkipped"]);
+    expect(clickyTools.state().lessonStage).toBe("explore");
+    expect(page.run).not.toHaveBeenCalled();
+    clickRun?.();
+    expect(page.run).toHaveBeenCalledTimes(1);
+  });
+
   it("moves the camera's view up by half the panel's height, so the panel does not cover the scene", () => {
     const fakeElement = (): Record<string, unknown> => ({
       style: {},
