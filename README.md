@@ -161,6 +161,8 @@ pnpm wrangler secret put ANTHROPIC_API_KEY
 pnpm wrangler secret put ELEVENLABS_API_KEY
 pnpm wrangler secret put OPENAI_API_KEY
 pnpm wrangler secret put GOOGLE_MAPS_API_KEY
+# Optional, for Notion study guides
+pnpm wrangler secret put NOTION_API_KEY
 ```
 
 For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
@@ -195,6 +197,7 @@ ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=...
 OPENAI_API_KEY=...
 GOOGLE_MAPS_API_KEY=...
+NOTION_API_KEY=ntn_...
 ```
 
 Debug builds already call `http://127.0.0.1:8787`, so a local run needs no URL changes.

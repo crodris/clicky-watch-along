@@ -341,6 +341,8 @@ final class VideoQuizSession {
         videoPausedByClicky?.reason == .requestedScene
     }
     private var allTranscriptLines: [VideoQuizTranscriptLine] = []
+    /// The questions the learner finished, per video, for the study guide. Kept after the quiz stops.
+    private var studyGuideQuizLog = StudyGuideQuizLog()
     private var consecutiveFailedPlaybackReadCount = 0
     private var framePopoutTasksByMomentIndex: [Int: Task<VideoFramePopout?, Never>] = [:]
 
@@ -381,6 +383,7 @@ final class VideoQuizSession {
             framePopoutTask.cancel()
         }
         framePopoutTasksByMomentIndex = [:]
+        studyGuideQuizLog.discardTheOpenQuestion()
         // A failure or a stop during planning would otherwise leave the planning label up.
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
         print("Video quiz: stopped")
@@ -512,7 +515,7 @@ final class VideoQuizSession {
             print("Video quiz: planned \(plannedMoments.count) moments in \(String(format: "%.1f", planningSeconds))s")
 
             let spotCountText = plannedMoments.count == 1 ? "1 spot" : "\(plannedMoments.count) spots"
-            speakLine("Okay, I've got \(spotCountText) picked out. Here we go!")
+            speakLine("Okay, I've got \(spotCountText) picked out.")
             // The line takes about this long, and the video should start after it.
             try await Task.sleep(for: .seconds(Self.secondsForTheReadyLineToFinish))
             guard isRunning else { return }
@@ -607,7 +610,21 @@ final class VideoQuizSession {
             print("Video quiz: skipping the question for moment \(momentIndex + 1), its pause is no longer held")
             return
         }
+        studyGuideQuizLog.questionIsAsked(
+            videoURL: videoTab.url,
+            question: moment.quiz.question,
+            answerLabel: moment.quiz.answerLabel,
+            explanation: moment.quiz.explanation,
+            askedAtSeconds: moment.pauseAtSeconds
+        )
         askQuestion(moment.quiz, framePopout)
+    }
+
+    /// Counts the open video quiz question as answered or skipped for the study guide. Only the first outcome
+    /// of a question counts, so a follow-up grade on the same question adds nothing, and this returns false for it.
+    @discardableResult
+    func recordTheOpenQuestionOutcome(_ outcome: StudyGuideQuizOutcome) -> Bool {
+        studyGuideQuizLog.closeTheOpenQuestion(with: outcome)
     }
 
     // MARK: Lifting the subject out of the frame
@@ -824,31 +841,92 @@ final class VideoQuizSession {
         return videoState
     }
 
-    /// The caption lines that best match the query in the video in front. The quiz's own captions are reused,
-    /// and another YouTube video's captions are read once with yt-dlp and kept for the rest of the session.
-    /// Any other site throws, since the captions reader keeps only YouTube's format, and the model hears the search failed.
+    /// The caption lines that best match the query in the video in front.
     func captionMomentsInTheFrontVideo(matching query: String) async throws -> [VideoCaptionMoment] {
         let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
-        let captionLines: [VideoQuizTranscriptLine]
-        if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, !allTranscriptLines.isEmpty {
-            captionLines = allTranscriptLines
+        let captionLines = try await captionLines(ofTheVideoIn: frontVideoTab)
+        return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
+    }
+
+    /// The URL of the active tab of Chrome's front window, or nil when Chrome has none to read.
+    func frontTabURLOfTheFrontWindow() -> String? {
+        try? ChromeVideoTab.frontTabOfTheFrontWindow().url
+    }
+
+    /// Opens a page in a new Chrome tab behind the one the learner is on, and returns the new tab's id.
+    /// Nil when Chrome would not take it, so the caller can say how to open the page by voice instead.
+    func openInABackgroundChromeTab(_ pageURL: URL) -> Int? {
+        do {
+            return try ChromeVideoTab.openInABackgroundTab(pageURL)
+        } catch {
+            print("Background tab: could not open \(pageURL): \(error)")
+            return nil
+        }
+    }
+
+    /// Loads a page in the tab with this id without switching to it. False when the learner closed the tab, the page is
+    /// not https, or Chrome would not take the script, so the caller opens a new tab instead.
+    func loadPageInChromeTab(_ pageURL: URL, tabID: Int) -> Bool {
+        guard let appleScriptSource = appleScriptToLoadPageInChromeTab(pageURL: pageURL, tabID: tabID) else { return false }
+        do {
+            return try ChromeVideoTab.runTabScript(appleScriptSource) == "found"
+        } catch {
+            print("Background tab: could not load \(pageURL) in tab \(tabID): \(error)")
+            return false
+        }
+    }
+
+    /// Switches Chrome to the tab with this id and brings its window to the front.
+    /// False when the learner closed the tab or Chrome would not take the script, so the caller opens the page again.
+    func bringChromeTabForward(tabID: Int) -> Bool {
+        do {
+            return try ChromeVideoTab.bringTabForward(tabID: tabID)
+        } catch {
+            print("Background tab: could not bring tab \(tabID) forward: \(error)")
+            return false
+        }
+    }
+
+    /// The YouTube video in Chrome's front tab with its captions and the quiz results Clicky holds for it, for a study guide.
+    /// The URL is read once here, so the guide is filed under the video its captions came from even if the learner switches tabs meanwhile.
+    /// Throws the same errors as the caption search, such as a page that is not on YouTube or a video with no captions.
+    func frontVideoForStudyGuide() async throws -> StudyGuideVideo {
+        let frontVideoTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        let captionLines = try await captionLines(ofTheVideoIn: frontVideoTab)
+        guard !captionLines.isEmpty else { throw VideoQuizFailure.noCaptionsToSearch }
+        return StudyGuideVideo(
+            title: frontVideoTab.title,
+            url: frontVideoTab.url,
+            transcriptLines: captionLines,
+            quizResults: Array(studyGuideQuizLog.results(forVideoURL: frontVideoTab.url).suffix(mostStudyGuideQuizResults))
+        )
+    }
+
+    /// The quiz's own captions are reused when it runs on this very video, and another YouTube video's captions are
+    /// read once with yt-dlp and kept for the rest of the session.
+    /// Any other site throws, since the captions reader keeps only YouTube's format, and the model hears the search failed.
+    private func captionLines(ofTheVideoIn frontVideoTab: ChromeVideoTab) async throws -> [VideoQuizTranscriptLine] {
+        // The tab's ids stay the same when the learner moves to another video inside it, so the URL must match too.
+        if isRunning, currentVideoTab?.isTheSameTab(as: frontVideoTab) == true, currentVideoTab?.url == frontVideoTab.url, !allTranscriptLines.isEmpty {
+            return allTranscriptLines
         } else if !captionSearchMayReadTheVideoPage(urlText: frontVideoTab.url) {
             throw VideoQuizFailure.noVideoOnThePage
         } else if !urlIsOnYouTube(urlText: frontVideoTab.url) {
             // The captions reader keeps only YouTube's json3 captions, which other sites do not serve.
             throw VideoQuizFailure.captionSearchNeedsYouTube
         } else if let cachedCaptionLines = captionLinesByVideoURL[frontVideoTab.url] {
-            captionLines = cachedCaptionLines
+            return cachedCaptionLines
         } else {
+            let downloadedCaptionLines: [VideoQuizTranscriptLine]
             do {
-                captionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
+                downloadedCaptionLines = try await VideoCaptionsDownloader.downloadTranscriptLines(forVideoURL: frontVideoTab.url)
             } catch VideoQuizFailure.noCaptions {
                 // The quiz's own line talks about planning a quiz, which is not what the learner asked for.
                 throw VideoQuizFailure.noCaptionsToSearch
             }
-            captionLinesByVideoURL[frontVideoTab.url] = captionLines
+            captionLinesByVideoURL[frontVideoTab.url] = downloadedCaptionLines
+            return downloadedCaptionLines
         }
-        return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
     }
 
     private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String, pageIsOnYouTube: Bool) throws -> JSONValue {
@@ -895,6 +973,64 @@ final class VideoQuizSession {
         }
         return VideoPlaybackState(currentSeconds: currentSeconds, isPaused: resultParts[1] == "true")
     }
+}
+
+/// The AppleScript that opens a page as the last tab of Chrome's front window and then puts the window back on the tab
+/// the learner was watching, so a finished guide never takes over the screen. Nil unless the page is https.
+/// A URL's text has quotes and backslashes percent-encoded, so it sits safely inside the AppleScript string.
+nonisolated func appleScriptToOpenInABackgroundTab(pageURL: URL) -> String? {
+    guard pageURL.scheme?.lowercased() == "https" else { return nil }
+    let pageURLText = pageURL.absoluteString
+    return """
+    tell application "Google Chrome"
+        if (count of windows) is 0 then error "Chrome has no window"
+        set frontChromeWindow to front window
+        set originalActiveTabIndex to active tab index of frontChromeWindow
+        tell frontChromeWindow to set newTab to make new tab at end of tabs with properties {URL:"\(pageURLText)"}
+        set active tab index of frontChromeWindow to originalActiveTabIndex
+        return id of newTab
+    end tell
+    """
+}
+
+/// Finds the tab by id in any Chrome window, makes it the window's active tab, and brings the window and Chrome forward.
+/// Returns "found" or "missing". It reads each window's tab ids in one Apple Event, since one event per tab is slow with many tabs.
+/// Chrome gives tab ids as text, so a comparison with a number never matches.
+nonisolated func appleScriptToLoadPageInChromeTab(pageURL: URL, tabID: Int) -> String? {
+    guard pageURL.scheme?.lowercased() == "https" else { return nil }
+    return """
+    tell application "Google Chrome"
+        repeat with chromeWindow in windows
+            set tabIDs to id of every tab of chromeWindow
+            repeat with tabIndex from 1 to count of tabIDs
+                if (item tabIndex of tabIDs as text) is "\(tabID)" then
+                    set URL of tab tabIndex of chromeWindow to "\(pageURL.absoluteString)"
+                    return "found"
+                end if
+            end repeat
+        end repeat
+        return "missing"
+    end tell
+    """
+}
+
+nonisolated func appleScriptToBringChromeTabForward(tabID: Int) -> String {
+    """
+    tell application "Google Chrome"
+        repeat with chromeWindow in windows
+            set tabIDs to id of every tab of chromeWindow
+            repeat with tabIndex from 1 to count of tabIDs
+                if (item tabIndex of tabIDs as text) is "\(tabID)" then
+                    set active tab index of chromeWindow to tabIndex
+                    set index of chromeWindow to 1
+                    activate
+                    return "found"
+                end if
+            end repeat
+        end repeat
+        return "missing"
+    end tell
+    """
 }
 
 // MARK: - Chrome tab
@@ -1049,6 +1185,35 @@ private struct ChromeVideoTab {
         "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL });",
         "})()",
     ].joined(separator: " ")
+
+    /// Opens the page as a new tab at the end of Chrome's front window without switching to it, and returns the tab's id.
+    /// Throws when Chrome is not running, has no window, or refuses the script, and never opens a page that is not https.
+    static func openInABackgroundTab(_ pageURL: URL) throws -> Int {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
+            throw VideoQuizFailure.chromeIsNotRunning
+        }
+        guard let appleScriptSource = appleScriptToOpenInABackgroundTab(pageURL: pageURL) else {
+            throw VideoQuizFailure.chromeScriptFailed("Only https pages open in a background tab")
+        }
+        let newTabIDText = try runAppleScript(appleScriptSource)
+        guard let newTabID = Int(newTabIDText) else {
+            throw VideoQuizFailure.chromeScriptFailed("The new tab's id was not a number: \(newTabIDText)")
+        }
+        return newTabID
+    }
+
+    /// Whether a tab with this id was found and brought forward. Throws when Chrome is not running or refuses the script.
+    static func bringTabForward(tabID: Int) throws -> Bool {
+        try runTabScript(appleScriptToBringChromeTabForward(tabID: tabID)) == "found"
+    }
+
+    /// Runs a script that finds a tab by id. Throws when Chrome is not running or refuses the script.
+    static func runTabScript(_ appleScriptSource: String) throws -> String {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
+            throw VideoQuizFailure.chromeIsNotRunning
+        }
+        return try runAppleScript(appleScriptSource)
+    }
 
     /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,
     /// or no media big enough. The learner may be looking at anything, so this never throws.

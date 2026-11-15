@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkLandmark, handleLandmark } from "./landmark";
 
-const statue = { isFamousPlace: true, name: "Statue of Liberty", latitude: 40.68925, longitude: -74.0445, heightMeters: 93, radiusMeters: 20 };
+const statue = { isFamousPlace: true, name: "Statue of Liberty", nameTakesThe: true, latitude: 40.68925, longitude: -74.0445, heightMeters: 93, radiusMeters: 20 };
 
 afterEach(() => {
   vi.unstubAllGlobals();

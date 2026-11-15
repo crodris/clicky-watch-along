@@ -26,8 +26,9 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
-  key <escape|push-to-talk-tap>
+  key <escape|push-to-talk-tap|agents-list>
                             Press that key through System Events, as the learner would, while the app runs.
+                            agents-list holds shift and option for 0.5 s, which opens or closes the agent list.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
 }
@@ -571,8 +572,17 @@ command_key() {
         key up control
       end tell'
       ;;
+    agents-list)
+      osascript -e 'tell application "System Events"
+        key down shift
+        key down option
+        delay 0.5
+        key up option
+        key up shift
+      end tell'
+      ;;
     *)
-      echo "key takes escape or push-to-talk-tap" >&2
+      echo "key takes escape, push-to-talk-tap, or agents-list" >&2
       exit 1
       ;;
   esac

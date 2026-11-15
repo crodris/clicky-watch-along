@@ -166,13 +166,14 @@ func liveSceneNarrationUserPrompt(for narrationTrigger: LiveSceneNarrationTrigge
 
 /// One spoken line for the landmark page, naming the place with its height from the /landmark reply.
 func landmarkNarrationLine(for famousPlace: FamousPlace) -> String {
+    let nameInASentence = famousPlace.nameTakesThe ? "the \(famousPlace.name)" : famousPlace.name
     let roundedHeightMeters = Int(famousPlace.heightMeters.rounded())
     // About 3 meters a floor, so a kid can picture the height as a building.
     let buildingFloorCount = Int((famousPlace.heightMeters / 3).rounded())
     guard buildingFloorCount >= 2 else {
-        return "This is \(famousPlace.name), in real 3D. It stands about \(roundedHeightMeters) meters tall."
+        return "This is \(nameInASentence), in real 3D. It stands about \(roundedHeightMeters) meters tall."
     }
-    return "This is \(famousPlace.name), in real 3D. It stands about \(roundedHeightMeters) meters tall, as high as a \(buildingFloorCount)-story building."
+    return "This is \(nameInASentence), in real 3D. It stands about \(roundedHeightMeters) meters tall, as high as a \(buildingFloorCount)-story building."
 }
 
 // MARK: - Pointing the blue cursor at a part
@@ -213,6 +214,14 @@ struct LiveScenePartLabelRectInPage: Equatable {
 struct LiveScenePartScreenPoint: Equatable {
     let label: String
     let globalPoint: CGPoint
+}
+
+/// The quiz's "?" label, found by the part the frame parts call marked as the answer, since that part's label and the
+/// planner's answer label can name it differently, such as "Ampullae of Lorenzini" and "Ampullae". A page with no
+/// marked part falls back to the answer label.
+func quizQuestionLabelScreenPoint(in labelScreenPoints: [LiveScenePartScreenPoint], quizAnswerPartLabel: String?, answerLabel: String) -> LiveScenePartScreenPoint? {
+    let labelToFind = quizAnswerPartLabel ?? answerLabel
+    return labelScreenPoints.first { labelScreenPoint in labelScreenPoint.label == labelToFind }
 }
 
 /// The middle of the label's bottom edge. The cursor lands just below and right of its target

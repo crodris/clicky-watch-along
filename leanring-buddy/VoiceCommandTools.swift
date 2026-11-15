@@ -187,6 +187,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case setSpeed = "set_speed"
     case findMoment = "find_moment"
     case endQuiz = "end_quiz"
+    case makeStudyGuide = "make_study_guide"
+    case reviseStudyGuide = "revise_study_guide"
+    case openStudyGuide = "open_study_guide"
 
     /// What the app can do right now. A tool that cannot work is left out, so the model never picks it.
     nonisolated struct Context: Equatable, Sendable {
@@ -199,6 +202,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         /// While a quiz question waits for its answer, every utterance goes to the judge first. A hand-off
         /// to the old path would send it back to the judge, so only view and video tools are offered then.
         var quizQuestionIsOpen: Bool
+        /// A study guide was already written for the YouTube video in front, so it can be revised or opened.
+        var studyGuideExistsForTheFrontVideo = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -218,6 +223,13 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.videoIsInFront && context.videoIsOnYouTube
             case .endQuiz:
                 return context.videoQuizIsRunning
+            // The guide is written from the video's captions, which only YouTube's are read. A question's own
+            // answers are part of the guide, so it waits until the learner answers or skips.
+            // A video gets one guide, so once it has one the model can only open or revise it.
+            case .makeStudyGuide:
+                return context.videoIsInFront && context.videoIsOnYouTube && !context.quizQuestionIsOpen && !context.studyGuideExistsForTheFrontVideo
+            case .reviseStudyGuide, .openStudyGuide:
+                return context.videoIsInFront && context.videoIsOnYouTube && !context.quizQuestionIsOpen && context.studyGuideExistsForTheFrontVideo
             }
         }
     }
@@ -236,9 +248,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .answerWithScreen:
             return "Answer a question about what is on screen, using a screenshot. Use it for questions and for anything no other tool can do, not for changing the view."
         case .buildNewScene:
-            return "Build a brand new 3D model from scratch, which takes about 10 seconds. Use it only when the learner wants a different model or a 3D view of something not on screen yet, never to turn, zoom, or open the model already showing."
+            return "Build a 3D view, which takes about 10 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. Never use it to turn, zoom, or open the model already showing."
         case .popOut:
-            return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it when they say pop this out."
+            return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
@@ -257,6 +269,12 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Search the video's captions for where something is said. Returns up to 3 moments, best match first, with their times, so you can call seek_to_time next."
         case .endQuiz:
             return "Stop the video quiz."
+        case .makeStudyGuide:
+            return "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and a chip under the cursor shows when the page is ready, with nothing spoken. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done."
+        case .reviseStudyGuide:
+            return "Change the study guide already written for this video, such as making it shorter, adding detail on one part, or adding a section. The new page replaces the old one in Notion and is written in the background. Put what to change in instruction, in the learner's words. Your confirmation is a few plain words that it has started, such as \"updating it now\", never that it is done."
+        case .openStudyGuide:
+            return "Open this video's study guide page in Notion. Use it when the learner asks to see, open, or go to the guide, and when they ask for a new study guide, since this video already has one. In that case your confirmation says they already have a guide for this video and you are opening it."
         }
     }
 
@@ -289,6 +307,12 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema(["rate": numberProperty("From 0.25 to 2.")], required: ["rate"])
         case .findMoment:
             return objectSchema(["query": .object(["type": .string("string"), "description": .string("A few words that would be said at that moment.")])], required: ["query"])
+        case .makeStudyGuide:
+            return objectSchema(["focus": .object(["type": .string("string"), "description": .string("An extra wish for the guide, such as only the part about the engine. Leave it out when they made none.")])], required: [])
+        case .reviseStudyGuide:
+            return objectSchema(["instruction": .object(["type": .string("string"), "description": .string("What to change about the guide, in the learner's words.")])], required: ["instruction"])
+        case .openStudyGuide:
+            return objectSchema([:], required: [])
         }
     }
 }
@@ -365,6 +389,12 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return textInput("query").map { query in "Finding \u{201C}\(query)\u{201D}" } ?? "Searching the captions"
         case "end_quiz":
             return "Ending the quiz"
+        case "make_study_guide":
+            return "Starting your study guide"
+        case "revise_study_guide":
+            return "Updating your study guide"
+        case "open_study_guide":
+            return "Opening your study guide"
         default:
             // pop_out, build_new_scene, and answer_with_screen hand off to a path with its own status line or spinner.
             return nil
