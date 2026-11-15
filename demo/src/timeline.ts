@@ -17,6 +17,8 @@ export type ShotSegment = {
   captions: Caption[];
   /** For a shot from later in the recording, such as an opening glimpse of the result, whose sound would be out of place. */
   muted?: boolean;
+  /** Where the sound fades out, in seconds into the shot, so a held shot can run on past a line it must not play. */
+  soundEndsAtSeconds?: number;
 };
 
 /** The closing card over a blurred, muted stretch of a recording. */
@@ -255,6 +257,8 @@ const engineVideo = { x: 0.57, y: 0.49 };
 const engineVideoScale = 1.28;
 // The chips and the agent list open just below and right of the blue triangle, which rests at about (0.67, 0.69).
 const studyGuideChip = { x: 0.72, y: 0.73 };
+// Right of studyGuideChip, so the camera at 2.5 times shows the chip's whole "· opened in a new tab" with the helper.
+const wholeStudyGuideChip = { x: 0.75, y: 0.73 };
 const notionPage = { x: 0.64, y: 0.55 };
 // Close enough to see the helper triangle trail the blue one and fill.
 const helperScale = 3.0;
@@ -465,9 +469,33 @@ function shotNamed(clipSegments: Segment[], shotName: string): Segment {
 // click closes it. The pop-out narration and the first take's own opening of the guide are left out.
 export const subAgentsClipSegments: Segment[] = [
   { ...shotNamed(studyGuideClipSegments, "ask"), name: "guide-ask" },
-  // The narration that follows the pop-out is left out here, so the shot ends at 21.6, before Clicky's first word at
-  // 21.70, instead of at 21.9, where the cut to the quiz would clip that word.
-  { ...shotNamed(studyGuideClipSegments, "popout"), name: "guide-popout", durationSeconds: 10.1 },
+  {
+    // The study guide clip's pop-out shot, held on the finished helper. The narration that follows it is left out here,
+    // so the sound fades out by 21.6, before Clicky's first word at 21.70, while the picture runs on to 23.2: the chip
+    // and the helper's green check stay until the helper leaves at 23.4. The camera closes in on the helper from 18.1,
+    // so its fill is seen completing, then pulls back to show the whole chip.
+    kind: "shot",
+    name: "guide-popout",
+    recordingFile: "study-guide.mov",
+    cursorTrackFile: "study-guide.cursor.json",
+    sourceStartSeconds: 11.5,
+    durationSeconds: 11.7,
+    soundEndsAtSeconds: 10.1,
+    cameraMoves: [
+      { atSeconds: 0, scale: engineVideoScale, focus: engineVideo, durationFrames: 1 },
+      { atSeconds: 1.7, scale: labelScale, focus: studyGuideChip, durationFrames: bigMoveFrames },
+      { atSeconds: 4.9, scale: engineVideoScale, focus: engineVideo, durationFrames: bigMoveFrames },
+      { atSeconds: 6.6, scale: 4.0, focus: "cursor", durationFrames: bigMoveFrames },
+      { atSeconds: 8.9, scale: 2.5, focus: wholeStudyGuideChip, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.3, toSeconds: 2.0, text: "Pop this out", voice: "learner" },
+      { fromSeconds: 2.2, toSeconds: 5.0, text: "Shift + option lists every running sub-agent", accentWords: ["shift + option"] },
+      { fromSeconds: 5.1, toSeconds: 6.7, text: "The main agent stays free for you", accentWords: ["stays free"] },
+      { fromSeconds: 6.9, toSeconds: 9.0, text: "The sub-agent's cursor fills as its task progresses", accentWords: ["fills"] },
+      { fromSeconds: 9.1, toSeconds: 11.5, text: "Done: green check, page ready in a background tab", accentWords: ["green check"], accentColor: finishedCheckGreen },
+    ],
+  },
   { ...shotNamed(quizMissClipSegments, "ask"), name: "quiz-ask" },
   { ...shotNamed(quizMissClipSegments, "question"), name: "quiz-question" },
   { ...shotNamed(quizMissClipSegments, "wrong"), name: "quiz-wrong" },
