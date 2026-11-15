@@ -1510,10 +1510,13 @@ final class CompanionManager: ObservableObject {
                 cursorScreenJPEGData: cursorScreenJPEGData
             )
             guard requestGeneration == liveSceneRequestGeneration else { return }
+            // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
+            guard let overlayScreen = screenUnderTheMouseCursor() else { return }
             _ = playGeneratedScenePage(
                 html: liveScene.html,
                 quizToAskAfterTour: sceneKind == .quiz ? liveScene.quiz : nil,
-                cursorScreenJPEGData: cursorScreenJPEGData,
+                overlayScreen: overlayScreen,
+                screenJPEGData: cursorScreenJPEGData,
                 mediaRectToRiseFrom: mediaRectToRiseFrom
             )
         } catch is CancellationError {
@@ -1525,22 +1528,21 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Plays a page from `POST /live-scene` on the screen under the mouse, rising out of the media rect when there is one
-    /// and a screenshot of that screen to rise from. Returns whether the overlay took the page.
+    /// Plays a page from `POST /live-scene` on overlayScreen, rising out of the media rect when there is one and a
+    /// screenshot of that same screen to rise from. Returns whether the overlay took the page.
     private func playGeneratedScenePage(
         html generatedPageHTML: String,
         quizToAskAfterTour: LiveSceneQuiz?,
-        cursorScreenJPEGData: Data?,
+        overlayScreen: NSScreen,
+        screenJPEGData: Data?,
         mediaRectToRiseFrom: ScreenRectInChromeCoordinates?
     ) -> Bool {
-        // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
-        guard let overlayScreen = screenUnderTheMouseCursor() else { return false }
         var liveScenePageHTML = generatedPageHTML
-        if let mediaRectToRiseFrom, let cursorScreenJPEGData,
+        if let mediaRectToRiseFrom, let screenJPEGData,
            let riseScript = liveSceneRiseScriptFromTheBundle() {
             liveScenePageHTML = liveScenePageThatRisesFromTheSource(
                 generatedPageHTML: generatedPageHTML,
-                screenJPEGBase64: cursorScreenJPEGData.base64EncodedString(),
+                screenJPEGBase64: screenJPEGData.base64EncodedString(),
                 sourceRectInOverlayPage: rectInOverlayPage(of: mediaRectToRiseFrom, overlayScreen: overlayScreen),
                 riseScript: riseScript
             )
@@ -2235,14 +2237,15 @@ final class CompanionManager: ObservableObject {
             let sourceTabURL = videoQuizSession.frontTabURLOfTheFrontWindow()
             let heardText = videoQuizSession.whatTheQuizVideoInFrontJustSaid()
             let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-            guard let cursorScreenJPEGData = (screenCaptures.first { $0.isCursorScreen } ?? screenCaptures.first)?.imageData else {
+            let videoScreen = screenAndCaptureShowing(VideoQuizSession.screenRectOfTheMediaToRiseFrom(), in: screenCaptures)
+            guard let videoScreenJPEGData = (videoScreen?.capture ?? screenCaptures.first)?.imageData else {
                 throw ThreeDModelBuildError.noScreenshot
             }
             try Task.checkCancellation()
             backgroundAgentStore.setSubject(whatToBuild, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
-            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: cursorScreenJPEGData)
+            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData)
             // A model cancelled from the agent list never shows, even when the Worker had already replied.
             try Task.checkCancellation()
             print("3D model: built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
@@ -2264,6 +2267,21 @@ final class CompanionManager: ObservableObject {
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
+    }
+
+    /// The screen showing the video, with its screenshot, so a background model is built from and rises on the video's
+    /// own screen wherever the mouse is, since the learner may have moved on while it was built. Falls back to the screen
+    /// under the mouse, with no screenshot when none matches it.
+    private func screenAndCaptureShowing(
+        _ mediaRect: ScreenRectInChromeCoordinates?,
+        in screenCaptures: [CompanionScreenCapture]
+    ) -> (screen: NSScreen, capture: CompanionScreenCapture?)? {
+        let screens = NSScreen.screens
+        let screenIndexShowingTheMedia = mediaRect.flatMap { mediaRect in
+            indexOfTheScreenFrameHolding(mediaRect, screenFramesInAppKitCoordinates: screens.map(\.frame))
+        }
+        guard let screen = screenIndexShowingTheMedia.map({ screens[$0] }) ?? screenUnderTheMouseCursor() else { return nil }
+        return (screen: screen, capture: screenCaptures.first { $0.displayFrame == screen.frame })
     }
 
     /// A model rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or
@@ -2304,28 +2322,30 @@ final class CompanionManager: ObservableObject {
             _ = videoQuizSession.pauseVideoForRequestedScene()
         }
         voiceState = .processing
-        var labeledImages: [(data: Data, label: String)] = []
-        var cursorScreenJPEGData: Data?
+        var screenCaptures: [CompanionScreenCapture] = []
         do {
-            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-            cursorScreenJPEGData = (screenCaptures.first { $0.isCursorScreen } ?? screenCaptures.first)?.imageData
-            labeledImages = screenCaptures.map { capture in (data: capture.imageData, label: capture.label) }
+            screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
         } catch {
             print("3D model: screen capture for the rise failed, so it shows without rising: \(error)")
         }
         let mediaRectToRiseFrom = sourceVideoIsInFront ? VideoQuizSession.screenRectOfTheMediaToRiseFrom() : nil
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else { return }
-        guard playGeneratedScenePage(
-            html: modelToShow.pageHTML,
-            quizToAskAfterTour: nil,
-            cursorScreenJPEGData: cursorScreenJPEGData,
-            mediaRectToRiseFrom: mediaRectToRiseFrom
-        ) else {
+        guard let videoScreen = screenAndCaptureShowing(mediaRectToRiseFrom, in: screenCaptures),
+              playGeneratedScenePage(
+                  html: modelToShow.pageHTML,
+                  quizToAskAfterTour: nil,
+                  overlayScreen: videoScreen.screen,
+                  screenJPEGData: videoScreen.capture?.imageData,
+                  mediaRectToRiseFrom: mediaRectToRiseFrom
+              ) else {
             await sayTheSceneCouldNotBeBuilt()
             return
         }
         print("3D model: showing \"\(modelToShow.whatToBuild)\", rising out of the video \(mediaRectToRiseFrom != nil)")
-        await speakAboutTheLiveSceneOnScreen(transcript: modelToShow.whatToBuild, labeledImages: labeledImages)
+        await speakAboutTheLiveSceneOnScreen(
+            transcript: modelToShow.whatToBuild,
+            labeledImages: screenCaptures.map { capture in (data: capture.imageData, label: capture.label) }
+        )
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
