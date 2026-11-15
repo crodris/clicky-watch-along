@@ -9,8 +9,8 @@ import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
-import Testing
 import JavaScriptCore
+import Testing
 @testable import Clicky
 
 @MainActor
@@ -1152,6 +1152,8 @@ struct leanring_buddyTests {
         #expect(rehearsalStepWait("+8 &what did you find").step == "&what did you find")
         #expect(rehearsalStepWait("build me a 3D model").waitSeconds == 0)
         #expect(rehearsalStepWait("+ten build it").step == "+ten build it")
+        #expect(rehearsalStepWait("+inf build it").waitSeconds == 0)
+        #expect(rehearsalStepWait("+99999999999 build it").step == "+99999999999 build it")
     }
 
     @Test func aDebugCaptionsFileAppliesOnlyToTheVideoItIsNamedFor() async throws {

@@ -401,9 +401,10 @@ final class VideoQuizSession {
         if isRunning && !quizWatchesTheFrontVideo { return "" }
         if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: frontVideoTab) { return "" }
         do {
-            let playbackState = try readPlaybackState(of: frontVideoTab)
+            // Any site can be busy, so these calls get the voice tools' short timeout.
+            let playbackState = try readPlaybackState(of: frontVideoTab, timeoutSeconds: 2)
             if !playbackState.isPaused {
-                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab)
+                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab, timeoutSeconds: 2)
             }
             if clickyHoldsTheVideoPauseAfterASceneRequest(
                 videoIsPlaying: !playbackState.isPaused,
@@ -472,7 +473,7 @@ final class VideoQuizSession {
         guard let pausedVideoTab = videoPausedByClicky?.tab else { return }
         videoPausedByClicky = nil
         do {
-            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab)
+            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab, timeoutSeconds: 2)
             print("Video quiz: resumed the video")
         } catch {
             print("Video quiz: could not resume the video: \(error)")
@@ -979,7 +980,7 @@ final class VideoQuizSession {
     static let playVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.play(); } return 'ok'; })()"
     /// Draws the playing video into a canvas and returns the JPEG and the video's place on screen.
     /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
-    private static let grabFrameJavaScript = "(function () { var video = document.querySelector('video'); if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
+    private static let grabFrameJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
 
     private static func grabFrame(of videoTab: ChromeVideoTab) throws -> VideoFrameGrab {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.grabFrameJavaScript, in: videoTab)
@@ -989,8 +990,8 @@ final class VideoQuizSession {
         return try JSONDecoder().decode(VideoFrameGrab.self, from: Data(javaScriptResult.utf8))
     }
 
-    private func readPlaybackState(of videoTab: ChromeVideoTab) throws -> VideoPlaybackState {
-        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab)
+    private func readPlaybackState(of videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> VideoPlaybackState {
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab, timeoutSeconds: timeoutSeconds)
         if javaScriptResult == "no-video" {
             throw VideoQuizFailure.noVideoOnThePage
         }
@@ -1311,7 +1312,7 @@ private struct ChromeVideoTab {
     /// not contain double quotes or backslashes, because it sits inside an AppleScript string.
     @discardableResult
     /// A busy page can hold an Apple Event for about 2 minutes by default, which freezes the main actor,
-    /// so the voice tools, which reach any site, pass a short timeout.
+    /// so the voice tools and the requested scene's pause and resume, which reach any site, pass a short timeout.
     static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> String {
         let executeLine = "tell application \"Google Chrome\" to execute (tab id \(videoTab.tabId) of window id \(videoTab.windowId)) javascript \"\(javaScript)\""
         guard let timeoutSeconds else {

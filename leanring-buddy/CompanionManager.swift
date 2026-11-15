@@ -43,12 +43,13 @@ func rehearsalTranscript(_ transcript: String, answeringWith answerLabel: String
 }
 
 /// A rehearsal step that starts with "+N " waits N more seconds before it is spoken, so a recorded take can land a
-/// request on a chosen moment of a playing video. Returns the wait and the step without its prefix.
+/// request on a chosen moment of a playing video. Returns the wait and the step without its prefix. A wait that is not
+/// a finite number of seconds up to 10 minutes leaves the step as it is, since a larger one overflows the sleep.
 func rehearsalStepWait(_ rehearsalStep: String) -> (waitSeconds: Double, step: String) {
     guard rehearsalStep.hasPrefix("+"),
           let spaceIndex = rehearsalStep.firstIndex(of: " "),
           let waitSeconds = Double(rehearsalStep[rehearsalStep.index(after: rehearsalStep.startIndex)..<spaceIndex]),
-          waitSeconds > 0 else {
+          waitSeconds.isFinite, waitSeconds > 0, waitSeconds <= 600 else {
         return (0, rehearsalStep)
     }
     return (waitSeconds, String(rehearsalStep[rehearsalStep.index(after: spaceIndex)...]))
@@ -810,6 +811,7 @@ final class CompanionManager: ObservableObject {
     /// the open question's answer label, since the plan picks a new question each run. A transcript that starts
     /// with "&" waits until no background agent is running, and then for what their endings set off, such as a 3D model
     /// rising and its narration, so a demo can open the guide it just asked for or put back the model it just built.
+    /// A transcript that starts with "+N " first waits N seconds, before any other prefix is read.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStepWithWait in transcripts {
@@ -975,7 +977,7 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        // A 3D model only appears when the learner asks. It pauses the YouTube video in front, quiz or not,
+        // A 3D model only appears when the learner asks. It pauses the main video in Chrome's front tab, quiz or not,
         // so the video's narrator does not talk over Clicky. During a video quiz a pending question is set aside for the model.
         var sceneQuestion = transcript
         let requestedKind = requestedSceneKind
