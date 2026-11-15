@@ -270,9 +270,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .endQuiz:
             return "Stop the video quiz."
         case .makeStudyGuide:
-            return "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and Clicky says when the page is ready. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation says it is being written, never that it is done."
+            return "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and Clicky says when the page is ready. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done."
         case .reviseStudyGuide:
-            return "Change the study guide already written for this video, such as making it shorter, adding detail on one part, or adding a section. The new page replaces the old one in Notion and is written in the background. Put what to change in instruction, in the learner's words. Your confirmation says it is being updated, never that it is done."
+            return "Change the study guide already written for this video, such as making it shorter, adding detail on one part, or adding a section. The new page replaces the old one in Notion and is written in the background. Put what to change in instruction, in the learner's words. Your confirmation is a few plain words that it has started, such as \"updating it now\", never that it is done."
         case .openStudyGuide:
             return "Open this video's study guide page in Notion. Use it when the learner asks to see, open, or go to the guide, and when they ask for a new study guide, since this video already has one. In that case your confirmation says they already have a guide for this video and you are opening it."
         }

@@ -122,7 +122,7 @@ const liveSceneInstructions = [
   "",
   "The json block is one JSON object and nothing else:",
   '{ "question": "...", "answerLabel": "...", "functionWords": ["..."], "explanation": "..." }',
-  "question opens with one cheerful sentence about the subject (for an inside view, saying you have arrived inside it), then asks what the part is and what it does. It does not contain the answer.",
+  "question opens with one warm, plain sentence about the subject, with no exclamation mark (for an inside view, saying you have arrived inside it), then asks what the part is and what it does. It does not contain the answer.",
   "answerLabel is the answer part's real label, the words the learner would say out loud.",
   "functionWords is a list of lowercase words that count as saying what the part does.",
   "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
@@ -142,7 +142,7 @@ const judgeAnswerSystemPrompt = [
   '- "wants_hint" when the learner asks for a hint or a clue and is not giving up.',
   '- "scene_command" when the learner asks to change the view or the video instead of answering, such as turning or zooming the model, showing a part, or pausing or rewinding the video.',
   "",
-  "spokenReply is one short cheerful sentence.",
+  "spokenReply is one short, warm, plain sentence, with no exclamation mark.",
   "- correct: agree, and say what the part does in that same sentence.",
   "- named_only: agree they named it, and ask what it does. Do not explain what it does.",
   "- asked_for_help: be kind and teach it in two short sentences a 10-year-old can follow. Name the part, say what it does, and say why that matters. Do not ask them to try again.",
@@ -348,7 +348,7 @@ export async function handleJudgeAnswer(request: Request, anthropicAPIKey: strin
             spokenReply: {
               type: "string",
               description:
-                "One short cheerful sentence. On wrong, explain the mistake without naming the part or saying what it does. On wants_hint, a hint that does not name the part. Empty on skip_question, repeat_question, and scene_command.",
+                "One short, warm, plain sentence, with no exclamation mark. On wrong, explain the mistake without naming the part or saying what it does. On wants_hint, a hint that does not name the part. Empty on skip_question, repeat_question, and scene_command.",
             },
           },
           required: ["verdict", "spokenReply"],
