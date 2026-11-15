@@ -41,21 +41,16 @@ demo/scripts/drive-study-guide-shot.sh demo/public/quiz-miss.events.txt.raw &
 TRAILING_SECONDS=18 demo/scripts/record-shot.sh quiz-miss "make me a Notion study guide for this video|&watch this video with me and quiz me|?is it the muffler|?is it the {answer}|stop the quiz|&open my study guide" "https://www.youtube.com/watch?v=L24Wf0VlTE0" 5 1110 680
 ```
 
-The parallel agents clip uses 1 shot of FOX 26 Houston's stream of Starship Flight 15, from just before the ship's tower catch.
+The parallel agents clip uses 1 shot of SpaceX's own 93 second clip of Starship Flight 15's tower catch, on x.com, with Chrome logged in to X.
+The reel credits it with "Footage: SpaceX" in a corner of every frame (`footageCredit` in the clip's theme).
 It hands a general task agent a research question with a Notion page, then asks for a 3D model, so the teal and violet sub-agents run at once, and needs the Worker's `NOTION_API_KEY`.
 Its Worker runs without `LIVE_SCENE_MODEL`, so GPT builds the model at medium effort, since a Sonnet model came out plain in two takes.
-The driver hides the stream's chat replay with a style rule, opens the agent list while both sub-agents run, glides the mouse so both wingmen trail the blue one, and brings the task agent's Notion page forward while Clicky speaks its answer.
-When YouTube rate-limits the captions, save the transcript from the video page's "Show transcript" panel as `y2QIIhQjZkM.json3`, and point the Debug app at it as the Quiz rehearsal section says.
-
-```bash
-demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw &
-TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch compares to the first booster catch, and make me a Notion page about it|build me a 3D model of this Starship|&put it back|what did you find" "https://www.youtube.com/watch?v=y2QIIhQjZkM" 1212 1110 680
-```
-
-The re-record plays SpaceX's own 93 second catch clip on x.com instead, with Chrome logged in to X.
-The driver's second argument starts the clip at 50 seconds, during the descent, and the `+15` step waits until the wide shot of the ship in the tower arms, about 74 seconds into the clip, before asking for the model.
-The driver hides X's side columns and replies, keeps the clip muted, and pauses it 0.6 seconds before its end, so the model rises out of the last frame.
+The driver's second argument starts the clip at 50 seconds, during the descent, so the catch plays while the task agent searches.
+The `+15` step waits until the wide shot of the ship in the tower arms, about 74 seconds into the clip, before asking for the model.
+The driver hides X's side columns, replies, reply box, and floating buttons, keeps the clip muted, and pauses it 0.6 seconds before its end, so the model rises out of the last frame.
+It also opens the agent list while both sub-agents run, glides the mouse so both wingmen trail the blue one, and brings the task agent's Notion page forward while Clicky speaks its answer.
 Clicky has no captions to read on x.com, so the task agent works from the post, a look at the video, and web search.
+The hiding runs about 3 seconds into the recording, so the edit starts after it, since the page shows the account's name and avatar until then.
 
 ```bash
 demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw 50 &

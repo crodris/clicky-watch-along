@@ -17,6 +17,8 @@ export type DemoTheme = {
   /** The learner's mic glyph. */
   micColor: string;
   endCard: { title: string; tagline?: string; handle: string; titleColor: string; handleColor: string; scrim: string };
+  /** Names who made the footage, in a corner of every frame, when the clip plays someone else's video. */
+  footageCredit?: string;
 };
 
 export const watchAlongTheme: DemoTheme = {
@@ -87,4 +89,5 @@ export const parallelAgentsTheme: DemoTheme = {
     handleColor: threeDModelViolet,
     scrim: "rgba(8, 11, 24, 0.68)",
   },
+  footageCredit: "Footage: SpaceX",
 };
