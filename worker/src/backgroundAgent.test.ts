@@ -33,7 +33,7 @@ describe("handleBackgroundAgent", () => {
     expect(await response.json()).toEqual({ content: replyContent, stopReason: "tool_use" });
     const sentBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
     expect(sentBody.tools.map((tool: { name: string }) => tool.name)).toEqual(["web_search", "web_fetch", "finish"]);
-    expect(sentBody.tools[2]).toMatchObject({ input_schema: turnRequest.tools[0]?.inputSchema, cache_control: { type: "ephemeral" } });
+    expect(sentBody.tools[2]).toMatchObject({ input_schema: turnRequest.tools[0]?.inputSchema, strict: true, cache_control: { type: "ephemeral" } });
   });
 
   it("refuses a history that does not start with the learner's message, without calling a model", async () => {

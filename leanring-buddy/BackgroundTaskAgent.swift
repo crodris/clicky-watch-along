@@ -40,11 +40,13 @@ nonisolated enum TaskAgentTool: String, CaseIterable, Sendable {
         func stringProperty(_ description: String) -> JSONValue {
             .object(["type": .string("string"), "description": .string(description)])
         }
+        // The Worker sends these tools as strict, which needs every object closed to other properties and every property required.
         func objectSchema(_ properties: [String: JSONValue], required: [String]) -> JSONValue {
             .object([
                 "type": .string("object"),
                 "properties": .object(properties),
                 "required": .array(required.map(JSONValue.string)),
+                "additionalProperties": .bool(false),
             ])
         }
         switch self {
@@ -202,6 +204,7 @@ final class TaskAgentClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        ClickyAppSecret.add(to: &request)
         request.httpBody = try JSONEncoder().encode(requestBody)
         let (responseData, response) = try await session.data(for: request)
         // URLSession returns URLResponse. The Worker answers over HTTP.

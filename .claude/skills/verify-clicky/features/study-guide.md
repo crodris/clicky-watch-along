@@ -33,7 +33,8 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 
 Preconditions:
 
-- `worker/.dev.vars` holds `NOTION_API_KEY`, a personal access token made at notion.so/developers.
+- `worker/.dev.vars` holds `NOTION_API_KEY`, a personal access token made at notion.so/developers, and `CLICKY_APP_SECRET`, which `$V post` sends in `x-clicky-app-secret` and `app-launch` copies into the app's defaults, both from `.dev.vars` without printing it.
+- **Secret.** A curl to `/study-guide` without the header returns 401 and the Worker log has no Notion call.
   An internal connection's API token cannot create a page with no parent, so Notion rejects the create.
 - For the app, the app and Chrome preconditions in [Video quiz](./video-quiz.md) apply, and the Debug build is newer than the last commit under `leanring-buddy/`.
 

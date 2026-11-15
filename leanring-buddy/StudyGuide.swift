@@ -270,6 +270,7 @@ final class StudyGuideClient {
         var request = URLRequest(url: studyGuideURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        ClickyAppSecret.add(to: &request)
         request.httpBody = try JSONEncoder().encode(studyGuideRequest)
         let (responseData, response) = try await session.data(for: request)
         // URLSession returns URLResponse. The Worker answers over HTTP.
@@ -282,6 +283,7 @@ final class StudyGuideClient {
         var request = URLRequest(url: studyGuideStatusURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        ClickyAppSecret.add(to: &request)
         // A lookup on the voice command path, so it gives up long before the 150 seconds a guide gets.
         request.timeoutInterval = 5
         request.httpBody = try JSONEncoder().encode(["pageHandle": pageHandle])

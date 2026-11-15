@@ -21,6 +21,7 @@
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
+import { appSecretHeaderName, requestCarriesTheAppSecret, routesThatNeedTheAppSecret } from "./appSecret";
 import { handleBackgroundAgent, handleNotionPage } from "./backgroundAgent";
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
@@ -45,6 +46,8 @@ interface Env {
   GOOGLE_MAPS_API_KEY?: string;
   /** Internal Notion integration token. Without it, /study-guide answers 503. */
   NOTION_API_KEY?: string;
+  /** The secret the app sends in x-clicky-app-secret. The routes that use NOTION_API_KEY refuse a request without it. */
+  CLICKY_APP_SECRET?: string;
   /** The Notion page that study guides are created under. It must be shared with the integration. */
 }
 
@@ -58,6 +61,14 @@ export default {
 
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
+    }
+
+    // Checked before any handler runs, so a caller without the app's secret never reaches Notion.
+    if (routesThatNeedTheAppSecret.has(url.pathname) && !(await requestCarriesTheAppSecret(request, env.CLICKY_APP_SECRET))) {
+      return new Response(JSON.stringify({ error: `Missing or wrong ${appSecretHeaderName}` }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
     }
 
     try {

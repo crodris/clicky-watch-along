@@ -431,9 +431,17 @@ command_post() {
   response_file="$run_dir/response${route//\//-}-$(date +%H%M%S)-$RANDOM.json"
   local usage_from_line
   usage_from_line="$(worker_log_line_count "$port")"
+  # The Notion routes need the app's secret. It goes in a header file, so it never shows in the process list or the output.
+  local secret_header_file="$run_dir/.app-secret-header"
+  : >"$secret_header_file"
+  chmod 600 "$secret_header_file"
+  local app_secret
+  app_secret="$(grep -E '^CLICKY_APP_SECRET=' "$checkout_root/worker/.dev.vars" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
+  [[ -n "$app_secret" ]] && printf 'x-clicky-app-secret: %s\n' "$app_secret" >"$secret_header_file"
   local http_status
   http_status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST "http://127.0.0.1:$port$route" \
-    -H 'content-type: application/json' --data-binary @"$body_file" --max-time 180)"
+    -H 'content-type: application/json' -H @"$secret_header_file" --data-binary @"$body_file" --max-time 180)"
+  rm -f "$secret_header_file"
   echo "POST $route -> HTTP $http_status, body saved to $response_file"
   head -c 2000 "$response_file"
   echo
@@ -476,6 +484,15 @@ command_app_launch() {
   run_dir="$(current_run_dir)"
   echo "$rehearsal_steps" >"$run_dir/rehearsal-steps.txt"
   worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
+  # The Worker's Notion routes need the app's secret, which the app reads from its defaults. It is copied from
+  # .dev.vars without ever being printed, so a guide or a task page works on the first launch.
+  local app_secret
+  app_secret="$(grep -E '^CLICKY_APP_SECRET=' "$checkout_root/worker/.dev.vars" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
+  if [[ -n "$app_secret" ]]; then
+    local bundle_id
+    bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
+    defaults write "$bundle_id" clickyAppSecret -string "$app_secret"
+  fi
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
     --args --voice-tool-debug-server --live-scene-rehearsal "$rehearsal_steps"
