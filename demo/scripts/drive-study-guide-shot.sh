@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Runs beside record-shot.sh for the study guide shot. Right after the request it glides the mouse out and back, so the
-# helper cursor is seen trailing the blue one. The rehearsal then pops the engine out while the guide is written, and
-# this opens the agent list with shift + option while the pop-out builds. Once the guide's page opens, this scrolls down
-# to its key terms and clicks the timestamp of the term about the stator vanes or the compressor, which opens the video at
-# that moment in a new tab.
+# Runs beside record-shot.sh for the study guide shot and the quiz miss shot. In the study guide shot, right after the
+# request it glides the mouse out and back, so the helper cursor is seen trailing the blue one. The rehearsal then pops
+# the engine out while the guide is written, and this opens the agent list with shift + option while the pop-out builds.
+# In both shots, once the guide's page opens, this scrolls down to its key terms and clicks the timestamp of the term
+# about the stator vanes or the compressor, which opens the video at that moment in a new tab.
 # Usage, from the main checkout's root, started just before record-shot.sh:
 #   demo/scripts/drive-study-guide-shot.sh demo/public/study-guide.events.txt.raw &
+#   demo/scripts/drive-study-guide-shot.sh demo/public/quiz-miss.events.txt.raw &
 set -u
 raw_events_path="$1"
 checkout_root="$(git rev-parse --show-toplevel)"
@@ -58,19 +59,22 @@ link_point_javascript="(() => { const link = [...document.querySelectorAll('a[hr
 # The helper cursor appears about 1.5 seconds after the request. A glide out and back while Clicky confirms shows it
 # trailing the blue cursor, and ends before the rehearsal says "pop this out" about 7 seconds after the request.
 # It starts and ends at record-shot.sh's default mouse point.
-wait_for_log_line 'saying "make me' || exit 1
-sleep 2.3
-glide_mouse 1110 680 880 560
-sleep 0.4
-glide_mouse 880 560 1110 680
+# The quiz miss shot has no pop-out, so only the study guide shot glides the mouse and opens the agent list.
+if [[ "$(basename "$raw_events_path")" == study-guide.* ]]; then
+  wait_for_log_line 'saying "make me' || exit 1
+  sleep 2.3
+  glide_mouse 1110 680 880 560
+  sleep 0.4
+  glide_mouse 880 560 1110 680
 
-# The agent list opens while the pop-out builds, so the study guide sub-agent is seen running beside the main agent's
-# work, and it closes before the engine lifts out about 5 seconds after the request.
-wait_for_log_line 'saying "pop this out' || exit 1
-sleep 1
-"$verify_script" key agents-list
-sleep 3.5
-"$verify_script" key agents-list
+  # The agent list opens while the pop-out builds, so the study guide sub-agent is seen running beside the main agent's
+  # work, and it closes before the engine lifts out about 5 seconds after the request.
+  wait_for_log_line 'saying "pop this out' || exit 1
+  sleep 1
+  "$verify_script" key agents-list
+  sleep 3.5
+  "$verify_script" key agents-list
+fi
 
 # The Notion tab comes forward about 2 seconds after the request, and the page takes a few more to draw.
 wait_for_log_line 'saying "open my study guide' || exit 1

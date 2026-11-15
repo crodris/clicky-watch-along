@@ -86,7 +86,7 @@ const planOutputSchema = {
           question: {
             type: "string",
             description:
-              "A short cheerful opener such as \"Let's pause here!\", then a question about what was just explained. Does not contain the answer.",
+              "A short, plain opener with no exclamation mark, such as \"Quick question.\", then a question about what was just explained. Does not contain the answer.",
           },
           answerLabel: {
             type: "string",
@@ -134,7 +134,7 @@ const systemPrompt = [
   "",
   "For each moment:",
   "- Write for a curious learner. Ask what something is and what it does, or why it happens.",
-  "- question opens with one short cheerful line, such as \"Let's pause here!\", then asks one thing about what was just explained. It must not contain the answer or hint at it.",
+  "- question opens with one short, plain line with no exclamation mark, such as \"Quick question.\", then asks one thing about what was just explained. It must not contain the answer or hint at it.",
   "- question is at most two sentences after the opener, short enough to say aloud.",
   "- answerLabel is the name of one thing, in one or two words the learner would say out loud, with no commas or lists. It is a noun naming a thing, such as a body part, a term, or a substance, never a quality like \"no leaking\". A longer name shrinks to its key word or two, such as \"Ampullae\" for \"ampullae of Lorenzini\". Never use three words or more.",
   "- functionWords are lowercase single words about what the answer does or why, such as \"floats\" or \"buoyancy\". Leave out filler words such as \"because\", \"so\", and \"instead\".",
