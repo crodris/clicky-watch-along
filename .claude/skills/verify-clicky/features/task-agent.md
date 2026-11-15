@@ -1,7 +1,7 @@
 # Task agent
 
 While a video plays, the learner hands Clicky any task that needs more than a quick answer, and a general background agent works on it while the video keeps playing.
-It searches the web, reads the video's captions and the screen, can write a Notion page, and reports each step beside a teal wingman.
+It searches the web, reads the video's captions and looks at the video, can write a Notion page, and reports each step beside a teal wingman.
 When it finishes, its page opens in a background tab, and the chip says "Task done · say what did you find". Clicky speaks the answer only when asked.
 
 ## Sub-features
@@ -36,3 +36,4 @@ Preconditions:
 - Every turn sends the whole history again, fetched pages included, so web fetch cuts pages to 8,000 tokens.
 - Each page run creates a real private Notion page, so trash the test pages afterwards.
 - The agent's spoken answer and page come from web pages, which are untrusted, so the app cuts the answer to 600 characters and the Worker checks the page input.
+- `look_at_video` returns only the video's area, captured from Chrome's windows, and an error when no video is found, so an injected page cannot make the agent read the rest of the screen.

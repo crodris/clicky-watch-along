@@ -2330,20 +2330,17 @@ final class CompanionManager: ObservableObject {
             } catch {
                 return (toolResult(.string((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab"), isError: true), nil)
             }
-        case .lookAtScreen:
-            do {
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-                let videoScreen = screenAndCaptureShowing(VideoQuizSession.screenRectOfTheMediaToRiseFrom(), in: screenCaptures)
-                guard let screenJPEGData = (videoScreen?.capture ?? screenCaptures.first)?.imageData else {
-                    return (toolResult(.string("The screen could not be captured"), isError: true), nil)
-                }
-                return (toolResult(.array([.object([
-                    "type": .string("image"),
-                    "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(screenJPEGData.base64EncodedString())]),
-                ])])), nil)
-            } catch {
-                return (toolResult(.string("The screen could not be captured"), isError: true), nil)
+        case .lookAtVideo:
+            // The agent also reads web pages, which could ask it to look around the screen, so it sees only the video's
+            // area, from Chrome's windows alone, and nothing when no video is found.
+            guard let videoRect = VideoQuizSession.screenRectOfTheMediaToRiseFrom(),
+                  let videoGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(videoRect) else {
+                return (toolResult(.string("No video is on screen to look at"), isError: true), nil)
             }
+            return (toolResult(.array([.object([
+                "type": .string("image"),
+                "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(videoGrab.jpeg)]),
+            ])])), nil)
         case .writeNotionPage:
             guard !pageAlreadyWritten else {
                 return (toolResult(.string("A page was already written for this task"), isError: true), nil)

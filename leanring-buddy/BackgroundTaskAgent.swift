@@ -13,7 +13,7 @@ import Foundation
 nonisolated enum TaskAgentTool: String, CaseIterable, Sendable {
     case reportStep = "report_step"
     case readVideoCaptions = "read_video_captions"
-    case lookAtScreen = "look_at_screen"
+    case lookAtVideo = "look_at_video"
     case writeNotionPage = "write_notion_page"
     case finish = "finish"
 
@@ -27,8 +27,8 @@ nonisolated enum TaskAgentTool: String, CaseIterable, Sendable {
             return "Show the learner, next to the cursor, what you are doing now in 3 to 6 words, such as \"Searching for the booster catch\"."
         case .readVideoCaptions:
             return "Read the title, link, and timestamped captions of the YouTube video in Chrome's front tab."
-        case .lookAtScreen:
-            return "See a screenshot of the screen that shows the video, as it is now."
+        case .lookAtVideo:
+            return "See the video in Chrome's front tab as it is now, cropped to the video."
         case .writeNotionPage:
             return "Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once."
         case .finish:
@@ -50,7 +50,7 @@ nonisolated enum TaskAgentTool: String, CaseIterable, Sendable {
         switch self {
         case .reportStep:
             return objectSchema(["step": stringProperty("What you are doing now, such as Searching for the booster catch.")], required: ["step"])
-        case .readVideoCaptions, .lookAtScreen:
+        case .readVideoCaptions, .lookAtVideo:
             return objectSchema([:], required: [])
         case .writeNotionPage:
             let sectionSchema = objectSchema(
