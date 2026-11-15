@@ -45,6 +45,7 @@ export function Demo({ segments, cursorTracks, theme }: DemoProps) {
                   muted={segment.muted ?? false}
                   soundEndsAtSeconds={segment.soundEndsAtSeconds}
                   sourceCredit={segment.sourceCredit}
+                  holdsStill={segment.holdsStill}
                 />
               ) : (
                 <EndCard recordingFile={segment.recordingFile} sourceStartSeconds={segment.sourceStartSeconds} theme={theme} />
