@@ -1914,6 +1914,8 @@ struct leanring_buddyTests {
 
         #expect(SimulationPredictionCheck(replyText: "[SETTLED] You guessed 60, and both tied.") == SimulationPredictionCheck(spokenLine: "You guessed 60, and both tied.", predictionIsSettled: true))
         #expect(SimulationPredictionCheck(replyText: " [OPEN] Now try 30 degrees.") == SimulationPredictionCheck(spokenLine: "Now try 30 degrees.", predictionIsSettled: false))
+        // Clicky is talking to the learner, so the check speaks to them as "you" (a run said "Their guess is about...").
+        #expect(simulationPredictionCheckSystemPrompt.contains("talk to the learner directly as \"you\""))
         // With no tag the lesson keeps checking, so a confused reply never skips ahead.
         #expect(SimulationPredictionCheck(replyText: "They tied.").predictionIsSettled == false)
     }
