@@ -1827,7 +1827,7 @@ struct leanring_buddyTests {
     @Test func aFinishedRunPostsReadoutsThatBecomeOneShortSpokenLine() async throws {
         let readouts = SimulationReadout.readouts(fromPageJSON: """
         [{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
-         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""}]
+         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]
         """)
         #expect(readouts.map(\.label) == ["Landing distance", "Peak height", "Fourth"])
         #expect(LiveScenePageEvent(messageBody: "runFinished:[{\"label\":\"Range\",\"value\":12,\"unit\":\"s\"}]")
