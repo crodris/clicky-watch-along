@@ -43,8 +43,9 @@ glide_mouse() {
 
 # A style rule hides the chat replay whether YouTube shows it open or collapsed, so this waits until the page has one.
 hide_chat_javascript="(() => { if (!document.querySelector('ytd-live-chat-frame')) return 'no chat'; const style = document.createElement('style'); style.textContent = 'ytd-live-chat-frame { display: none !important; }'; document.head.appendChild(style); return 'hidden'; })()"
-# X's post page keeps its navigation, its trends column, and the replies beside the clip.
-hide_x_page_javascript="(() => { const style = document.createElement('style'); style.textContent = 'header[role=banner], [data-testid=sidebarColumn], [data-testid=BottomBar], [aria-label*=Conversation] [data-testid=cellInnerDiv]:not(:first-child) { visibility: hidden !important; }'; document.head.appendChild(style); return 'hidden'; })()"
+# X's post page keeps its navigation, its trends column, the replies, the reply box with the viewer's avatar, and the
+# floating Grok and message buttons beside the clip.
+hide_x_page_javascript="(() => { const style = document.createElement('style'); style.textContent = 'header[role=banner], [data-testid=sidebarColumn], [data-testid=BottomBar], [data-testid=inline_reply_offscreen], [data-testid=GrokDrawer], [data-testid=chat-drawer-root], [aria-label*=Conversation] [data-testid=cellInnerDiv]:not(:first-child) { visibility: hidden !important; }'; document.head.appendChild(style); return 'hidden'; })()"
 # The largest video, as Clicky picks it, starts at the chosen second and stops just before its end.
 start_x_clip_javascript="(() => { const videos = [...document.querySelectorAll('video')]; const video = videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]; if (!video) return 'no video'; video.muted = true; video.currentTime = ${video_start_seconds:-0}; video.addEventListener('timeupdate', () => { if (video.duration && video.currentTime >= video.duration - 0.6) video.pause(); }); video.play(); return 'started at ' + video.currentTime; })()"
 
