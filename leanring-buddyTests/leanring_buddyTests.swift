@@ -1146,6 +1146,14 @@ struct leanring_buddyTests {
         #expect(rehearsalTranscript("stop the quiz", answeringWith: "Ash") == "stop the quiz")
     }
 
+    @Test func aRehearsalStepCanWaitBeforeItIsSpoken() async throws {
+        #expect(rehearsalStepWait("+12.5 build me a 3D model").waitSeconds == 12.5)
+        #expect(rehearsalStepWait("+12.5 build me a 3D model").step == "build me a 3D model")
+        #expect(rehearsalStepWait("+8 &what did you find").step == "&what did you find")
+        #expect(rehearsalStepWait("build me a 3D model").waitSeconds == 0)
+        #expect(rehearsalStepWait("+ten build it").step == "+ten build it")
+    }
+
     @Test func aDebugCaptionsFileAppliesOnlyToTheVideoItIsNamedFor() async throws {
         #expect(debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://www.youtube.com/watch?v=heOiSg21Lx8&t=35s"))
         #expect(!debugCaptionsFileApplies(captionsFilePath: "/tmp/heOiSg21Lx8.json3", videoURL: "https://www.youtube.com/watch?v=7xRxpicxeFQ"))

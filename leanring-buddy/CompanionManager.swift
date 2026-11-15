@@ -41,6 +41,18 @@ func escapeHasAnAnswerToStop(
 func rehearsalTranscript(_ transcript: String, answeringWith answerLabel: String) -> String {
     transcript.replacingOccurrences(of: "{answer}", with: answerLabel.lowercased())
 }
+
+/// A rehearsal step that starts with "+N " waits N more seconds before it is spoken, so a recorded take can land a
+/// request on a chosen moment of a playing video. Returns the wait and the step without its prefix.
+func rehearsalStepWait(_ rehearsalStep: String) -> (waitSeconds: Double, step: String) {
+    guard rehearsalStep.hasPrefix("+"),
+          let spaceIndex = rehearsalStep.firstIndex(of: " "),
+          let waitSeconds = Double(rehearsalStep[rehearsalStep.index(after: rehearsalStep.startIndex)..<spaceIndex]),
+          waitSeconds > 0 else {
+        return (0, rehearsalStep)
+    }
+    return (waitSeconds, String(rehearsalStep[rehearsalStep.index(after: spaceIndex)...]))
+}
 #endif
 
 @MainActor
@@ -800,7 +812,11 @@ final class CompanionManager: ObservableObject {
     /// rising and its narration, so a demo can open the guide it just asked for or put back the model it just built.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
-        for rehearsalStep in transcripts {
+        for rehearsalStepWithWait in transcripts {
+            let (waitSeconds, rehearsalStep) = rehearsalStepWait(rehearsalStepWithWait)
+            if waitSeconds > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(waitSeconds * 1_000_000_000))
+            }
             let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
             // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
             let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
