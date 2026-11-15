@@ -465,7 +465,9 @@ function shotNamed(clipSegments: Segment[], shotName: string): Segment {
 // click closes it. The pop-out narration and the first take's own opening of the guide are left out.
 export const subAgentsClipSegments: Segment[] = [
   { ...shotNamed(studyGuideClipSegments, "ask"), name: "guide-ask" },
-  { ...shotNamed(studyGuideClipSegments, "popout"), name: "guide-popout" },
+  // The narration that follows the pop-out is left out here, so the shot ends at 21.6, before Clicky's first word at
+  // 21.70, instead of at 21.9, where the cut to the quiz would clip that word.
+  { ...shotNamed(studyGuideClipSegments, "popout"), name: "guide-popout", durationSeconds: 10.1 },
   { ...shotNamed(quizMissClipSegments, "ask"), name: "quiz-ask" },
   { ...shotNamed(quizMissClipSegments, "question"), name: "quiz-question" },
   { ...shotNamed(quizMissClipSegments, "wrong"), name: "quiz-wrong" },
