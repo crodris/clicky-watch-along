@@ -4,7 +4,7 @@
 // has the primitives it needs, so a generated page that skips one simply offers fewer tools.
 // Every call ends the camera tour first, because the learner asking for a change means the tour is over.
 // A simulation page also defines liveScene.controls, setControl, and run. This file draws the one panel for them
-// (a slider per control, a Run button, the readouts, and the past runs), so the model never draws its own, and offers
+// (a slider per control, a Run button, the readouts, and a results table of the trials), so the model never draws its own, and offers
 // set_control, run_simulation, and set_labels. It also runs the lesson: the learner guesses first, then explores with
 // the dashed path showing, then takes the page's challenge with the path hidden.
 // A finished run is posted to the app as "runFinished:<report JSON>" so Clicky can say the result.
@@ -62,7 +62,9 @@
   // hides so the learner reasons from past runs), and "done" after a hit.
   let lessonStage = "guess";
   let challengeAttempts = 0;
-  const mostPastRuns = 3;
+  // The results table, like a lab notebook. The page keeps only the last 3 paths on screen.
+  const mostPastRuns = 5;
+  let trialsRun = 0;
   const pastRuns = [];
   const setPathPreview = (visible) => liveScene()?.setPreviewVisible?.(visible);
   // The page's challenge is untrusted text Clicky says out loud, so only a short prompt and real numbers pass.
@@ -244,14 +246,20 @@
       const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
       panel.challengeElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
     }
-    // The newest run is the readouts above, so the row lists the runs before it.
-    const earlierRuns = pastRuns.slice(1);
-    panel.pastRunsElement.style.display = earlierRuns.length > 0 ? "block" : "none";
-    panel.pastRunsElement.textContent = "Earlier: " + earlierRuns.map((pastRun) => {
-      const settings = pastRun.controls.map((control) => `${control.value}${control.unit ? " " + control.unit : ""}`).join(", ");
-      const firstReadout = pastRun.readouts[0];
-      return firstReadout ? `${settings} gave ${firstReadout.value} ${firstReadout.unit}`.trim() : settings;
-    }).join("   |   ");
+    // One row per trial, oldest first like a lab notebook: the trial number, each variable, and the first measurement.
+    panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
+    if (pastRuns.length > 1) {
+      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[0]?.label ?? ""];
+      const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
+      const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), pastRun.readouts[0] ? withUnit(pastRun.readouts[0]) : ""])];
+      panel.pastRunsElement.style.gridTemplateColumns = `auto repeat(${columnLabels.length - 1}, minmax(0, 1fr))`;
+      panel.pastRunsElement.replaceChildren(...rows.flatMap((row, rowIndex) => row.map((cellText) => {
+        const cell = document.createElement("span");
+        cell.textContent = cellText;
+        cell.style.cssText = `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${rowIndex === 0 ? "opacity:0.6;" : ""}`;
+        return cell;
+      })));
+    }
     const readouts = currentReadouts();
     panel.readoutsElement.replaceChildren(...readouts.map((readout) => {
       const line = document.createElement("div");
@@ -320,7 +328,7 @@
     panel.readoutsElement = document.createElement("div");
     panel.readoutsElement.style.cssText = "display:none;flex-basis:100%;flex-wrap:wrap;gap:4px 18px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
     panel.pastRunsElement = document.createElement("div");
-    panel.pastRunsElement.style.cssText = "display:none;flex-basis:100%;font-weight:500;opacity:0.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+    panel.pastRunsElement.style.cssText = "display:none;flex-basis:100%;gap:2px 14px;font-weight:500;font-variant-numeric:tabular-nums;";
     element.append(panel.challengeElement, panel.runButton, panel.readoutsElement, panel.pastRunsElement);
     document.documentElement.append(element);
     panel.element = element;
@@ -353,7 +361,8 @@
         refreshPanel();
         return;
       }
-      pastRuns.unshift({ controls: controlsAtTheStart, readouts });
+      trialsRun += 1;
+      pastRuns.unshift({ trial: trialsRun, controls: controlsAtTheStart, readouts });
       pastRuns.splice(mostPastRuns);
       const report = { readouts, pastRuns, challenge: null };
       if (lessonStage === "challenge") report.challenge = scoreTheChallengeRun(readouts);

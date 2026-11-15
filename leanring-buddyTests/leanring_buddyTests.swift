@@ -1870,7 +1870,8 @@ struct leanring_buddyTests {
                      {"controls":[],"readouts":[]},{"controls":[],"readouts":[]}],
          "challenge":{"status":"missed","attempts":2,"difference":10.8,"unit":"m"}}
         """))
-        #expect(missedReport.pastRuns.count == 3)
+        #expect(missedReport.pastRuns.count == 4)
+        #expect(missedReport.pastRuns.map(\.trial) == [4, 3, 2, 1])
         #expect(missedReport.pastRuns[1].controlSettings == [SimulationReadout(label: "Launch angle", value: 30, unit: "degrees")])
         #expect(missedReport.challengeOutcome == .missed(attempts: 2, difference: 10.8, unit: "m"))
         #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[{\"label\":\"Range\",\"value\":12,\"unit\":\"m\"}],\"challenge\":{\"status\":\"hit\",\"attempts\":3}}")
@@ -1903,7 +1904,7 @@ struct leanring_buddyTests {
         """))
         let userPrompt = simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport)
         #expect(userPrompt.contains("<guess>60 goes farther</guess>"))
-        #expect(userPrompt.contains("run 1: Launch  angle  60 degrees gave Range 35.31 m"))
+        #expect(userPrompt.contains("trial 1: Launch  angle  60 degrees gave Range 35.31 m"))
         lesson.guess = .skipped
         #expect(simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport).contains("(they did not guess)"))
 

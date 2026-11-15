@@ -252,6 +252,10 @@ describe("handleLiveScene model setting", () => {
     expect(systemTexts[0]).toContain("setPreviewVisible(visible)");
     expect(systemTexts[0]).toContain("setChallengeVisible(visible)");
     expect(systemTexts[0]).toContain("the marker and the whole path to it are in view");
+    // A screen that is not a science lesson still gets a science experiment, never a copy of the app.
+    expect(systemTexts[0]).toContain("build the science experiment behind what it shows");
+    expect(systemTexts[0]).toContain("Newton's law of cooling");
+    expect(systemTexts[0]).toContain("a grassy field for one that covers many meters");
     expect(systemTexts[0]).toContain("keep the path it took as a thin, solid, faded line");
     expect(systemTexts[1]).not.toContain("SIMULATION");
     expect(systemTexts[2]).toBe(systemTexts[1]);

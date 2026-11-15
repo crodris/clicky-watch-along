@@ -28,6 +28,8 @@ const caseLabels: Record<string, string> = {
   "simulation-projectile": "Simulation, projectile",
   "simulation-lever": "Simulation, lever",
   "simulation-pendulum": "Simulation, pendulum",
+  "simulation-dissolving": "Simulation, dissolving",
+  "simulation-cooling": "Simulation, cooling",
   "voice-command": "Voice command, turn the model",
   "judge-correct": "Grade: correct answer",
   "judge-named-only": "Grade: name only",

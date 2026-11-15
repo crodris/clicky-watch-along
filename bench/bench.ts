@@ -531,6 +531,8 @@ const benchCases: BenchCase[] = [
   simulationCase("simulation-projectile", "projectile-frame.jpg", "Builds a simulation over a cannon frame for \"let me try it\""),
   simulationCase("simulation-lever", "lever-frame.jpg", "Builds a simulation over a lever frame for \"let me try it\""),
   simulationCase("simulation-pendulum", "pendulum-frame.jpg", "Builds a simulation over a pendulum frame for \"let me try it\""),
+  simulationCase("simulation-dissolving", "dissolving-frame.jpg", "Builds a dissolving experiment over a hot and cold water frame for \"let me try it\""),
+  simulationCase("simulation-cooling", "cooling-frame.jpg", "Builds a cooling experiment over a cocoa mug frame for \"let me try it\""),
   {
     id: "voice-command",
     route: "/voice-command",

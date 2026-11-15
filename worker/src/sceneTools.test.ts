@@ -76,7 +76,7 @@ function loadGuessedSimulation(overrides: Record<string, unknown> = {}) {
 
 type RunReport = {
   readouts: Array<{ label: string; value: number; unit: string }>;
-  pastRuns: Array<{ controls: Array<{ label: string; value: number; unit: string }>; readouts: unknown[] }>;
+  pastRuns: Array<{ trial: number; controls: Array<{ label: string; value: number; unit: string }>; readouts: unknown[] }>;
   challenge: { status: string; attempts: number; difference: number; unit: string; readoutLabel: string } | null;
 };
 const runReport = (postedEvent: string | undefined): RunReport => JSON.parse(String(postedEvent).slice("runFinished:".length));
@@ -160,7 +160,7 @@ describe("scene-tools.js simulation tools", () => {
     await vi.waitFor(() => expect(postedEvents).toHaveLength(1));
     expect(runReport(postedEvents[0])).toEqual({
       readouts: [{ label: "Landing distance", value: 40.8, unit: "m" }],
-      pastRuns: [{ controls: [{ label: "Launch angle", value: 45, unit: "degrees" }], readouts: [{ label: "Landing distance", value: 40.8, unit: "m" }] }],
+      pastRuns: [{ trial: 1, controls: [{ label: "Launch angle", value: 45, unit: "degrees" }], readouts: [{ label: "Landing distance", value: 40.8, unit: "m" }] }],
       challenge: null,
     });
     expect(clickyTools.state().runIsGoing).toBe(false);
@@ -186,16 +186,17 @@ describe("scene-tools.js simulation tools", () => {
     expect(clickyTools.call("run_simulation", {}).ok).toBe(true);
   });
 
-  it("keeps the last 3 runs, newest first, with the controls each one started with", async () => {
+  it("keeps the last 5 trials, newest first, numbered, with the controls each one started with", async () => {
     const { clickyTools, postedEvents } = loadGuessedSimulation();
 
-    for (const angle of [20, 30, 40, 50]) {
+    for (const angle of [20, 30, 40, 50, 60, 70]) {
       clickyTools.call("set_control", { name: "angle", value: angle });
       await finishARun(clickyTools, postedEvents);
     }
 
-    const pastAngles = runReport(postedEvents.at(-1)).pastRuns.map((pastRun) => pastRun.controls[0]?.value);
-    expect(pastAngles).toEqual([50, 40, 30]);
+    const pastRuns = runReport(postedEvents.at(-1)).pastRuns;
+    expect(pastRuns.map((pastRun) => pastRun.controls[0]?.value)).toEqual([70, 60, 50, 40, 30]);
+    expect(pastRuns.map((pastRun) => pastRun.trial)).toEqual([6, 5, 4, 3, 2]);
   });
 
   it("starts the challenge only after the guess, hides the path, and shows the target", () => {
