@@ -210,16 +210,20 @@ nonisolated func liveSceneKind(for transcript: String) -> LiveSceneKind? {
 }
 
 /// "Let me try it", "let me play with this", "can I try it", "simulate this", or only "let me try" or "can I try".
-/// "Let me try to explain" and "how do I simulate this in Python" are ordinary talk, so they build nothing.
-/// The bare form must be the whole utterance, because "let me try" is also how people start a sentence.
+/// "Let me try to explain", "let me try that again", and "how do I simulate this in Python" are ordinary talk, so they
+/// build nothing. A try phrase must end the utterance, and the bare form must be all of it, because "let me try" is
+/// also how people start a sentence.
 nonisolated private func asksToTryASimulation(_ lowercaseTranscript: String) -> Bool {
-    let tryItPhrase = #"\b((let me|can i|could i|may i) (try|play with) (it|this|that|them)|simulate (it|this|that|them))\b"#
+    // The try phrase has to end the utterance, since "let me try that again" or "can I try this on my phone" is ordinary talk.
+    let tryItPhrase = #"\b(let me|can i|could i|may i) (try|play with) (it|this|that|them)( out| now| please| in 3d| in 3-d)?\W*$"#
+    let simulatePhrase = #"\bsimulate (it|this|that|them)\b"#
     let bareTryPhrase = #"^\W*(let me|can i|could i|may i) (try|play)\W*$"#
     let asksHowToDoItElsewhere = lowercaseTranscript.range(of: #"\bhow (do|can|would|should|could|to)\b"#, options: .regularExpression) != nil
     if asksHowToDoItElsewhere {
         return false
     }
     return lowercaseTranscript.range(of: tryItPhrase, options: .regularExpression) != nil
+        || lowercaseTranscript.range(of: simulatePhrase, options: .regularExpression) != nil
         || lowercaseTranscript.range(of: bareTryPhrase, options: .regularExpression) != nil
 }
 

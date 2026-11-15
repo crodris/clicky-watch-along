@@ -33,14 +33,15 @@
   const hasSimulation = () => simulationControls().length > 0
     && typeof liveScene()?.setControl === "function"
     && typeof liveScene()?.run === "function";
+  // A control's text is the page's and reaches the panel, the model's tool list, and Clicky's voice, so it is cut short.
   const controlSummary = (control) => ({
-    name: control.name,
-    label: String(control.label ?? control.name),
+    name: control.name.slice(0, 40),
+    label: String(control.label ?? control.name).slice(0, 40),
     min: Number(control.min),
     max: Number(control.max),
     step: Number(control.step) > 0 ? Number(control.step) : 1,
     value: Number(control.value),
-    unit: String(control.unit ?? ""),
+    unit: String(control.unit ?? "").slice(0, 16),
   });
   // What the page reports is untrusted text that Clicky may say out loud, so it is cut to a few short, plain entries.
   const currentReadouts = () => {
@@ -65,6 +66,8 @@
   // The results table, like a lab notebook. The page keeps only the last 3 paths on screen.
   const mostPastRuns = 5;
   let trialsRun = 0;
+  // The app hands over the hypothesis it asks out loud, so the learner can read it while Clicky waits for the guess.
+  let predictionQuestion = "";
   const pastRuns = [];
   const setPathPreview = (visible) => liveScene()?.setPreviewVisible?.(visible);
   // The page's challenge is untrusted text Clicky says out loud, so only a short prompt and real numbers pass.
@@ -241,7 +244,9 @@
     panel.runButton.textContent = lessonStage === "guess" ? "Say your guess" : runIsGoing ? "Running" : "Run";
     panel.runButton.style.background = lessonStage === "guess" ? "#8a94a3" : "#3380ff";
     const challenge = challengeState();
-    panel.challengeElement.style.display = challenge ? "block" : "none";
+    const questionIsWaiting = lessonStage === "guess" && predictionQuestion !== "";
+    panel.challengeElement.style.display = challenge || questionIsWaiting ? "block" : "none";
+    if (questionIsWaiting) panel.challengeElement.textContent = predictionQuestion;
     if (challenge) {
       const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
       panel.challengeElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
@@ -341,6 +346,8 @@
   // A newer run, from the button or the voice, replaces an older one, and the older one's end is ignored.
   const startRun = () => {
     const controlsAtTheStart = simulationControls().map(controlSummary).map(({ label, value, unit }) => ({ label, value, unit }));
+    // A run counts as a challenge try only when it started in the challenge, with the dashed path already hidden.
+    const runStartedInTheChallenge = lessonStage === "challenge";
     runIsGoing = true;
     latestRunNumber += 1;
     const thisRunNumber = latestRunNumber;
@@ -352,12 +359,20 @@
     } catch (error) {
       runResult = Promise.reject(error);
     }
-    const runEnded = Promise.race([Promise.resolve(runResult), new Promise((resolve) => setTimeout(resolve, 20000))]);
-    runEnded.catch((error) => console.error("simulation run failed: " + error)).then(() => {
+    const runEnded = Promise.race([
+      Promise.resolve(runResult).then(() => "ended"),
+      new Promise((resolve) => setTimeout(() => resolve("timedOut"), 20000)),
+    ]);
+    runEnded.catch((error) => {
+      console.error("simulation run failed: " + error);
+      return "failed";
+    }).then((howTheRunEnded) => {
       if (thisRunNumber !== latestRunNumber) return;
       runIsGoing = false;
-      const readouts = currentReadouts();
+      // A run that failed or never ended left the readouts from the run before, so it adds no trial and reports nothing.
+      const readouts = howTheRunEnded === "ended" ? currentReadouts() : [];
       if (readouts.length === 0) {
+        if (howTheRunEnded === "ended") console.error("simulation run ended with no readouts");
         refreshPanel();
         return;
       }
@@ -365,7 +380,7 @@
       pastRuns.unshift({ trial: trialsRun, controls: controlsAtTheStart, readouts });
       pastRuns.splice(mostPastRuns);
       const report = { readouts, pastRuns, challenge: null };
-      if (lessonStage === "challenge") report.challenge = scoreTheChallengeRun(readouts);
+      if (runStartedInTheChallenge && lessonStage === "challenge") report.challenge = scoreTheChallengeRun(readouts);
       refreshPanel();
       window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("runFinished:" + JSON.stringify(report));
     });
@@ -513,9 +528,9 @@
       // A getter, so the model reads the controls this page defines, with their ranges and current values.
       get description() {
         const controlList = simulationControls().map(controlSummary)
-          .map((control) => `${control.name} (${control.label}, ${control.min} to ${control.max}${control.unit ? " " + control.unit : ""}, now ${control.value})`)
+          .map((control) => `${control.name} (${control.label}, ${control.min} to ${control.max}${control.unit ? " " + control.unit : ""})`)
           .join("; ");
-        return `Change one number of the simulation on screen and put it back at its start, without running it. The controls are: ${controlList}. Use the control's name and a value in its unit.`;
+        return `Change one number of the simulation on screen and put it back at its start, without running it. The controls are: ${controlList}. The state's controls hold each one's current value. Use the control's name and a value in its unit.`;
       },
       inputSchema: {
         type: "object",
@@ -589,6 +604,10 @@
     simulation: {
       guessHeard: () => leaveTheGuessStage(),
       startChallenge,
+      showQuestion: (questionText) => {
+        predictionQuestion = String(questionText ?? "").trim().slice(0, 300);
+        refreshPanel();
+      },
     },
   };
 })();

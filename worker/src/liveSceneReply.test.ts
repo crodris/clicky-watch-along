@@ -100,6 +100,7 @@ const simulationPage = liveScenePage.replace(
   controls: [{ name: "angle", label: "Launch angle", min: 5, max: 85, step: 1, value: 45, unit: "degrees" }],
   setControl(name, value) { return name === "angle"; },
   run() { return Promise.resolve(); },
+  getState() { return { readouts: [] }; },
   reset() {},`,
 );
 
@@ -114,6 +115,7 @@ describe("simulation reply", () => {
     ["controls", "controls: [{"],
     ["setControl", "setControl(name, value)"],
     ["run", "run()"],
+    ["readouts", "readouts: []"],
   ])("rejects a simulation page that lacks %s, so the retry runs", (missingName, definition) => {
     const replacement = definition.replace(missingName, "somethingElse");
     const pageMissingTheName = simulationPage.replace(definition, replacement);

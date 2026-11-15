@@ -28,6 +28,8 @@ const simulationMarkers = [
   { name: "controls", pattern: /\bcontrols\s*[:=]/ },
   { name: "setControl", pattern: /\bsetControl\s*[(:=]/ },
   { name: "run", pattern: /\brun\s*[(:=]/ },
+  // getState() must report readouts, or a run ends with nothing for the panel or Clicky to say.
+  { name: "readouts", pattern: /\breadouts\s*[:=]/ },
 ] as const;
 
 // The app draws the only control panel, so a second one from the page would show twice.

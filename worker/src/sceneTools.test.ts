@@ -37,7 +37,7 @@ function loadSceneTools(liveScene: Record<string, unknown>, fakeDocument: Record
     list: () => ToolDescriptor[];
     call: (name: string, input: unknown) => ToolCallResult;
     state: () => Record<string, unknown>;
-    simulation: { guessHeard: () => boolean; startChallenge: () => string | null };
+    simulation: { guessHeard: () => boolean; startChallenge: () => string | null; showQuestion: (questionText: string) => void };
   };
   return { clickyTools, postedEvents };
 }
@@ -131,7 +131,9 @@ describe("scene-tools.js simulation tools", () => {
   it("describes each control to the model with its range and current value", () => {
     const setControlTool = loadSceneTools(simulationPage()).clickyTools.list().find((tool) => tool.name === "set_control");
 
-    expect(setControlTool?.description).toContain("angle (Launch angle, 5 to 85 degrees, now 45)");
+    expect(setControlTool?.description).toContain("angle (Launch angle, 5 to 85 degrees)");
+    // The current value lives in the state, so a slider move never changes the tool list the Worker caches.
+    expect(setControlTool?.description).not.toContain("45");
   });
 
   it("sets a control through the page, and refuses a name the page does not have", () => {
@@ -214,6 +216,43 @@ describe("scene-tools.js simulation tools", () => {
     expect(clickyTools.simulation.startChallenge()).toBeNull();
   });
 
+  it("does not count a run that started before the challenge as a challenge try", async () => {
+    let finishTheRun: () => void = () => {};
+    const { clickyTools, postedEvents } = loadGuessedSimulation({
+      challenge: rangeChallenge,
+      run: vi.fn(() => new Promise<void>((resolve) => (finishTheRun = resolve))),
+    });
+
+    clickyTools.call("run_simulation", {});
+    clickyTools.simulation.startChallenge();
+    finishTheRun();
+    await vi.waitFor(() => expect(postedEvents).toHaveLength(1));
+
+    expect(runReport(postedEvents[0]).challenge).toBeNull();
+    expect(clickyTools.state()).toMatchObject({ challenge: { attempts: 0 } });
+  });
+
+  it("adds no trial and reports nothing for a run that fails, since the readouts are the run before's", async () => {
+    const { clickyTools, postedEvents } = loadGuessedSimulation({ run: vi.fn(() => Promise.reject(new Error("page broke"))) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    clickyTools.call("run_simulation", {});
+    await vi.waitFor(() => expect(clickyTools.state().runIsGoing).toBe(false));
+
+    expect(postedEvents).toEqual([]);
+    expect(clickyTools.state().pastRuns).toEqual([]);
+  });
+
+  it("cuts a control's page text short before it reaches the model or the panel", () => {
+    const { clickyTools } = loadSceneTools(simulationPage({
+      controls: [{ name: "angle", label: "A".repeat(90), min: 5, max: 85, step: 1, value: 45, unit: "u".repeat(40) }],
+    }));
+
+    const [control] = clickyTools.state().controls as Array<{ label: string; unit: string }>;
+    expect(control?.label).toHaveLength(40);
+    expect(control?.unit).toHaveLength(16);
+  });
+
   it("refuses a challenge with no real target or tolerance", () => {
     for (const challenge of [{ ...rangeChallenge, target: "far" }, { ...rangeChallenge, tolerance: 0 }, { ...rangeChallenge, prompt: " " }, "land it"]) {
       const { clickyTools } = loadGuessedSimulation({ challenge });
@@ -275,6 +314,29 @@ describe("scene-tools.js simulation tools", () => {
     const report = await finishARun(clickyTools, postedEvents);
 
     expect(report.readouts.map((readout) => readout.label)).toEqual(["x".repeat(40), "Two", "Three"]);
+  });
+
+  it("shows the hypothesis in the panel while Clicky waits for the guess", () => {
+    const createdElements: Array<Record<string, unknown>> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} };
+        createdElements.push(element);
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    const { clickyTools } = loadSceneTools(simulationPage(), fakeDocument);
+    clickyTools.call("set_control", { name: "angle", value: 30 });
+
+    clickyTools.simulation.showQuestion("Will 30 or 60 degrees send the ball farther?");
+
+    const questionLine = createdElements.find((element) => element.textContent === "Will 30 or 60 degrees send the ball farther?");
+    expect(questionLine?.style).toMatchObject({ display: "block" });
+    clickyTools.simulation.guessHeard();
+    expect(questionLine?.style).toMatchObject({ display: "none" });
   });
 
   it("skips the guess when the learner clicks the locked Run button, and tells the app", () => {

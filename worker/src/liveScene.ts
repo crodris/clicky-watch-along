@@ -156,7 +156,7 @@ const liveSceneInstructions = [
 
 /**
  * Added after liveSceneInstructions for a simulation, so a model page's prompt stays exactly as it was and a simulation
- * keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 12.
+ * keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 15.
  */
 const simulationInstructions = [
   "",

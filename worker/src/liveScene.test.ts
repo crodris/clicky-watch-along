@@ -140,7 +140,8 @@ const simulationPage = scenePage.replace(
   `reveal() {},
   controls: [{ name: "angle", label: "Launch angle", min: 5, max: 85, step: 1, value: 45, unit: "degrees" }],
   setControl(name, value) { return name === "angle"; },
-  run() { return Promise.resolve(); },`,
+  run() { return Promise.resolve(); },
+  getState() { return { readouts: [] }; },`,
 );
 
 const simulationModelReply =

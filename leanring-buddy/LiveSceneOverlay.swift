@@ -749,6 +749,11 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         await callThePageForVoiceTools("return window.clickyTools?.simulation?.guessHeard?.() ?? false")?.boolValue == true
     }
 
+    /// Shows the hypothesis Clicky asks in the simulation's panel, so the learner can read it while Clicky waits for the guess.
+    func showTheSimulationQuestion(_ predictionQuestion: String) {
+        evaluateOnThePage("window.clickyTools?.simulation?.showQuestion?.(questionText)", arguments: ["questionText": predictionQuestion])
+    }
+
     /// Starts the simulation's challenge and returns its spoken prompt, or nil when the page has none to start.
     /// The prompt is page text, so it is cut to a sentence's length.
     func startTheSimulationChallenge() async -> String? {

@@ -1816,6 +1816,11 @@ struct leanring_buddyTests {
         }
         // "Let me try to ..." and a how-to question are ordinary talk, and the older triggers keep their kinds.
         #expect(liveSceneKind(for: "let me try to understand this") == nil)
+        // A try phrase in the middle of ordinary talk would start a 20 second, $0.37 build.
+        #expect(liveSceneKind(for: "let me try that again") == nil)
+        #expect(liveSceneKind(for: "can I try this on my phone") == nil)
+        #expect(liveSceneKind(for: "let me try it myself later") == nil)
+        #expect(liveSceneKind(for: "can we simulate this circuit") == .simulation)
         #expect(liveSceneKind(for: "how do I simulate this in python") == nil)
         #expect(liveSceneKind(for: "can I try the other tab") == nil)
         #expect(liveSceneKind(for: "show me this in 3D") == .explore)
@@ -1908,6 +1913,9 @@ struct leanring_buddyTests {
         """))
         let userPrompt = simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport)
         #expect(userPrompt.contains("<guess>60 goes farther</guess>"))
+        // The question is page text too, so it sits inside a data tag the system prompt names.
+        #expect(userPrompt.contains("<question>Will 30 or 60 degrees land farther?</question>"))
+        #expect(simulationPredictionCheckSystemPrompt.contains("<question>"))
         #expect(userPrompt.contains("trial 1: Launch  angle  60 degrees gave Range 35.31 m"))
         lesson.guess = .skipped
         #expect(simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport).contains("(they did not guess)"))

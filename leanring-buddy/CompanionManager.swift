@@ -1476,8 +1476,6 @@ final class CompanionManager: ObservableObject {
         }
         if case .landmark(let famousPlace) = liveScenePageOnScreen {
             await speakTheLandmarkLineAfterItsTour(famousPlace)
-        } else if sceneKind == .simulation {
-            await speakTheSimulationInvitationAfterItsTour()
         } else if sceneKind == .explore {
             await speakAboutTheLiveSceneOnScreen(transcript: transcript, labeledImages: labeledImages)
         }
@@ -1537,24 +1535,35 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Said once the simulation's tour ends: the page's prediction question, then the ask for a guess.
-    /// Run stays locked until the learner answers, which `record_guess` hears.
-    private func speakTheSimulationInvitationAfterItsTour() async {
-        while case .touring = liveScenePhase, !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+    /// Runs when a simulation's tour ends, which the page reports whatever else Clicky is doing, so a push-to-talk
+    /// press during the tour never loses the question. The panel shows the hypothesis, and Clicky asks it out loud
+    /// unless the learner already guessed. Run stays locked until `record_guess` hears an answer.
+    private func askTheSimulationQuestionAfterItsTour() {
+        guard case .simulation = liveScenePageOnScreen, let simulationLesson else { return }
+        LiveSceneOverlay.shared.showTheSimulationQuestion(simulationLesson.predictionQuestion)
+        guard simulationLesson.guess == .waiting else { return }
+        liveSceneTourFinishedTask?.cancel()
+        liveSceneTourFinishedTask = Task {
+            await self.waitUntilTheVoiceAnswerIsQuiet()
+            guard !Task.isCancelled, self.simulationLesson?.guess == .waiting else { return }
+            await self.speakSimulationLine(simulationLesson.guessInvitation)
+            guard !Task.isCancelled, self.voiceState == .responding else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
         }
-        guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase, let simulationLesson else { return }
-        await speakLiveSceneLine(simulationLesson.guessInvitation)
-        await waitForClickyToFinishSpeaking()
     }
 
     /// The router heard an answer to the prediction question. The guess is kept for the check after the runs.
+    /// The page unlocks first, so a guess is recorded only when the learner did not already skip it with the button.
     private func recordTheSimulationGuess(_ spokenGuess: String) async -> VoiceToolOutcome {
-        guard case .simulation = liveScenePageOnScreen, simulationLesson?.recordGuess(spokenGuess) == true else {
+        guard case .simulation = liveScenePageOnScreen, simulationLesson?.guess == .waiting else {
             return .failed(error: "No simulation is waiting for a guess", state: nil)
         }
         guard await LiveSceneOverlay.shared.unlockTheSimulationAfterTheGuess() else {
-            return .failed(error: "The simulation is not on screen anymore", state: nil)
+            return .failed(error: "The guess was already skipped, or the simulation is not on screen anymore", state: nil)
+        }
+        guard simulationLesson?.recordGuess(spokenGuess) == true else {
+            return .failed(error: "The guess was empty", state: nil)
         }
         print("Simulation: guess recorded")
         return .changed(state: await LiveSceneOverlay.shared.pageVoiceState())
@@ -1575,8 +1584,12 @@ final class CompanionManager: ObservableObject {
         let narrationTask = Task {
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            if let challengeOutcome = runReport.challengeOutcome {
+            await self.speakTheWaitingChallengePrompt()
+            // A page could post a challenge outcome on its own, so one counts only while Clicky's own record says
+            // it started the challenge.
+            if let challengeOutcome = runReport.challengeOutcome, self.simulationLesson?.challengeIsRunning == true {
                 if case .hit = challengeOutcome {
+                    self.simulationLesson?.challengeIsRunning = false
                     NSSound(named: NSSound.Name("Glass"))?.play()
                 }
                 await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
@@ -1596,6 +1609,9 @@ final class CompanionManager: ObservableObject {
 
     private func checkTheSimulationGuessAndStartTheChallenge(runReport: SimulationRunReport) async {
         guard let lesson = simulationLesson, !lesson.predictionIsSettled else { return }
+        // Counted before the check runs, so a learner whose push-to-talk keeps cancelling it still reaches the challenge.
+        simulationLesson?.runsChecked += 1
+        let runsChecked = simulationLesson?.runsChecked ?? 0
         voiceState = .processing
         let predictionCheck: SimulationPredictionCheck
         do {
@@ -1618,26 +1634,36 @@ final class CompanionManager: ObservableObject {
             voiceState = .idle
         }
         guard !Task.isCancelled else { return }
-        simulationLesson?.runsChecked += 1
-        let runsChecked = simulationLesson?.runsChecked ?? 0
         let lessonMovesOn = predictionCheck.predictionIsSettled || runsChecked >= SimulationLesson.mostRunsCheckedBeforeTheChallenge
         print("Simulation: guess check after run \(runsChecked), settled \(predictionCheck.predictionIsSettled)")
-        if !predictionCheck.spokenLine.isEmpty {
+        if predictionCheck.predictionIsSettled {
             await speakSimulationLine(predictionCheck.spokenLine)
-        }
-        // The check never settled but the lesson moves on, so the learner still hears why before the challenge.
-        if lessonMovesOn && !predictionCheck.predictionIsSettled {
+        } else if lessonMovesOn {
+            // An open check says what to try next, which the lesson no longer waits for, so the learner hears why instead.
             await speakSimulationLine(lesson.physicsExplanation)
+        } else {
+            await speakSimulationLine(predictionCheck.spokenLine)
         }
         guard lessonMovesOn, !Task.isCancelled else { return }
         simulationLesson?.predictionIsSettled = true
         guard let challengePrompt = await LiveSceneOverlay.shared.startTheSimulationChallenge() else { return }
         print("Simulation: challenge started")
-        await speakSimulationLine("\(challengePrompt) \(simulationChallengeStartSuffix)")
+        simulationLesson?.challengeIsRunning = true
+        simulationLesson?.challengePromptWaitingToBeSpoken = "\(challengePrompt) \(simulationChallengeStartSuffix)"
+        await speakTheWaitingChallengePrompt()
+    }
+
+    /// The challenge has started on the page once its prompt waits here, so a narration that a newer run cancels
+    /// leaves the prompt for the next narration to say first, and the challenge never starts in silence.
+    private func speakTheWaitingChallengePrompt() async {
+        guard let challengePromptLine = simulationLesson?.challengePromptWaitingToBeSpoken else { return }
+        await speakSimulationLine(challengePromptLine)
+        guard !Task.isCancelled else { return }
+        simulationLesson?.challengePromptWaitingToBeSpoken = nil
     }
 
     private func speakSimulationLine(_ line: String) async {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, !line.isEmpty else { return }
         print("Simulation: saying \"\(line)\"")
         await speakLiveSceneLine(line)
         await waitForClickyToFinishSpeaking()
@@ -2161,6 +2187,7 @@ final class CompanionManager: ObservableObject {
             LiveSceneOverlay.shared.letLearnerDragTheModel()
             // The tour ends close on the answer part, which only a quiz needs, so frame the whole subject again.
             LiveSceneOverlay.shared.highlightPart(labelText: "")
+            askTheSimulationQuestionAfterItsTour()
             return
         }
         liveSceneTourFinishedTask?.cancel()
