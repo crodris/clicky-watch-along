@@ -1928,4 +1928,17 @@ struct leanring_buddyTests {
         #expect(VoiceToolCall(id: "guess", name: "record_guess", input: ["guess": .string("60")]).chipPhrase == "Got your guess")
         #expect(AppVoiceTool.recordGuess.descriptor.description.contains("predictionQuestion"))
     }
+
+    @Test func aLongSpokenLineEndsAtItsLastWholeSentence() async throws {
+        let firstSentence = "Your guess didn't quite match, since 60 degrees and 30 degrees both landed at 35.31 meters."
+        let secondSentence = " The steeper shot stays up longer but moves forward more slowly, so the two angles balance out and land on the same spot every time."
+        let longLine = firstSentence + secondSentence
+        #expect(longLine.count > 200)
+
+        #expect(spokenTextCutAtASentenceEnd(longLine, longestLength: 200) == firstSentence)
+        // The period inside 35.31 is not a sentence end, so a limit just past it keeps nothing broken.
+        #expect(spokenTextCutAtASentenceEnd("It landed at 35.31 meters away from the cannon", longestLength: 20) == "It landed at 35.31")
+        #expect(spokenTextCutAtASentenceEnd("Short line.", longestLength: 300) == "Short line.")
+        #expect(SimulationPredictionCheck(replyText: "[SETTLED] " + longLine + " " + longLine).spokenLine.hasSuffix("every time."))
+    }
 }

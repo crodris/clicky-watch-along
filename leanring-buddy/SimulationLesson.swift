@@ -133,8 +133,8 @@ struct SimulationLesson: Equatable {
     private static let longestGuess = 200
 
     init(predictionQuestion: String, physicsExplanation: String) {
-        self.predictionQuestion = String(predictionQuestion.prefix(Self.longestQuestion))
-        self.physicsExplanation = String(physicsExplanation.prefix(Self.longestExplanation))
+        self.predictionQuestion = spokenTextCutAtASentenceEnd(predictionQuestion, longestLength: Self.longestQuestion)
+        self.physicsExplanation = spokenTextCutAtASentenceEnd(physicsExplanation, longestLength: Self.longestExplanation)
     }
 
     /// What Clicky says when the tour ends: the prediction, then the ask.
@@ -178,6 +178,27 @@ func simulationChallengeSpokenLine(for challengeOutcome: SimulationChallengeOutc
         let amountText = spokenSimulationNumber(abs(difference)) + (spokenUnit.isEmpty ? "" : " " + spokenUnit)
         return "That was \(amountText) \(difference > 0 ? "over" : "under") the target. Try again."
     }
+}
+
+/// Cuts text Clicky will say to at most `longestLength` characters, ending at its last whole sentence, so the voice never
+/// stops mid-word. A period inside a number, as in 35.31, is not a sentence end, since only one followed by a space or the
+/// end of the text counts. Text with no sentence end inside the limit is cut at its last space.
+func spokenTextCutAtASentenceEnd(_ spokenText: String, longestLength: Int) -> String {
+    guard spokenText.count > longestLength else { return spokenText }
+    let characters = Array(spokenText)
+    let lastSentenceEnd = (0..<longestLength).last { characterIndex in
+        let nextCharacterIndex = characterIndex + 1
+        return ".!?".contains(characters[characterIndex])
+            && (nextCharacterIndex == characters.count || characters[nextCharacterIndex].isWhitespace)
+    }
+    if let lastSentenceEnd {
+        return String(characters[...lastSentenceEnd])
+    }
+    let textWithinTheLimit = characters[..<longestLength]
+    guard let lastSpace = textWithinTheLimit.lastIndex(where: { $0.isWhitespace }) else {
+        return String(textWithinTheLimit)
+    }
+    return String(characters[..<lastSpace])
 }
 
 /// Said after the page's challenge prompt. The dashed path hides for the challenge, so the learner aims from earlier runs.
@@ -240,7 +261,7 @@ struct SimulationPredictionCheck: Equatable {
     private static let longestSpokenLine = 300
 
     init(spokenLine: String, predictionIsSettled: Bool) {
-        self.spokenLine = String(spokenLine.prefix(Self.longestSpokenLine))
+        self.spokenLine = spokenTextCutAtASentenceEnd(spokenLine, longestLength: Self.longestSpokenLine)
         self.predictionIsSettled = predictionIsSettled
     }
 
