@@ -116,6 +116,16 @@ describe("scene-tools.js simulation tools", () => {
     expect(longestDescription).toBeLessThanOrEqual(1000);
   });
 
+  it("keeps every tool's input schema under the 2000 bytes the app allows a page tool, even with 3 longest controls", () => {
+    const longControl = (index: number) => ({ name: `control_${index}_`.padEnd(40, "n"), label: "L".repeat(90), min: -100000, max: 100000, step: 0.001, value: 0, unit: "u".repeat(40) });
+    const { clickyTools } = loadSceneTools(simulationPage({ controls: [0, 1, 2].map(longControl), setLabelsVisible: () => true }));
+
+    const largestSchemaBytes = Math.max(...clickyTools.list().map((tool) => JSON.stringify(tool.inputSchema).length));
+
+    // largestPageToolInputSchemaBytes in VoiceCommandTools.swift. A larger schema's tool is dropped from the router.
+    expect(largestSchemaBytes).toBeLessThanOrEqual(2000);
+  });
+
   it("lists set_labels only when the page can show and hide its labels, and tracks whether they show", () => {
     expect(toolNames(loadSceneTools(simulationPage()).clickyTools)).not.toContain("set_labels");
 
@@ -419,6 +429,42 @@ describe("scene-tools.js simulation tools", () => {
     clickyTools.call("run_simulation", {});
 
     expect(clickyTools.call("set_control", { name: "mass", value: 3 }).state.runIsGoing).toBe(true);
+  });
+
+  it("keeps a run going when the page refuses a known control's new value", () => {
+    const { clickyTools } = loadGuessedSimulation({ run: vi.fn(() => new Promise<void>(() => {})), setControl: vi.fn(() => false) });
+
+    clickyTools.call("run_simulation", {});
+
+    expect(clickyTools.call("set_control", { name: "angle", value: 30 }).state.runIsGoing).toBe(true);
+  });
+
+  it("keeps a run going when the page refuses the value a slider drag sends", () => {
+    const inputHandlers: Array<{ element: Record<string, unknown>; handler: () => void }> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {} };
+        element.addEventListener = (eventName: string, handler: () => void) => {
+          if (eventName === "input") inputHandlers.push({ element, handler });
+        };
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    const page = simulationPage({ run: vi.fn(() => new Promise<void>(() => {})), setControl: vi.fn(() => false) });
+    const { clickyTools } = loadSceneTools(page, fakeDocument);
+    clickyTools.simulation.guessHeard();
+    clickyTools.call("run_simulation", {});
+    const slider = inputHandlers[0];
+    expect(slider).toBeDefined();
+    if (!slider) return;
+
+    slider.element.value = "30";
+    slider.handler();
+
+    expect(clickyTools.state().runIsGoing).toBe(true);
   });
 
   it("abandons a run in flight when the learner drags a slider, so its end adds no trial", async () => {

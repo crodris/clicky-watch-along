@@ -166,9 +166,13 @@ nonisolated func debugRequestRefusalStatus(method: String, path: String, headers
 /// The most bytes of one request body the server reads, headers aside.
 nonisolated let debugRequestLargestBodyBytes = 1_000_000
 
-/// A sender that keeps sending past the body limit without finishing a request is cut off.
+/// The room for the request line and headers on top of the body limit.
+nonisolated let debugRequestHeaderAllowanceBytes = 16_384
+
+/// A sender that keeps sending past the body limit plus the header allowance without finishing a request is cut off.
+/// The count includes the headers, so a legal body near the limit is not cut off.
 nonisolated func debugRequestHasGrownTooLarge(byteCount: Int) -> Bool {
-    byteCount > debugRequestLargestBodyBytes
+    byteCount > debugRequestLargestBodyBytes + debugRequestHeaderAllowanceBytes
 }
 
 /// Just enough HTTP/1.1 for one request: the request line, the headers, and a Content-Length body.

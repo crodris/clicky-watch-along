@@ -2286,7 +2286,7 @@ final class CompanionManager: ObservableObject {
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
-            simulationIsOnScreen: pageState?["lessonStage"]?.stringValue != nil
+            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2298,10 +2298,10 @@ final class CompanionManager: ObservableObject {
         var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
-        // When the third turn still needs the model, this is what Clicky says instead of going quiet.
-        var lineToSpeakIfTheTurnsRunOut: String?
+        // When the third turn still needs the model, Clicky says the apology instead of going quiet.
+        var theTurnsRanOut = false
         for _ in 0..<3 {
-            lineToSpeakIfTheTurnsRunOut = nil
+            theTurnsRanOut = false
             let reply: VoiceCommandReply
             do {
                 reply = try await voiceCommandClient.requestToolCalls(messages: messages, tools: tools)
@@ -2361,7 +2361,7 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
                 return
             case .askTheModelAgain:
-                lineToSpeakIfTheTurnsRunOut = voiceCommandLineWhenTheTurnsRunOut(lastReplyText: reply.text)
+                theTurnsRanOut = true
                 messages.append(.object(["role": .string("assistant"), "content": .array(reply.assistantContent)]))
                 messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
                 continue
@@ -2373,8 +2373,8 @@ final class CompanionManager: ObservableObject {
             break
         }
         guard !Task.isCancelled else { return }
-        if let lineToSpeakIfTheTurnsRunOut {
-            await speakLiveSceneLine(lineToSpeakIfTheTurnsRunOut)
+        if theTurnsRanOut {
+            await speakLiveSceneLine(voiceCommandGaveUpLine)
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -3133,7 +3133,7 @@ final class CompanionManager: ObservableObject {
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
-            simulationIsOnScreen: pageState?["lessonStage"]?.stringValue != nil
+            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)

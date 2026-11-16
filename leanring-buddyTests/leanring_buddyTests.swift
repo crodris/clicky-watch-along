@@ -771,12 +771,11 @@ struct leanring_buddyTests {
         #expect(search.chipPhraseToShow(at: .afterTheCall(.lookedUp(result: .null))) == nil)
     }
 
-    @Test func whenTheRouterTurnsRunOutClickySaysTheModelsLastWordsOrAnApology() async throws {
-        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: "  I could not find that moment.  ") == "I could not find that moment.")
-        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: "") == voiceCommandGaveUpLine)
-        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: " \n ") == voiceCommandGaveUpLine)
-        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: String(repeating: "a", count: 500)).count == longestSpokenVoiceCommandLine)
+    @Test func whenTheRouterTurnsRunOutClickyAlwaysSaysTheApologyNeverTheTextWrittenNextToAToolCall() async throws {
         #expect(voiceCommandGaveUpLine == "Sorry, I couldn't do that one.")
+        // The next step after a failed call asks the model again, so a reply text like "Jumping there." is never what ends the command.
+        let seek = VoiceToolCall(id: "1", name: "seek_to_time", input: [:])
+        #expect(voiceCommandNextStep(toolCalls: [seek], outcomes: [.failed(error: "no video", state: nil)], replyText: "Jumping there.") == .askTheModelAgain)
     }
 
     @Test func showingAReadyExperimentThroughBuildSimulationShowsNoStartingChip() async throws {
@@ -1105,6 +1104,31 @@ struct leanring_buddyTests {
         #expect(Set(offeredTools.map(\.name)).count == offeredTools.count)
     }
 
+    @Test func aPageToolWithAnOversizedInputSchemaIsDroppedButOneAtTheLimitStays() async throws {
+        func toolWithSchemaOf(bytes schemaBytes: Int, name: String) -> VoiceToolDescriptor {
+            // {"type":"object","x":"..."} is 24 bytes around the padding.
+            let paddingLength = schemaBytes - 24
+            let schema: JSONValue = .object(["type": .string("object"), "x": .string(String(repeating: "x", count: paddingLength))])
+            #expect(schema.compactJSONText.utf8.count == schemaBytes)
+            return VoiceToolDescriptor(name: name, description: "Do it.", inputSchema: schema, readOnly: false)
+        }
+        let pageTools = [
+            toolWithSchemaOf(bytes: largestPageToolInputSchemaBytes, name: "rotate_model"),
+            toolWithSchemaOf(bytes: largestPageToolInputSchemaBytes + 1, name: "zoom"),
+        ]
+
+        #expect(voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: []).map(\.name) == ["rotate_model"])
+    }
+
+    @Test func anExperimentCountsAsOnScreenOnlyWhenClickysOwnRecordSaysSoAndTheOverlayShowsIt() {
+        #expect(simulationIsOnScreen(pageOnScreen: .simulation, overlayIsShowingAScene: true))
+        // A page with controls can report any lesson stage, so a generated page or no page never counts.
+        #expect(!simulationIsOnScreen(pageOnScreen: .generatedPage, overlayIsShowingAScene: true))
+        #expect(!simulationIsOnScreen(pageOnScreen: nil, overlayIsShowingAScene: true))
+        // A scene on its way back into the video is no longer on screen.
+        #expect(!simulationIsOnScreen(pageOnScreen: .simulation, overlayIsShowingAScene: false))
+    }
+
     @Test func aHugeNumberInAToolCallShowsOnTheChipWithoutCrashing() async throws {
         let toolCall = VoiceToolCall(id: "a", name: "seek_to_time", input: ["seconds": .number(1e300)])
         #expect(toolCall.chipText.hasPrefix("seek_to_time(seconds: "))
@@ -1345,8 +1369,10 @@ struct leanring_buddyTests {
         #expect(DebugHTTPRequest(bytes: Data((oversizedHeader + String(repeating: "x", count: 1_000_001)).utf8)) == nil)
         let largestHeader = "POST /mcp HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n"
         #expect(DebugHTTPRequest(bytes: Data((largestHeader + String(repeating: "x", count: 1_000_000)).utf8))?.body.count == 1_000_000)
-        #expect(!debugRequestHasGrownTooLarge(byteCount: 1_000_000))
-        #expect(debugRequestHasGrownTooLarge(byteCount: 1_000_001))
+        // A legal body at the limit with 200 bytes of headers is 1,000,200 bytes in all and must not be cut off.
+        #expect(!debugRequestHasGrownTooLarge(byteCount: 1_000_200))
+        #expect(!debugRequestHasGrownTooLarge(byteCount: 1_000_000 + 16_384))
+        #expect(debugRequestHasGrownTooLarge(byteCount: 1_000_000 + 16_384 + 1))
     }
 
     @Test func aRehearsalAnswersWithTheOpenQuestionsLabel() async throws {

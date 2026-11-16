@@ -344,8 +344,8 @@
       slider.value = String(control.value);
       slider.addEventListener("input", () => {
         liveScene().endTour?.();
-        abandonTheRunInFlight();
-        liveScene().setControl(pageControl.name, Number(slider.value));
+        // A page that refuses the value keeps its run going, so only a change abandons it.
+        if (liveScene().setControl(pageControl.name, Number(slider.value)) !== false) abandonTheRunInFlight();
         refreshPanel();
       });
       row.append(heading, slider);
@@ -585,10 +585,10 @@
         const name = String(input.name ?? "");
         // The model saw each name cut to 40 characters, so it matches here on the cut name and the page gets its real one.
         const control = simulationControls().find((candidate) => candidate.name === name || controlSummary(candidate).name === name);
-        if (control) abandonTheRunInFlight();
         if (!control || liveScene().setControl(control.name, value) === false) {
           return { ok: false, error: `No control is named "${name.slice(0, 40)}". The controls are: ${simulationControls().map((candidate) => controlSummary(candidate).name).join(", ")}` };
         }
+        abandonTheRunInFlight();
         refreshPanel();
         return { ok: true };
       },

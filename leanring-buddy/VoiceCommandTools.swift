@@ -601,12 +601,20 @@ nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom
 /// text, the longest being set_control's with three controls.
 nonisolated let longestPageToolDescription = 1000
 
+/// A page's tool input schema is page text the model reads too, and it is not cut, so a page tool whose schema
+/// encodes to more bytes than this is dropped. The bundled tools' schemas are a few hundred bytes.
+nonisolated let largestPageToolInputSchemaBytes = 2000
+
 /// The Worker refuses a request with two tools of one name, which would send every command to the keyword path, so a
 /// page that lists a name twice keeps its first entry.
 nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
     var pageToolNamesSeen: Set<String> = []
     let knownPageTools = pageTools
-        .filter { pageTool in pageVoiceToolNames.contains(pageTool.name) && pageToolNamesSeen.insert(pageTool.name).inserted }
+        .filter { pageTool in
+            pageVoiceToolNames.contains(pageTool.name)
+                && pageTool.inputSchema.compactJSONText.utf8.count <= largestPageToolInputSchemaBytes
+                && pageToolNamesSeen.insert(pageTool.name).inserted
+        }
         .map { pageTool in
             VoiceToolDescriptor(
                 name: pageTool.name,
@@ -644,13 +652,9 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
 }
 
 /// What Clicky says when the router's turns run out with the model still waiting on a lookup or a failure, so the learner
-/// is never left in silence. It is the model's last words when it had any, else an apology.
+/// is never left in silence. It is always this apology, never the model's last words: the Worker tells the model that
+/// text next to a tool call is never spoken, so that text was written before the call ran and can claim a success that failed.
 nonisolated let voiceCommandGaveUpLine = "Sorry, I couldn't do that one."
-
-nonisolated func voiceCommandLineWhenTheTurnsRunOut(lastReplyText: String) -> String {
-    let lastWords = lastReplyText.trimmingCharacters(in: .whitespacesAndNewlines)
-    return lastWords.isEmpty ? voiceCommandGaveUpLine : String(lastWords.prefix(longestSpokenVoiceCommandLine))
-}
 
 /// A play counts only once the video is really playing, meaning not paused and holding data to play, so Clicky
 /// never says "playing" over a stopped video. Chrome refuses a video with sound on a page never clicked, and
