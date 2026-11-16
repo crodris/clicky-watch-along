@@ -5,6 +5,9 @@ A violet wingman flies behind the blue cursor while `POST /live-scene` builds th
 When the model is ready and the screen is free, Clicky pauses the video, the model rises out of it, and Clicky says what it shows.
 When something else is on screen, the model waits, and the chip says "3D model ready · say show the model".
 
+The experiment agent behind "let me try it" (see [Let me try it simulation](./simulation.md)) runs the same code with a lime wingman, the steps "Grabbing the frame" and "Building the experiment", and the chip "Experiment ready · say show the experiment".
+Its log lines start with `Experiment:` instead of `3D model:`.
+
 ## Sub-features
 
 - `model-router-split` sends "build me a 3D model of this engine" to `build_model_in_background`, and "show me this in 3D" or a famous place to `build_new_scene`.
@@ -43,4 +46,5 @@ Preconditions:
 
 - A tool name may hold only lowercase letters and underscores, since the Worker's `/voice-command` check refuses digits, so `build_3d_...` gets a 400.
 - The model rises only while the tab it was built from is in front, so switching tabs during the build makes it wait.
+  An experiment rises over any tab when it was built with no tab URL.
 - Each guide run creates a real Notion page, so trash the test pages afterwards.

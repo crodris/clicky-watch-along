@@ -16,8 +16,6 @@ enum LiveSceneStatusLine {
     case animatingIt
     case readingYourScreen
     case buildingYourScene
-    /// Shown instead of "Building your 3D scene" while a "let me try it" experiment builds.
-    case buildingYourExperiment
     case almostThere
     case readingTheTranscript
     case pickingQuizSpots
@@ -28,7 +26,6 @@ enum LiveSceneStatusLine {
         case .animatingIt: return "Animating it"
         case .readingYourScreen: return "Reading your screen"
         case .buildingYourScene: return "Building your 3D scene"
-        case .buildingYourExperiment: return "Building your experiment"
         case .almostThere: return "Almost there"
         case .readingTheTranscript: return "Reading the transcript"
         case .pickingQuizSpots: return "Picking spots to quiz you on"
@@ -46,7 +43,6 @@ enum LiveSceneStatusLine {
         case .animatingIt: return .animatingIt
         case .readingYourScreen: return .readingYourScreen
         case .buildingYourScene: return .buildingYourScene
-        case .buildingYourExperiment: return .buildingYourExperiment
         case .almostThere: return .almostThere
         case .readingTheTranscript: return .readingTheTranscript
         case .pickingQuizSpots: return .pickingQuizSpots
@@ -54,7 +50,7 @@ enum LiveSceneStatusLine {
     }
 
     /// The lines the scene build shows. Only the scene build hides these.
-    static let sceneBuildLines: Set<LiveSceneStatusLine> = [.readingYourScreen, .buildingYourScene, .buildingYourExperiment, .almostThere]
+    static let sceneBuildLines: Set<LiveSceneStatusLine> = [.readingYourScreen, .buildingYourScene, .almostThere]
     /// The lines the pop-out shows: "Animating it" when the learner asked to animate, while the pop-out builds
     /// or while the flows for a pop-out already on screen come back. Only the pop-out hides these.
     static let popOutLines: Set<LiveSceneStatusLine> = [.poppingItOut, .animatingIt]
@@ -91,8 +87,6 @@ enum LiveSceneStatusLine {
         case .animatingIt: return 0
         case .readingYourScreen: return 1.35
         case .buildingYourScene: return 1.6
-        // Every letter rests at the start of the loop, since each bubble waits out its own delay first.
-        case .buildingYourExperiment: return 0
         case .almostThere: return 1.5
         case .readingTheTranscript: return 2.0
         case .pickingQuizSpots: return 1.1
@@ -125,10 +119,6 @@ struct StatusLabelPalette {
     static let buildingYourScene = StatusLabelPalette(
         iconColor: DS.Colors.orange500, textColor: DS.Colors.orange700, lightColor: DS.Colors.orange300,
         paleColor: DS.Colors.orange200, washColor: DS.Colors.orange50, highlightColor: DS.Colors.orange400
-    )
-    static let buildingYourExperiment = StatusLabelPalette(
-        iconColor: DS.Colors.lime500, textColor: DS.Colors.lime700, lightColor: DS.Colors.lime300,
-        paleColor: DS.Colors.lime100, washColor: DS.Colors.lime50, highlightColor: DS.Colors.lime400
     )
     static let almostThere = StatusLabelPalette(
         iconColor: DS.Colors.green500, textColor: DS.Colors.green700, lightColor: DS.Colors.green300,
@@ -262,16 +252,6 @@ extension LiveSceneStatusLine {
                 rotationDegrees: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, -14), (0.10, 0), (1, 0)], easing: StatusLabelMotion.easeOutBack),
                 opacity: StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 0), (0.10, 1), (0.74, 1), (0.86, 0), (1, 0)], easing: StatusLabelMotion.easeOut)
             )
-
-        case .buildingYourExperiment:
-            // Letters bob up one at a time in a scattered order, like bubbles rising in the flask on the icon,
-            // and glow at the top. Stepping by 7 through the line spreads neighbors apart in time.
-            let bubbleOrder = (letterIndex * 7) % max(letterCount, 1)
-            guard let loopFraction = StatusLabelMotion.loopFraction(
-                elapsedSeconds: elapsedSeconds, loopSeconds: 2.2, delaySeconds: Double(bubbleOrder) * 0.08
-            ) else { return StatusLetterPose() }
-            let riseAmount = StatusLabelMotion.value(at: loopFraction, keyframes: [(0, 0), (0.09, 1), (0.20, 0), (1, 0)], easing: StatusLabelMotion.easeOut)
-            return StatusLetterPose(offsetY: -4.5 * riseAmount, scale: 1 + 0.12 * riseAmount, highlightAmount: riseAmount)
 
         case .almostThere:
             // The letters fill from light to dark green left to right, as the ring on the icon fills.

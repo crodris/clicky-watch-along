@@ -138,11 +138,7 @@ enum DS {
         static let teal500 = Color(hex: "#14b8a6")
         static let teal700 = Color(hex: "#0f766e")
 
-        // Lime, for the experiment build line, which needs a lab green that reads apart from teal and green.
-        static let lime50  = Color(hex: "#f7fee7")
-        static let lime100 = Color(hex: "#ecfccb")
-        static let lime300 = Color(hex: "#bef264")
-        static let lime400 = Color(hex: "#a3e635")
+        // Lime, for the experiment agent, which needs a lab green that reads apart from teal and green.
         static let lime500 = Color(hex: "#84cc16")
         static let lime700 = Color(hex: "#4d7c0f")
 
@@ -220,6 +216,12 @@ enum DS {
 
         /// The task agent's chip letters. Tailwind Teal 700.
         static let backgroundAgentTaskTealText = Color(hex: "#0f766e")
+
+        /// The wingman of an experiment agent. Lime reads apart from the model's violet and the task's teal.
+        static let backgroundAgentExperimentLime = lime500
+
+        /// The experiment agent's chip letters. Tailwind Lime 700.
+        static let backgroundAgentExperimentLimeText = lime700
 
         // ── Floating Button Gradient ─────────────────────────────────
 
