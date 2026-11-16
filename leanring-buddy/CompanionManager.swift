@@ -3030,6 +3030,8 @@ final class CompanionManager: ObservableObject {
             guard !agentWasCancelled || studyGuideJob.replyIsSavedEvenWhenCancelled else { throw CancellationError() }
             // Filed under the video the guide was written for, not whichever tab is in front now.
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
+            // The Worker just wrote this page, so the next voice command does not wait on a status check for it.
+            studyGuidePageHandlesFoundInNotion.insert(studyGuideRecord.pageHandle)
             guard !agentWasCancelled else {
                 // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip.
                 print("Study guide: kept \(studyGuideRecord.pageURL) for a cancelled agent, since its old page is already trashed")
