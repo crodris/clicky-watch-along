@@ -83,7 +83,7 @@ const quizResultSchema = z.object({
 
 const studyGuideRequestSchema = z.object({
   videoTitle: z.string().trim().min(1).max(longestNotionBlockText),
-  videoURL: z.string().refine(isYouTubeVideoURL, { message: "videoURL must be an https YouTube URL" }),
+  videoURL: z.string().max(longestNotionBlockText).refine(isYouTubeVideoURL, { message: "videoURL must be an https YouTube URL" }),
   transcriptLines: z
     .array(transcriptLineSchema)
     .min(1)

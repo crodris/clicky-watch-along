@@ -267,6 +267,26 @@ describe("handleStudyGuide", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("answers 400 for a videoURL over 2000 characters and accepts one of exactly 2000, before any model or Notion call", async () => {
+    const videoURLPrefix = "https://www.youtube.com/watch?v=";
+    const videoURLOfLength = (length: number) => videoURLPrefix + "a".repeat(length - videoURLPrefix.length);
+
+    const fetchMockForTooLong = stubFetch();
+    const tooLongResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, videoURL: videoURLOfLength(2_001) }),
+      notionEnvironment,
+    );
+    expect(tooLongResponse.status).toBe(400);
+    expect(fetchMockForTooLong).not.toHaveBeenCalled();
+
+    stubFetch();
+    const longestAllowedResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, videoURL: videoURLOfLength(2_000) }),
+      notionEnvironment,
+    );
+    expect(longestAllowedResponse.status).toBe(200);
+  });
+
   it("accepts a video on a YouTube subdomain and refuses a host that only ends in youtube.com", async () => {
     stubFetch();
 
