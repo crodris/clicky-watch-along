@@ -80,17 +80,25 @@
     if (!Number.isFinite(target) || !(tolerance > 0) || challenge.prompt.trim() === "") return null;
     return { prompt: challenge.prompt.trim().slice(0, 300), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
   };
+  // The position of the readout the challenge is about, or -1. The challenge and the trials table both use it.
+  const challengeReadoutIndex = (readouts) => {
+    const wantedLabel = usableChallenge()?.readoutLabel.trim().toLowerCase();
+    return readouts.findIndex((readout) => readout.label.trim().toLowerCase() === wantedLabel);
+  };
   // The trials table has room for one measurement. An experiment that runs a fixed control sample beside the test one
   // reports the control first, and its value never changes, so the table shows the challenge's readout, else the first
-  // readout that differs between trials, else the first.
-  const tableMeasurementLabel = () => {
-    const newestLabels = pastRuns[0].readouts.map((readout) => readout.label);
-    const challengeLabel = usableChallenge()?.readoutLabel.trim().toLowerCase();
-    const challengeReadoutLabel = newestLabels.find((label) => label.trim().toLowerCase() === challengeLabel);
-    if (challengeReadoutLabel !== undefined) return challengeReadoutLabel;
-    const valuesOf = (label) => pastRuns.map((pastRun) => pastRun.readouts.find((readout) => readout.label === label)?.value);
-    const changingLabel = newestLabels.find((label) => new Set(valuesOf(label)).size > 1);
-    return changingLabel ?? newestLabels[0] ?? "";
+  // readout that has differed between trials, else the first. It goes by position, since a page may put a setting in a
+  // label, and it keeps a readout once it has differed, so 5 runs at one setting never bring the control back.
+  let changingReadoutIndex = null;
+  const tableMeasurementIndex = () => {
+    const challengeIndex = challengeReadoutIndex(pastRuns[0].readouts);
+    if (challengeIndex !== -1) return challengeIndex;
+    if (changingReadoutIndex === null) {
+      const valuesAt = (index) => pastRuns.map((pastRun) => pastRun.readouts[index]?.value).filter((value) => value !== undefined);
+      const index = pastRuns[0].readouts.findIndex((_, readoutIndex) => new Set(valuesAt(readoutIndex)).size > 1);
+      if (index !== -1) changingReadoutIndex = index;
+    }
+    return changingReadoutIndex ?? 0;
   };
   const challengeState = () => {
     const challenge = usableChallenge();
@@ -267,11 +275,11 @@
     // One row per trial, oldest first like a lab notebook: the trial number, each variable, and one measurement.
     panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
     if (pastRuns.length > 1) {
-      const measurementLabel = tableMeasurementLabel();
-      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), measurementLabel];
+      const measurementIndex = tableMeasurementIndex();
+      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[measurementIndex]?.label ?? ""];
       const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
       const measurementText = (pastRun) => {
-        const readout = pastRun.readouts.find((candidate) => candidate.label === measurementLabel);
+        const readout = pastRun.readouts[measurementIndex];
         return readout ? withUnit(readout) : "";
       };
       const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), measurementText(pastRun)])];
@@ -411,8 +419,7 @@
     const challenge = usableChallenge();
     if (challenge === null) return null;
     challengeAttempts += 1;
-    const wantedLabel = challenge.readoutLabel.trim().toLowerCase();
-    const readout = readouts.find((candidate) => candidate.label.trim().toLowerCase() === wantedLabel) ?? readouts[0];
+    const readout = readouts[challengeReadoutIndex(readouts)] ?? readouts[0];
     const difference = readout.value - challenge.target;
     const hit = Math.abs(difference) <= challenge.tolerance;
     if (hit) {
