@@ -1408,6 +1408,23 @@ struct leanring_buddyTests {
         #expect(!savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: false))
     }
 
+    @Test func theAppSecretHeaderIsSentOnlyWhenASecretIsSet() async throws {
+        let defaultsSuiteName = "clicky-tests-app-secret-\(UUID().uuidString)"
+        let testDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { testDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let workerURL = try #require(URL(string: "https://worker.example/notion-page"))
+        func headerSent() -> String? {
+            var request = URLRequest(url: workerURL)
+            ClickyAppSecret.add(to: &request, from: testDefaults)
+            return request.value(forHTTPHeaderField: "x-clicky-app-secret")
+        }
+        #expect(headerSent() == nil)
+        testDefaults.set("", forKey: ClickyAppSecret.defaultsKey)
+        #expect(headerSent() == nil)
+        testDefaults.set("s3cret", forKey: ClickyAppSecret.defaultsKey)
+        #expect(headerSent() == "s3cret")
+    }
+
     @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
         let labelScreenPoints = [
             LiveScenePartScreenPoint(label: "Rotor blades", globalPoint: CGPoint(x: 10, y: 10)),
