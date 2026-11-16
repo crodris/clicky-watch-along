@@ -1654,6 +1654,16 @@ struct leanring_buddyTests {
         #expect(keywordPathSceneKind(for: "let me try it") == nil)
         #expect(keywordPathSceneKind(for: "pop this out") == .framePopout)
 
+        // One experiment at a time: a ready one is shown, a building one is waited for.
+        #expect(experimentRequestStep(anExperimentIsReady: true, anExperimentIsBuilding: true) == .showTheReadyExperiment)
+        #expect(experimentRequestStep(anExperimentIsReady: false, anExperimentIsBuilding: true) == .sayItIsStillBuilding)
+        #expect(experimentRequestStep(anExperimentIsReady: false, anExperimentIsBuilding: false) == .startBuilding)
+        let store = BackgroundAgentStore()
+        _ = store.start(kind: .threeDModel)
+        #expect(!store.anAgentIsRunning(ofKind: .experiment))
+        _ = store.start(kind: .experiment)
+        #expect(store.anAgentIsRunning(ofKind: .experiment))
+
         // A model needs the video it was built from in front. An experiment with no source tab may rise anywhere.
         let sourceTab = "https://www.youtube.com/watch?v=source"
         let otherTab = "https://www.youtube.com/watch?v=other"

@@ -2358,7 +2358,15 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: input["asQuiz"]?.boolValue == true ? .quiz : .explore)
             return .handedOff
         case .buildSimulation:
-            return startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+            switch currentExperimentRequestStep {
+            case .showTheReadyExperiment:
+                startShowingTheReadyBackgroundScene()
+                return .handedOff
+            case .sayItIsStillBuilding:
+                return .failed(error: "The experiment is still building, so wait for it", state: nil)
+            case .startBuilding:
+                return startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+            }
         case .popOut:
             respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
             return .handedOff
@@ -2608,17 +2616,45 @@ final class CompanionManager: ObservableObject {
     // MARK: - Background Scene Agents (3D model and experiment)
 
     /// "Let me try it" starts the experiment agent and says one line, so the video keeps playing while it builds.
+    /// A scene still building in the foreground is cancelled first, as a plain question cancels it, so its phase and
+    /// the video's pause do not stay behind.
     private func startTheExperimentInTheBackground(transcript: String) {
         currentResponseTask?.cancel()
+        liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
-        _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestGeneration += 1
+            liveScenePhase = .idle
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                self.videoQuizSession.resumeVideoAfterRequestedScene()
+            }
+        }
+        let spokenLine: String
+        switch currentExperimentRequestStep {
+        case .showTheReadyExperiment:
+            startShowingTheReadyBackgroundScene()
+            return
+        case .sayItIsStillBuilding:
+            spokenLine = "Your experiment is still building."
+        case .startBuilding:
+            _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+            spokenLine = "Sure, I'll build that while you watch."
+        }
         currentResponseTask = Task {
-            await self.speakLiveSceneLine("Sure, I'll build that while you watch.")
+            await self.speakLiveSceneLine(spokenLine)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
         }
+    }
+
+    private var currentExperimentRequestStep: ExperimentRequestStep {
+        experimentRequestStep(
+            anExperimentIsReady: readyBackgroundScene?.agentKind == .experiment,
+            anExperimentIsBuilding: backgroundAgentStore.anAgentIsRunning(ofKind: .experiment)
+        )
     }
 
     /// Starts the build and returns at once, so the router speaks its confirmation and the video keeps playing.
@@ -2638,7 +2674,9 @@ final class CompanionManager: ObservableObject {
         let builtThingName = agentKind == .experiment ? "experiment" : "3D model"
         let sceneKind = agentKind.liveSceneKindToBuild ?? .explore
         do {
-            let sourceTabURL = videoQuizSession.frontTabURLOfTheFrontWindow()
+            // An experiment over a page with no video is tied to no tab, so it may rise once the screen is free.
+            let buildsOverAVideo = agentKind == .threeDModel || videoQuizSession.frontVideoStateForVoiceCommands() != nil
+            let sourceTabURL = buildsOverAVideo ? videoQuizSession.frontTabURLOfTheFrontWindow() : nil
             let heardText = videoQuizSession.whatTheQuizVideoInFrontJustSaid()
             let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
             let videoScreen = screenAndCaptureShowing(VideoQuizSession.screenRectOfTheMediaToRiseFrom(), in: screenCaptures)

@@ -319,6 +319,10 @@ final class BackgroundAgentStore: ObservableObject {
         return agent.id
     }
 
+    func anAgentIsRunning(ofKind agentKind: BackgroundAgentKind) -> Bool {
+        agents.contains { $0.isRunning && $0.kind == agentKind }
+    }
+
     /// Two guide agents on one video would write two pages for one guide, or update a page that is about to be replaced.
     func aStudyGuideAgentIsRunning(forVideoKey videoKey: String) -> Bool {
         agents.contains { $0.isRunning && $0.studyGuideVideoKey == videoKey }
@@ -450,6 +454,20 @@ func aReadyBackgroundSceneMayRiseOverTheFrontTab(
 ) -> Bool {
     guard let sourceTabURL else { return agentKind == .experiment }
     return frontTabURL == sourceTabURL
+}
+
+/// What a request for an experiment does. One experiment builds at a time, since each build is a paid `POST /live-scene`
+/// call and a newer one would replace the older, and a learner who repeats "let me try it" over a ready one wants to see it.
+enum ExperimentRequestStep: Equatable {
+    case showTheReadyExperiment
+    case sayItIsStillBuilding
+    case startBuilding
+}
+
+func experimentRequestStep(anExperimentIsReady: Bool, anExperimentIsBuilding: Bool) -> ExperimentRequestStep {
+    if anExperimentIsReady { return .showTheReadyExperiment }
+    if anExperimentIsBuilding { return .sayItIsStillBuilding }
+    return .startBuilding
 }
 
 enum BackgroundSceneBuildError: Error {

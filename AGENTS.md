@@ -153,7 +153,9 @@ A failed build's wingman turns into a red outline, and the chip says "Couldn't b
 It builds the page of the Simulation section above with the same code as the 3D model agent (`buildTheBackgroundScene`), so the video keeps playing, no status line shows, and nothing is spoken while it runs. Its steps are "Grabbing the frame" and "Building the experiment" (about 30 seconds), and the log says `Experiment: built "<what>" in N s`.
 The agent holds the finished page in a `ReadyBackgroundScene`, which also records the agent's kind and, for an experiment, the `SimulationLesson` made from the page's quiz fields.
 When it is ready, "Tink" plays and the chip says "Experiment ready", and it rises out of the video under the same conditions as a model.
-An experiment built with no tab to read from (`sourceTabURL` nil, such as Chrome with no window) may rise once the screen is free, since "let me try it" also works on a screen that is not a video (`aReadyBackgroundSceneMayRiseOverTheFrontTab`). A model still needs its source tab in front.
+An experiment built with no video in Chrome's front tab keeps no source tab (`sourceTabURL` nil) and may rise once the screen is free, since "let me try it" also works on a screen that is not a video (`aReadyBackgroundSceneMayRiseOverTheFrontTab`). A model still needs its source tab in front.
+Saying "let me try it" while an experiment waits shows it, and while one builds says "Your experiment is still building." and starts nothing (`experimentRequestStep`), and `build_simulation` fails the same way, since one build at a time keeps a paid build from replacing another.
+A "let me try it" while a scene builds in the foreground cancels that build first.
 When the screen is busy the chip adds "· say show the experiment", and `show_ready_model` shows it.
 An experiment plays with `pageOnScreen: .simulation` and sets `simulationLesson` from the ready scene, and Clicky does not narrate it, since the lesson speaks its own guess invitation after the tour.
 The router's `build_simulation` confirmation is a few plain words that it has started, and a failed build's chip says "Couldn't build the experiment".
