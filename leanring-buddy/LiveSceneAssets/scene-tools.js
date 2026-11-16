@@ -80,6 +80,27 @@
     if (!Number.isFinite(target) || !(tolerance > 0) || challenge.prompt.trim() === "") return null;
     return { prompt: challenge.prompt.trim().slice(0, 300), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
   };
+  // The position of the readout the challenge is about, or -1. The challenge and the trials table both use it.
+  const challengeReadoutIndex = (readouts) => {
+    const wantedLabel = usableChallenge()?.readoutLabel.trim().toLowerCase();
+    return readouts.findIndex((readout) => readout.label.trim().toLowerCase() === wantedLabel);
+  };
+  // The trials table has room for one measurement. An experiment that runs a fixed control sample beside the test one
+  // reports the control first, and its value never changes, so the table shows the challenge's readout, else the first
+  // readout that has differed between trials, else the first. It keeps a readout once it has differed, so 5 runs at one
+  // setting never bring the control back. Every trial is matched by label, since a readout with no finite value is dropped
+  // and moves the rest.
+  let changingReadoutLabel = null;
+  const tableMeasurementLabel = () => {
+    const newestReadouts = pastRuns[0].readouts;
+    const challengeIndex = challengeReadoutIndex(newestReadouts);
+    if (challengeIndex !== -1) return newestReadouts[challengeIndex].label;
+    if (changingReadoutLabel === null) {
+      const valuesOf = (label) => pastRuns.map((pastRun) => pastRun.readouts.find((readout) => readout.label === label)?.value).filter((value) => value !== undefined);
+      changingReadoutLabel = newestReadouts.find((readout) => new Set(valuesOf(readout.label)).size > 1)?.label ?? null;
+    }
+    return changingReadoutLabel ?? newestReadouts[0]?.label ?? "";
+  };
   const challengeState = () => {
     const challenge = usableChallenge();
     if (challenge === null || (lessonStage !== "challenge" && lessonStage !== "done")) return null;
@@ -252,12 +273,17 @@
       const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
       panel.challengeOrQuestionElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
     }
-    // One row per trial, oldest first like a lab notebook: the trial number, each variable, and the first measurement.
+    // One row per trial, oldest first like a lab notebook: the trial number, each variable, and one measurement.
     panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
     if (pastRuns.length > 1) {
-      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[0]?.label ?? ""];
+      const measurementLabel = tableMeasurementLabel();
+      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), measurementLabel];
       const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
-      const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), pastRun.readouts[0] ? withUnit(pastRun.readouts[0]) : ""])];
+      const measurementText = (pastRun) => {
+        const readout = pastRun.readouts.find((candidate) => candidate.label === measurementLabel);
+        return readout ? withUnit(readout) : "";
+      };
+      const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), measurementText(pastRun)])];
       panel.pastRunsElement.style.gridTemplateColumns = `auto repeat(${columnLabels.length - 1}, minmax(0, 1fr))`;
       panel.pastRunsElement.replaceChildren(...rows.flatMap((row, rowIndex) => row.map((cellText) => {
         const cell = document.createElement("span");
@@ -394,8 +420,7 @@
     const challenge = usableChallenge();
     if (challenge === null) return null;
     challengeAttempts += 1;
-    const wantedLabel = challenge.readoutLabel.trim().toLowerCase();
-    const readout = readouts.find((candidate) => candidate.label.trim().toLowerCase() === wantedLabel) ?? readouts[0];
+    const readout = readouts[challengeReadoutIndex(readouts)] ?? readouts[0];
     const difference = readout.value - challenge.target;
     const hit = Math.abs(difference) <= challenge.tolerance;
     if (hit) {

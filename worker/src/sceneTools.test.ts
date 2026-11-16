@@ -361,6 +361,56 @@ describe("scene-tools.js simulation tools", () => {
     expect(report.readouts.map((readout) => readout.label)).toEqual(["x".repeat(40), "Two", "Three"]);
   });
 
+  it("puts the readout that answers the experiment in the trials table, not a fixed control sample", async () => {
+    /** Runs one trial per pair of times on a page whose first readout is a control beaker, and returns the table's measurement column, header first. */
+    const measurementColumnAfterTrials = async (challenge: unknown, coolTimes: number[], warmTimes: number[]) => {
+      const createdElements: Array<Record<string, unknown>> = [];
+      const fakeDocument = {
+        body: {},
+        documentElement: { append: () => {} },
+        createElement: () => {
+          const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} };
+          createdElements.push(element);
+          return element;
+        },
+        querySelectorAll: () => [],
+      };
+      let trialsRun = 0;
+      const page = simulationPage({
+        challenge,
+        run: vi.fn(() => {
+          trialsRun += 1;
+          return Promise.resolve();
+        }),
+        getState: () => ({
+          readouts: [
+            { label: "Cool sample dissolving time", value: coolTimes[Math.max(0, trialsRun - 1)], unit: "s" },
+            { label: "Warm sample dissolving time", value: warmTimes[Math.max(0, trialsRun - 1)], unit: "s" },
+          ],
+        }),
+      });
+      const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
+      clickyTools.simulation.guessHeard();
+      for (let trial = 0; trial < warmTimes.length; trial += 1) await finishARun(clickyTools, postedEvents);
+      // The table's cells are the only elements styled with an ellipsis, 3 to a row (trial, control, measurement).
+      const tableRowCount = Math.min(warmTimes.length, 5) + 1;
+      const tableCells = createdElements.filter((element) => String((element.style as { cssText?: string }).cssText).includes("text-overflow:ellipsis"));
+      return tableCells.slice(-tableRowCount * 3).filter((_, cellIndex) => cellIndex % 3 === 2).map((element) => element.textContent);
+    };
+
+    // With no challenge, the control beaker's time never changes, so the table shows the time that does.
+    expect(await measurementColumnAfterTrials(undefined, [120, 120], [120, 30])).toEqual(["Warm sample dissolving time", "120 s", "30 s"]);
+    // The challenge's readout wins even when another readout changes too.
+    const challenge = { prompt: "Can you make the warm sample dissolve in 15 seconds?", readoutLabel: " warm sample dissolving time", target: 15, tolerance: 0.5 };
+    expect(await measurementColumnAfterTrials(challenge, [120, 100], [120, 30])).toEqual(["Warm sample dissolving time", "120 s", "30 s"]);
+    // When nothing has changed yet, the first readout fills the column.
+    expect(await measurementColumnAfterTrials(undefined, [120, 120], [30, 30])).toEqual(["Cool sample dissolving time", "120 s", "120 s"]);
+    // Once a readout has changed, it keeps the column after 5 runs at one setting push that change out of the table.
+    expect(await measurementColumnAfterTrials(undefined, Array(7).fill(120), [120, 30, 30, 30, 30, 30, 30])).toEqual(["Warm sample dissolving time", "30 s", "30 s", "30 s", "30 s", "30 s"]);
+    // A cool time that never ends is dropped, which moves the warm time first, so each trial finds the column by its label.
+    expect(await measurementColumnAfterTrials(undefined, [Infinity, 120, Infinity], [120, 30, 60])).toEqual(["Warm sample dissolving time", "120 s", "30 s", "60 s"]);
+  });
+
   it("shows the hypothesis in the panel while Clicky waits for the guess", () => {
     const createdElements: Array<Record<string, unknown>> = [];
     const fakeDocument = {
