@@ -1081,6 +1081,27 @@ struct leanring_buddyTests {
         #expect(LearnerVideoCommand.seekTo(seconds: .nan).javaScript.contains("Math.min(video.duration || 1e9, 0)"))
     }
 
+    @Test func everyStaticChromeJavaScriptHasNoDoubleQuoteOrBackslashSinceItSitsInsideAnAppleScriptString() async throws {
+        // Add each new JavaScript constant that reaches Chrome through an AppleScript string to this list.
+        let staticScriptsByName: [String: String] = [
+            "mainVideoJavaScript": LearnerVideoCommand.mainVideoJavaScript,
+            "readPlaybackStateJavaScript": VideoQuizSession.readPlaybackStateJavaScript,
+            "pauseVideoJavaScript": VideoQuizSession.pauseVideoJavaScript,
+            "playVideoJavaScript": VideoQuizSession.playVideoJavaScript,
+            "grabFrameJavaScript": VideoQuizSession.grabFrameJavaScript,
+            "largestVisibleMediaJavaScript": ChromeVideoTab.largestVisibleMediaJavaScript,
+        ]
+        for (scriptName, script) in staticScriptsByName {
+            #expect(!script.isEmpty, "\(scriptName) is empty")
+            #expect(!script.contains("\""), "\(scriptName) contains a double quote")
+            #expect(!script.contains("\\"), "\(scriptName) contains a backslash")
+        }
+        for learnerVideoCommand in [LearnerVideoCommand.readState, .pause, .play, .seekBy(seconds: -10), .seekTo(seconds: 90), .setPlaybackRate(1.5)] {
+            #expect(!learnerVideoCommand.javaScript.contains("\""))
+            #expect(!learnerVideoCommand.javaScript.contains("\\"))
+        }
+    }
+
     @Test func everyChromeJavaScriptRunsWithATimeoutSoATabWithAnAlertCannotFreezeTheApp() async throws {
         let script = appleScriptToRunJavaScript(VideoQuizSession.readPlaybackStateJavaScript, tabId: 7, windowId: 3, timeoutSeconds: 2)
         #expect(script.hasPrefix("with timeout of 2 seconds\n"))
