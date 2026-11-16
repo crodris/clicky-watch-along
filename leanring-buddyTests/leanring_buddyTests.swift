@@ -1117,6 +1117,29 @@ struct leanring_buddyTests {
         #expect(ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab() == nil)
     }
 
+    @Test func aWaybackCopyOfAWatchPageIsNotAYouTubeTabSoThePopoutFallsBackToTheImage() async throws {
+        let separator = "\u{1F}"
+        func tabLine(windowId: Int, tabId: Int, isActive: Bool, url: String) -> String {
+            [String(windowId), String(tabId), "1", String(isActive), url, "A title - YouTube"].joined(separator: separator)
+        }
+        let waybackCopy = tabLine(windowId: 1, tabId: 10, isActive: true, url: "https://web.archive.org/web/2020/https://www.youtube.com/watch?v=abc")
+        let realWatchTab = tabLine(windowId: 1, tabId: 11, isActive: false, url: "https://www.youtube.com/watch?v=abc")
+
+        #expect(urlIsAYouTubeWatchPage(urlText: "https://www.youtube.com/watch?v=abc"))
+        #expect(urlIsAYouTubeWatchPage(urlText: "https://m.youtube.com/watch?v=abc"))
+        #expect(!urlIsAYouTubeWatchPage(urlText: "https://web.archive.org/web/2020/https://www.youtube.com/watch?v=abc"))
+        #expect(!urlIsAYouTubeWatchPage(urlText: "https://notyoutube.com/watch?v=abc"))
+        #expect(!urlIsAYouTubeWatchPage(urlText: "https://www.youtube.com/shorts/abc"))
+
+        // With only the active tab asked for, a Wayback copy in front leaves no tab, so the caller uses the image.
+        #expect(throws: VideoQuizFailure.self) {
+            try ChromeVideoTab.preferredYouTubeWatchTab(fromFoundTabsOutput: waybackCopy, onlyTheActiveTabOfTheFrontWindow: true)
+        }
+        let preferredTab = try ChromeVideoTab.preferredYouTubeWatchTab(fromFoundTabsOutput: [waybackCopy, realWatchTab].joined(separator: "\n"), onlyTheActiveTabOfTheFrontWindow: false)
+        #expect(preferredTab.tabId == 11)
+        #expect(preferredTab.title == "A title")
+    }
+
     @Test func onlyTheExpectedVideoFieldsFromThePageReachTheModel() async throws {
         let pageVideoState: JSONValue = .object([
             "seconds": .number(9), "durationSeconds": .number(301), "playbackRate": .number(1), "paused": .bool(false), "playing": .bool(true),

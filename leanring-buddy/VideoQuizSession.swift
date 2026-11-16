@@ -85,6 +85,12 @@ nonisolated func urlIsOnYouTube(urlText: String) -> Bool {
     return host == "youtube.com" || host.hasSuffix(".youtube.com")
 }
 
+/// True for a watch page on YouTube itself. A page on another site that only mentions a YouTube watch URL, such as a
+/// Wayback Machine copy, is not one, since its video cannot be grabbed through YouTube's player.
+nonisolated func urlIsAYouTubeWatchPage(urlText: String) -> Bool {
+    urlIsOnYouTube(urlText: urlText) && URL(string: urlText)?.path == "/watch"
+}
+
 /// Caption search hands the front tab's URL to yt-dlp, so it reads only https pages on a public host,
 /// never a page on this Mac or on the local network.
 nonisolated func captionSearchMayReadTheVideoPage(urlText: String) -> Bool {
@@ -1151,7 +1157,13 @@ struct ChromeVideoTab {
             """
         }
         let findTabsOutput = try runAppleScript(findTabsAppleScript)
+        return try preferredYouTubeWatchTab(fromFoundTabsOutput: findTabsOutput, onlyTheActiveTabOfTheFrontWindow: onlyTheActiveTabOfTheFrontWindow)
+    }
 
+    /// Reads the lines `findYouTubeWatchTab`'s script returns and picks the tab to use. The script's own filter is a
+    /// substring match, so a page on another site that only contains a watch URL, such as a Wayback Machine copy, comes back
+    /// too, and is dropped here. Throws when no YouTube watch tab is left, so a pop-out falls back to the page's image.
+    static func preferredYouTubeWatchTab(fromFoundTabsOutput findTabsOutput: String, onlyTheActiveTabOfTheFrontWindow: Bool) throws -> ChromeVideoTab {
         struct FoundTab {
             let videoTab: ChromeVideoTab
             let isActiveTabOfFrontWindow: Bool
@@ -1160,7 +1172,8 @@ struct ChromeVideoTab {
             let tabFields = tabLine.split(separator: "\u{1F}", maxSplits: 5, omittingEmptySubsequences: false)
             guard tabFields.count == 6,
                   let windowId = Int(tabFields[0]),
-                  let tabId = Int(tabFields[1]) else {
+                  let tabId = Int(tabFields[1]),
+                  urlIsAYouTubeWatchPage(urlText: String(tabFields[4])) else {
                 return nil
             }
             let isFrontWindow = tabFields[2] == "1"
@@ -1169,7 +1182,7 @@ struct ChromeVideoTab {
                 windowId: windowId,
                 tabId: tabId,
                 url: String(tabFields[4]),
-                title: Self.titleWithoutYouTubeSuffix(String(tabFields[5]))
+                title: titleWithoutYouTubeSuffix(String(tabFields[5]))
             )
             return FoundTab(videoTab: videoTab, isActiveTabOfFrontWindow: isFrontWindow && isActiveTab)
         }
