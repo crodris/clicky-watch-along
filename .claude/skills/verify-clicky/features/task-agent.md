@@ -10,6 +10,7 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 - `task-page` is `/notion-page`, which writes a private page with a summary, sections, and linked sources, and returns `{ pageURL }`.
 - `task-router` sends "find out", "look up", "research", and "compare" requests to `start_background_task`, and "what did you find" to `hear_task_answer`, which the router takes until the answer is heard, even with no video in front.
 - `task-steps` shows each `report_step` on the wingman's line and as the list's checklist.
+- `task-page-check` keeps a `/notion-page` reply only when its `pageURL` is an https page on Notion (`taskAgentNotionPageURL`), since "Open page" in the agent list hands it to NSWorkspace, which opens any URL scheme.
 - `task-ending` plays "Tink", opens the page behind the video tab, and shows the teal chip, and `hear_task_answer` speaks the answer.
 
 ## How to get to it (user POV)

@@ -16,6 +16,9 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
 - `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, filling by area through each step in step with the agent list's meter, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
+  A key or a left, right, or middle mouse press during the hold breaks it, and so does a mouse button already down from a drag, so shift + option + drag in another app never opens the list.
+- `guide-cancel-revision` keeps a cancelled revise or refresh whose reply already arrived, since the Worker already trashed the old page, and loads the new page in the old page's tab. A cancelled new guide keeps nothing.
+- `guide-forgotten` forgets a saved guide whose page was trashed or deleted in Notion at its next status check, so `open_study_guide` fails with "This video's study guide was deleted in Notion" and `make_study_guide` is offered again. A guide being rewritten by a running guide agent is never forgotten.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
 - `guide-quiz-update` spawns a "Study guide update" wingman when a video quiz question on a video with a saved guide is missed or skipped, logs `Study guide: updating the guide with the quiz miss`, makes no Anthropic call for it, and the page's "Review these first" then lists the question. A miss while a guide is being written runs the refresh once that guide is written, only while that video is still in front, and never after a failure or a cancel; the app cuts quiz text to 2,000 UTF-16 units first. Earlier misses stay on the page after a relaunch, since each saved guide keeps the quiz results it was written with.
 - `guide-step-line` shows the running step beside the wingman closest to the blue triangle, such as "Reading the captions" and then "Writing the guide in Notion".
@@ -55,6 +58,11 @@ Preconditions:
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
   The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
   Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.
+- **Agent list during a drag.** Needs the Accessibility grant (`Clicky start` logs `accessibility: true`).
+  Close the list, start a 4 second drag in the background with `swift demo/scripts/mouse/mouse.swift drag 300 1000 330 1010 4 &`, wait 1.5 seconds, hold shift and option for 0.8 seconds through System Events (`key down shift`, `key down option`, `delay 0.8`), and run `$V shot drag-hold` before releasing them.
+  The screenshot shows no "Agents" panel. It passed on 2026-11-16.
+- **Trashed guide.** After a guide is written, trash its page with `PATCH https://api.notion.com/v1/pages/<page id>` and `{"in_trash":true}`, then post `tools/call` for `open_study_guide`.
+  The result is an error saying the guide was deleted in Notion, the log shows `Study guide: <url> is no longer in Notion, so the saved guide is forgotten`, and `tools/list` offers `make_study_guide` again. It passed on 2026-11-16.
 - **Background tab.** Before the guide ends, note the front tab with `osascript -e 'tell application "Google Chrome" to get URL of active tab of front window'`.
   After it ends, the same command prints the same URL, and `osascript -e 'tell application "Google Chrome" to get URL of last tab of front window'` prints the `notion.so` page.
 
