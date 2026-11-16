@@ -342,6 +342,61 @@ describe("scene-tools.js simulation tools", () => {
     expect(postedEvents).toHaveLength(1);
   });
 
+  it("abandons a run in flight when set_control changes a control, so its end adds no trial", async () => {
+    let finishTheRun: () => void = () => {};
+    const { clickyTools, postedEvents } = loadGuessedSimulation({ run: vi.fn(() => new Promise<void>((resolve) => (finishTheRun = resolve))) });
+
+    clickyTools.call("run_simulation", {});
+    expect(clickyTools.state().runIsGoing).toBe(true);
+    expect(clickyTools.call("set_control", { name: "angle", value: 30 }).state.runIsGoing).toBe(false);
+    finishTheRun();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postedEvents).toEqual([]);
+    expect(clickyTools.state().pastRuns).toEqual([]);
+  });
+
+  it("keeps a run going when set_control refuses an unknown control name", () => {
+    const { clickyTools } = loadGuessedSimulation({ run: vi.fn(() => new Promise<void>(() => {})) });
+
+    clickyTools.call("run_simulation", {});
+
+    expect(clickyTools.call("set_control", { name: "mass", value: 3 }).state.runIsGoing).toBe(true);
+  });
+
+  it("abandons a run in flight when the learner drags a slider, so its end adds no trial", async () => {
+    const inputHandlers: Array<{ element: Record<string, unknown>; handler: () => void }> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {} };
+        element.addEventListener = (eventName: string, handler: () => void) => {
+          if (eventName === "input") inputHandlers.push({ element, handler });
+        };
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    let finishTheRun: () => void = () => {};
+    const page = simulationPage({ run: vi.fn(() => new Promise<void>((resolve) => (finishTheRun = resolve))) });
+    const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
+    clickyTools.simulation.guessHeard();
+    clickyTools.call("run_simulation", {});
+    const slider = inputHandlers[0];
+    expect(slider).toBeDefined();
+    if (!slider) return;
+
+    slider.element.value = "30";
+    slider.handler();
+    expect(clickyTools.state().runIsGoing).toBe(false);
+    finishTheRun();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postedEvents).toEqual([]);
+    expect(clickyTools.state().pastRuns).toEqual([]);
+  });
+
   it("passes on at most 3 short readouts with real numbers, since the page's text is spoken aloud", async () => {
     const longLabel = "x".repeat(80);
     const { clickyTools, postedEvents } = loadGuessedSimulation({

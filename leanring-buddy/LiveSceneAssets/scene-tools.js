@@ -344,6 +344,7 @@
       slider.value = String(control.value);
       slider.addEventListener("input", () => {
         liveScene().endTour?.();
+        abandonTheRunInFlight();
         liveScene().setControl(pageControl.name, Number(slider.value));
         refreshPanel();
       });
@@ -373,6 +374,14 @@
     // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
     window.addEventListener("resize", () => requestAnimationFrame(applySceneLift));
     refreshPanel();
+  };
+
+  // A control changed mid-run puts the run back at its start, so the run in flight has no result worth reporting.
+  // Making it an older run than the next one has its end ignored, and the panel stops showing "running".
+  const abandonTheRunInFlight = () => {
+    if (!runIsGoing) return;
+    latestRunNumber += 1;
+    runIsGoing = false;
   };
 
   // Plays the simulation once. A run that never reports its end is given up after 20 seconds, so Run unlocks.
@@ -579,6 +588,7 @@
         const name = String(input.name ?? "");
         // The model saw each name cut to 40 characters, so it matches here on the cut name and the page gets its real one.
         const control = simulationControls().find((candidate) => candidate.name === name || controlSummary(candidate).name === name);
+        if (control) abandonTheRunInFlight();
         if (!control || liveScene().setControl(control.name, value) === false) {
           return { ok: false, error: `No control is named "${name.slice(0, 40)}". The controls are: ${simulationControls().map((candidate) => controlSummary(candidate).name).join(", ")}` };
         }
