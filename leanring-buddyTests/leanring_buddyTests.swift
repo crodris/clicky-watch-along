@@ -1081,6 +1081,16 @@ struct leanring_buddyTests {
         #expect(LearnerVideoCommand.seekTo(seconds: .nan).javaScript.contains("Math.min(video.duration || 1e9, 0)"))
     }
 
+    @Test func everyChromeJavaScriptRunsWithATimeoutSoATabWithAnAlertCannotFreezeTheApp() async throws {
+        let script = appleScriptToRunJavaScript(VideoQuizSession.readPlaybackStateJavaScript, tabId: 7, windowId: 3, timeoutSeconds: 2)
+        #expect(script.hasPrefix("with timeout of 2 seconds\n"))
+        #expect(script.hasSuffix("\nend timeout"))
+        #expect(script.contains("execute (tab id 7 of window id 3) javascript \"\(VideoQuizSession.readPlaybackStateJavaScript)\""))
+        // The clock read, pause, play, and voice tools take the default, and a frame grab, which draws a canvas, gets longer.
+        #expect(ChromeVideoTab.defaultJavaScriptTimeoutSeconds == 2)
+        #expect(ChromeVideoTab.frameGrabTimeoutSeconds == 5)
+    }
+
     @Test func onlyTheExpectedVideoFieldsFromThePageReachTheModel() async throws {
         let pageVideoState: JSONValue = .object([
             "seconds": .number(9), "durationSeconds": .number(301), "playbackRate": .number(1), "paused": .bool(false), "playing": .bool(true),
