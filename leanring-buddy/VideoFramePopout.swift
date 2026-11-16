@@ -101,10 +101,7 @@ enum VideoFramePopoutClient {
         guard let framePartsURL = URL(string: "\(workerBaseURL)/video-frame-parts") else {
             preconditionFailure("Worker base URL did not form the frame parts URL: \(workerBaseURL)")
         }
-        var request = URLRequest(url: framePartsURL, timeoutInterval: requestTimeoutSeconds)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        let requestBody = try JSONSerialization.data(withJSONObject: [
             "frameBase64": frameGrab.jpeg,
             "frameWidth": frameGrab.width,
             "frameHeight": frameGrab.height,
@@ -112,9 +109,14 @@ enum VideoFramePopoutClient {
             "question": question,
             "answerLabel": answerLabel,
         ])
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            requestBody,
+            to: framePartsURL,
+            using: URLSession.shared,
+            timeoutInterval: requestTimeoutSeconds,
+            sendsAppSecret: false
+        )
+        guard statusCode == 200 else {
             throw URLError(.badServerResponse, userInfo: [
                 NSLocalizedDescriptionKey: "Frame parts returned \(statusCode): \(String(decoding: responseData.prefix(300), as: UTF8.self))",
             ])

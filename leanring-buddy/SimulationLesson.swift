@@ -21,14 +21,9 @@ struct SimulationReadout: Equatable {
 
     private static let mostReadouts = 3
     private static let longestLabel = 40
-    private static let longestUnit = 16
+    fileprivate static let longestUnit = 16
 
     /// Up to 3 readouts with a non-empty label and a finite value. Anything else in the JSON is dropped.
-    static func readouts(fromPageJSON pageJSON: String) -> [SimulationReadout] {
-        guard let jsonData = pageJSON.data(using: .utf8) else { return [] }
-        return readouts(fromJSONArray: try? JSONSerialization.jsonObject(with: jsonData))
-    }
-
     static func readouts(fromJSONArray jsonArray: Any?) -> [SimulationReadout] {
         guard let jsonEntries = jsonArray as? [[String: Any]] else { return [] }
         let readouts: [SimulationReadout] = jsonEntries.compactMap { jsonEntry in
@@ -109,7 +104,7 @@ struct SimulationRunReport: Equatable {
         case "missed":
             guard let difference = challengeJSON["difference"] as? Double, difference.isFinite else { return nil }
             let unit = (challengeJSON["unit"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return .missed(attempts: attempts, difference: difference, unit: String(unit.prefix(16)))
+            return .missed(attempts: attempts, difference: difference, unit: String(unit.prefix(SimulationReadout.longestUnit)))
         default:
             return nil
         }

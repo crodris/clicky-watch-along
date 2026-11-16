@@ -234,14 +234,12 @@ final class TaskAgentClient {
     }
 
     private func post(_ requestBody: JSONValue, to url: URL) async throws -> Data {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        ClickyAppSecret.add(to: &request)
-        request.httpBody = try JSONEncoder().encode(requestBody)
-        let (responseData, response) = try await session.data(for: request)
-        // URLSession returns URLResponse. The Worker answers over HTTP.
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(requestBody),
+            to: url,
+            using: session,
+            sendsAppSecret: true
+        )
         guard statusCode == 200 else {
             throw TaskAgentError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
         }

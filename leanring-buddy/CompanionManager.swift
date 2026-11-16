@@ -2268,14 +2268,14 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
-        let commandStartedAt = Date()
-        // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
-        async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
-        async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
-        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
-        let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
-        let appToolContext = AppVoiceTool.Context(
+    /// What decides which app tools the model is offered. The router and the Debug tool server both read it here, so the
+    /// server can never list different tools than the router.
+    private func appVoiceToolContext(
+        pageState: JSONValue?,
+        frontVideoState: JSONValue?,
+        studyGuideExistsForTheFrontVideo: Bool
+    ) -> AppVoiceTool.Context {
+        AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
             videoIsInFront: frontVideoState != nil,
@@ -2287,6 +2287,20 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
+        )
+    }
+
+    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
+        let commandStartedAt = Date()
+        // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
+        async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
+        async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
+        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
+        let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
+        let appToolContext = appVoiceToolContext(
+            pageState: pageState,
+            frontVideoState: frontVideoState,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2639,7 +2653,7 @@ final class CompanionManager: ObservableObject {
     private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
         readyTaskAnswer = taskAgentSpokenAnswer(spokenSummary)
         taskAnswerWaitsToBeHeard = true
-        finishTheBackgroundAgent(agentID, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
+        finishTheBackgroundAgent(agentID, agentKind: .task, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
     }
 
     /// Like any spoken reply, a push-to-talk press stops it.
@@ -2718,7 +2732,6 @@ final class CompanionManager: ObservableObject {
     /// its lesson, the page's hypothesis and explanation, waits with the page.
     private func buildTheBackgroundScene(whatToBuild: String, agentID: UUID, agentKind: BackgroundAgentKind) async {
         let startedAt = Date()
-        let builtThingName = agentKind == .experiment ? "experiment" : "3D model"
         let sceneKind = agentKind.liveSceneKindToBuild ?? .explore
         do {
             // An experiment over a page with no video is tied to no tab, so it may rise once the screen is free.
@@ -2739,7 +2752,7 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
             if readyBackgroundScene != nil {
-                print("\(agentKind.displayName): this \(builtThingName) finished last, so it replaces the scene still waiting to be shown")
+                print("\(agentKind.displayName): this \(agentKind.builtThingName) finished last, so it replaces the scene still waiting to be shown")
             }
             // The quiz fields are the page's text, so the lesson cuts them.
             let simulationLesson = agentKind == .experiment
@@ -2753,16 +2766,16 @@ final class CompanionManager: ObservableObject {
                 sourceTabURL: sourceTabURL,
                 simulationLesson: simulationLesson
             )
-            finishTheBackgroundAgent(agentID, with: .readyScene)
+            finishTheBackgroundAgent(agentID, agentKind: agentKind, with: .readyScene)
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
                 print("\(agentKind.displayName): cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
                 return
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
-            backgroundAgentStore.fail(agentID, reason: "The \(builtThingName) could not be built. Ask again to try once more.")
+            backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
-                "Couldn't build the \(builtThingName)",
+                "Couldn't build the \(agentKind.builtThingName)",
                 sender: .backgroundAgent(agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -3054,7 +3067,7 @@ final class CompanionManager: ObservableObject {
                 return false
             }
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
-            finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
+            finishTheBackgroundAgent(agentID, agentKind: agentKind, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
             return true
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
@@ -3087,8 +3100,7 @@ final class CompanionManager: ObservableObject {
 
     /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
     /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
-    private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
-        let agentKind = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.kind ?? .studyGuide
+    private func finishTheBackgroundAgent(_ agentID: UUID, agentKind: BackgroundAgentKind, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
         backgroundAgentStore.finish(agentID, with: result)
         switch result {
         case .notionPage(let pageURL):
@@ -3111,17 +3123,16 @@ final class CompanionManager: ObservableObject {
         case .readyScene:
             NSSound(named: "Tink")?.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
-            let waitingPhrase = agentKind == .experiment ? "show the experiment" : "show the model"
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
                 sender: .backgroundAgent(agentKind),
-                secondaryChipText: sceneRisesNow ? nil : "· say \(waitingPhrase)",
+                secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
             if sceneRisesNow {
                 startShowingTheReadyBackgroundScene()
             } else {
-                print("\(agentKind.displayName): the screen is busy, so it waits for \"\(waitingPhrase)\"")
+                print("\(agentKind.displayName): the screen is busy, so it waits for \"\(agentKind.waitingPhrase)\"")
             }
         case .answer(_, let pageURL):
             NSSound(named: "Tink")?.play()
@@ -3159,18 +3170,10 @@ final class CompanionManager: ObservableObject {
     private func voiceToolsForTheDebugServer() async -> [VoiceToolDescriptor] {
         let pageState = await LiveSceneOverlay.shared.pageVoiceState()
         let debugFrontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
-        let appToolContext = AppVoiceTool.Context(
-            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
-            videoIsInFront: debugFrontVideoState != nil,
-            videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
-            videoQuizIsRunning: videoQuizSession.isRunning,
-            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
-            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
-            backgroundSceneIsReady: readyBackgroundScene != nil,
-            taskAnswerIsReady: readyTaskAnswer != nil,
-            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
-            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
+        let appToolContext = appVoiceToolContext(
+            pageState: pageState,
+            frontVideoState: debugFrontVideoState,
+            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)

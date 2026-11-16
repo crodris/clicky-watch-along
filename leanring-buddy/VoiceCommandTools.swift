@@ -780,13 +780,12 @@ final class VoiceCommandClient {
             "messages": .array(messages),
             "tools": .array(tools.map(\.workerRequestJSON)),
         ])
-        var request = URLRequest(url: voiceCommandURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(requestBody)
-        let (responseData, response) = try await session.data(for: request)
-        // URLSession returns URLResponse. The Worker answers over HTTP.
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(requestBody),
+            to: voiceCommandURL,
+            using: session,
+            sendsAppSecret: false
+        )
         guard statusCode == 200 else {
             throw VoiceCommandError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
         }

@@ -390,29 +390,25 @@ final class StudyGuideClient {
     }
 
     func writeStudyGuide(_ studyGuideRequest: StudyGuideRequest) async throws -> StudyGuideRecord {
-        var request = URLRequest(url: studyGuideURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        ClickyAppSecret.add(to: &request)
-        request.httpBody = try JSONEncoder().encode(studyGuideRequest)
-        let (responseData, response) = try await session.data(for: request)
-        // URLSession returns URLResponse. The Worker answers over HTTP.
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(studyGuideRequest),
+            to: studyGuideURL,
+            using: session,
+            sendsAppSecret: true
+        )
         return try studyGuideRecord(statusCode: statusCode, responseData: responseData)
     }
 
     /// Whether the guide's page is still in Notion and out of the trash. Throws when the Worker or Notion cannot say.
     func pageStillExists(pageHandle: String) async throws -> Bool {
-        var request = URLRequest(url: studyGuideStatusURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        ClickyAppSecret.add(to: &request)
-        // A lookup on the voice command path, so it gives up long before the 150 seconds a guide gets.
-        request.timeoutInterval = 5
-        request.httpBody = try JSONEncoder().encode(["pageHandle": pageHandle])
-        let (responseData, response) = try await session.data(for: request)
-        // URLSession returns URLResponse. The Worker answers over HTTP.
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(["pageHandle": pageHandle]),
+            to: studyGuideStatusURL,
+            using: session,
+            // A lookup on the voice command path, so it gives up long before the 150 seconds a guide gets.
+            timeoutInterval: 5,
+            sendsAppSecret: true
+        )
         return try studyGuidePageExists(statusCode: statusCode, responseData: responseData)
     }
 }

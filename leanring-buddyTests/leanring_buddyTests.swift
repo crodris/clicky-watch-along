@@ -1656,6 +1656,26 @@ struct leanring_buddyTests {
         #expect(headerSent() == "s3cret")
     }
 
+    @Test func aWorkerPostIsJSONWithItsOwnTimeoutAndTheAppSecretOnlyWhereAsked() async throws {
+        let defaultsSuiteName = "clicky-tests-worker-post-\(UUID().uuidString)"
+        let testDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { testDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+        testDefaults.set("s3cret", forKey: ClickyAppSecret.defaultsKey)
+        let workerURL = try #require(URL(string: "https://worker.example/study-guide-status"))
+        let requestBody = Data("{}".utf8)
+
+        let secretRequest = WorkerJSONPost.makeRequest(to: workerURL, body: requestBody, timeoutInterval: 5, sendsAppSecret: true, appSecretDefaults: testDefaults)
+        #expect(secretRequest.httpMethod == "POST")
+        #expect(secretRequest.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(secretRequest.value(forHTTPHeaderField: "x-clicky-app-secret") == "s3cret")
+        #expect(secretRequest.timeoutInterval == 5)
+        #expect(secretRequest.httpBody == requestBody)
+
+        let plainRequest = WorkerJSONPost.makeRequest(to: workerURL, body: requestBody, sendsAppSecret: false, appSecretDefaults: testDefaults)
+        #expect(plainRequest.value(forHTTPHeaderField: "x-clicky-app-secret") == nil)
+        #expect(plainRequest.timeoutInterval == URLRequest(url: workerURL).timeoutInterval)
+    }
+
     @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
         let labelScreenPoints = [
             LiveScenePartScreenPoint(label: "Rotor blades", globalPoint: CGPoint(x: 10, y: 10)),
@@ -1927,6 +1947,13 @@ struct leanring_buddyTests {
         #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: false) == .dropIt)
         // A guide cancelled after a newer one started on the same video must not take the newer guide's queued refresh.
         #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: true) == .leaveItForTheRunningGuide)
+    }
+
+    @Test func aSceneAgentNamesWhatItBuiltAndWhatToSayToShowItWhenTheScreenIsBusy() async throws {
+        #expect(BackgroundAgentKind.threeDModel.builtThingName == "3D model")
+        #expect(BackgroundAgentKind.threeDModel.waitingPhrase == "show the model")
+        #expect(BackgroundAgentKind.experiment.builtThingName == "experiment")
+        #expect(BackgroundAgentKind.experiment.waitingPhrase == "show the experiment")
     }
 
     @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
@@ -2233,16 +2260,17 @@ struct leanring_buddyTests {
     }
 
     @Test func aFinishedRunPostsReadoutsThatBecomeOneShortSpokenLine() async throws {
-        let readouts = SimulationReadout.readouts(fromPageJSON: """
-        [{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
-         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]
-        """)
+        let runReport = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
+         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]}
+        """))
+        let readouts = runReport.readouts
         #expect(readouts.map(\.label) == ["Landing distance", "Peak height", "Fourth"])
         // A page that posts nothing usable gets no event, and a label is cut to a spoken length.
         #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[]}") == nil)
         #expect(LiveScenePageEvent(messageBody: "runFinished:not json") == nil)
         #expect(LiveScenePageEvent(messageBody: "guessSkipped") == .simulationGuessSkipped)
-        #expect(SimulationReadout.readouts(fromPageJSON: "[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]").first?.label.count == 40)
+        #expect(SimulationRunReport(pageJSON: "{\"readouts\":[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]}")?.readouts.first?.label.count == 40)
 
         #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters.")
         #expect(simulationReadoutSpokenLine(for: [SimulationReadout(label: "Energy", value: 3, unit: "J")]) == "That run gave an energy of 3 joules.")
