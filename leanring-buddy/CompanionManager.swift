@@ -852,8 +852,8 @@ final class CompanionManager: ObservableObject {
                 await waitForTheTourAndSpeechToEnd()
                 // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
-                // A risen experiment asks for the guess in its own task, which starts about 3 seconds after the tour
-                // ends, so the learner answers only once that question has been said.
+                // A risen experiment asks for the guess in its own task when the tour ends, and the question's audio
+                // can start after the speech check above has passed, so the learner answers only once it has been said.
                 await liveSceneTourFinishedTask?.value
             }
             if stepWaitsForAQuestion {
