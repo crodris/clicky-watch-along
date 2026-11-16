@@ -1,13 +1,13 @@
 # Clicky - Agent Instructions
 
 <!-- This is the single source of truth for all AI coding agents. CLAUDE.md is a symlink to this file. -->
-<!-- AGENTS.md spec: https://github.com/agentsmd/agents.md — supported by Claude Code, Cursor, Copilot, Gemini CLI, and others. -->
+<!-- AGENTS.md spec: https://github.com/agentsmd/agents.md, supported by Claude Code, Cursor, Copilot, Gemini CLI, and others. -->
 
 ## Overview
 
 macOS menu bar companion app. Lives entirely in the macOS status bar (no dock icon, no main window). Clicking the menu bar icon opens a custom floating panel with companion voice controls. Uses push-to-talk (ctrl+option) to capture voice input, transcribes it with Apple Speech (this fork's provider; AssemblyAI streaming and OpenAI are the alternatives), and sends the transcript + a screenshot of the user's screen to Claude. Claude responds with text (streamed via SSE) and voice (ElevenLabs TTS, played as it streams in). A blue cursor overlay can fly to and point at UI elements Claude references on any connected monitor.
 
-All API keys live on a Cloudflare Worker proxy — nothing sensitive ships in the app.
+All API keys live on a Cloudflare Worker proxy, so nothing sensitive ships in the app.
 
 ## Architecture
 
@@ -241,7 +241,7 @@ The pop-out lands back in the frame, then clears before the video plays again. S
 | `CompanionResponseOverlay.swift` | ~217 | SwiftUI view for the response text bubble and waveform displayed next to the cursor in the overlay. |
 | `CompanionScreenCaptureUtility.swift` | ~236 | Multi-monitor screenshot capture using ScreenCaptureKit. Returns labeled image data for each connected display, and captures one page image's screen rect (Chrome's windows only, at the display's pixel density, up to 1280 pixels on the longest side) for the image pop-out. |
 | `BuddyDictationManager.swift` | ~866 | Push-to-talk voice pipeline. Handles microphone capture via `AVAudioEngine`, provider-aware permission checks, keyboard/button dictation sessions, transcript finalization, shortcut parsing, contextual keyterms, and live audio-level reporting for waveform feedback. |
-| `BuddyTranscriptionProvider.swift` | ~100 | Protocol surface and provider factory for voice transcription backends. Resolves provider based on `VoiceTranscriptionProvider` in Info.plist — AssemblyAI, OpenAI, or Apple Speech. |
+| `BuddyTranscriptionProvider.swift` | ~100 | Protocol surface and provider factory for voice transcription backends. Resolves provider based on `VoiceTranscriptionProvider` in Info.plist: AssemblyAI, OpenAI, or Apple Speech. |
 | `AssemblyAIStreamingTranscriptionProvider.swift` | ~478 | Streaming transcription provider. Fetches temp tokens from the Cloudflare Worker, opens an AssemblyAI v3 websocket, streams PCM16 audio, tracks turn-based transcripts, and delivers finalized text on key-up. Shares a single URLSession across all sessions. |
 | `OpenAIAudioTranscriptionProvider.swift` | ~317 | Upload-based transcription provider. Buffers push-to-talk audio locally, uploads as WAV on release, returns finalized transcript. |
 | `AppleSpeechTranscriptionProvider.swift` | ~147 | Local fallback transcription provider backed by Apple's Speech framework. |
@@ -251,7 +251,7 @@ The pop-out lands back in the frame, then clears before the video plays again. S
 | `OpenAIAPI.swift` | ~142 | OpenAI GPT vision API client. |
 | `ElevenLabsTTSClient.swift` | ~256 | ElevenLabs TTS client. Asks the Worker for streamed 24 kHz PCM and plays it through an `AVAudioEngine` player node in fifth-of-a-second buffers as it arrives. `speakText` returns once audio is playing, and `isPlaying` stays true while audio plays or is still arriving. `spokenFraction(ofLine:)` says how far through the playing line the voice is, which the pointing bubble types along with. The engine pauses between lines, an output device change ends a line that is already playing, and a reply that is not PCM, such as MP3 from a Worker deployed before streaming, throws. `PCM16StreamChunker` turns the streamed bytes into samples. |
 | `ElementLocationDetector.swift` | ~335 | Detects UI element locations in screenshots for cursor pointing. |
-| `DesignSystem.swift` | ~920 | Design system tokens — colors (including the status line palettes), corner radii, shared styles. All UI references `DS.Colors`, `DS.CornerRadius`, etc. |
+| `DesignSystem.swift` | ~920 | Design system tokens: colors (including the status line palettes), corner radii, shared styles. All UI references `DS.Colors`, `DS.CornerRadius`, etc. |
 | `ClickyAnalytics.swift` | ~121 | PostHog analytics integration for usage tracking. |
 | `WindowPositionManager.swift` | ~262 | Window placement logic, Screen Recording permission flow, and accessibility permission helpers. |
 | `AppBundleConfiguration.swift` | ~45 | Runtime configuration reader for keys stored in the app bundle Info.plist, and `ClickyAppSecret`, which adds the Worker's `x-clicky-app-secret` header to the requests of the Notion routes and `/background-agent` from the app's defaults (`clickyAppSecret`), so the secret never sits in git or in the built app. It also holds `WorkerJSONPost`, which POSTs a JSON body to a Worker route and reads the whole reply (other Worker requests, such as the streamed `/chat` and `/tts` ones, build their own): it sets the method and content type, adds the secret only for a caller that asks, and returns the reply with its status code, while each caller keeps its own session, timeout, and error for a non-200 reply. |
@@ -295,7 +295,7 @@ tools/swift-check.sh --filter voiceCommand
 # deprecated onChange warning in OverlayWindow.swift. Do NOT attempt to fix these.
 ```
 
-**Do NOT run `xcodebuild` from the terminal** — it invalidates TCC (Transparency, Consent, and Control) permissions and the app will need to re-request screen recording, accessibility, etc.
+**Do NOT run `xcodebuild` from the terminal.** It invalidates TCC (Transparency, Consent, and Control) permissions and the app will need to re-request screen recording, accessibility, etc.
 
 ## Cloudflare Worker
 
@@ -395,7 +395,7 @@ IMPORTANT: Follow these naming rules strictly. Clarity is the top priority.
 - Do not add docstrings, comments, or type annotations to code you did not change
 - Do not try to fix the known non-blocking warnings (Swift 6 concurrency, deprecated onChange)
 - Do not rename the project directory or scheme (the "leanring" typo is intentional/legacy)
-- Do not run `xcodebuild` from the terminal — it invalidates TCC permissions
+- Do not run `xcodebuild` from the terminal, since it invalidates TCC permissions
 
 ## Git Workflow
 
