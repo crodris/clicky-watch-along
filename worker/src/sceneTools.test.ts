@@ -361,6 +361,49 @@ describe("scene-tools.js simulation tools", () => {
     expect(report.readouts.map((readout) => readout.label)).toEqual(["x".repeat(40), "Two", "Three"]);
   });
 
+  it("puts the readout that answers the experiment in the trials table, not a fixed control sample", async () => {
+    /** Runs two trials on a page whose first readout is a control beaker, and returns the table's header cells. */
+    const tableHeaderAfterTwoTrials = async (challenge: unknown, controlTimes: [number, number]) => {
+      const createdElements: Array<Record<string, unknown>> = [];
+      const fakeDocument = {
+        body: {},
+        documentElement: { append: () => {} },
+        createElement: () => {
+          const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} };
+          createdElements.push(element);
+          return element;
+        },
+        querySelectorAll: () => [],
+      };
+      let trialsRun = 0;
+      const page = simulationPage({
+        challenge,
+        run: vi.fn(() => {
+          trialsRun += 1;
+          return Promise.resolve();
+        }),
+        getState: () => ({
+          readouts: [
+            { label: "Cool sample dissolving time", value: controlTimes[Math.max(0, trialsRun - 1)], unit: "s" },
+            { label: "Warm sample dissolving time", value: trialsRun === 1 ? 120 : 30, unit: "s" },
+          ],
+        }),
+      });
+      const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
+      clickyTools.simulation.guessHeard();
+      await finishARun(clickyTools, postedEvents);
+      await finishARun(clickyTools, postedEvents);
+      const headerCells = createdElements.filter((element) => String((element.style as { cssText?: string }).cssText).includes("opacity:0.6"));
+      return headerCells.slice(-3).map((element) => element.textContent);
+    };
+
+    // With no challenge, the control beaker's time never changes, so the table shows the time that does.
+    expect(await tableHeaderAfterTwoTrials(undefined, [120, 120])).toEqual(["Trial", "Launch angle", "Warm sample dissolving time"]);
+    // The challenge's readout wins even when another readout changes too.
+    const challenge = { prompt: "Can you make the warm sample dissolve in 15 seconds?", readoutLabel: "warm sample dissolving time", target: 15, tolerance: 0.5 };
+    expect(await tableHeaderAfterTwoTrials(challenge, [120, 100])).toEqual(["Trial", "Launch angle", "Warm sample dissolving time"]);
+  });
+
   it("shows the hypothesis in the panel while Clicky waits for the guess", () => {
     const createdElements: Array<Record<string, unknown>> = [];
     const fakeDocument = {

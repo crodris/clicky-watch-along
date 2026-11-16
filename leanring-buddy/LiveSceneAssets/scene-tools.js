@@ -80,6 +80,18 @@
     if (!Number.isFinite(target) || !(tolerance > 0) || challenge.prompt.trim() === "") return null;
     return { prompt: challenge.prompt.trim().slice(0, 300), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
   };
+  // The trials table has room for one measurement. An experiment that runs a fixed control sample beside the test one
+  // reports the control first, and its value never changes, so the table shows the challenge's readout, else the first
+  // readout that differs between trials, else the first.
+  const tableMeasurementLabel = () => {
+    const newestLabels = pastRuns[0].readouts.map((readout) => readout.label);
+    const challengeLabel = usableChallenge()?.readoutLabel.trim().toLowerCase();
+    const challengeReadoutLabel = newestLabels.find((label) => label.trim().toLowerCase() === challengeLabel);
+    if (challengeReadoutLabel !== undefined) return challengeReadoutLabel;
+    const valuesOf = (label) => pastRuns.map((pastRun) => pastRun.readouts.find((readout) => readout.label === label)?.value);
+    const changingLabel = newestLabels.find((label) => new Set(valuesOf(label)).size > 1);
+    return changingLabel ?? newestLabels[0] ?? "";
+  };
   const challengeState = () => {
     const challenge = usableChallenge();
     if (challenge === null || (lessonStage !== "challenge" && lessonStage !== "done")) return null;
@@ -252,12 +264,17 @@
       const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
       panel.challengeOrQuestionElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
     }
-    // One row per trial, oldest first like a lab notebook: the trial number, each variable, and the first measurement.
+    // One row per trial, oldest first like a lab notebook: the trial number, each variable, and one measurement.
     panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
     if (pastRuns.length > 1) {
-      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[0]?.label ?? ""];
+      const measurementLabel = tableMeasurementLabel();
+      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), measurementLabel];
       const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
-      const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), pastRun.readouts[0] ? withUnit(pastRun.readouts[0]) : ""])];
+      const measurementText = (pastRun) => {
+        const readout = pastRun.readouts.find((candidate) => candidate.label === measurementLabel);
+        return readout ? withUnit(readout) : "";
+      };
+      const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), measurementText(pastRun)])];
       panel.pastRunsElement.style.gridTemplateColumns = `auto repeat(${columnLabels.length - 1}, minmax(0, 1fr))`;
       panel.pastRunsElement.replaceChildren(...rows.flatMap((row, rowIndex) => row.map((cellText) => {
         const cell = document.createElement("span");
