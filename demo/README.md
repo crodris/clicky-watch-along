@@ -3,7 +3,7 @@
 A Remotion edit of real Clicky recordings, with captions, punch-ins that follow the blue cursor, and blur dissolves between features.
 The recordings, cursor tracks, and renders are gitignored, so record them first.
 The scripts assume a MacBook with its built-in Retina screen as the main display, Chrome, the Debug app with its permissions granted, and the local Worker.
-The study guide and task agent shots also need a Notion key.
+The study guide and task agent shots also need `NOTION_API_KEY` and `CLICKY_APP_SECRET` in `worker/.dev.vars`.
 The mouse positions in the commands below fit that screen, so another machine needs its own.
 
 ## Record
@@ -140,7 +140,7 @@ A new recording has new times, so update `src/timeline.ts` after recording again
 
 ```bash
 pnpm studio
-export REMOTION_BROWSER_EXECUTABLE="$(ls -d ~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell | tail -1)"
+export REMOTION_BROWSER_EXECUTABLE="$(ls -td ~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-arm64/chrome-headless-shell | head -1)"
 pnpm render
 pnpm render-quiz
 pnpm render-study-guide

@@ -81,7 +81,7 @@ Say "build a 3D model of this", and the model rises out of the video once it's r
 "Let me try it" builds its experiment the same way.
 For something bigger, like "find out how this catch compares to the first booster catch", a task agent searches the web and can write what it found to a Notion page.
 It tells you what it found when you say "what did you find".
-Each running agent follows Clicky's blue triangle as a small colored triangle that fills up as it works, with a label saying what it's doing.
+Up to three running agents follow Clicky's blue triangle as small colored triangles that fill up as they work, and the nearest one says what it's doing.
 Hold Shift + Option to see every agent and its steps, cancel one, or open its page.
 
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
@@ -265,7 +265,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with three `NSPanel` windows: the control panel dropdown, the full-screen transparent cursor overlay, and the agent list that Shift + Option opens. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
+**Menu bar app** (no dock icon) with `NSPanel` windows for the control panel dropdown, the full-screen transparent cursor overlay, the agent list that Shift + Option opens, and the chips and labels next to the cursor. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
 
 ## Project structure
 
