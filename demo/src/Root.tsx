@@ -2,8 +2,8 @@ import { type CalculateMetadataFunction, Composition, staticFile } from "remotio
 import type { CursorTrack } from "./camera.ts";
 import { Demo, demoDurationInFrames, type DemoProps } from "./Demo.tsx";
 import { frameRate, videoHeight, videoWidth } from "./motion.ts";
-import { quizMissTheme, studyGuideTheme, parallelAgentsTheme, watchAlongTheme } from "./theme.ts";
-import { quizClipSegments, quizMissClipSegments, segments, studyGuideClipSegments, parallelAgentsClipSegments } from "./timeline.ts";
+import { experimentTheme, quizMissTheme, studyGuideTheme, parallelAgentsTheme, watchAlongTheme } from "./theme.ts";
+import { experimentClipSegments, quizClipSegments, quizMissClipSegments, segments, studyGuideClipSegments, parallelAgentsClipSegments } from "./timeline.ts";
 
 /** The tracker writes these next to the recordings, and each composition reads its own once before rendering. */
 const loadCursorTracks: CalculateMetadataFunction<DemoProps> = async ({ props }) => {
@@ -74,6 +74,17 @@ export function Root() {
         fps={frameRate}
         durationInFrames={demoDurationInFrames(parallelAgentsClipSegments)}
         defaultProps={{ segments: parallelAgentsClipSegments, cursorTracks: {}, theme: parallelAgentsTheme } satisfies DemoProps}
+        calculateMetadata={loadCursorTracks}
+      />
+      {/* The "let me try it" clip: a trebuchet experiment end to end, then a montage of four more. */}
+      <Composition
+        id="ClickyExperimentClip"
+        component={Demo}
+        width={videoWidth}
+        height={videoHeight}
+        fps={frameRate}
+        durationInFrames={demoDurationInFrames(experimentClipSegments)}
+        defaultProps={{ segments: experimentClipSegments, cursorTracks: {}, theme: experimentTheme } satisfies DemoProps}
         calculateMetadata={loadCursorTracks}
       />
     </>

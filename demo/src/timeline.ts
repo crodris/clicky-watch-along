@@ -1,5 +1,5 @@
-import type { CameraMove } from "./camera.ts";
-import type { Caption } from "./components.tsx";
+import { pageOnlyCrop, type CameraMove, type PageCrop } from "./camera.ts";
+import type { Caption, CaptionPosition } from "./components.tsx";
 import { subAgentTaskTeal } from "./theme.ts";
 
 /**
@@ -24,12 +24,29 @@ export type ShotSegment = {
   sourceCredit?: string;
   /** Holds the shot's first frame, muted, so a viewer can read what is on screen before the take moves on. */
   holdsStill?: boolean;
+  /** What the camera leaves out above and below the page. Defaults to Chrome's toolbar and link box (chromeWindowCrop). */
+  pageCrop?: PageCrop;
+  /** Where the captions sit. Defaults to the bottom. */
+  captionPosition?: CaptionPosition;
+  /** For the first shot: starts at full strength instead of fading in, so the clip's first frame, its thumbnail, shows it. */
+  opensOnItsFirstFrame?: boolean;
 };
 
 /** The closing card over a blurred, muted stretch of a recording. */
 export type EndCardSegment = { kind: "endCard"; name: string; recordingFile: string; sourceStartSeconds: number; durationSeconds: number };
 
-export type Segment = ShotSegment | EndCardSegment;
+/** One line of text over a blurred, muted stretch of a recording, between two parts of a clip. */
+export type TitleCardSegment = {
+  kind: "titleCard";
+  name: string;
+  recordingFile: string;
+  sourceStartSeconds: number;
+  durationSeconds: number;
+  text: string;
+  accentWords?: string[];
+};
+
+export type Segment = ShotSegment | EndCardSegment | TitleCardSegment;
 
 // Points in each recording, as a share of the 16:9 frame. The mouse rested left of the status labels and tool chips,
 // so they sit just right of it, and the camera reads them at about 2.8 times.
@@ -710,4 +727,250 @@ export const parallelAgentsClipSegments: Segment[] = [
   },
   // The music fades out under this card.
   { kind: "endCard", name: "end-card", recordingFile: "agents.mov", sourceStartSeconds: 94, durationSeconds: 4.0 },
+];
+
+// The "let me try it" clip: the learner asks to try what a trebuchet video teaches, a background agent builds the
+// experiment while the video plays, and it rises out of the video for a guess, a run set by voice, a run set by
+// dragging a slider, and a challenge played with the sliders. A montage of four more experiments follows. The takes
+// record only the page below Chrome's toolbar, so their shots use pageOnlyCrop. The videos play muted, so only Clicky
+// and the music are heard, and the montage plays muted too. drive-trebuchet-shot.sh drags the sliders with the real
+// mouse, and Clicky's blue triangle follows it, since the recording hides the pointer.
+// The YouTube player fills the frame right of Chrome's tab sidebar, which is about 14% of the width.
+const experimentVideo = { x: 0.57, y: 0.43 };
+const experimentVideoScale = 1.16;
+// Close enough to see the lime wingman fill and read its "Building the experiment" line.
+const experimentWingmanScale = 2.3;
+// The experiment fills the screen: the trebuchet and its range across the top half, empty grass in the middle, and
+// the panel along the bottom. The whole frame shows all three, and the captions sit over the grass ("middle").
+const wholeExperiment = { x: 0.5, y: 0.5 };
+// The ball's arc and the ring, larger, for the opening shot.
+const trebuchetAndRing = { x: 0.5, y: 0.3 };
+const trebuchetAndRingScale = 1.35;
+// The panel's sliders and Run button, close enough to watch a drag, with the captions along the top.
+const experimentPanel = { x: 0.5, y: 0.9 };
+const experimentPanelScale = 2.0;
+// The same framing for the montage's experiments, centered, since each is built around the middle of the screen.
+const montageExperiment = { x: 0.5, y: 0.385 };
+const montageExperimentScale = 1.3;
+// The hit uses the app's success green.
+const hitGreen = "#34D399";
+const ringGold = "#FACC15";
+
+/** A muted glimpse of the science video a montage experiment was built from, credited in the corner. */
+function montageVideoFlash(name: string, recordingFile: string, sourceCredit: string): ShotSegment {
+  return {
+    kind: "shot",
+    name: `${name}-video`,
+    recordingFile,
+    // Each take's video plays from about 3 seconds, and the learner speaks at about 8.9.
+    sourceStartSeconds: 5.4,
+    durationSeconds: 1.6,
+    muted: true,
+    pageCrop: pageOnlyCrop,
+    sourceCredit,
+    cameraMoves: [{ atSeconds: 0, scale: experimentVideoScale, focus: experimentVideo, durationFrames: 1 }],
+    captions: [],
+  };
+}
+
+/** A muted stretch of a montage experiment's run, with one caption naming what it shows. */
+function montageExperimentRun(name: string, recordingFile: string, sourceStartSeconds: number, durationSeconds: number, caption: Caption): ShotSegment {
+  return {
+    kind: "shot",
+    name,
+    recordingFile,
+    sourceStartSeconds,
+    durationSeconds,
+    muted: true,
+    pageCrop: pageOnlyCrop,
+    cameraMoves: [{ atSeconds: 0, scale: montageExperimentScale, focus: montageExperiment, durationFrames: 1 }],
+    captions: [caption],
+  };
+}
+
+/** A trebuchet shot of the whole experiment, with its captions over the grass. */
+function trebuchetShot(shot: Omit<ShotSegment, "kind" | "recordingFile" | "cursorTrackFile" | "pageCrop">): ShotSegment {
+  return { kind: "shot", recordingFile: "trebuchet.mov", cursorTrackFile: "trebuchet.cursor.json", pageCrop: pageOnlyCrop, captionPosition: "middle", ...shot };
+}
+
+const wholeExperimentCamera: CameraMove[] = [{ atSeconds: 0, scale: 1.0, focus: wholeExperiment, durationFrames: 1 }];
+
+export const experimentClipSegments: Segment[] = [
+  // trebuchet.events.txt: the second challenge try is clicked at about 144.5 and lands in the ring at 149.41. The clip
+  // opens on that flight, muted, so its first frame and thumbnail show the experiment instead of the plain video.
+  trebuchetShot({
+    name: "opening",
+    sourceStartSeconds: 146.3,
+    durationSeconds: 3.6,
+    muted: true,
+    opensOnItsFirstFrame: true,
+    cameraMoves: [{ atSeconds: 0, scale: trebuchetAndRingScale, focus: trebuchetAndRing, durationFrames: 1 }],
+    captions: [{ fromSeconds: 0.1, toSeconds: 3.4, text: "My Clicky fork turns a video into an experiment you can run", accentWords: ["an experiment you can run"] }],
+  }),
+  // The learner says "let me try it" at 9.00, Clicky says "Sure, I'll build that while you watch." from 9.88 to 11.76,
+  // and the lime wingman fills while the video plays on.
+  trebuchetShot({
+    name: "ask",
+    sourceStartSeconds: 5.4,
+    durationSeconds: 11.0,
+    captionPosition: "bottom",
+    sourceCredit: "Video: Art of Engineering, How Trebuchets Work",
+    cameraMoves: [
+      { atSeconds: 0, scale: experimentVideoScale, focus: experimentVideo, durationFrames: 1 },
+      { atSeconds: 7.0, scale: experimentWingmanScale, focus: "cursor", durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.2, toSeconds: 3.0, text: "Clicky, an AI on your cursor, watching along", accentWords: ["an AI on your cursor"] },
+      { fromSeconds: 3.2, toSeconds: 4.5, text: "Let me try it", voice: "learner" },
+      { fromSeconds: 4.6, toSeconds: 6.8, text: "Sure, I'll build that while you watch.", voice: "clicky" },
+      { fromSeconds: 7.3, toSeconds: 10.7, text: "A sub-agent builds the experiment while the video plays", accentWords: ["while the video plays"] },
+    ],
+  }),
+  // The build took 20 s, and builds took 17 to 31 s across 44 runs, with a median of 21. The chip says "Experiment
+  // ready" at 29.49, the experiment rises out of the paused video from 30.37, and Clicky asks for the guess from 33.68
+  // to 40.45.
+  trebuchetShot({
+    name: "rise",
+    sourceStartSeconds: 28.4,
+    durationSeconds: 12.4,
+    cameraMoves: [
+      { atSeconds: 0, scale: experimentVideoScale, focus: experimentVideo, durationFrames: 1 },
+      { atSeconds: 2.0, scale: 1.0, focus: wholeExperiment, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.15, toSeconds: 2.2, text: "About 20 seconds later", accentWords: ["20 seconds"] },
+      { fromSeconds: 2.4, toSeconds: 4.9, text: "The experiment rises out of the video", accentWords: ["rises out of the video"] },
+      { fromSeconds: 5.4, toSeconds: 12.0, text: "First, a guess: how does the launch angle change the distance?", accentWords: ["a guess"] },
+    ],
+  }),
+  // The guess at 44.89, recorded at 46.30, and Clicky's short reply from 46.68 to 48.45.
+  trebuchetShot({
+    name: "guess",
+    sourceStartSeconds: 44.4,
+    durationSeconds: 4.6,
+    cameraMoves: wholeExperimentCamera,
+    captions: [{ fromSeconds: 0.5, toSeconds: 3.8, text: "I think the bigger one will throw it farther", voice: "learner" }],
+  }),
+  // The learner asks for run 1 by voice at 50.41, and set_control and run_simulation run at 51.71. Clicky reads the
+  // landing distance from 56.47, then says "Change a setting and run it again to compare." until 65.92.
+  trebuchetShot({
+    name: "run-by-voice",
+    sourceStartSeconds: 50.0,
+    durationSeconds: 16.2,
+    cameraMoves: wholeExperimentCamera,
+    captions: [
+      { fromSeconds: 0.3, toSeconds: 2.4, text: "Set the angle to 45 degrees and run it", voice: "learner" },
+      { fromSeconds: 2.6, toSeconds: 5.4, text: "Run 1, set by voice", accentWords: ["by voice"] },
+    ],
+  }),
+  // trebuchet.cursor.json: the mouse reaches the angle slider at 70.8, drags it to 70 degrees from 71.4 to 72.0,
+  // clicks Run at about 75.2, and moves off the panel by 76.6. Clicky reads the result from 80.17 to 87.04.
+  trebuchetShot({
+    name: "run-by-hand",
+    sourceStartSeconds: 69.8,
+    durationSeconds: 17.6,
+    captionPosition: "top",
+    cameraMoves: [
+      { atSeconds: 0, scale: 1.0, focus: wholeExperiment, durationFrames: 1 },
+      { atSeconds: 0.3, scale: experimentPanelScale, focus: experimentPanel, durationFrames: bigMoveFrames },
+      { atSeconds: 5.9, scale: 1.0, focus: wholeExperiment, durationFrames: bigMoveFrames },
+    ],
+    captions: [{ fromSeconds: 0.5, toSeconds: 5.6, text: "Run 2: drag the slider and click Run yourself", accentWords: ["drag the slider"] }],
+  }),
+  // Claude checks the guess against both runs, and Clicky says it did not match, and why, from 89.41 to 106.54. The
+  // camera reads the trials table while it speaks.
+  trebuchetShot({
+    name: "verdict",
+    sourceStartSeconds: 88.9,
+    durationSeconds: 17.8,
+    captionPosition: "top",
+    cameraMoves: [
+      { atSeconds: 0, scale: 1.0, focus: wholeExperiment, durationFrames: 1 },
+      { atSeconds: 3.6, scale: experimentPanelScale, focus: experimentPanel, durationFrames: bigMoveFrames },
+    ],
+    captions: [{ fromSeconds: 0.2, toSeconds: 3.4, text: "Clicky checks your guess against both runs", accentWords: ["checks your guess"] }],
+  }),
+  // The challenge starts at 106.81, and Clicky asks for it from 107.25 to 111.42.
+  trebuchetShot({
+    name: "challenge",
+    sourceStartSeconds: 106.9,
+    durationSeconds: 4.8,
+    cameraMoves: wholeExperimentCamera,
+    captions: [{ fromSeconds: 0.3, toSeconds: 4.5, text: "Then a challenge: land the ball in the gold ring", accentWords: ["gold ring"], accentColor: ringGold }],
+  }),
+  // Try 1: the mouse drags the angle to 45 degrees from 116.5 to 117.0 and the speed to 20 m/s from 119.7 to 121.5,
+  // clicks Run at about 124.1, and Clicky says "That was 7.74 meters over the target. Try again." until 133.59.
+  trebuchetShot({
+    name: "try-1",
+    sourceStartSeconds: 114.8,
+    durationSeconds: 19.0,
+    captionPosition: "top",
+    cameraMoves: [
+      { atSeconds: 0, scale: 1.0, focus: wholeExperiment, durationFrames: 1 },
+      { atSeconds: 0.2, scale: experimentPanelScale, focus: experimentPanel, durationFrames: bigMoveFrames },
+      { atSeconds: 9.6, scale: 1.0, focus: wholeExperiment, durationFrames: bigMoveFrames },
+    ],
+    captions: [{ fromSeconds: 0.4, toSeconds: 2.2, text: "Try 1", accentWords: ["1"] }],
+  }),
+  // Try 2: the drags run from 136.1 to 140.6, Run is clicked at about 144.5, the ball lands in the ring at 149.41 with
+  // the "Glass" sound, and Clicky says "You hit the target in 2 tries." until 151.95.
+  trebuchetShot({
+    name: "try-2",
+    sourceStartSeconds: 135.2,
+    durationSeconds: 17.2,
+    captionPosition: "top",
+    cameraMoves: [
+      { atSeconds: 0, scale: 1.0, focus: wholeExperiment, durationFrames: 1 },
+      { atSeconds: 0.2, scale: experimentPanelScale, focus: experimentPanel, durationFrames: bigMoveFrames },
+      { atSeconds: 9.5, scale: 1.0, focus: wholeExperiment, durationFrames: bigMoveFrames },
+    ],
+    captions: [
+      { fromSeconds: 0.4, toSeconds: 2.2, text: "Try 2", accentWords: ["2"] },
+      { fromSeconds: 14.3, toSeconds: 16.9, text: "In the ring in 2 tries", accentWords: ["In the ring"], accentColor: hitGreen },
+    ],
+  }),
+  {
+    kind: "titleCard",
+    name: "montage-title",
+    recordingFile: "trebuchet.mov",
+    sourceStartSeconds: 152,
+    durationSeconds: 3.8,
+    text: "Say “let me try it” during a science video, and Clicky builds an experiment from it.",
+    accentWords: ["“let me try it”"],
+  },
+  // Each montage take: the learner says "let me try it" at about 8.9, and the windows below are the second run.
+  montageVideoFlash("circuit", "montage-circuit.mov", "Video: The Engineering Mindset, Ohms Law Explained"),
+  // montage-circuit.events.txt: the resistance goes from 12 to 1 ohms at 76.79 and the needle sweeps to 24 A.
+  montageExperimentRun("circuit", "montage-circuit.mov", 75.9, 7.0, {
+    fromSeconds: 0.3,
+    toSeconds: 6.6,
+    text: "Ohm's law: less resistance, more current",
+    accentWords: ["more current"],
+  }),
+  montageVideoFlash("buoyancy", "montage-buoyancy.mov", "Video: Kids Want to Know, Buoyancy"),
+  // montage-buoyancy.events.txt: the first run drops both balls into the tank at 52.49.
+  montageExperimentRun("buoyancy", "montage-buoyancy.mov", 51.9, 7.6, {
+    fromSeconds: 0.3,
+    toSeconds: 7.2,
+    text: "Buoyancy: which ball floats, and how deep",
+    accentWords: ["floats"],
+  }),
+  montageVideoFlash("molecule", "montage-molecule.mov", "Video: Guna Joe Creatz, VSEPR Theory"),
+  // montage-molecule.events.txt: the straight molecule gets 2 lone pairs at 76.18 and bends to 105.31 degrees.
+  montageExperimentRun("molecule", "montage-molecule.mov", 74.8, 7.4, {
+    fromSeconds: 0.3,
+    toSeconds: 7.0,
+    text: "Molecule shapes: two lone pairs bend it",
+    accentWords: ["bend it"],
+  }),
+  montageVideoFlash("refraction", "montage-refraction.mov", "Video: Science Sauce, Refraction Explained"),
+  // montage-refraction.events.txt: the lamp tilts to 70 degrees at 73.44 and the beam bends at the water.
+  montageExperimentRun("refraction", "montage-refraction.mov", 72.6, 7.4, {
+    fromSeconds: 0.3,
+    toSeconds: 7.0,
+    text: "Refraction: light bends as it enters the water",
+    accentWords: ["light bends"],
+  }),
+  // The music fades out under this card.
+  { kind: "endCard", name: "end-card", recordingFile: "montage-refraction.mov", sourceStartSeconds: 80, durationSeconds: 4.0 },
 ];

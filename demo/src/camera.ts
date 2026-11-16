@@ -4,7 +4,11 @@ import { cameraEase, frameRate, punchInFrames } from "./motion.ts";
 /** A point in the recording, from 0 to 1 on each axis, or the tracked Clicky triangle and its speech bubble. */
 export type CameraFocus = { x: number; y: number } | "cursor";
 
-/** From `atSeconds` into the shot, the camera eases to this scale and focus. */
+/**
+ * From `atSeconds` into the shot, the camera eases to this scale and focus over `durationFrames`. A move at 0 seconds
+ * is the shot's opening framing, which holds from the first frame, and its `durationFrames` only delays the slow drift
+ * of the hold that follows.
+ */
 export type CameraMove = {
   atSeconds: number;
   scale: number;
@@ -78,11 +82,16 @@ export function cameraAt(moves: CameraMove[], shotSeconds: number, shotDurationS
     // The hold before this move drifted in, and the move starts from where the drift ended.
     scale *= kenBurnsFactor(settledAtSeconds, move.atSeconds, move.atSeconds);
     const moveSeconds = (move.durationFrames ?? punchInFrames) / frameRate;
-    const progress = interpolate(shotSeconds, [move.atSeconds, move.atSeconds + moveSeconds], [0, 1], {
-      easing: cameraEase,
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-    });
+    // A move at 0 seconds is the shot's opening framing, so it holds from the first frame, which is the clip's
+    // thumbnail when the shot opens the clip.
+    const progress =
+      move.atSeconds === 0
+        ? 1
+        : interpolate(shotSeconds, [move.atSeconds, move.atSeconds + moveSeconds], [0, 1], {
+            easing: cameraEase,
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          });
     const targetFocus = resolvedFocus(move.focus, track, sourceStartSeconds + shotSeconds, focus);
     // #028 Zoom in grows the focal length exponentially, so each frame of the punch-in enlarges by the same ratio.
     scale = scale * Math.pow(move.scale / scale, progress);
@@ -93,26 +102,28 @@ export function cameraAt(moves: CameraMove[], shotSeconds: number, shotDurationS
   return { scale: scale * kenBurnsFactor(settledAtSeconds, holdEndSeconds, shotSeconds), focus };
 }
 
-// Each recording starts at the top of the demo Chrome window, whose tabs and URL bar fill the top 174 of 1924 rows.
-// At the bottom, Chrome shows a hovered link's address in a box about 40 rows tall. The camera never shows either
-// strip, with a little margin.
-const browserToolbarShare = 0.092;
-const linkAddressBoxShare = 0.026;
-const pageShareOfHeight = 1 - browserToolbarShare - linkAddressBoxShare;
+/**
+ * The shares of a recording's height the camera never shows, above and below the page. The older takes start at the
+ * top of the demo Chrome window, whose tabs and URL bar fill the top 174 of 1924 rows, and at the bottom Chrome shows
+ * a hovered link's address in a box about 40 rows tall, so the camera leaves out both strips, with a little margin.
+ */
+export type PageCrop = { topShare: number; bottomShare: number };
+export const chromeWindowCrop: PageCrop = { topShare: 0.092, bottomShare: 0.026 };
+/** The experiment takes record only the page area below Chrome's toolbar (RECORDING_SOURCE_RECT), so nothing is cut. */
+export const pageOnlyCrop: PageCrop = { topShare: 0, bottomShare: 0 };
 
 /**
- * A CSS transform that scales the recording about the focus and keeps the frame covered by the page between Chrome's
- * toolbar and its link address box. A scale of 1 fills the frame with that page area, so every scale is applied on
- * top of the crop.
+ * A CSS transform that scales the recording about the focus and keeps the frame covered by the page between the
+ * crop's strips. A scale of 1 fills the frame with that page area, so every scale is applied on top of the crop.
  */
-export function cameraTransform(scale: number, focus: { x: number; y: number }, width: number, height: number): string {
+export function cameraTransform(scale: number, focus: { x: number; y: number }, width: number, height: number, pageCrop: PageCrop = chromeWindowCrop): string {
   const clamp = (value: number, lowest: number, highest: number) => Math.min(highest, Math.max(lowest, value));
-  const pageScale = scale / pageShareOfHeight;
+  const pageScale = scale / (1 - pageCrop.topShare - pageCrop.bottomShare);
   const translateX = clamp(width / 2 - pageScale * focus.x * width, width - pageScale * width, 0);
   const translateY = clamp(
     height / 2 - pageScale * focus.y * height,
-    height - pageScale * (1 - linkAddressBoxShare) * height,
-    -pageScale * browserToolbarShare * height,
+    height - pageScale * (1 - pageCrop.bottomShare) * height,
+    -pageScale * pageCrop.topShare * height,
   );
   return `translate(${translateX}px, ${translateY}px) scale(${pageScale})`;
 }

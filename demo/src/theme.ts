@@ -95,3 +95,22 @@ export const parallelAgentsTheme: DemoTheme = {
     credit: "Video: SpaceX, Mechazilla catches Starship!",
   },
 };
+
+// The experiment wingman's lime (DS.Colors.backgroundAgentExperimentLime in the app).
+export const experimentLime = "#84CC16";
+
+/** The "let me try it" clip: the watch-along pill captions, with the experiment wingman's lime on key words. */
+export const experimentTheme: DemoTheme = {
+  ...watchAlongTheme,
+  accent: { style: "text", color: experimentLime },
+  micColor: experimentLime,
+  endCard: {
+    title: "Clicky watch-along",
+    tagline: "An experiment on my Clicky fork: try what the video teaches",
+    handle: "@HayloCR",
+    titleColor: colors.text,
+    handleColor: experimentLime,
+    scrim: "rgba(10, 11, 15, 0.62)",
+    credit: "Videos: Art of Engineering, The Engineering Mindset, Kids Want to Know, Guna Joe Creatz, Science Sauce",
+  },
+};
