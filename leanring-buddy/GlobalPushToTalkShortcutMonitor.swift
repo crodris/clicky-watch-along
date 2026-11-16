@@ -165,7 +165,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         case .flagsChanged:
             agentListShortcutRecognizer.modifiersChanged(
                 NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)),
-                at: ProcessInfo.processInfo.systemUptime
+                at: ProcessInfo.processInfo.systemUptime,
+                aMouseButtonIsDown: NSEvent.pressedMouseButtons != 0
             )
         case let pressEventType where AgentListShortcutRecognizer.pressEventTypesThatBreakAHold.contains(pressEventType):
             agentListShortcutRecognizer.pressArrived(ofType: pressEventType)

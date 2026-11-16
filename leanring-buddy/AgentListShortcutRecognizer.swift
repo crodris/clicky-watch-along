@@ -14,7 +14,7 @@ import Foundation
 struct AgentListShortcutRecognizer {
     static let secondsToHold: TimeInterval = 0.3
     /// The presses that break a hold, which the event tap listens for besides modifier changes.
-    static let pressEventTypesThatBreakAHold: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown]
+    static let pressEventTypesThatBreakAHold: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
 
     private enum State: Equatable {
         case waitingForShiftAndOption
@@ -35,14 +35,15 @@ struct AgentListShortcutRecognizer {
         return heldSince + Self.secondsToHold
     }
 
-    mutating func modifiersChanged(_ modifierFlags: NSEvent.ModifierFlags, at time: TimeInterval) {
+    /// aMouseButtonIsDown covers a drag that began before shift and option, which sends no press during the hold.
+    mutating func modifiersChanged(_ modifierFlags: NSEvent.ModifierFlags, at time: TimeInterval, aMouseButtonIsDown: Bool = false) {
         heldModifiers = modifierFlags.intersection(Self.modifiersThatMatter)
         if heldModifiers.isEmpty {
             state = .waitingForShiftAndOption
         } else if heldModifiers == [.shift, .option] {
             // Only a fresh press starts a hold, so releasing ctrl from ctrl + shift + option does not.
             if state == .waitingForShiftAndOption {
-                state = .holding(since: time)
+                state = aMouseButtonIsDown ? .spent : .holding(since: time)
             }
         } else if !heldModifiers.isSubset(of: [.shift, .option]) || state != .waitingForShiftAndOption {
             state = .spent

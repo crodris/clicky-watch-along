@@ -1745,6 +1745,21 @@ struct leanring_buddyTests {
         #expect(!mayRise(sceneBuildingOrShowing: true))
         #expect(!mayRise(quizQuestionOpen: true))
         #expect(!mayRise(frontTab: "https://www.youtube.com/watch?v=other"))
+
+        // A busy screen decides without the front tab, since reading it is an Apple Event to Chrome.
+        var frontTabWasRead = false
+        let mayRiseOverABusyScreen = backgroundSceneMayRiseNow(
+            readyModel,
+            clickyIsIdleAndDoneSpeaking: false,
+            aSceneOrPopOutIsBuildingOrShowing: true,
+            aVideoQuizQuestionIsOpen: true,
+            readFrontTabURL: {
+                frontTabWasRead = true
+                return sourceTab
+            }
+        )
+        #expect(!mayRiseOverABusyScreen)
+        #expect(!frontTabWasRead)
     }
 
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
@@ -1760,6 +1775,21 @@ struct leanring_buddyTests {
     }
 
     // MARK: - Agent list shortcut
+
+    @Test func aDragThatBeganBeforeShiftAndOptionNeverOpensTheList() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.option], at: 10, aMouseButtonIsDown: true)
+        recognizer.modifiersChanged([.shift, .option], at: 10.1, aMouseButtonIsDown: true)
+        #expect(recognizer.holdCompletesAt == nil)
+        let firedDuringTheDrag = recognizer.timeAdvanced(to: 11)
+        #expect(!firedDuringTheDrag)
+
+        var middleClickRecognizer = AgentListShortcutRecognizer()
+        middleClickRecognizer.modifiersChanged([.shift, .option], at: 20)
+        middleClickRecognizer.pressArrived(ofType: .otherMouseDown)
+        let firedAfterAMiddleClick = middleClickRecognizer.timeAdvanced(to: 21)
+        #expect(!firedAfterAMiddleClick)
+    }
 
     @Test func shiftAndOptionHeldForThreeTenthsOfASecondFiresOnce() async throws {
         var recognizer = AgentListShortcutRecognizer()
