@@ -2770,19 +2770,17 @@ final class CompanionManager: ObservableObject {
         return (screen: screen, capture: screenCaptures.first { $0.displayFrame == screen.frame })
     }
 
-    /// A scene rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or
-    /// pop-out is building or showing, and the video it was built from is in front. Otherwise it would cover
-    /// something the learner is looking at, so it waits for "show the model" or "show the experiment".
     private var aReadyBackgroundSceneMayRiseNow: Bool {
-        // voiceState goes idle once a spoken line starts, so isPlaying covers the rest of the line.
-        guard let readyBackgroundScene, voiceState == .idle, !elevenLabsTTSClient.isPlaying, case .idle = liveScenePhase,
-              !LiveSceneOverlay.shared.isShowingAScene, !videoQuizQuestionIsActive else {
-            return false
-        }
-        return aReadyBackgroundSceneMayRiseOverTheFrontTab(
-            agentKind: readyBackgroundScene.agentKind,
-            sourceTabURL: readyBackgroundScene.sourceTabURL,
-            frontTabURL: videoQuizSession.frontTabURLOfTheFrontWindow()
+        guard let readyBackgroundScene else { return false }
+        var liveScenePhaseIsIdle = false
+        if case .idle = liveScenePhase { liveScenePhaseIsIdle = true }
+        return backgroundSceneMayRiseNow(
+            readyBackgroundScene,
+            // voiceState goes idle once a spoken line starts, so isPlaying covers the rest of the line.
+            clickyIsIdleAndDoneSpeaking: voiceState == .idle && !elevenLabsTTSClient.isPlaying,
+            aSceneOrPopOutIsBuildingOrShowing: !liveScenePhaseIsIdle || LiveSceneOverlay.shared.isShowingAScene,
+            aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            readFrontTabURL: { self.videoQuizSession.frontTabURLOfTheFrontWindow() }
         )
     }
 

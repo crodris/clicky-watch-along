@@ -1711,6 +1711,25 @@ struct leanring_buddyTests {
         #expect(!aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .threeDModel, sourceTabURL: sourceTab, frontTabURL: otherTab))
     }
 
+    @Test func aReadySceneRisesAtOnceOnlyOntoAFreeScreenOverTheTabItWasBuiltFrom() async throws {
+        let sourceTab = "https://www.youtube.com/watch?v=source"
+        let readyModel = ReadyBackgroundScene(agentID: UUID(), agentKind: .threeDModel, whatToBuild: "the engine", pageHTML: "<html></html>", sourceTabURL: sourceTab, simulationLesson: nil)
+        func mayRise(idleAndDoneSpeaking: Bool = true, sceneBuildingOrShowing: Bool = false, quizQuestionOpen: Bool = false, frontTab: String? = sourceTab) -> Bool {
+            backgroundSceneMayRiseNow(
+                readyModel,
+                clickyIsIdleAndDoneSpeaking: idleAndDoneSpeaking,
+                aSceneOrPopOutIsBuildingOrShowing: sceneBuildingOrShowing,
+                aVideoQuizQuestionIsOpen: quizQuestionOpen,
+                readFrontTabURL: { frontTab }
+            )
+        }
+        #expect(mayRise())
+        #expect(!mayRise(idleAndDoneSpeaking: false))
+        #expect(!mayRise(sceneBuildingOrShowing: true))
+        #expect(!mayRise(quizQuestionOpen: true))
+        #expect(!mayRise(frontTab: "https://www.youtube.com/watch?v=other"))
+    }
+
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
         let store = BackgroundAgentStore()
         let olderAgentID = store.start(kind: .studyGuide)
