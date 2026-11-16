@@ -1,5 +1,5 @@
 /**
- * What /study-guide and /notion-page share to write a Notion page: the few block shapes their pages use, and the
+ * What /study-guide, /study-guide-status, and /notion-page share to write a Notion page: the few block shapes their pages use, and the
  * one place the Worker calls the Notion API. Each call names its route, so a failure is logged under the route that made it.
  */
 

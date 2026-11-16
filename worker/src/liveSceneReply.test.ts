@@ -159,6 +159,8 @@ describe("simulation reply", () => {
     ["document.createElement('button')", "button"],
     ['document.createElement( "select" )', "select"],
     ["document.createElement(`textarea`)", "textarea"],
+    ['document.createElement("button", { is: "fancy-button" })', "button"],
+    ['document.createElementNS("http://www.w3.org/1999/xhtml", "input")', "input"],
   ])("rejects a simulation page that draws a control with %s", (createElementCall, controlElementName) => {
     const pageWithAScriptedControl = simulationPage.replace("</body>", `<script>${createElementCall};</script></body>`);
 

@@ -42,6 +42,12 @@ function isYouTubeVideoURL(videoURL: string): boolean {
   }
 }
 
+// Every point links to the video with "&t=<seconds>s" added, and Notion refuses a link URL over 2,000 characters, so
+// the check measures the link Notion receives, with a 27 hour timestamp and any non-ASCII characters percent-encoded.
+function everyTimestampLinkFitsNotion(videoURL: string): boolean {
+  return isYouTubeVideoURL(videoURL) && videoTimestampURL(videoURL, 99_999).length <= longestNotionBlockText;
+}
+
 /**
  * Limits sized well past a long video, so one request cannot send Sonnet an unbounded transcript up to three times. A
  * 3-hour video has about 3,000 caption lines and about 150,000 characters, and Notion cuts each block at 2,000
@@ -94,7 +100,10 @@ const quizResultSchema = z.object({
 
 const studyGuideRequestSchema = z.object({
   videoTitle: z.string().trim().min(1).max(longestNotionBlockText),
-  videoURL: z.string().max(longestNotionBlockText).refine(isYouTubeVideoURL, { message: "videoURL must be an https YouTube URL" }),
+  videoURL: z
+    .string()
+    .refine(isYouTubeVideoURL, { message: "videoURL must be an https YouTube URL" })
+    .refine(everyTimestampLinkFitsNotion, { message: "videoURL is too long for a Notion link once a timestamp is added" }),
   transcriptLines: z
     .array(transcriptLineSchema)
     .min(1)
@@ -379,8 +388,9 @@ async function trashNotionPage(notionAPIKey: string, pageId: string): Promise<No
 }
 
 /** Wraps text that came from the video's page in a tag, with every "<" replaced so the text cannot close the tag. */
+// "‹" reads as "<" to the model, so "if x < 5" keeps its meaning, but it cannot open or close a tag.
 function untrustedTextInTag(tagName: string, untrustedText: string): string {
-  return `<${tagName}>\n${untrustedText.replaceAll("<", " ")}\n</${tagName}>`;
+  return `<${tagName}>\n${untrustedText.replaceAll("<", "‹")}\n</${tagName}>`;
 }
 
 function userTurn(studyGuideRequest: StudyGuideRequest, rejectedReplyError: string) {

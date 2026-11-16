@@ -39,7 +39,7 @@ const controlElementsASimulationMustNotDraw = controlElementNames.flatMap((contr
   { description: `<${controlElementName}`, pattern: new RegExp(`<${controlElementName}`) },
   {
     description: `createElement("${controlElementName}")`,
-    pattern: new RegExp(`createElement\\s*\\(\\s*["'\`]${controlElementName}["'\`]\\s*\\)`, "i"),
+    pattern: new RegExp(`createelement(?:ns)?\\s*\\([^)]*?["'\`]${controlElementName}["'\`]\\s*[,)]`),
   },
 ]);
 

@@ -268,21 +268,20 @@ describe("handleStudyGuide", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("answers 400 for a videoURL over 2000 characters and accepts one of exactly 2000, before any model or Notion call", async () => {
+  it("answers 400 for a videoURL whose timestamp link would pass Notion's 2000 characters, before any model or Notion call", async () => {
     const videoURLPrefix = "https://www.youtube.com/watch?v=";
     const videoURLOfLength = (length: number) => videoURLPrefix + "a".repeat(length - videoURLPrefix.length);
-
-    const fetchMockForTooLong = stubFetch();
-    const tooLongResponse = await handleStudyGuide(
-      requestWithBody({ ...validRequestBody, videoURL: videoURLOfLength(2_001) }),
-      notionEnvironment,
-    );
-    expect(tooLongResponse.status).toBe(400);
-    expect(fetchMockForTooLong).not.toHaveBeenCalled();
+    // "&t=99999s" adds 9 characters, so a 1,991 character URL makes a 2,000 character link.
+    for (const tooLongVideoURL of [videoURLOfLength(1_992), videoURLOfLength(1_900) + "é".repeat(20)]) {
+      const fetchMockForTooLong = stubFetch();
+      const tooLongResponse = await handleStudyGuide(requestWithBody({ ...validRequestBody, videoURL: tooLongVideoURL }), notionEnvironment);
+      expect(tooLongResponse.status).toBe(400);
+      expect(fetchMockForTooLong).not.toHaveBeenCalled();
+    }
 
     stubFetch();
     const longestAllowedResponse = await handleStudyGuide(
-      requestWithBody({ ...validRequestBody, videoURL: videoURLOfLength(2_000) }),
+      requestWithBody({ ...validRequestBody, videoURL: videoURLOfLength(1_991) }),
       notionEnvironment,
     );
     expect(longestAllowedResponse.status).toBe(200);
@@ -447,6 +446,19 @@ describe("handleStudyGuide", () => {
       expect(allUserText.split(`</${tagName}>`)).toHaveLength(2);
     }
     expect(anthropicBody.system[0].text).toContain("video_transcript");
+  });
+
+  it("keeps a less-than sign readable inside a tag, so a caption like if x < 5 keeps its meaning", async () => {
+    const fetchMock = stubFetch();
+
+    await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, transcriptLines: [...transcriptLines, { seconds: 130, text: "if x < 5 return" }] }),
+      notionEnvironment,
+    );
+
+    const anthropicBody = JSON.parse(String(callsTo(fetchMock, "api.anthropic.com")[0][1]?.body));
+    const allUserText = anthropicBody.messages[0].content.map((block: { text: string }) => block.text).join("\n");
+    expect(allUserText).toContain("if x ‹ 5 return");
   });
 
   it("creates the new page, then trashes the replaced page on a revision", async () => {
