@@ -1590,10 +1590,12 @@ final class CompanionManager: ObservableObject {
     /// whether the guess was right and why, or what to try next. Once settled the challenge starts.
     /// The report comes from the page, so it is used only while Clicky's own record says a simulation is on screen.
     private func narrateTheSimulationRun(_ runReport: SimulationRunReport) {
-        guard case .simulation = liveScenePageOnScreen,
-              LiveSceneOverlay.shared.isShowingAScene,
-              !liveScenePhaseIsWaitingForAQuizAnswer,
-              simulationLesson != nil else {
+        guard simulationRunMayBeNarrated(
+            pageOnScreen: liveScenePageOnScreen,
+            sceneIsShowing: LiveSceneOverlay.shared.isShowingAScene,
+            quizQuestionIsWaiting: liveScenePhaseIsWaitingForAQuizAnswer,
+            lessonExists: simulationLesson != nil
+        ) else {
             return
         }
         simulationRunNarrationTask?.cancel()
@@ -1601,9 +1603,11 @@ final class CompanionManager: ObservableObject {
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
             await self.speakTheWaitingChallengePrompt()
-            // A page could post a challenge outcome on its own, so one counts only while Clicky's own record says
-            // it started the challenge.
-            if let challengeOutcome = runReport.challengeOutcome, self.simulationLesson?.challengeIsRunning == true {
+            let narrationStep = simulationRunNarrationStep(
+                reportHasAChallengeOutcome: runReport.challengeOutcome != nil,
+                challengeIsRunning: self.simulationLesson?.challengeIsRunning == true
+            )
+            if narrationStep == .sayTheChallengeOutcome, let challengeOutcome = runReport.challengeOutcome {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
                     NSSound(named: NSSound.Name("Glass"))?.play()

@@ -1997,6 +1997,30 @@ struct leanring_buddyTests {
         #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: true, runsChecked: 3) == .checkTheGuess)
     }
 
+    @Test func aRunIsNarratedOnlyWhileAnExperimentWithALessonIsOnScreenAndNoQuizQuestionWaits() {
+        func mayBeNarrated(
+            pageOnScreen: LiveScenePageOnScreen? = .simulation,
+            sceneIsShowing: Bool = true,
+            quizQuestionIsWaiting: Bool = false,
+            lessonExists: Bool = true
+        ) -> Bool {
+            simulationRunMayBeNarrated(pageOnScreen: pageOnScreen, sceneIsShowing: sceneIsShowing, quizQuestionIsWaiting: quizQuestionIsWaiting, lessonExists: lessonExists)
+        }
+        #expect(mayBeNarrated())
+        #expect(!mayBeNarrated(pageOnScreen: .generatedPage))
+        #expect(!mayBeNarrated(pageOnScreen: nil))
+        #expect(!mayBeNarrated(sceneIsShowing: false))
+        #expect(!mayBeNarrated(quizQuestionIsWaiting: true))
+        #expect(!mayBeNarrated(lessonExists: false))
+    }
+
+    @Test func aChallengeOutcomeFromThePageCountsOnlyAfterClickyStartedTheChallenge() {
+        #expect(simulationRunNarrationStep(reportHasAChallengeOutcome: true, challengeIsRunning: true) == .sayTheChallengeOutcome)
+        // A page that posts an outcome on its own gets the ordinary readouts and guess check instead.
+        #expect(simulationRunNarrationStep(reportHasAChallengeOutcome: true, challengeIsRunning: false) == .sayTheReadoutsAndCheckTheGuess)
+        #expect(simulationRunNarrationStep(reportHasAChallengeOutcome: false, challengeIsRunning: true) == .sayTheReadoutsAndCheckTheGuess)
+    }
+
     @Test func theChallengeLineNeverMentionsADashedLineSinceACircuitOrAMoleculeDrawsNone() {
         #expect(!simulationChallengeStartSuffix.lowercased().contains("dashed"))
     }
