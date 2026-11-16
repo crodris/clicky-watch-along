@@ -1398,6 +1398,16 @@ struct leanring_buddyTests {
         }
     }
 
+    @Test func aGuideBeingRewrittenOrReplacedIsNotForgottenWhenItsOldPageIsGone() async throws {
+        #expect(savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: true))
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: true, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: true))
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: nil, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: true))
+        // A revision trashes the old page before its reply arrives.
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: true, checkedGuideIsStillSaved: true))
+        // A revision that finished during the check saved a newer guide under the same video.
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: false))
+    }
+
     @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
         let labelScreenPoints = [
             LiveScenePartScreenPoint(label: "Rotor blades", globalPoint: CGPoint(x: 10, y: 10)),

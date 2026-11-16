@@ -2875,25 +2875,34 @@ final class CompanionManager: ObservableObject {
 
     /// The guide saved for this video, unless its Notion page was trashed or deleted. Then the saved guide is forgotten,
     /// so the video can get a new one. Each guide is checked once per launch, or every time with checkEvenIfCheckedBefore.
-    /// When the Worker cannot say, the saved guide stands, so a network hiccup never loses it.
     private func savedStudyGuideStillInNotion(forVideoURL videoURL: String, checkEvenIfCheckedBefore: Bool) async -> StudyGuideRecord? {
         guard let savedRecord = savedStudyGuides.record(forVideoURL: videoURL) else { return nil }
         if !checkEvenIfCheckedBefore && studyGuidePageHandlesFoundInNotion.contains(savedRecord.pageHandle) {
             return savedRecord
         }
+        var pageStillExists: Bool?
         do {
-            guard try await studyGuideClient.pageStillExists(pageHandle: savedRecord.pageHandle) else {
-                print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
-                savedStudyGuides.forget(forVideoURL: videoURL)
-                studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
-                notionPageChromeTabIDsByPageURL[savedRecord.pageURL] = nil
-                return nil
-            }
-            studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
+            pageStillExists = try await studyGuideClient.pageStillExists(pageHandle: savedRecord.pageHandle)
         } catch {
             print("Study guide: could not check \(savedRecord.pageURL) in Notion, so the saved guide stands: \(error)")
         }
-        return savedRecord
+        if pageStillExists == true {
+            studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
+        }
+        // Read after the check, since a guide agent may have started or saved a new guide meanwhile.
+        let recordSavedNow = savedStudyGuides.record(forVideoURL: videoURL)
+        guard savedStudyGuideIsForgotten(
+            pageStillExists: pageStillExists,
+            aGuideAgentIsRunningForTheVideo: backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: studyGuideVideoKey(forVideoURL: videoURL)),
+            checkedGuideIsStillSaved: recordSavedNow?.pageHandle == savedRecord.pageHandle
+        ) else {
+            return recordSavedNow
+        }
+        print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
+        savedStudyGuides.forget(forVideoURL: videoURL)
+        studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
+        notionPageChromeTabIDsByPageURL[savedRecord.pageURL] = nil
+        return nil
     }
 
     /// Starts the guide in the background and returns at once, so the router speaks its own confirmation

@@ -268,6 +268,14 @@ nonisolated func studyGuideRefreshMayStart(forQuizVideoURL quizVideoURL: String,
     return studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL)
 }
 
+/// A saved guide is forgotten, so the video can get a new one, only when Notion says its page is gone. When the Worker
+/// cannot say (nil), the saved guide stands, so a network hiccup never loses it. A revise or refresh trashes the old page
+/// before its reply arrives, so a guide with a guide agent running stands too, and so does a guide that a newer one
+/// replaced during the check, since forgetting by video would drop the newer one.
+nonisolated func savedStudyGuideIsForgotten(pageStillExists: Bool?, aGuideAgentIsRunningForTheVideo: Bool, checkedGuideIsStillSaved: Bool) -> Bool {
+    pageStillExists == false && !aGuideAgentIsRunningForTheVideo && checkedGuideIsStillSaved
+}
+
 /// What becomes of a refresh queued for a video, by a quiz miss while its guide was being written, when that guide's
 /// agent ends.
 nonisolated enum QueuedStudyGuideRefreshStep: Equatable {
