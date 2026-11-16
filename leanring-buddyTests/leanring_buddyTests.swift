@@ -857,6 +857,17 @@ struct leanring_buddyTests {
         #expect(companionManager.detectedElementScreenLocation == CGPoint(x: 20, y: 20))
     }
 
+    @Test func clearingTheSceneEndsTheExperimentLessonSoTheRouterReadsNoQuestionOfAGoneScene() async throws {
+        let companionManager = CompanionManager()
+        companionManager.liveScenePageOnScreen = .simulation
+        companionManager.simulationLesson = SimulationLesson(predictionQuestion: "Which angle sends the ball farther?", physicsExplanation: "The two angles balance out.")
+
+        companionManager.clearTheLiveSceneAndReleaseTheBuddy()
+
+        #expect(companionManager.simulationLesson == nil)
+        #expect(companionManager.liveScenePageOnScreen == nil)
+    }
+
     @Test func partLabelBoxBecomesTheGlobalPointUnderItsBottomEdge() async throws {
         let labelRect = LiveScenePartLabelRectInPage(label: "Aorta", left: 100, top: 200, width: 60, height: 24)
         // A main display 1512 x 982 points: the page's y of 224 is 224 points down from its top.

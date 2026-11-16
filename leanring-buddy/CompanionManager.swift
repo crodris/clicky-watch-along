@@ -187,14 +187,14 @@ final class CompanionManager: ObservableObject {
 
     private var liveScenePhase: LiveScenePhase = .idle
     /// Set each time a page plays, so narration uses Clicky's own data about the page on screen.
-    private var liveScenePageOnScreen: LiveScenePageOnScreen?
+    var liveScenePageOnScreen: LiveScenePageOnScreen?
     /// Bumped on every new question so a scene request still in flight cannot play late.
     private var liveSceneRequestGeneration = 0
     private var liveSceneRequestTask: Task<Void, Never>?
     private var liveSceneTourFinishedTask: Task<Void, Never>?
     /// The lesson of the simulation on screen: its prediction question, the learner's guess, and how far it got.
-    /// Made when a simulation page plays, and cleared at the start of each build.
-    private var simulationLesson: SimulationLesson?
+    /// Made when a simulation page plays, and cleared with the scene.
+    var simulationLesson: SimulationLesson?
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
@@ -1426,8 +1426,6 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
-        // The new scene replaces any experiment on screen, so its lesson ends too.
-        simulationLesson = nil
         await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
@@ -1713,8 +1711,11 @@ final class CompanionManager: ObservableObject {
 
     /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
     /// cancelled narration can stay stuck reading label places from a page that is gone, so the clear releases it.
+    /// The page's record and an experiment's lesson end here too, so the voice router never reads a question of a scene that is gone.
     func clearTheLiveSceneAndReleaseTheBuddy() {
         LiveSceneOverlay.shared.clear()
+        liveScenePageOnScreen = nil
+        simulationLesson = nil
         if detectedElementPointingHold.holdsUntilReleased {
             clearDetectedElementLocation()
         }

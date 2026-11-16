@@ -88,7 +88,7 @@ A second `clear()` during the return, a new scene, or any non-pop-out page hides
 `waitForReturnToFinish()` returns when the window has hidden, and every path that resumes a video Clicky paused awaits it first, so the subject lands in the still frame before the video moves.
 That includes "stop the quiz", which clears the question's pop-out before `VideoQuizSession.stop()` and then plays the video with `resumeVideoAfterQuestion()`, a plain question or "stop the quiz" that cancels a scene build, a pop-out that fails to open, and "Sorry, I couldn't build that one."
 "Stop the quiz" reads whether a scene was building before it resets the phase for an open question, so a scene asked for on another tab is cancelled too.
-Every clear in `CompanionManager` goes through `clearTheLiveSceneAndReleaseTheBuddy()`, which also sends the blue cursor back to the mouse when a narration holds it on a part, since a narration cancelled mid-sentence may never release it.
+Every clear in `CompanionManager` goes through `clearTheLiveSceneAndReleaseTheBuddy()`, which also sends the blue cursor back to the mouse when a narration holds it on a part, since a narration cancelled mid-sentence may never release it. It also forgets which page is on screen and ends an experiment's lesson, so after Escape the voice router's scene state carries no prediction question.
 Only `frame-popout.html` has `returnToSource` and `answerMoment`, so generated pages and `landmark-tiles.html` keep the old instant clear and plain reveal.
 During a video quiz question, Escape skips the question, clears its pop-out, and plays the video on.
 When the tour ends the overlay catches the mouse, a drag orbits the camera around the last stop, and a trackpad pinch zooms it.
