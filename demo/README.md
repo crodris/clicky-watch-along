@@ -68,6 +68,8 @@ The rehearsal sets the first run by voice.
 `scripts/drive-trebuchet-shot.sh` then sets the second run and the challenge with the real mouse, dragging the sliders and clicking Run, since the clip shows both ways to change the experiment.
 It finds the sliders in a screenshot with `scripts/experiment-panel.py`, moves the mouse with `scripts/mouse/mouse.swift`, and reads the challenge target through the voice tool endpoint, since the target is new in every build: one overshoot, then corrections until a run lands in the ring.
 The terminal that runs it needs the Accessibility permission to move the mouse.
+The driver runs in the background and stops on its own once the challenge ends, or when a step fails.
+When a take fails before the challenge, stop it with `kill %1` before the next take, since it waits up to 400 seconds for each log line.
 The montage takes speak their runs as rehearsal steps instead, with a pause between runs so Clicky finishes reading each result.
 
 ```bash
@@ -94,6 +96,7 @@ pnpm track public/ejiri.mov public/ejiri.cursor.json
 pnpm track public/study-guide.mov public/study-guide.cursor.json
 pnpm track public/quiz-miss.mov public/quiz-miss.cursor.json
 pnpm track public/agents.mov public/agents.cursor.json
+pnpm track public/trebuchet.mov public/trebuchet.cursor.json
 ```
 
 ## Music
@@ -110,7 +113,9 @@ Neither is registered with YouTube Content ID, so a YouTube upload gets no claim
 The parallel agents clip uses the same "Feel Good - It Feels So Good" track as the study guide clip.
 The experiment clip uses "Upbeat Lo-Fi Instrumental with Electric Guitar" by NickPanek (https://pixabay.com/music/beats-upbeat-lo-fi-instrumental-with-electric-guitar-251405/), saved as `demo/public/music/upbeat-lo-fi-electric-guitar.mp3`, under the Pixabay Content License, which needs no credit.
 Pixabay blocks scripted downloads, so download it from that page by hand.
-The track is 2:02 and the clip about 2:38, so `pnpm music-experiment` joins two copies with a 4 second crossfade where the first one's music ends, at 2:00.3, into `upbeat-lo-fi-electric-guitar-twice.mp3`, and the seam falls on the dissolve into the title card.
+The track is 2:02 and the clip about 2:38, so `pnpm music-experiment` joins two copies with a 4 second crossfade.
+The crossfade starts where the first copy's music ends, at 2:00.3, so the seam falls on the dissolve into the title card.
+It writes the joined bed as `upbeat-lo-fi-electric-guitar-twice.wav`, so the mix encodes the music only once, and `pnpm mix-experiment` rebuilds it every time.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
 Download all five before rendering.

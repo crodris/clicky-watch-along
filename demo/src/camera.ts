@@ -4,7 +4,10 @@ import { cameraEase, frameRate, punchInFrames } from "./motion.ts";
 /** A point in the recording, from 0 to 1 on each axis, or the tracked Clicky triangle and its speech bubble. */
 export type CameraFocus = { x: number; y: number } | "cursor";
 
-/** From `atSeconds` into the shot, the camera eases to this scale and focus. */
+/**
+ * From `atSeconds` into the shot, the camera eases to this scale and focus over `durationFrames`. A move at 0 seconds
+ * is the shot's opening framing, which holds from the first frame, so it ignores `durationFrames`.
+ */
 export type CameraMove = {
   atSeconds: number;
   scale: number;

@@ -16,6 +16,8 @@ rm -f "$raw_events_path"
 endpoint="http://127.0.0.1:8790/mcp"
 scripts_folder="$(cd "$(dirname "$0")" && pwd)"
 work_folder="$(mktemp -d)"
+# The folder holds the built mouse tool and screenshots of the screen, so it goes when the driver ends.
+trap 'rm -rf "$work_folder"' EXIT
 mouse="$work_folder/mouse"
 swiftc -O "$scripts_folder/mouse/mouse.swift" -o "$mouse" || { echo "driver: could not build the mouse tool" >&2; exit 1; }
 # The panel sits in the lower half of the MacBook screen, which is 1710 by 1107 points.
@@ -35,6 +37,22 @@ wait_for_log_line() {
 call_tool() {
   curl -s -X POST "$endpoint" -H 'content-type: application/json' \
     -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"
+}
+
+# The endpoint has no state-only tool, and every page tool returns the page's state, so a zoom by a factor of 1 reads
+# the controls, the trials, and the challenge without changing the view.
+read_page_state() {
+  call_tool zoom '{"factor":1}'
+}
+
+# Prints one control's current value from a saved state reply.
+control_value_in() {
+  python3 -I -c '
+import json, sys
+state_path, control_name = sys.argv[1], sys.argv[2]
+state = json.loads(json.load(open(state_path))["result"]["content"][0]["text"])["state"]
+print(next(control["value"] for control in state["controls"] if control["name"] == control_name))
+' "$1" "$2"
 }
 
 # Prints: angle-name angle speed-name speed target. mode "first" plans an overshoot from the last trial, mode "correct"
@@ -57,9 +75,9 @@ challenge = state["challenge"]
 target = challenge["target"]
 wanted = challenge["readoutLabel"].strip().lower()
 last = state["pastRuns"][0]
-measured = next(r["value"] for r in last["readouts"] if r["label"].strip().lower() == wanted)
+measured = next(readout["value"] for readout in last["readouts"] if readout["label"].strip().lower() == wanted)
 def control_value(run, control):
-    return next(c["value"] for c in run["controls"] if c["label"] == control["label"])
+    return next(run_control["value"] for run_control in run["controls"] if run_control["label"] == control["label"])
 last_angle = control_value(last, angle)
 last_speed = control_value(last, speed)
 def on_slider(control, value):
@@ -89,65 +107,106 @@ drag_control_to() {
   local control_name="$1" wanted_value="$2"
   screencapture -x -R"0,$screenshot_top,1710,$((1107 - screenshot_top))" "$work_folder/panel.png"
   python3 -I "$scripts_folder/experiment-panel.py" find "$work_folder/panel.png" "$screenshot_top" 0 >"$work_folder/panel.json" || { echo "driver: no panel found" >&2; return 1; }
-  call_tool zoom '{"factor":1}' >"$work_folder/state.json"
-  local current_value
-  current_value="$(python3 -I -c 'import json,sys; s=json.loads(json.load(open(sys.argv[1]))["result"]["content"][0]["text"])["state"]; print(next(c["value"] for c in s["controls"] if c["name"]==sys.argv[2]))' "$work_folder/state.json" "$control_name")"
-  local aim_value="$wanted_value"
+  read_page_state >"$work_folder/state.json"
+  local current_value aim_value="$wanted_value" from_x from_y to_x to_y
+  current_value="$(control_value_in "$work_folder/state.json" "$control_name")" || { echo "driver: no control named $control_name" >&2; return 1; }
   for attempt in 1 2 3; do
-    read -r from_x from_y <<<"$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$current_value")"
-    read -r to_x to_y <<<"$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$aim_value")"
-    "$mouse" drag "$from_x" "$from_y" "$to_x" "$to_y" 0.9
+    read -r from_x from_y <<<"$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$current_value")" || return 1
+    read -r to_x to_y <<<"$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$aim_value")" || return 1
+    "$mouse" drag "$from_x" "$from_y" "$to_x" "$to_y" 0.9 || return 1
     sleep 0.5
-    call_tool zoom '{"factor":1}' >"$work_folder/state.json"
-    current_value="$(python3 -I -c 'import json,sys; s=json.loads(json.load(open(sys.argv[1]))["result"]["content"][0]["text"])["state"]; print(next(c["value"] for c in s["controls"] if c["name"]==sys.argv[2]))' "$work_folder/state.json" "$control_name")"
+    read_page_state >"$work_folder/state.json"
+    current_value="$(control_value_in "$work_folder/state.json" "$control_name")" || return 1
     echo "driver: dragged $control_name toward $wanted_value, the page took $current_value" >&2
     python3 -I -c 'import sys; sys.exit(0 if abs(float(sys.argv[1]) - float(sys.argv[2])) < 1e-6 else 1)' "$current_value" "$wanted_value" && return 0
     # Aim past the miss by the size of the miss, since the thumb's travel differs a little from the estimate.
-    aim_value="$(python3 -I -c 'import sys; w,c,a=map(float,sys.argv[1:]); print(a + (w - c))' "$wanted_value" "$current_value" "$aim_value")"
+    aim_value="$(python3 -I -c 'import sys; wanted, taken, aimed = map(float, sys.argv[1:]); print(aimed + (wanted - taken))' "$wanted_value" "$current_value" "$aim_value")"
   done
   echo "driver: the drag missed $control_name, setting it through the endpoint" >&2
   call_tool set_control "{\"name\":\"$control_name\",\"value\":$wanted_value}" >/dev/null
 }
 
 click_run() {
+  local run_x run_y
   screencapture -x -R"0,$screenshot_top,1710,$((1107 - screenshot_top))" "$work_folder/panel.png"
-  python3 -I "$scripts_folder/experiment-panel.py" find "$work_folder/panel.png" "$screenshot_top" 0 >"$work_folder/panel.json" || return 1
+  python3 -I "$scripts_folder/experiment-panel.py" find "$work_folder/panel.png" "$screenshot_top" 0 >"$work_folder/panel.json" || { echo "driver: no Run button found" >&2; return 1; }
   read -r run_x run_y <<<"$(python3 -I -c 'import json,sys; print(*json.load(open(sys.argv[1]))["run"])' "$work_folder/panel.json")"
-  "$mouse" click "$run_x" "$run_y"
+  "$mouse" click "$run_x" "$run_y" || return 1
   sleep 0.3
   "$mouse" move $resting_point 0.7
 }
 
 run_with() {
+  local angle_name angle_value speed_name speed_value target
   read -r angle_name angle_value speed_name speed_value target <<<"$1"
   echo "driver: target $target, running $angle_name=$angle_value $speed_name=$speed_value" >&2
-  drag_control_to "$angle_name" "$angle_value"
+  drag_control_to "$angle_name" "$angle_value" || return 1
   sleep 0.4
-  drag_control_to "$speed_name" "$speed_value"
+  drag_control_to "$speed_name" "$speed_value" || return 1
   sleep 0.6
   click_run
 }
 
+# Waits for the run's spoken result: 0 for a hit, 1 for a miss, 2 when neither comes, so a first-try hit ends at once.
+wait_for_try_result() {
+  local misses_before="$1" misses_now
+  for _ in $(seq 1 120); do
+    grep -q "You hit the target" "$raw_events_path" 2>/dev/null && return 0
+    misses_now="$(grep -c "Try again" "$raw_events_path" 2>/dev/null)"
+    (( ${misses_now:-0} > misses_before )) && return 1
+    sleep 0.25
+  done
+  return 2
+}
+
 # The page words its own question, such as 40 against 60 degrees or a faster release, so the two explore runs are
-# planned from the question Clicky spoke: the control it names and the two values it gives, or a step up from now.
+# planned from the question Clicky spoke: the control it names first and the two values it gives, or a step up from
+# now. A control whose name or label appears in the question wins, and the angle or speed words decide otherwise.
 plan_explore_runs() {
   python3 -I -c '
 import json, re, sys
-question = next(line for line in open(sys.argv[1]) if "What" in line and "guess?" in line)
+question = next((line for line in open(sys.argv[1]) if "What" in line and "guess?" in line), None)
+if question is None:
+    sys.exit("no guess question in the app log")
+lowered_question = question.lower()
 state = json.loads(json.loads(sys.argv[2])["result"]["content"][0]["text"])["state"]
 controls = state["controls"]
 speed_words = ("speed", "fast", "velocity")
+def first_place(words):
+    places = [lowered_question.find(word) for word in words if word in lowered_question]
+    return min(places) if places else len(question)
 # The question names the control it tests first, as in "changing the release angle ... keep its speed the same".
-first_place = lambda words: min([question.lower().find(w) for w in words if w in question.lower()] or [len(question)])
-wants_speed = first_place(speed_words) < first_place(("angle", "degree"))
-control = next(c for c in controls if (any(w in (c["name"] + c["label"]).lower() for w in speed_words)) == wants_speed)
-numbers = [float(n) for n in re.findall(r"(\d+(?:\.\d+)?)\s*(?:-|\s)?(?:degree|m/s|meters per second)", question)]
+named_controls = sorted(
+    (first_place((control["label"].lower(), control["name"].lower())), index)
+    for index, control in enumerate(controls)
+    if first_place((control["label"].lower(), control["name"].lower())) < len(question)
+)
+if named_controls:
+    control = controls[named_controls[0][1]]
+    wants_speed = any(word in (control["name"] + control["label"]).lower() for word in speed_words)
+else:
+    wants_speed = first_place(speed_words) < first_place(("angle", "degree"))
+    def is_speed_control(candidate):
+        return any(word in (candidate["name"] + candidate["label"]).lower() for word in speed_words)
+    def is_angle_control(candidate):
+        return any(word in (candidate["name"] + candidate["label"] + candidate["unit"]).lower() for word in ("angle", "deg"))
+    if wants_speed:
+        control = next((candidate for candidate in controls if is_speed_control(candidate)), None)
+    else:
+        control = next((candidate for candidate in controls if is_angle_control(candidate)), None)
+        control = control or next((candidate for candidate in controls if not is_speed_control(candidate)), None)
+if control is None:
+    sys.exit("no control matches the question")
+is_angle = not wants_speed and any(word in (control["name"] + control["label"] + control["unit"]).lower() for word in ("angle", "deg"))
+# Only numbers in the unit of the control count, so "40 degrees" never sets a speed.
+unit_pattern = r"degree" if is_angle else r"m/s|meters per second" if wants_speed else re.escape(control["unit"].lower() or "\x00")
+numbers = [float(number) for number in re.findall(r"(\d+(?:\.\d+)?)\s*(?:-|\s)?(?:" + unit_pattern + ")", lowered_question)]
 if len(numbers) >= 2:
     first, second = numbers[0], numbers[1]
-elif wants_speed:
-    first, second = control["value"], min(control["max"], control["value"] * 1.4)
-else:
+elif is_angle:
     first, second = 45, 70
+else:
+    first, second = control["value"], min(control["max"], control["value"] * 1.4)
 snap = lambda value: min(max(round(round(value / control["step"]) * control["step"], 3), control["min"]), control["max"])
 print(control["name"], snap(first), snap(second))
 ' "$raw_events_path" "$1"
@@ -157,34 +216,32 @@ print(control["name"], snap(first), snap(second))
 wait_for_log_line "guess check skipped after run 1" || exit 1
 "$mouse" move $resting_point 0.8
 sleep 4.5
-read -r explore_name explore_first explore_second <<<"$(plan_explore_runs "$(call_tool zoom '{"factor":1}')")"
+explore_plan="$(plan_explore_runs "$(read_page_state)")" || { echo "driver: could not plan the second explore run" >&2; exit 1; }
+read -r explore_name explore_first explore_second <<<"$explore_plan"
 # The voice run used 45 degrees, so a question about 30 against 45 takes its other value instead.
 [[ "$explore_name" == *angle* && "$explore_second" == 45* ]] && explore_second="$explore_first"
 echo "driver: second explore run $explore_name = $explore_second" >&2
-drag_control_to "$explore_name" "$explore_second"
+drag_control_to "$explore_name" "$explore_second" || exit 1
 sleep 0.6
-click_run
+click_run || exit 1
 
 wait_for_log_line "Simulation: challenge started" || exit 1
 # The challenge prompt is spoken next. A press during it would cut it off, so wait for its line and its audio.
 wait_for_log_line "earlier runs to aim" || exit 1
 sleep 7
 
-plan="$(plan_run first "$(call_tool zoom '{"factor":1}')")" || { echo "driver: could not plan the first try" >&2; exit 1; }
-run_with "$plan"
-wait_for_log_line "Try again" || wait_for_log_line "You hit the target" || exit 1
-grep -q "You hit the target" "$raw_events_path" && { echo "driver: hit on the first try" >&2; exit 0; }
-sleep 5
-
-for try_number in 2 3 4; do
-  plan="$(plan_run correct "$(call_tool zoom '{"factor":1}')")" || { echo "driver: could not plan the correction" >&2; exit 1; }
+for try_number in 1 2 3 4; do
+  # The first try overshoots on purpose from the explore runs, and each later one corrects from the miss before it.
+  plan_mode=correct
+  (( try_number == 1 )) && plan_mode=first
+  plan="$(plan_run "$plan_mode" "$(read_page_state)")" || { echo "driver: could not plan try $try_number" >&2; exit 1; }
   misses_before="$(grep -c "Try again" "$raw_events_path")"
-  run_with "$plan"
-  for _ in $(seq 1 120); do
-    grep -q "You hit the target" "$raw_events_path" && { echo "driver: hit on try $try_number" >&2; exit 0; }
-    (( $(grep -c "Try again" "$raw_events_path") > misses_before )) && break
-    sleep 0.25
-  done
+  run_with "$plan" || exit 1
+  wait_for_try_result "$misses_before"
+  case $? in
+    0) echo "driver: hit on try $try_number" >&2; exit 0 ;;
+    2) echo "driver: no result after try $try_number" >&2; exit 1 ;;
+  esac
   sleep 5
 done
 echo "driver: no hit after 4 tries" >&2

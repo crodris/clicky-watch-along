@@ -18,8 +18,8 @@
     "render-parallel-agents": "remotion render src/index.ts ClickyParallelAgentsClip out/clicky-parallel-agents-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-parallel-agents",
     "mix-parallel-agents": "node scripts/mix-music.ts out/clicky-parallel-agents-voice.mp4 public/music/it-feels-so-good.mp3 out/clicky-parallel-agents.mp4",
     "render-experiment": "remotion render src/index.ts ClickyExperimentClip out/clicky-experiment-voice.mp4 --gl=angle --concurrency=4 --crf=16 && pnpm mix-experiment",
-    "mix-experiment": "pnpm music-experiment && node scripts/mix-music.ts out/clicky-experiment-voice.mp4 public/music/upbeat-lo-fi-electric-guitar-twice.mp3 out/clicky-experiment.mp4",
-    "music-experiment": "test -f public/music/upbeat-lo-fi-electric-guitar-twice.mp3 || ffmpeg -v error -i public/music/upbeat-lo-fi-electric-guitar.mp3 -i public/music/upbeat-lo-fi-electric-guitar.mp3 -filter_complex '[0:a]atrim=0:120.3[first];[first][1:a]acrossfade=d=4:c1=tri:c2=tri' public/music/upbeat-lo-fi-electric-guitar-twice.mp3"
+    "mix-experiment": "pnpm music-experiment && node scripts/mix-music.ts out/clicky-experiment-voice.mp4 public/music/upbeat-lo-fi-electric-guitar-twice.wav out/clicky-experiment.mp4",
+    "music-experiment": "ffmpeg -v error -y -i public/music/upbeat-lo-fi-electric-guitar.mp3 -i public/music/upbeat-lo-fi-electric-guitar.mp3 -filter_complex '[0:a]atrim=0:120.3[first];[first][1:a]acrossfade=d=4:c1=tri:c2=tri' public/music/upbeat-lo-fi-electric-guitar-twice.wav"
   },
   "dependencies": {
     "@remotion/cli": "4.0.539",

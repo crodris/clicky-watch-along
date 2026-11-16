@@ -3,8 +3,19 @@
 import CoreGraphics
 import Foundation
 
+let usage = "usage: mouse where | move x y [seconds] | click x y | drag fromX fromY toX toY seconds"
 let arguments = CommandLine.arguments.dropFirst().map { $0 }
-func point(_ xText: String, _ yText: String) -> CGPoint { CGPoint(x: Double(xText)!, y: Double(yText)!) }
+
+/// The argument at that position as a number, or the usage and exit 2, so a driver that passes an empty or bad value
+/// stops with a message instead of a crash.
+func number(at argumentIndex: Int) -> Double {
+    guard argumentIndex < arguments.count, let value = Double(arguments[argumentIndex]) else {
+        FileHandle.standardError.write(Data("\(usage)\n".utf8))
+        exit(2)
+    }
+    return value
+}
+func point(at argumentIndex: Int) -> CGPoint { CGPoint(x: number(at: argumentIndex), y: number(at: argumentIndex + 1)) }
 func post(_ type: CGEventType, _ location: CGPoint) {
     CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: location, mouseButton: .left)?.post(tap: .cghidEventTap)
 }
@@ -23,17 +34,17 @@ switch arguments.first {
 case "where":
     let location = currentLocation(); print("\(location.x) \(location.y)")
 case "move":
-    glide(from: currentLocation(), to: point(arguments[1], arguments[2]), seconds: Double(arguments.count > 3 ? arguments[3] : "0.6")!, type: .mouseMoved)
+    glide(from: currentLocation(), to: point(at: 1), seconds: arguments.count > 3 ? number(at: 3) : 0.6, type: .mouseMoved)
 case "click":
-    let target = point(arguments[1], arguments[2])
+    let target = point(at: 1)
     glide(from: currentLocation(), to: target, seconds: 0.6, type: .mouseMoved)
     usleep(150_000); post(.leftMouseDown, target); usleep(90_000); post(.leftMouseUp, target)
 case "drag":
-    let start = point(arguments[1], arguments[2]), end = point(arguments[3], arguments[4])
+    let start = point(at: 1), end = point(at: 3)
     glide(from: currentLocation(), to: start, seconds: 0.6, type: .mouseMoved)
     usleep(200_000); post(.leftMouseDown, start); usleep(150_000)
-    glide(from: start, to: end, seconds: Double(arguments[5])!, type: .leftMouseDragged)
+    glide(from: start, to: end, seconds: number(at: 5), type: .leftMouseDragged)
     usleep(150_000); post(.leftMouseUp, end)
 default:
-    print("usage: mouse where | move x y [seconds] | click x y | drag fromX fromY toX toY seconds"); exit(2)
+    FileHandle.standardError.write(Data("\(usage)\n".utf8)); exit(2)
 }
