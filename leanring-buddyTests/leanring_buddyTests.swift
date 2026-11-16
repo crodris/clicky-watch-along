@@ -2001,6 +2001,13 @@ struct leanring_buddyTests {
         #expect(AppVoiceTool.recordGuess.descriptor.description.contains("predictionQuestion"))
     }
 
+    @Test func buildSimulationIsLeftOutWhileAnExperimentIsOnScreenSoItCannotStartASecondPaidBuild() {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: context).contains(.buildSimulation))
+        context.simulationIsOnScreen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.buildSimulation))
+    }
+
     @Test func aLongSpokenLineEndsAtItsLastWholeSentence() async throws {
         let firstSentence = "Your guess didn't quite match, since 60 degrees and 30 degrees both landed at 35.31 meters."
         let secondSentence = " The steeper shot stays up longer but moves forward more slowly, so the two angles balance out and land on the same spot every time."

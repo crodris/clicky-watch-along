@@ -2280,7 +2280,8 @@ final class CompanionManager: ObservableObject {
             studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo,
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
-            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
+            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
+            simulationIsOnScreen: pageState?["lessonStage"]?.stringValue != nil
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -3118,7 +3119,8 @@ final class CompanionManager: ObservableObject {
             studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
-            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
+            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
+            simulationIsOnScreen: pageState?["lessonStage"]?.stringValue != nil
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)

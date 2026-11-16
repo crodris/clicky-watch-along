@@ -216,13 +216,18 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var taskAnswerIsReady = false
         /// A simulation asked its prediction question, and Run stays locked until the learner guesses.
         var simulationIsWaitingForAGuess = false
+        /// An experiment is on screen, so another build would be a second paid build of the same topic.
+        var simulationIsOnScreen = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
         allCases.filter { appVoiceTool in
             switch appVoiceTool {
-            case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut:
+            case .answerWithScreen, .buildNewScene, .popOut:
                 return !context.quizQuestionIsOpen
+            // With an experiment on screen, set_control and run_simulation change it, and a second build costs a model call.
+            case .buildSimulation:
+                return !context.quizQuestionIsOpen && !context.simulationIsOnScreen
             // While a question is open the scene is the question's, so closing it or explaining a part,
             // which may be the answer, waits until the learner answers or skips.
             case .closeScene:
