@@ -1091,6 +1091,32 @@ struct leanring_buddyTests {
         #expect(ChromeVideoTab.frameGrabTimeoutSeconds == 5)
     }
 
+    @Test func noChromeScriptRunsWhileChromeIsClosedSinceTellingItWouldLaunchIt() async throws {
+        let chromeIsRunningBefore = ChromeVideoTab.chromeIsRunning
+        defer { ChromeVideoTab.chromeIsRunning = chromeIsRunningBefore }
+        ChromeVideoTab.chromeIsRunning = { false }
+        let videoTab = ChromeVideoTab(windowId: 1, tabId: 2, url: "https://www.youtube.com/watch?v=abc", title: "A video")
+        let guidePageURL = try #require(URL(string: "https://example.com/guide"))
+
+        func failsBecauseChromeIsClosed(_ scriptRun: () throws -> Any) -> Bool {
+            do {
+                _ = try scriptRun()
+                return false
+            } catch VideoQuizFailure.chromeIsNotRunning {
+                return true
+            } catch {
+                return false
+            }
+        }
+        #expect(failsBecauseChromeIsClosed { try ChromeVideoTab.runJavaScript(VideoQuizSession.pauseVideoJavaScript, in: videoTab) })
+        #expect(failsBecauseChromeIsClosed { try ChromeVideoTab.runTabScript(appleScriptToBringChromeTabForward(tabID: 2)) })
+        #expect(failsBecauseChromeIsClosed { try ChromeVideoTab.frontTabOfTheFrontWindow() })
+        #expect(failsBecauseChromeIsClosed { try ChromeVideoTab.findYouTubeWatchTab() })
+        #expect(failsBecauseChromeIsClosed { try ChromeVideoTab.openInABackgroundTab(guidePageURL) })
+        #expect(failsBecauseChromeIsClosed { try ChromeVideoTab.largestVisibleMediaInFrontTabOrNone() as Any })
+        #expect(ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab() == nil)
+    }
+
     @Test func onlyTheExpectedVideoFieldsFromThePageReachTheModel() async throws {
         let pageVideoState: JSONValue = .object([
             "seconds": .number(9), "durationSeconds": .number(301), "playbackRate": .number(1), "paused": .bool(false), "playing": .bool(true),

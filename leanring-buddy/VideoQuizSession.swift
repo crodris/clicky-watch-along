@@ -230,7 +230,7 @@ nonisolated func videoQuizMomentIndexToAsk(
 
 // MARK: - Failures
 
-private enum VideoQuizFailure: Error {
+enum VideoQuizFailure: Error {
     case chromeIsNotRunning
     case noYouTubeTabFound
     case noVideoOnThePage
@@ -1088,9 +1088,6 @@ struct ChromeVideoTab {
 
     /// The active tab of Chrome's front window, on any site. The voice tools check for a video with JavaScript.
     static func frontTabOfTheFrontWindow() throws -> ChromeVideoTab {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
         let frontTabOutput = try runAppleScript("""
         tell application "Google Chrome"
             if (count of windows) is 0 then return ""
@@ -1110,10 +1107,6 @@ struct ChromeVideoTab {
     /// The active tab of the front window if it is a YouTube watch page, else any
     /// YouTube watch tab in any Chrome window, unless `onlyTheActiveTabOfTheFrontWindow` is set.
     static func findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: Bool = false) throws -> ChromeVideoTab {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
-
         // Chrome lists windows front to back. Each output line is
         // windowId, tabId, windowPosition, isActiveTab, url, and title, split by ASCII 31, which cannot appear in a URL or a title
         // Every Apple Event costs about 17 ms, so each window's tabs are read in three batches rather than
@@ -1227,9 +1220,6 @@ struct ChromeVideoTab {
     /// Opens the page as a new tab at the end of Chrome's front window without switching to it, and returns the tab's id.
     /// Throws when Chrome is not running, has no window, or refuses the script, and never opens a page that is not https.
     static func openInABackgroundTab(_ pageURL: URL) throws -> Int {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
         guard let appleScriptSource = appleScriptToOpenInABackgroundTab(pageURL: pageURL) else {
             throw VideoQuizFailure.chromeScriptFailed("Only https pages open in a background tab")
         }
@@ -1247,18 +1237,12 @@ struct ChromeVideoTab {
 
     /// Runs a script that finds a tab by id. Throws when Chrome is not running or refuses the script.
     static func runTabScript(_ appleScriptSource: String) throws -> String {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
-        return try runAppleScript(appleScriptSource)
+        try runAppleScript(appleScriptSource)
     }
 
     /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,
     /// or no media big enough. The learner may be looking at anything, so this never throws.
     static func screenRectOfTheLargestVisibleMediaInFrontTab() -> ScreenRectInChromeCoordinates? {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            return nil
-        }
         do {
             return try largestVisibleMediaInFrontTabOrNone()?.screenRect
         } catch {
@@ -1332,9 +1316,17 @@ struct ChromeVideoTab {
         try runAppleScript(appleScriptToRunJavaScript(javaScript, tabId: videoTab.tabId, windowId: videoTab.windowId, timeoutSeconds: timeoutSeconds))
     }
 
+    /// Whether Chrome is open. Tests replace it, since a developer's Chrome is usually running.
+    static var chromeIsRunning: () -> Bool = { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
+
     /// NSAppleScript is not thread safe, so every script runs on the main actor.
+    /// Every Chrome script comes through here, and `tell application "Google Chrome"` would launch Chrome when it is closed,
+    /// so a closed Chrome throws before any script runs.
     @MainActor
     private static func runAppleScript(_ appleScriptSource: String) throws -> String {
+        guard chromeIsRunning() else {
+            throw VideoQuizFailure.chromeIsNotRunning
+        }
         guard let appleScript = NSAppleScript(source: appleScriptSource) else {
             throw VideoQuizFailure.chromeScriptFailed("The AppleScript did not compile")
         }
