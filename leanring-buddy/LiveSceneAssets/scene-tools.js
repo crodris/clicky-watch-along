@@ -87,14 +87,20 @@
   };
   // The trials table has room for one measurement. An experiment that runs a fixed control sample beside the test one
   // reports the control first, and its value never changes, so the table shows the challenge's readout, else the first
-  // readout that has differed between trials, else the first. It goes by position, since a page may put a setting in a
-  // label, and it keeps a readout once it has differed, so 5 runs at one setting never bring the control back.
+  // readout that has differed between trials, else the first. It keeps a readout once it has differed, so 5 runs at one
+  // setting never bring the control back.
   let changingReadoutIndex = null;
+  // A trial's readout for the column at `index` of the newest run. It matches the label first, since a readout with no
+  // finite value is dropped and shifts the rest, and falls back to the position, since a page may put a setting in a label.
+  const pastRunReadoutAt = (pastRun, index) => {
+    const columnLabel = pastRuns[0].readouts[index]?.label;
+    return pastRun.readouts.find((readout) => readout.label === columnLabel) ?? pastRun.readouts[index];
+  };
   const tableMeasurementIndex = () => {
     const challengeIndex = challengeReadoutIndex(pastRuns[0].readouts);
     if (challengeIndex !== -1) return challengeIndex;
     if (changingReadoutIndex === null) {
-      const valuesAt = (index) => pastRuns.map((pastRun) => pastRun.readouts[index]?.value).filter((value) => value !== undefined);
+      const valuesAt = (index) => pastRuns.map((pastRun) => pastRunReadoutAt(pastRun, index)?.value).filter((value) => value !== undefined);
       const index = pastRuns[0].readouts.findIndex((_, readoutIndex) => new Set(valuesAt(readoutIndex)).size > 1);
       if (index !== -1) changingReadoutIndex = index;
     }
@@ -279,7 +285,7 @@
       const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[measurementIndex]?.label ?? ""];
       const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
       const measurementText = (pastRun) => {
-        const readout = pastRun.readouts[measurementIndex];
+        const readout = pastRunReadoutAt(pastRun, measurementIndex);
         return readout ? withUnit(readout) : "";
       };
       const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), measurementText(pastRun)])];
