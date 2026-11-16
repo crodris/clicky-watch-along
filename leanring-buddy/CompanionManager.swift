@@ -903,6 +903,14 @@ final class CompanionManager: ObservableObject {
     }
 
     private func waitForTheTourAndSpeechToEnd() async {
+        await waitUntilNoTourOrSpeechIsPlaying()
+        // When a tour ends, a quiz question or an experiment's guess question is spoken by liveSceneTourFinishedTask,
+        // and its audio can start after the check above has passed, so the step also waits for that task and its speech.
+        await liveSceneTourFinishedTask?.value
+        await waitUntilNoTourOrSpeechIsPlaying()
+    }
+
+    private func waitUntilNoTourOrSpeechIsPlaying() async {
         while true {
             let tourIsStillPlaying: Bool
             if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
@@ -1550,7 +1558,9 @@ final class CompanionManager: ObservableObject {
             // Escape can close the scene during the wait, and a question with nothing on screen makes no sense.
             guard !Task.isCancelled, self.simulationLesson?.guess == .waiting,
                   case .simulation = self.liveScenePageOnScreen, LiveSceneOverlay.shared.isShowingAScene else { return }
-            await self.speakSimulationLine(simulationLesson.guessInvitation)
+            if await self.speakSimulationLine(simulationLesson.guessInvitation) {
+                print("Simulation: asked for the guess")
+            }
             guard !Task.isCancelled, self.voiceState == .responding else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -1674,11 +1684,16 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
     }
 
-    private func speakSimulationLine(_ line: String) async {
-        guard !Task.isCancelled, !line.isEmpty else { return }
+    /// Returns true when the line's own audio started and the task was not cancelled before playback stopped, so a
+    /// cancel or the credits fallback reads as unsaid. A push-to-talk press stops the audio without a cancel, so it
+    /// still reads as said.
+    @discardableResult
+    private func speakSimulationLine(_ line: String) async -> Bool {
+        guard !Task.isCancelled, !line.isEmpty else { return false }
         print("Simulation: saying \"\(line)\"")
-        await speakLiveSceneLine(line)
+        let lineAudioStarted = await speakLiveSceneLine(line)
         await waitForClickyToFinishSpeaking()
+        return lineAudioStarted && !Task.isCancelled
     }
 
     /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
@@ -3208,16 +3223,20 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.spokenFraction(ofLine: text)
     }
 
-    private func speakLiveSceneLine(_ line: String) async {
+    /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
+    @discardableResult
+    private func speakLiveSceneLine(_ line: String) async -> Bool {
         do {
             try await elevenLabsTTSClient.speakText(line)
             voiceState = .responding
+            return true
         } catch is CancellationError {
-            return
+            return false
         } catch {
             ClickyAnalytics.trackTTSError(error: error.localizedDescription)
             print("⚠️ ElevenLabs TTS error: \(error)")
             speakCreditsErrorFallback()
+            return false
         }
     }
 
