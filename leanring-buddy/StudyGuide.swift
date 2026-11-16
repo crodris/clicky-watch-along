@@ -261,6 +261,13 @@ nonisolated func studyGuideVideoKey(forVideoURL videoURLText: String) -> String 
     return videoURLText
 }
 
+/// A guide is written from the video in front, so a quiz miss refreshes the quiz video's guide only while that video is
+/// still in front. The caller checks again after each await, since the learner may switch tabs meanwhile.
+nonisolated func studyGuideRefreshMayStart(forQuizVideoURL quizVideoURL: String, frontVideoURL: String?) -> Bool {
+    guard let frontVideoURL else { return false }
+    return studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL)
+}
+
 /// The guides written so far, one UserDefaults entry per video, so a guide outlives a relaunch and a video never gets a
 /// second page. The demo's record-shot.sh deletes its video's entry by this key, so keep the two in step.
 nonisolated struct SavedStudyGuides {

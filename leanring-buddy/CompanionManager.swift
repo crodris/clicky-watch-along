@@ -2942,18 +2942,19 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing happens for a video with no guide, whose next guide includes the miss anyway. The page is checked in
-    /// Notion first, so a miss never brings back a guide the learner trashed. A guide is written from the video in
-    /// front, so the refresh runs only while the quiz video is still there; otherwise the miss stays in the quiz log
-    /// for that video's next refresh or revise.
+    /// Notion first, so a miss never brings back a guide the learner trashed. When the quiz video is not in front, the
+    /// miss stays in the quiz log for that video's next refresh or revise.
     private func refreshTheStudyGuide(forQuizVideoURL quizVideoURL: String) {
-        guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
-              studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL) else {
+        guard studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: videoQuizSession.frontTabURLOfTheFrontWindow()) else {
             return
         }
         studyGuideRefreshesBeingChecked += 1
         Task {
             defer { self.studyGuideRefreshesBeingChecked -= 1 }
-            guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil else { return }
+            guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil,
+                  studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: self.videoQuizSession.frontTabURLOfTheFrontWindow()) else {
+                return
+            }
             let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
             guard !self.backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) else {
                 self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey[quizVideoKey] = quizVideoURL

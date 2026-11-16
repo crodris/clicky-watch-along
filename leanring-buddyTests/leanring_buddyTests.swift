@@ -1645,6 +1645,13 @@ struct leanring_buddyTests {
         #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
     }
 
+    @Test func aQuizMissRefreshesTheGuideOnlyWhileTheQuizVideoIsInFront() async throws {
+        let quizVideoURL = "https://www.youtube.com/watch?v=quizvideo&t=42"
+        #expect(studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: "https://youtu.be/quizvideo"))
+        #expect(!studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: "https://www.youtube.com/watch?v=othervideo"))
+        #expect(!studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: nil))
+    }
+
     @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
         #expect(BackgroundAgentKind.experiment.stepNames == ["Grab the frame", "Build the experiment"])
         #expect(BackgroundAgentKind.experiment.finishedChipText == "Experiment ready")
