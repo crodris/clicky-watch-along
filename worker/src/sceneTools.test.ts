@@ -247,6 +247,26 @@ describe("scene-tools.js simulation tools", () => {
     expect(clickyTools.state().pastRuns).toEqual([]);
   });
 
+  it("gives up a run that never ends after 20 seconds, which unlocks Run and adds no trial", async () => {
+    vi.useFakeTimers();
+    try {
+      const page = simulationPage({ run: vi.fn(() => new Promise<void>(() => {})) });
+      const loaded = loadSceneTools(page, { body: null, querySelectorAll: () => [] }, { setTimeout });
+      loaded.clickyTools.simulation.guessHeard();
+
+      loaded.clickyTools.call("run_simulation", {});
+      await vi.advanceTimersByTimeAsync(19999);
+      expect(loaded.clickyTools.state().runIsGoing).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(loaded.clickyTools.state().runIsGoing).toBe(false);
+      expect(loaded.clickyTools.state().pastRuns).toEqual([]);
+      expect(loaded.postedEvents).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sets a control by the cut name the model saw, and passes the page its real name", () => {
     const longName = "angle_of_the_launcher_measured_from_the_ground_in_degrees";
     const page = simulationPage({ controls: [{ ...angleControl, name: longName }] });
