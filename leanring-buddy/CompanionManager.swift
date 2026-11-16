@@ -2624,9 +2624,12 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
         if case .buildingScene = liveScenePhase {
             liveSceneRequestGeneration += 1
+            let cancelledBuildGeneration = liveSceneRequestGeneration
             liveScenePhase = .idle
             Task {
                 await LiveSceneOverlay.shared.waitForReturnToFinish()
+                // A ready experiment rising now takes over the pause, so the video stays paused for it.
+                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
                 self.videoQuizSession.resumeVideoAfterRequestedScene()
             }
         }
