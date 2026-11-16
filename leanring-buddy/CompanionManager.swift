@@ -2732,7 +2732,6 @@ final class CompanionManager: ObservableObject {
     /// its lesson, the page's hypothesis and explanation, waits with the page.
     private func buildTheBackgroundScene(whatToBuild: String, agentID: UUID, agentKind: BackgroundAgentKind) async {
         let startedAt = Date()
-        let builtThingName = agentKind == .experiment ? "experiment" : "3D model"
         let sceneKind = agentKind.liveSceneKindToBuild ?? .explore
         do {
             // An experiment over a page with no video is tied to no tab, so it may rise once the screen is free.
@@ -2753,7 +2752,7 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
             if readyBackgroundScene != nil {
-                print("\(agentKind.displayName): this \(builtThingName) finished last, so it replaces the scene still waiting to be shown")
+                print("\(agentKind.displayName): this \(agentKind.builtThingName) finished last, so it replaces the scene still waiting to be shown")
             }
             // The quiz fields are the page's text, so the lesson cuts them.
             let simulationLesson = agentKind == .experiment
@@ -2774,9 +2773,9 @@ final class CompanionManager: ObservableObject {
                 return
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
-            backgroundAgentStore.fail(agentID, reason: "The \(builtThingName) could not be built. Ask again to try once more.")
+            backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
-                "Couldn't build the \(builtThingName)",
+                "Couldn't build the \(agentKind.builtThingName)",
                 sender: .backgroundAgent(agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -3125,17 +3124,16 @@ final class CompanionManager: ObservableObject {
         case .readyScene:
             NSSound(named: "Tink")?.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
-            let waitingPhrase = agentKind == .experiment ? "show the experiment" : "show the model"
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
                 sender: .backgroundAgent(agentKind),
-                secondaryChipText: sceneRisesNow ? nil : "· say \(waitingPhrase)",
+                secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
             if sceneRisesNow {
                 startShowingTheReadyBackgroundScene()
             } else {
-                print("\(agentKind.displayName): the screen is busy, so it waits for \"\(waitingPhrase)\"")
+                print("\(agentKind.displayName): the screen is busy, so it waits for \"\(agentKind.waitingPhrase)\"")
             }
         case .answer(_, let pageURL):
             NSSound(named: "Tink")?.play()

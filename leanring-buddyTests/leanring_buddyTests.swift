@@ -1949,6 +1949,13 @@ struct leanring_buddyTests {
         #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: true) == .leaveItForTheRunningGuide)
     }
 
+    @Test func aSceneAgentNamesWhatItBuiltAndWhatToSayToShowItWhenTheScreenIsBusy() async throws {
+        #expect(BackgroundAgentKind.threeDModel.builtThingName == "3D model")
+        #expect(BackgroundAgentKind.threeDModel.waitingPhrase == "show the model")
+        #expect(BackgroundAgentKind.experiment.builtThingName == "experiment")
+        #expect(BackgroundAgentKind.experiment.waitingPhrase == "show the experiment")
+    }
+
     @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
         #expect(BackgroundAgentKind.experiment.stepNames == ["Grab the frame", "Build the experiment"])
         #expect(BackgroundAgentKind.experiment.finishedChipText == "Experiment ready")

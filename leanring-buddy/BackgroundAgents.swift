@@ -79,6 +79,16 @@ enum BackgroundAgentKind {
         }
     }
 
+    /// What a scene agent calls its page in a failure line and in the log. The other kinds build no scene and never read it.
+    var builtThingName: String {
+        self == .experiment ? "experiment" : "3D model"
+    }
+
+    /// What the learner says to show a scene agent's finished page when the screen was busy. The other kinds never read it.
+    var waitingPhrase: String {
+        self == .experiment ? "show the experiment" : "show the model"
+    }
+
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
     /// Reading the captions with yt-dlp took about 3 seconds, and writing the guide 10 to 14, in the demo recordings.
     /// An update reads the captions the quiz already holds, and rebuilds the page with no model call.
