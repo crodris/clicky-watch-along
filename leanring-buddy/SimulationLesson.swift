@@ -233,6 +233,29 @@ func simulationGuessCheckStep(trialsTryMoreThanOneSetting: Bool, runsChecked: In
     return runsChecked < SimulationLesson.mostRunsCheckedBeforeTheChallenge ? .askForAnotherSetting : .moveOnWithTheExplanation
 }
 
+/// A run report comes from the page, so Clicky speaks about it only while its own record says an experiment is on screen
+/// with a lesson, the overlay still shows a scene, and no quiz question waits for an answer.
+func simulationRunMayBeNarrated(
+    pageOnScreen: LiveScenePageOnScreen?,
+    sceneIsShowing: Bool,
+    quizQuestionIsWaiting: Bool,
+    lessonExists: Bool
+) -> Bool {
+    guard case .simulation = pageOnScreen else { return false }
+    return sceneIsShowing && !quizQuestionIsWaiting && lessonExists
+}
+
+enum SimulationRunNarrationStep: Equatable {
+    case sayTheChallengeOutcome
+    case sayTheReadoutsAndCheckTheGuess
+}
+
+/// A page could post a challenge outcome on its own, so one is spoken only after Clicky itself started the challenge.
+/// Any other report gets the readouts and the guess check.
+func simulationRunNarrationStep(reportHasAChallengeOutcome: Bool, challengeIsRunning: Bool) -> SimulationRunNarrationStep {
+    reportHasAChallengeOutcome && challengeIsRunning ? .sayTheChallengeOutcome : .sayTheReadoutsAndCheckTheGuess
+}
+
 private func spokenSimulationNumber(_ value: Double) -> String {
     value.formatted(.number.precision(.fractionLength(0...2)).grouping(.never).locale(Locale(identifier: "en_US_POSIX")))
 }

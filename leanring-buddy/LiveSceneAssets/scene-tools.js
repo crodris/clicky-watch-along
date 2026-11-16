@@ -344,7 +344,8 @@
       slider.value = String(control.value);
       slider.addEventListener("input", () => {
         liveScene().endTour?.();
-        liveScene().setControl(pageControl.name, Number(slider.value));
+        // A page that refuses the value keeps its run going, so only a change abandons it.
+        if (liveScene().setControl(pageControl.name, Number(slider.value)) !== false) abandonTheRunInFlight();
         refreshPanel();
       });
       row.append(heading, slider);
@@ -373,6 +374,14 @@
     // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
     window.addEventListener("resize", () => requestAnimationFrame(applySceneLift));
     refreshPanel();
+  };
+
+  // A control changed mid-run puts the run back at its start, so the run in flight has no result worth reporting.
+  // Making it an older run than the next one has its end ignored, and the panel stops showing "running".
+  const abandonTheRunInFlight = () => {
+    if (!runIsGoing) return;
+    latestRunNumber += 1;
+    runIsGoing = false;
   };
 
   // Plays the simulation once. A run that never reports its end is given up after 20 seconds, so Run unlocks.
@@ -423,8 +432,10 @@
   const scoreTheChallengeRun = (readouts) => {
     const challenge = usableChallenge();
     if (challenge === null) return null;
+    // A readout that is not the challenge's would be scored against the target in the wrong unit.
+    const readout = readouts[challengeReadoutIndex(readouts)];
+    if (readout === undefined) return null;
     challengeAttempts += 1;
-    const readout = readouts[challengeReadoutIndex(readouts)] ?? readouts[0];
     const difference = readout.value - challenge.target;
     const hit = Math.abs(difference) <= challenge.tolerance;
     if (hit) {
@@ -438,6 +449,8 @@
   const startChallenge = () => {
     const challenge = usableChallenge();
     if (challenge === null || lessonStage !== "explore") return null;
+    // A challenge about a readout the page never reports could not be hit, so the lesson ends without one.
+    if (challengeReadoutIndex(currentReadouts()) === -1) return null;
     lessonStage = "challenge";
     challengeAttempts = 0;
     setPathPreview(false);
@@ -445,13 +458,6 @@
     refreshPanel();
     return challenge.prompt;
   };
-
-  // The tour ends by itself or by a call, and either sets __tourFinished. The page defines liveScene during load, so wait for it.
-  const panelWatcher = setInterval(() => {
-    if (window.__tourFinished === true) ensurePanel();
-    if (panel.element) clearInterval(panelWatcher);
-  }, 150);
-  setTimeout(() => clearInterval(panelWatcher), 120000);
 
   const tools = [
     {
@@ -582,6 +588,7 @@
         if (!control || liveScene().setControl(control.name, value) === false) {
           return { ok: false, error: `No control is named "${name.slice(0, 40)}". The controls are: ${simulationControls().map((candidate) => controlSummary(candidate).name).join(", ")}` };
         }
+        abandonTheRunInFlight();
         refreshPanel();
         return { ok: true };
       },
@@ -638,7 +645,9 @@
     simulation: {
       guessHeard: () => leaveTheGuessStage(),
       startChallenge,
+      // The app calls this when the tour ends, whether or not the page set __tourFinished, so it draws the panel too.
       showQuestion: (questionText) => {
+        ensurePanel();
         predictionQuestion = String(questionText ?? "").trim().slice(0, 300);
         refreshPanel();
       },

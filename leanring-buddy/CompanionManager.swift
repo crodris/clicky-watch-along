@@ -187,14 +187,14 @@ final class CompanionManager: ObservableObject {
 
     private var liveScenePhase: LiveScenePhase = .idle
     /// Set each time a page plays, so narration uses Clicky's own data about the page on screen.
-    private var liveScenePageOnScreen: LiveScenePageOnScreen?
+    var liveScenePageOnScreen: LiveScenePageOnScreen?
     /// Bumped on every new question so a scene request still in flight cannot play late.
     private var liveSceneRequestGeneration = 0
     private var liveSceneRequestTask: Task<Void, Never>?
     private var liveSceneTourFinishedTask: Task<Void, Never>?
     /// The lesson of the simulation on screen: its prediction question, the learner's guess, and how far it got.
-    /// Made when a simulation page plays, and cleared at the start of each build.
-    private var simulationLesson: SimulationLesson?
+    /// Made when a simulation page plays, and cleared with the scene.
+    var simulationLesson: SimulationLesson?
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
@@ -1426,8 +1426,6 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
-        // The new scene replaces any experiment on screen, so its lesson ends too.
-        simulationLesson = nil
         await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
@@ -1592,10 +1590,12 @@ final class CompanionManager: ObservableObject {
     /// whether the guess was right and why, or what to try next. Once settled the challenge starts.
     /// The report comes from the page, so it is used only while Clicky's own record says a simulation is on screen.
     private func narrateTheSimulationRun(_ runReport: SimulationRunReport) {
-        guard case .simulation = liveScenePageOnScreen,
-              LiveSceneOverlay.shared.isShowingAScene,
-              !liveScenePhaseIsWaitingForAQuizAnswer,
-              simulationLesson != nil else {
+        guard simulationRunMayBeNarrated(
+            pageOnScreen: liveScenePageOnScreen,
+            sceneIsShowing: LiveSceneOverlay.shared.isShowingAScene,
+            quizQuestionIsWaiting: liveScenePhaseIsWaitingForAQuizAnswer,
+            lessonExists: simulationLesson != nil
+        ) else {
             return
         }
         simulationRunNarrationTask?.cancel()
@@ -1603,9 +1603,11 @@ final class CompanionManager: ObservableObject {
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
             await self.speakTheWaitingChallengePrompt()
-            // A page could post a challenge outcome on its own, so one counts only while Clicky's own record says
-            // it started the challenge.
-            if let challengeOutcome = runReport.challengeOutcome, self.simulationLesson?.challengeIsRunning == true {
+            let narrationStep = simulationRunNarrationStep(
+                reportHasAChallengeOutcome: runReport.challengeOutcome != nil,
+                challengeIsRunning: self.simulationLesson?.challengeIsRunning == true
+            )
+            if narrationStep == .sayTheChallengeOutcome, let challengeOutcome = runReport.challengeOutcome {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
                     NSSound(named: NSSound.Name("Glass"))?.play()
@@ -1713,8 +1715,11 @@ final class CompanionManager: ObservableObject {
 
     /// Every clear goes through here. A narration holds the buddy on a part until it releases it, and a
     /// cancelled narration can stay stuck reading label places from a page that is gone, so the clear releases it.
+    /// The page's record and an experiment's lesson end here too, so the voice router never reads a question of a scene that is gone.
     func clearTheLiveSceneAndReleaseTheBuddy() {
         LiveSceneOverlay.shared.clear()
+        liveScenePageOnScreen = nil
+        simulationLesson = nil
         if detectedElementPointingHold.holdsUntilReleased {
             clearDetectedElementLocation()
         }
@@ -2280,7 +2285,8 @@ final class CompanionManager: ObservableObject {
             studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo,
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
-            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
+            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
+            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -2292,7 +2298,10 @@ final class CompanionManager: ObservableObject {
         var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
+        // When the third turn still needs the model, Clicky says the apology instead of going quiet.
+        var theTurnsRanOut = false
         for _ in 0..<3 {
+            theTurnsRanOut = false
             let reply: VoiceCommandReply
             do {
                 reply = try await voiceCommandClient.requestToolCalls(messages: messages, tools: tools)
@@ -2306,7 +2315,7 @@ final class CompanionManager: ObservableObject {
                 // so handing it back would loop between the two on every failure.
                 if liveScenePhaseIsWaitingForAQuizAnswer {
                     print("Voice command: the router failed during a quiz question: \(error)")
-                    await speakLiveSceneLine("Sorry, I couldn't do that one.")
+                    await speakLiveSceneLine(voiceCommandGaveUpLine)
                     break
                 }
                 print("Voice command: the router failed, so the keyword path takes it: \(error)")
@@ -2321,14 +2330,14 @@ final class CompanionManager: ObservableObject {
             for toolCall in reply.toolCalls {
                 // A push-to-talk press cancels this command, so its remaining calls must not run.
                 guard !Task.isCancelled else { return }
-                showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall)
+                showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
                 let toolStartedAt = Date()
                 let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
                 // A push-to-talk press during a slow call, like play_video's check, ends the command here, so its outcome is
                 // never shown or recorded. A hand-off cancels this task itself when it starts the new path, and runs with
                 // no await, so it goes on to show its chip and record its action.
                 if Task.isCancelled && outcome != .handedOff { return }
-                showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
+                showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
                 print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
                 logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
                 outcomes.append(outcome)
@@ -2352,6 +2361,7 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
                 return
             case .askTheModelAgain:
+                theTurnsRanOut = true
                 messages.append(.object(["role": .string("assistant"), "content": .array(reply.assistantContent)]))
                 messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
                 continue
@@ -2361,6 +2371,10 @@ final class CompanionManager: ObservableObject {
                 }
             }
             break
+        }
+        guard !Task.isCancelled else { return }
+        if theTurnsRanOut {
+            await speakLiveSceneLine(voiceCommandGaveUpLine)
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -3155,7 +3169,8 @@ final class CompanionManager: ObservableObject {
             studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
-            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
+            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
+            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
@@ -3164,9 +3179,9 @@ final class CompanionManager: ObservableObject {
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
-        showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall)
+        showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
         let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
-        showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome))
+        showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
         return outcome
     }
     #endif
@@ -3210,8 +3225,8 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Asked as each call starts and again once it has run. A learner sees the call in plain words, at the moment
-    /// `chipPhraseToShow(at:)` picks. With the debug switch on, a Debug build shows every call as code as it starts, refused ones too.
-    private func showTheVoiceToolCallChip(for toolCall: VoiceToolCall, at chipMoment: VoiceToolChipMoment) {
+    /// `chipPhraseToShow(at:offeredToolNames:)` picks. With the debug switch on, a Debug build shows every call as code as it starts, refused ones too.
+    private func showTheVoiceToolCallChip(for toolCall: VoiceToolCall, at chipMoment: VoiceToolChipMoment, offeredToolNames: Set<String>) {
         #if DEBUG
         if UserDefaults.standard.bool(forKey: Self.logsVoiceToolCallJSONDefaultsKey) {
             if case .beforeTheCall = chipMoment {
@@ -3220,7 +3235,7 @@ final class CompanionManager: ObservableObject {
             return
         }
         #endif
-        guard let chipPhrase = toolCall.chipPhraseToShow(at: chipMoment) else { return }
+        guard let chipPhrase = toolCall.chipPhraseToShow(at: chipMoment, offeredToolNames: offeredToolNames) else { return }
         VoiceToolCallChip.shared.show(chipPhrase)
     }
 

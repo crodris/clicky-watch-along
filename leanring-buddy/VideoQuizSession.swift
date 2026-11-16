@@ -85,6 +85,12 @@ nonisolated func urlIsOnYouTube(urlText: String) -> Bool {
     return host == "youtube.com" || host.hasSuffix(".youtube.com")
 }
 
+/// True for a watch page on YouTube itself. A page on another site that only mentions a YouTube watch URL, such as a
+/// Wayback Machine copy, is not one, since its video cannot be grabbed through YouTube's player.
+nonisolated func urlIsAYouTubeWatchPage(urlText: String) -> Bool {
+    urlIsOnYouTube(urlText: urlText) && URL(string: urlText)?.path == "/watch"
+}
+
 /// Caption search hands the front tab's URL to yt-dlp, so it reads only https pages on a public host,
 /// never a page on this Mac or on the local network.
 nonisolated func captionSearchMayReadTheVideoPage(urlText: String) -> Bool {
@@ -230,7 +236,7 @@ nonisolated func videoQuizMomentIndexToAsk(
 
 // MARK: - Failures
 
-private enum VideoQuizFailure: Error {
+enum VideoQuizFailure: Error {
     case chromeIsNotRunning
     case noYouTubeTabFound
     case noVideoOnThePage
@@ -401,10 +407,9 @@ final class VideoQuizSession {
         if isRunning && !quizWatchesTheFrontVideo { return "" }
         if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: frontVideoTab) { return "" }
         do {
-            // Any site can be busy, so these calls get the voice tools' short timeout.
-            let playbackState = try readPlaybackState(of: frontVideoTab, timeoutSeconds: 2)
+            let playbackState = try readPlaybackState(of: frontVideoTab)
             if !playbackState.isPaused {
-                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab, timeoutSeconds: 2)
+                try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: frontVideoTab)
             }
             if clickyHoldsTheVideoPauseAfterASceneRequest(
                 videoIsPlaying: !playbackState.isPaused,
@@ -473,7 +478,7 @@ final class VideoQuizSession {
         guard let pausedVideoTab = videoPausedByClicky?.tab else { return }
         videoPausedByClicky = nil
         do {
-            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab, timeoutSeconds: 2)
+            try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: pausedVideoTab)
             print("Video quiz: resumed the video")
         } catch {
             print("Video quiz: could not resume the video: \(error)")
@@ -958,7 +963,7 @@ final class VideoQuizSession {
     }
 
     private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String, pageIsOnYouTube: Bool) throws -> JSONValue {
-        let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab, timeoutSeconds: 2)
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab)
         guard javaScriptResult != "no-video",
               let pageVideoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
               let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title, pageIsOnYouTube: pageIsOnYouTube) else {
@@ -980,18 +985,18 @@ final class VideoQuizSession {
     static let playVideoJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (video) { video.play(); } return 'ok'; })()"
     /// Draws the page's main video into a canvas and returns the JPEG and the video's place on screen.
     /// Chrome's vertical tab strip sits left of the page, so the extra window width counts as left offset.
-    private static let grabFrameJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
+    static let grabFrameJavaScript = "(function () { \(LearnerVideoCommand.mainVideoJavaScript) if (!video || !video.videoWidth) { return 'no-video'; } var scale = Math.min(1, 1280 / video.videoWidth); var canvas = document.createElement('canvas'); canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale); canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height); var rect = video.getBoundingClientRect(); return JSON.stringify({ jpeg: canvas.toDataURL('image/jpeg', 0.85).split(',')[1], width: canvas.width, height: canvas.height, videoSeconds: video.currentTime, rectX: window.screenX + (window.outerWidth - window.innerWidth) + rect.left, rectY: window.screenY + (window.outerHeight - window.innerHeight) + rect.top, rectWidth: rect.width, rectHeight: rect.height }); })()"
 
     private static func grabFrame(of videoTab: ChromeVideoTab) throws -> VideoFrameGrab {
-        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.grabFrameJavaScript, in: videoTab)
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.grabFrameJavaScript, in: videoTab, timeoutSeconds: ChromeVideoTab.frameGrabTimeoutSeconds)
         if javaScriptResult == "no-video" {
             throw VideoQuizFailure.noVideoOnThePage
         }
         return try JSONDecoder().decode(VideoFrameGrab.self, from: Data(javaScriptResult.utf8))
     }
 
-    private func readPlaybackState(of videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> VideoPlaybackState {
-        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab, timeoutSeconds: timeoutSeconds)
+    private func readPlaybackState(of videoTab: ChromeVideoTab) throws -> VideoPlaybackState {
+        let javaScriptResult = try ChromeVideoTab.runJavaScript(Self.readPlaybackStateJavaScript, in: videoTab)
         if javaScriptResult == "no-video" {
             throw VideoQuizFailure.noVideoOnThePage
         }
@@ -1002,6 +1007,16 @@ final class VideoQuizSession {
         }
         return VideoPlaybackState(currentSeconds: currentSeconds, isPaused: resultParts[1] == "true")
     }
+}
+
+/// The AppleScript that runs JavaScript in one Chrome tab, cut short after `timeoutSeconds`.
+/// The JavaScript must not contain double quotes or backslashes, because it sits inside an AppleScript string.
+nonisolated func appleScriptToRunJavaScript(_ javaScript: String, tabId: Int, windowId: Int, timeoutSeconds: Int) -> String {
+    """
+    with timeout of \(timeoutSeconds) seconds
+    tell application "Google Chrome" to execute (tab id \(tabId) of window id \(windowId)) javascript "\(javaScript)"
+    end timeout
+    """
 }
 
 /// The AppleScript that opens a page as the last tab of Chrome's front window and then puts the window back on the tab
@@ -1066,7 +1081,7 @@ nonisolated func appleScriptToBringChromeTabForward(tabID: Int) -> String {
 
 /// A YouTube watch tab in Chrome, found by AppleScript. Window and tab ids stay
 /// valid while tabs move, unlike positions.
-private struct ChromeVideoTab {
+struct ChromeVideoTab {
     let windowId: Int
     let tabId: Int
     let url: String
@@ -1079,9 +1094,6 @@ private struct ChromeVideoTab {
 
     /// The active tab of Chrome's front window, on any site. The voice tools check for a video with JavaScript.
     static func frontTabOfTheFrontWindow() throws -> ChromeVideoTab {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
         let frontTabOutput = try runAppleScript("""
         tell application "Google Chrome"
             if (count of windows) is 0 then return ""
@@ -1101,10 +1113,6 @@ private struct ChromeVideoTab {
     /// The active tab of the front window if it is a YouTube watch page, else any
     /// YouTube watch tab in any Chrome window, unless `onlyTheActiveTabOfTheFrontWindow` is set.
     static func findYouTubeWatchTab(onlyTheActiveTabOfTheFrontWindow: Bool = false) throws -> ChromeVideoTab {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
-
         // Chrome lists windows front to back. Each output line is
         // windowId, tabId, windowPosition, isActiveTab, url, and title, split by ASCII 31, which cannot appear in a URL or a title
         // Every Apple Event costs about 17 ms, so each window's tabs are read in three batches rather than
@@ -1149,7 +1157,13 @@ private struct ChromeVideoTab {
             """
         }
         let findTabsOutput = try runAppleScript(findTabsAppleScript)
+        return try preferredYouTubeWatchTab(fromFoundTabsOutput: findTabsOutput, onlyTheActiveTabOfTheFrontWindow: onlyTheActiveTabOfTheFrontWindow)
+    }
 
+    /// Reads the lines `findYouTubeWatchTab`'s script returns and picks the tab to use. The script's own filter is a
+    /// substring match, so a page on another site that only contains a watch URL, such as a Wayback Machine copy, comes back
+    /// too, and is dropped here. Throws when no YouTube watch tab is left, so a pop-out falls back to the page's image.
+    static func preferredYouTubeWatchTab(fromFoundTabsOutput findTabsOutput: String, onlyTheActiveTabOfTheFrontWindow: Bool) throws -> ChromeVideoTab {
         struct FoundTab {
             let videoTab: ChromeVideoTab
             let isActiveTabOfFrontWindow: Bool
@@ -1158,7 +1172,8 @@ private struct ChromeVideoTab {
             let tabFields = tabLine.split(separator: "\u{1F}", maxSplits: 5, omittingEmptySubsequences: false)
             guard tabFields.count == 6,
                   let windowId = Int(tabFields[0]),
-                  let tabId = Int(tabFields[1]) else {
+                  let tabId = Int(tabFields[1]),
+                  urlIsAYouTubeWatchPage(urlText: String(tabFields[4])) else {
                 return nil
             }
             let isFrontWindow = tabFields[2] == "1"
@@ -1167,7 +1182,7 @@ private struct ChromeVideoTab {
                 windowId: windowId,
                 tabId: tabId,
                 url: String(tabFields[4]),
-                title: Self.titleWithoutYouTubeSuffix(String(tabFields[5]))
+                title: titleWithoutYouTubeSuffix(String(tabFields[5]))
             )
             return FoundTab(videoTab: videoTab, isActiveTabOfFrontWindow: isFrontWindow && isActiveTab)
         }
@@ -1189,7 +1204,7 @@ private struct ChromeVideoTab {
     /// Only a short https URL comes back, so a large data: URL never travels through AppleScript. The page measures in CSS pixels and the window in
     /// screen points, so `screenRectInChromeCoordinates` turns them into one screen rect, using Chrome's
     /// accessibility web area when it can, and the page zoom and the screen Chrome is on when it cannot.
-    private static let largestVisibleMediaJavaScript = [
+    static let largestVisibleMediaJavaScript = [
         "(function () {",
         "var best = null; var bestScore = 0;",
         "var candidates = document.querySelectorAll('video, img');",
@@ -1218,9 +1233,6 @@ private struct ChromeVideoTab {
     /// Opens the page as a new tab at the end of Chrome's front window without switching to it, and returns the tab's id.
     /// Throws when Chrome is not running, has no window, or refuses the script, and never opens a page that is not https.
     static func openInABackgroundTab(_ pageURL: URL) throws -> Int {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
         guard let appleScriptSource = appleScriptToOpenInABackgroundTab(pageURL: pageURL) else {
             throw VideoQuizFailure.chromeScriptFailed("Only https pages open in a background tab")
         }
@@ -1238,18 +1250,12 @@ private struct ChromeVideoTab {
 
     /// Runs a script that finds a tab by id. Throws when Chrome is not running or refuses the script.
     static func runTabScript(_ appleScriptSource: String) throws -> String {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            throw VideoQuizFailure.chromeIsNotRunning
-        }
-        return try runAppleScript(appleScriptSource)
+        try runAppleScript(appleScriptSource)
     }
 
     /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,
     /// or no media big enough. The learner may be looking at anything, so this never throws.
     static func screenRectOfTheLargestVisibleMediaInFrontTab() -> ScreenRectInChromeCoordinates? {
-        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty else {
-            return nil
-        }
         do {
             return try largestVisibleMediaInFrontTabOrNone()?.screenRect
         } catch {
@@ -1311,26 +1317,29 @@ private struct ChromeVideoTab {
         return tabTitle.hasSuffix(youTubeSuffix) ? String(tabTitle.dropLast(youTubeSuffix.count)) : tabTitle
     }
 
+    /// A page with an alert() or a stuck script holds an Apple Event for about 2 minutes, which freezes the main actor,
+    /// so every script runs with a short timeout. Grabbing a frame draws a canvas, so it gets longer.
+    static let defaultJavaScriptTimeoutSeconds = 2
+    static let frameGrabTimeoutSeconds = 5
+
     /// Runs JavaScript in this tab and returns its result. The JavaScript must
     /// not contain double quotes or backslashes, because it sits inside an AppleScript string.
     @discardableResult
-    /// A busy page can hold an Apple Event for about 2 minutes by default, which freezes the main actor,
-    /// so the voice tools and the requested scene's pause and resume, which reach any site, pass a short timeout.
-    static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab, timeoutSeconds: Int? = nil) throws -> String {
-        let executeLine = "tell application \"Google Chrome\" to execute (tab id \(videoTab.tabId) of window id \(videoTab.windowId)) javascript \"\(javaScript)\""
-        guard let timeoutSeconds else {
-            return try runAppleScript(executeLine)
-        }
-        return try runAppleScript("""
-        with timeout of \(timeoutSeconds) seconds
-        \(executeLine)
-        end timeout
-        """)
+    static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab, timeoutSeconds: Int = defaultJavaScriptTimeoutSeconds) throws -> String {
+        try runAppleScript(appleScriptToRunJavaScript(javaScript, tabId: videoTab.tabId, windowId: videoTab.windowId, timeoutSeconds: timeoutSeconds))
     }
 
+    /// Whether Chrome is open. Tests replace it, since a developer's Chrome is usually running.
+    static var chromeIsRunning: () -> Bool = { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
+
     /// NSAppleScript is not thread safe, so every script runs on the main actor.
+    /// Every Chrome script comes through here, and `tell application "Google Chrome"` would launch Chrome when it is closed,
+    /// so a closed Chrome throws before any script runs.
     @MainActor
     private static func runAppleScript(_ appleScriptSource: String) throws -> String {
+        guard chromeIsRunning() else {
+            throw VideoQuizFailure.chromeIsNotRunning
+        }
         guard let appleScript = NSAppleScript(source: appleScriptSource) else {
             throw VideoQuizFailure.chromeScriptFailed("The AppleScript did not compile")
         }

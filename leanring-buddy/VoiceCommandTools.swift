@@ -216,13 +216,18 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var taskAnswerIsReady = false
         /// A simulation asked its prediction question, and Run stays locked until the learner guesses.
         var simulationIsWaitingForAGuess = false
+        /// An experiment is on screen, so another build would be a second paid build of the same topic.
+        var simulationIsOnScreen = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
         allCases.filter { appVoiceTool in
             switch appVoiceTool {
-            case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut:
+            case .answerWithScreen, .buildNewScene, .popOut:
                 return !context.quizQuestionIsOpen
+            // With an experiment on screen, set_control and run_simulation change it, and a second build costs a model call.
+            case .buildSimulation:
+                return !context.quizQuestionIsOpen && !context.simulationIsOnScreen
             // While a question is open the scene is the question's, so closing it or explaining a part,
             // which may be the answer, waits until the learner answers or skips.
             case .closeScene:
@@ -472,8 +477,17 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case .beforeTheCall:
             return callIsALookup ? chipPhrase : nil
         case .afterTheCall(let outcome):
+            // Showing a ready experiment is a hand-off, since its rise and the lesson's own voice follow at once.
+            // Only starting a build is a call whose chip says so.
+            if name == AppVoiceTool.buildSimulation.rawValue && outcome == .handedOff { return nil }
             return callIsALookup || outcome.isFailure ? nil : chipPhrase
         }
+    }
+
+    /// The same, but a call to a tool this turn did not offer shows nothing, since `runVoiceTool` refuses it without running it.
+    func chipPhraseToShow(at chipMoment: VoiceToolChipMoment, offeredToolNames: Set<String>) -> String? {
+        guard offeredToolNames.contains(name) else { return nil }
+        return chipPhraseToShow(at: chipMoment)
     }
 
     /// The call as code, such as rotate_model(yawDegrees: -45). Debug builds show it on the chip
@@ -583,8 +597,32 @@ nonisolated enum VoiceCommandNextStep: Equatable, Sendable {
 /// from it, and none of them can shadow an app tool.
 nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view", "set_control", "run_simulation", "set_labels"]
 
+/// A page's tool description is page text the model reads, so it is cut to a length that fits the bundled tools' own
+/// text, the longest being set_control's with three controls.
+nonisolated let longestPageToolDescription = 1000
+
+/// A page's tool input schema is page text the model reads too, and it is not cut, so a page tool whose schema
+/// encodes to more bytes than this is dropped. The bundled tools' schemas are a few hundred bytes.
+nonisolated let largestPageToolInputSchemaBytes = 2000
+
+/// The Worker refuses a request with two tools of one name, which would send every command to the keyword path, so a
+/// page that lists a name twice keeps its first entry.
 nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
-    let knownPageTools = pageTools.filter { pageTool in pageVoiceToolNames.contains(pageTool.name) }
+    var pageToolNamesSeen: Set<String> = []
+    let knownPageTools = pageTools
+        .filter { pageTool in
+            pageVoiceToolNames.contains(pageTool.name)
+                && pageTool.inputSchema.compactJSONText.utf8.count <= largestPageToolInputSchemaBytes
+                && pageToolNamesSeen.insert(pageTool.name).inserted
+        }
+        .map { pageTool in
+            VoiceToolDescriptor(
+                name: pageTool.name,
+                description: String(pageTool.description.prefix(longestPageToolDescription)),
+                inputSchema: pageTool.inputSchema,
+                readOnly: pageTool.readOnly
+            )
+        }
     return knownPageTools + appTools.map(\.descriptor)
 }
 
@@ -612,6 +650,11 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
     let confirmations = toolCalls.map(\.confirmation).filter { !$0.isEmpty }
     return .speak(String(confirmations.joined(separator: " ").prefix(longestSpokenVoiceCommandLine)))
 }
+
+/// What Clicky says when the router's turns run out with the model still waiting on a lookup or a failure, so the learner
+/// is never left in silence. It is always this apology, never the model's last words: the Worker tells the model that
+/// text next to a tool call is never spoken, so that text was written before the call ran and can claim a success that failed.
+nonisolated let voiceCommandGaveUpLine = "Sorry, I couldn't do that one."
 
 /// A play counts only once the video is really playing, meaning not paused and holding data to play, so Clicky
 /// never says "playing" over a stopped video. Chrome refuses a video with sound on a page never clicked, and

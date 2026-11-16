@@ -6,7 +6,11 @@ type ToolDescriptor = { name: string; description: string; inputSchema: unknown 
 type ToolCallResult = { ok: boolean; error?: string; state: Record<string, unknown> };
 
 /** Runs scene-tools.js against a page whose window.liveScene is `liveScene`. With no document given there is no body, so no panel is drawn. */
-function loadSceneTools(liveScene: Record<string, unknown>, fakeDocument: Record<string, unknown> = { body: null, querySelectorAll: () => [] }) {
+function loadSceneTools(
+  liveScene: Record<string, unknown>,
+  fakeDocument: Record<string, unknown> = { body: null, querySelectorAll: () => [] },
+  timers: { setTimeout?: (callback: () => void, milliseconds: number) => unknown; setInterval?: (callback: () => void, milliseconds: number) => unknown } = {},
+) {
   const postedEvents: string[] = [];
   const fakeWindow: Record<string, unknown> = {
     liveScene,
@@ -29,9 +33,9 @@ function loadSceneTools(liveScene: Record<string, unknown>, fakeDocument: Record
     () => ({ matches: true }),
     { now: () => 0 },
     () => 0,
-    () => 0,
+    timers.setInterval ?? (() => 0),
     () => {},
-    () => 0,
+    timers.setTimeout ?? (() => 0),
   );
   const clickyTools = fakeWindow.clickyTools as {
     list: () => ToolDescriptor[];
@@ -100,6 +104,26 @@ describe("scene-tools.js simulation tools", () => {
     expect(toolNames(loadSceneTools(simulationPage({ run: undefined })).clickyTools)).not.toContain("run_simulation");
     expect(toolNames(loadSceneTools(simulationPage({ setControl: undefined })).clickyTools)).not.toContain("set_control");
     expect(toolNames(loadSceneTools(simulationPage({ controls: [] })).clickyTools)).not.toContain("run_simulation");
+  });
+
+  it("keeps every tool description under the 1000 characters the app allows a page tool, even with 3 longest controls", () => {
+    const longControl = (index: number) => ({ name: `control_${index}_`.padEnd(40, "n"), label: "L".repeat(90), min: -100000, max: 100000, step: 0.001, value: 0, unit: "u".repeat(40) });
+    const { clickyTools } = loadSceneTools(simulationPage({ controls: [0, 1, 2].map(longControl), setLabelsVisible: () => true }));
+
+    const longestDescription = Math.max(...clickyTools.list().map((tool) => tool.description.length));
+
+    // longestPageToolDescription in VoiceCommandTools.swift. A longer description would be cut mid-sentence.
+    expect(longestDescription).toBeLessThanOrEqual(1000);
+  });
+
+  it("keeps every tool's input schema under the 2000 bytes the app allows a page tool, even with 3 longest controls", () => {
+    const longControl = (index: number) => ({ name: `control_${index}_`.padEnd(40, "n"), label: "L".repeat(90), min: -100000, max: 100000, step: 0.001, value: 0, unit: "u".repeat(40) });
+    const { clickyTools } = loadSceneTools(simulationPage({ controls: [0, 1, 2].map(longControl), setLabelsVisible: () => true }));
+
+    const largestSchemaBytes = Math.max(...clickyTools.list().map((tool) => JSON.stringify(tool.inputSchema).length));
+
+    // largestPageToolInputSchemaBytes in VoiceCommandTools.swift. A larger schema's tool is dropped from the router.
+    expect(largestSchemaBytes).toBeLessThanOrEqual(2000);
   });
 
   it("lists set_labels only when the page can show and hide its labels, and tracks whether they show", () => {
@@ -243,6 +267,26 @@ describe("scene-tools.js simulation tools", () => {
     expect(clickyTools.state().pastRuns).toEqual([]);
   });
 
+  it("gives up a run that never ends after 20 seconds, which unlocks Run and adds no trial", async () => {
+    vi.useFakeTimers();
+    try {
+      const page = simulationPage({ run: vi.fn(() => new Promise<void>(() => {})) });
+      const loaded = loadSceneTools(page, { body: null, querySelectorAll: () => [] }, { setTimeout });
+      loaded.clickyTools.simulation.guessHeard();
+
+      loaded.clickyTools.call("run_simulation", {});
+      await vi.advanceTimersByTimeAsync(19999);
+      expect(loaded.clickyTools.state().runIsGoing).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(loaded.clickyTools.state().runIsGoing).toBe(false);
+      expect(loaded.clickyTools.state().pastRuns).toEqual([]);
+      expect(loaded.postedEvents).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sets a control by the cut name the model saw, and passes the page its real name", () => {
     const longName = "angle_of_the_launcher_measured_from_the_ground_in_degrees";
     const page = simulationPage({ controls: [{ ...angleControl, name: longName }] });
@@ -305,6 +349,29 @@ describe("scene-tools.js simulation tools", () => {
     }
   });
 
+  it("declines a challenge about a readout the page does not report, so it never scores the wrong readout", () => {
+    const { clickyTools } = loadGuessedSimulation({
+      challenge: { ...rangeChallenge, readoutLabel: "Impact speed" },
+      getState: () => ({ readouts: [{ label: "Landing distance", value: 40.8, unit: "m" }] }),
+    });
+
+    expect(clickyTools.simulation.startChallenge()).toBeNull();
+    expect(clickyTools.state()).toMatchObject({ lessonStage: "explore", challenge: null });
+  });
+
+  it("reports no challenge outcome for a try whose readout the page stopped reporting", async () => {
+    let readouts = [{ label: "Landing distance", value: 40.8, unit: "m" }];
+    const { clickyTools, postedEvents } = loadGuessedSimulation({ challenge: rangeChallenge, getState: () => ({ readouts }) });
+    await finishARun(clickyTools, postedEvents);
+    clickyTools.simulation.startChallenge();
+
+    readouts = [{ label: "Flight time", value: 2, unit: "s" }];
+    const report = await finishARun(clickyTools, postedEvents);
+
+    expect(report.challenge).toBeNull();
+    expect(clickyTools.state()).toMatchObject({ challenge: { attempts: 0, hit: false } });
+  });
+
   it("counts each challenge try, says how far off a miss was, and ends on a hit", async () => {
     let landingDistance = 40.8;
     const setPreviewVisible = vi.fn();
@@ -340,6 +407,97 @@ describe("scene-tools.js simulation tools", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(postedEvents).toHaveLength(1);
+  });
+
+  it("abandons a run in flight when set_control changes a control, so its end adds no trial", async () => {
+    let finishTheRun: () => void = () => {};
+    const { clickyTools, postedEvents } = loadGuessedSimulation({ run: vi.fn(() => new Promise<void>((resolve) => (finishTheRun = resolve))) });
+
+    clickyTools.call("run_simulation", {});
+    expect(clickyTools.state().runIsGoing).toBe(true);
+    expect(clickyTools.call("set_control", { name: "angle", value: 30 }).state.runIsGoing).toBe(false);
+    finishTheRun();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postedEvents).toEqual([]);
+    expect(clickyTools.state().pastRuns).toEqual([]);
+  });
+
+  it("keeps a run going when set_control refuses an unknown control name", () => {
+    const { clickyTools } = loadGuessedSimulation({ run: vi.fn(() => new Promise<void>(() => {})) });
+
+    clickyTools.call("run_simulation", {});
+
+    expect(clickyTools.call("set_control", { name: "mass", value: 3 }).state.runIsGoing).toBe(true);
+  });
+
+  it("keeps a run going when the page refuses a known control's new value", () => {
+    const { clickyTools } = loadGuessedSimulation({ run: vi.fn(() => new Promise<void>(() => {})), setControl: vi.fn(() => false) });
+
+    clickyTools.call("run_simulation", {});
+
+    expect(clickyTools.call("set_control", { name: "angle", value: 30 }).state.runIsGoing).toBe(true);
+  });
+
+  it("keeps a run going when the page refuses the value a slider drag sends", () => {
+    const inputHandlers: Array<{ element: Record<string, unknown>; handler: () => void }> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {} };
+        element.addEventListener = (eventName: string, handler: () => void) => {
+          if (eventName === "input") inputHandlers.push({ element, handler });
+        };
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    const page = simulationPage({ run: vi.fn(() => new Promise<void>(() => {})), setControl: vi.fn(() => false) });
+    const { clickyTools } = loadSceneTools(page, fakeDocument);
+    clickyTools.simulation.guessHeard();
+    clickyTools.call("run_simulation", {});
+    const slider = inputHandlers[0];
+    expect(slider).toBeDefined();
+    if (!slider) return;
+
+    slider.element.value = "30";
+    slider.handler();
+
+    expect(clickyTools.state().runIsGoing).toBe(true);
+  });
+
+  it("abandons a run in flight when the learner drags a slider, so its end adds no trial", async () => {
+    const inputHandlers: Array<{ element: Record<string, unknown>; handler: () => void }> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {} };
+        element.addEventListener = (eventName: string, handler: () => void) => {
+          if (eventName === "input") inputHandlers.push({ element, handler });
+        };
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    let finishTheRun: () => void = () => {};
+    const page = simulationPage({ run: vi.fn(() => new Promise<void>((resolve) => (finishTheRun = resolve))) });
+    const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
+    clickyTools.simulation.guessHeard();
+    clickyTools.call("run_simulation", {});
+    const slider = inputHandlers[0];
+    expect(slider).toBeDefined();
+    if (!slider) return;
+
+    slider.element.value = "30";
+    slider.handler();
+    expect(clickyTools.state().runIsGoing).toBe(false);
+    finishTheRun();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postedEvents).toEqual([]);
+    expect(clickyTools.state().pastRuns).toEqual([]);
   });
 
   it("passes on at most 3 short readouts with real numbers, since the page's text is spoken aloud", async () => {
@@ -458,6 +616,25 @@ describe("scene-tools.js simulation tools", () => {
     expect(questionLine?.style).toMatchObject({ display: "block" });
     clickyTools.simulation.guessHeard();
     expect(questionLine?.style).toMatchObject({ display: "none" });
+  });
+
+  it("draws the panel when the app shows the question, even if the page never set __tourFinished", () => {
+    const appendedElements: unknown[] = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: (element: unknown) => appendedElements.push(element) },
+      createElement: () => ({ style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} }),
+      querySelectorAll: () => [],
+    };
+    const setInterval = vi.fn(() => 0);
+    const { clickyTools } = loadSceneTools(simulationPage(), fakeDocument, { setInterval });
+    expect(appendedElements).toHaveLength(0);
+
+    clickyTools.simulation.showQuestion("Will 30 or 60 degrees send the ball farther?");
+
+    expect(appendedElements).toHaveLength(1);
+    // The page script no longer polls for __tourFinished, so showQuestion is the only way the panel appears after a tour.
+    expect(setInterval).not.toHaveBeenCalled();
   });
 
   it("skips the guess when the learner clicks the locked Run button, and tells the app", () => {

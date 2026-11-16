@@ -23,6 +23,13 @@ enum LiveScenePageOnScreen {
     case landmark(FamousPlace)
 }
 
+/// Whether an experiment is on screen, from Clicky's own record and not from anything the page reports, since a page
+/// with controls can fake a lesson stage. A page on its way back into the video is not on screen.
+nonisolated func simulationIsOnScreen(pageOnScreen: LiveScenePageOnScreen?, overlayIsShowingAScene: Bool) -> Bool {
+    guard case .simulation = pageOnScreen else { return false }
+    return overlayIsShowingAScene
+}
+
 /// Why Clicky is about to talk about a frame pop-out.
 enum LiveSceneNarrationTrigger: Equatable {
     /// The camera tour of a pop-out with no quiz just ended.
