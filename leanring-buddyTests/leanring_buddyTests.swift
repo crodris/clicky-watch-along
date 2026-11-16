@@ -721,6 +721,15 @@ struct leanring_buddyTests {
         #expect(search.chipPhraseToShow(at: .afterTheCall(.lookedUp(result: .null))) == nil)
     }
 
+    @Test func showingAReadyExperimentThroughBuildSimulationShowsNoStartingChip() async throws {
+        let buildSimulation = VoiceToolCall(id: "1", name: "build_simulation", input: [:])
+        #expect(buildSimulation.chipPhraseToShow(at: .afterTheCall(.changed(state: nil))) == "Starting your experiment")
+        // A ready experiment is shown with no new build, so it hands off like show_ready_model does.
+        #expect(buildSimulation.chipPhraseToShow(at: .afterTheCall(.handedOff)) == nil)
+        // Other hand-offs keep their chips, such as closing a scene.
+        #expect(VoiceToolCall(id: "2", name: "close_scene", input: [:]).chipPhraseToShow(at: .afterTheCall(.handedOff)) == "Putting it back")
+    }
+
     @Test func aCallToAToolTheTurnDidNotOfferShowsNoChipSinceItIsRefusedUnrun() async throws {
         let search = VoiceToolCall(id: "1", name: "find_moment", input: ["query": .string("magma chamber")])
         #expect(search.chipPhraseToShow(at: .beforeTheCall, offeredToolNames: ["find_moment"]) == "Finding \u{201C}magma chamber\u{201D}")

@@ -477,6 +477,9 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case .beforeTheCall:
             return callIsALookup ? chipPhrase : nil
         case .afterTheCall(let outcome):
+            // Showing a ready experiment is a hand-off, since its rise and the lesson's own voice follow at once.
+            // Only starting a build is a call whose chip says so.
+            if name == AppVoiceTool.buildSimulation.rawValue && outcome == .handedOff { return nil }
             return callIsALookup || outcome.isFailure ? nil : chipPhrase
         }
     }
