@@ -37,7 +37,7 @@ Preconditions:
   GPT pages matched within 1 percent on 2026-11-15.
 - **App.** Run `$V app-launch "let me try it | &I think 60 degrees will go farther | make the angle 30 degrees | run it | +8 make the angle 60 degrees | run it"`.
   The "&" prefix makes the guess wait for the build, the rise, and the spoken question, since the experiment now builds in the background.
-  The log shows `Experiment: built`, `Experiment: showing`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, and `Simulation: guess check after run N`.
+  The log shows `Experiment: built`, `Experiment: showing`, `Simulation: asked for the guess` before `Live scene rehearsal: saying "I think`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, and `Simulation: guess check after run N`.
   Run `$V shot simulation` once the log shows `Simulation: challenge started`.
 - **Cost ceiling.** One `[/live-scene]` usage line per page with GPT output under 10,000 tokens, and one streamed `/chat` request per guess check.
 

@@ -107,10 +107,10 @@ $V app-wait 240
 
 Steps are separated by `|`.
 The app waits 3 seconds, then sends each step as if it were spoken.
-It waits for the step's own work to finish, including a pop-out's narration, and then for any tour or speech still going, before the next step.
+It waits for the step's own work to finish, including a pop-out's narration, and then for any tour or speech still going, including the question a tour's end starts, before the next step.
 A step that starts with `?` first waits up to 4 minutes for a quiz question to be asked and spoken, then answers it.
 A step that starts with `~` lets the next step interrupt it after 6 seconds.
-A step that starts with `&` first waits up to 3 minutes for every background agent to finish, then for a 3D model's rise and narration, then 4 seconds more for the finish chip, then for a risen experiment's guess question to be said.
+A step that starts with `&` first waits up to 3 minutes for every background agent to finish, then for a 3D model's rise and narration or an experiment's rise and guess question, then 4 seconds more for the finish chip.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.

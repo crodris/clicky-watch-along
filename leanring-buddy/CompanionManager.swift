@@ -852,9 +852,6 @@ final class CompanionManager: ObservableObject {
                 await waitForTheTourAndSpeechToEnd()
                 // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
-                // A risen experiment asks for the guess in its own task when the tour ends, and the question's audio
-                // can start after the speech check above has passed, so the learner answers only once it has been said.
-                await liveSceneTourFinishedTask?.value
             }
             if stepWaitsForAQuestion {
                 // A learner answers after hearing the question, so wait for it to start and end. A second answer to
@@ -906,6 +903,14 @@ final class CompanionManager: ObservableObject {
     }
 
     private func waitForTheTourAndSpeechToEnd() async {
+        await waitUntilNoTourOrSpeechIsPlaying()
+        // When a tour ends, a quiz question or an experiment's guess question is spoken by liveSceneTourFinishedTask,
+        // and its audio can start after the check above has passed, so the step also waits for that task and its speech.
+        await liveSceneTourFinishedTask?.value
+        await waitUntilNoTourOrSpeechIsPlaying()
+    }
+
+    private func waitUntilNoTourOrSpeechIsPlaying() async {
         while true {
             let tourIsStillPlaying: Bool
             if case .touring = liveScenePhase { tourIsStillPlaying = true } else { tourIsStillPlaying = false }
@@ -1554,6 +1559,7 @@ final class CompanionManager: ObservableObject {
             guard !Task.isCancelled, self.simulationLesson?.guess == .waiting,
                   case .simulation = self.liveScenePageOnScreen, LiveSceneOverlay.shared.isShowingAScene else { return }
             await self.speakSimulationLine(simulationLesson.guessInvitation)
+            print("Simulation: asked for the guess")
             guard !Task.isCancelled, self.voiceState == .responding else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
