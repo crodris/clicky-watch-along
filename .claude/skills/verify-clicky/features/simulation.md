@@ -10,7 +10,7 @@ The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, 
 - `simulation-route` is `/live-scene` with `kind: "simulation"`, which rejects a page with no `controls`, `setControl`, `run`, or `readouts`, or with its own input or button.
 - `simulation-panel` is the panel `scene-tools.js` draws: sliders, Run (labeled "Say your guess" while locked), the hypothesis while Clicky waits for the guess, readouts, the challenge line, and the trials table.
 - `simulation-guess` is `record_guess`, which the router picks for an answer to the hypothesis and which unlocks Run and the dashed path.
-- `simulation-check` is the guess check through `/chat` after each explore run, logged as `Simulation: guess check after run N, settled <bool>`.
+- `simulation-check` is the guess check through `/chat` after each explore run once the trials hold two settings, logged as `Simulation: guess check after run N, settled <bool>`. Before that it logs `Simulation: guess check skipped after run N, one setting tried`.
 - `simulation-challenge` starts once the guess is settled, hides the dashed path, and counts tries until a hit, which plays "Glass".
 - `simulation-agent` is the background build, which logs `Experiment: built "<what>" in N s` and then `Experiment: showing "<what>", rising out of the video <bool>`, or `Experiment: the screen is busy, so it waits for "show the experiment"`.
 - `simulation-voice` is `set_control` and `run_simulation` from the router, such as "make the angle 30 degrees" and "run it".

@@ -1967,6 +1967,19 @@ struct leanring_buddyTests {
         #expect(SimulationPredictionCheck(replyText: "They tied.").predictionIsSettled == false)
     }
 
+    @Test func theGuessCheckWaitsForASecondSettingSinceOneSettingCannotAnswerAGuessAboutAChange() throws {
+        let oneSettingTwice = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Range","value":20,"unit":"m"}],"pastRuns":[{"controls":[{"label":"Angle","value":30,"unit":"degrees"}],"readouts":[]},{"controls":[{"label":"Angle","value":30,"unit":"degrees"}],"readouts":[]}]}
+        """))
+        let twoSettings = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Range","value":15,"unit":"m"}],"pastRuns":[{"controls":[{"label":"Angle","value":60,"unit":"degrees"}],"readouts":[]},{"controls":[{"label":"Angle","value":30,"unit":"degrees"}],"readouts":[]}]}
+        """))
+        #expect(!oneSettingTwice.trialsTryMoreThanOneSetting)
+        #expect(twoSettings.trialsTryMoreThanOneSetting)
+        // A circuit or a molecule draws no dashed path, so the challenge line never mentions one.
+        #expect(!simulationChallengeStartSuffix.lowercased().contains("dashed"))
+    }
+
     @Test func recordGuessIsOfferedOnlyWhileASimulationWaitsForAGuess() async throws {
         var context = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
         #expect(!AppVoiceTool.available(in: context).contains(.recordGuess))

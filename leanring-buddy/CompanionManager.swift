@@ -1630,6 +1630,11 @@ final class CompanionManager: ObservableObject {
         // Counted before the check runs, so a learner whose push-to-talk keeps cancelling it still reaches the challenge.
         simulationLesson?.runsChecked += 1
         let runsChecked = simulationLesson?.runsChecked ?? 0
+        if !runReport.trialsTryMoreThanOneSetting && runsChecked < SimulationLesson.mostRunsCheckedBeforeTheChallenge {
+            print("Simulation: guess check skipped after run \(runsChecked), one setting tried")
+            await speakSimulationLine(simulationTryAnotherSettingLine)
+            return
+        }
         voiceState = .processing
         let predictionCheck: SimulationPredictionCheck
         do {

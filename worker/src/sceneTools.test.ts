@@ -411,6 +411,32 @@ describe("scene-tools.js simulation tools", () => {
     expect(await measurementColumnAfterTrials(undefined, [Infinity, 120, Infinity], [120, 30, 60])).toEqual(["Warm sample dissolving time", "120 s", "30 s", "60 s"]);
   });
 
+  it("shows each readout's value as an ellipsis while a run plays, since the values are still the run before's", async () => {
+    const createdElements: Array<Record<string, unknown>> = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: () => {} },
+      createElement: () => {
+        const element: Record<string, unknown> = { style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} };
+        createdElements.push(element);
+        return element;
+      },
+      querySelectorAll: () => [],
+    };
+    let endTheRun = () => {};
+    const page = simulationPage({ run: vi.fn(() => new Promise<void>((resolve) => (endTheRun = resolve))) });
+    const { clickyTools, postedEvents } = loadSceneTools(page, fakeDocument);
+    clickyTools.simulation.guessHeard();
+    const latestReadoutValue = () => createdElements.filter((element) => element.textContent === "…" || element.textContent === "40.8 m").at(-1)?.textContent;
+
+    clickyTools.call("run_simulation", {});
+    expect(latestReadoutValue()).toBe("…");
+
+    endTheRun();
+    await vi.waitFor(() => expect(postedEvents.length).toBeGreaterThan(0));
+    expect(latestReadoutValue()).toBe("40.8 m");
+  });
+
   it("shows the hypothesis in the panel while Clicky waits for the guess", () => {
     const createdElements: Array<Record<string, unknown>> = [];
     const fakeDocument = {
@@ -465,10 +491,13 @@ describe("scene-tools.js simulation tools", () => {
     expect(page.run).toHaveBeenCalledTimes(1);
   });
 
-  it("moves the camera's view up by half the panel's height, so the panel does not cover the scene", () => {
+  it.each([
+    { panelHeight: 92, lift: 128 },
+    { panelHeight: 300, lift: 158 },
+  ])("moves the camera's view up by half the panel's full height from the start, so the scene stays still as rows arrive (panel $panelHeight)", ({ panelHeight, lift }) => {
     const fakeElement = (): Record<string, unknown> => ({
       style: {},
-      offsetHeight: 92,
+      offsetHeight: panelHeight,
       append: () => {},
       addEventListener: () => {},
       replaceChildren: () => {},
@@ -488,7 +517,8 @@ describe("scene-tools.js simulation tools", () => {
 
     clickyTools.call("set_control", { name: "angle", value: 30 });
 
-    // Reduce Motion is on in this harness, so the lift jumps straight to (92 + 16) / 2.
-    expect(setViewOffset).toHaveBeenLastCalledWith(800, 450, 0, 54, 800, 450);
+    // Reduce Motion is on in this harness, so the lift jumps straight to half of the full-table height, 240, or of a
+    // taller panel, plus its 16 point margin.
+    expect(setViewOffset).toHaveBeenLastCalledWith(800, 450, 0, lift, 800, 450);
   });
 });

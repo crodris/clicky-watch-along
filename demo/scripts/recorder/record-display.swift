@@ -66,7 +66,8 @@ Task {
             configuration.height = display.height * pointPixelScale
         }
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.showsCursor = true
+        // The blue cursor is Clicky's own overlay window, so the macOS pointer beside it would only show twice.
+        configuration.showsCursor = false
         configuration.capturesAudio = true
         configuration.sampleRate = 48000
         configuration.channelCount = 2
