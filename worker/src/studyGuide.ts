@@ -77,7 +77,7 @@ const quizResultSchema = z.object({
   question: z.string().max(longestNotionBlockText),
   answerLabel: z.string().max(longestNotionBlockText),
   explanation: z.string().max(longestNotionBlockText),
-  askedAtSeconds: z.number(),
+  askedAtSeconds: z.number().nonnegative(),
   result: z.enum(["gotIt", "missed", "skipped"]),
 });
 

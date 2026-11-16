@@ -287,6 +287,23 @@ describe("handleStudyGuide", () => {
     expect(longestAllowedResponse.status).toBe(200);
   });
 
+  it("answers 400 for a quiz result asked at a negative time, which would render as (-1:-5), and accepts time 0", async () => {
+    const fetchMockForNegative = stubFetch();
+    const negativeResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, quizResults: [{ ...missedResult, askedAtSeconds: -5 }] }),
+      notionEnvironment,
+    );
+    expect(negativeResponse.status).toBe(400);
+    expect(fetchMockForNegative).not.toHaveBeenCalled();
+
+    stubFetch();
+    const zeroResponse = await handleStudyGuide(
+      requestWithBody({ ...validRequestBody, quizResults: [{ ...missedResult, askedAtSeconds: 0 }] }),
+      notionEnvironment,
+    );
+    expect(zeroResponse.status).toBe(200);
+  });
+
   it("accepts a video on a YouTube subdomain and refuses a host that only ends in youtube.com", async () => {
     stubFetch();
 
