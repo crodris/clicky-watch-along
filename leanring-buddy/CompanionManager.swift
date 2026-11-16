@@ -2653,7 +2653,7 @@ final class CompanionManager: ObservableObject {
     private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
         readyTaskAnswer = taskAgentSpokenAnswer(spokenSummary)
         taskAnswerWaitsToBeHeard = true
-        finishTheBackgroundAgent(agentID, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
+        finishTheBackgroundAgent(agentID, agentKind: .task, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
     }
 
     /// Like any spoken reply, a push-to-talk press stops it.
@@ -2766,7 +2766,7 @@ final class CompanionManager: ObservableObject {
                 sourceTabURL: sourceTabURL,
                 simulationLesson: simulationLesson
             )
-            finishTheBackgroundAgent(agentID, with: .readyScene)
+            finishTheBackgroundAgent(agentID, agentKind: agentKind, with: .readyScene)
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
                 print("\(agentKind.displayName): cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
@@ -3067,7 +3067,7 @@ final class CompanionManager: ObservableObject {
                 return false
             }
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
-            finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
+            finishTheBackgroundAgent(agentID, agentKind: agentKind, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
             return true
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
@@ -3100,8 +3100,7 @@ final class CompanionManager: ObservableObject {
 
     /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
     /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
-    private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
-        let agentKind = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.kind ?? .studyGuide
+    private func finishTheBackgroundAgent(_ agentID: UUID, agentKind: BackgroundAgentKind, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
         backgroundAgentStore.finish(agentID, with: result)
         switch result {
         case .notionPage(let pageURL):
