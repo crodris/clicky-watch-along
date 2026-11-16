@@ -1780,6 +1780,13 @@ struct leanring_buddyTests {
         #expect(!errorIsACancellation(StudyGuideError.notionIsNotConnected))
     }
 
+    @Test func aCancelledRevisionOrRefreshKeepsItsReplyButACancelledNewGuideDoesNot() async throws {
+        // The Worker trashed the old page before a revise or refresh reply arrived, so dropping it would orphan the new page.
+        #expect(StudyGuideJob.revise(instruction: "Shorter").replyIsSavedEvenWhenCancelled)
+        #expect(StudyGuideJob.refresh.replyIsSavedEvenWhenCancelled)
+        #expect(!StudyGuideJob.write(focus: nil).replyIsSavedEvenWhenCancelled)
+    }
+
     @Test func onlyAnHTTPSPageOpensInABackgroundChromeTabAndTheTabInFrontIsPutBack() async throws {
         let notionPageURL = try #require(URL(string: "https://www.notion.so/p1"))
         let httpsScript = try #require(appleScriptToOpenInABackgroundTab(pageURL: notionPageURL))

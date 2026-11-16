@@ -3009,10 +3009,15 @@ final class CompanionManager: ObservableObject {
                 revision: studyGuideRevision
             ))
             studyGuideRecord.quizResults = quizResultsForTheGuide
-            // A guide cancelled from the agent list keeps no record, even when the Worker had already replied.
-            try Task.checkCancellation()
+            let agentWasCancelled = Task.isCancelled
+            guard !agentWasCancelled || studyGuideJob.replyIsSavedEvenWhenCancelled else { throw CancellationError() }
             // Filed under the video the guide was written for, not whichever tab is in front now.
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
+            guard !agentWasCancelled else {
+                // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip.
+                print("Study guide: kept \(studyGuideRecord.pageURL) for a cancelled agent, since its old page is already trashed")
+                return false
+            }
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
             finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
             return true

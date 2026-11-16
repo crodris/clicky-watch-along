@@ -65,6 +65,16 @@ nonisolated enum StudyGuideJob: Equatable, Sendable {
         case .refresh: return .studyGuideUpdate
         }
     }
+
+    /// A revise or refresh reply means the Worker already wrote the new page and trashed the old one, so the reply is
+    /// saved even when the agent was cancelled as it arrived, or the saved guide would point at a trashed page and the
+    /// new page would be lost. A cancelled new guide keeps no record.
+    var replyIsSavedEvenWhenCancelled: Bool {
+        switch self {
+        case .write: return false
+        case .revise, .refresh: return true
+        }
+    }
 }
 
 /// A missed or skipped question goes into the guide at once. A question the learner got right changes nothing in it.
