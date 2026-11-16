@@ -2268,14 +2268,14 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
-        let commandStartedAt = Date()
-        // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
-        async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
-        async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
-        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
-        let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
-        let appToolContext = AppVoiceTool.Context(
+    /// What decides which app tools the model is offered. The router and the Debug tool server both read it here, so the
+    /// server can never list different tools than the router.
+    private func appVoiceToolContext(
+        pageState: JSONValue?,
+        frontVideoState: JSONValue?,
+        studyGuideExistsForTheFrontVideo: Bool
+    ) -> AppVoiceTool.Context {
+        AppVoiceTool.Context(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
             videoIsInFront: frontVideoState != nil,
@@ -2287,6 +2287,20 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
+        )
+    }
+
+    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
+        let commandStartedAt = Date()
+        // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
+        async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
+        async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
+        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
+        let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
+        let appToolContext = appVoiceToolContext(
+            pageState: pageState,
+            frontVideoState: frontVideoState,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
         let offeredToolNames = Set(tools.map(\.name))
@@ -3159,18 +3173,10 @@ final class CompanionManager: ObservableObject {
     private func voiceToolsForTheDebugServer() async -> [VoiceToolDescriptor] {
         let pageState = await LiveSceneOverlay.shared.pageVoiceState()
         let debugFrontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
-        let appToolContext = AppVoiceTool.Context(
-            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            sceneHasLabels: !(pageState?["labels"]?.arrayValue ?? []).isEmpty,
-            videoIsInFront: debugFrontVideoState != nil,
-            videoIsOnYouTube: debugFrontVideoState?["onYouTube"]?.boolValue == true,
-            videoQuizIsRunning: videoQuizSession.isRunning,
-            quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
-            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
-            backgroundSceneIsReady: readyBackgroundScene != nil,
-            taskAnswerIsReady: readyTaskAnswer != nil,
-            simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
-            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
+        let appToolContext = appVoiceToolContext(
+            pageState: pageState,
+            frontVideoState: debugFrontVideoState,
+            studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
