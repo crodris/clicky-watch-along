@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AbsoluteFill, Freeze, OffthreadVideo, staticFile, useCurrentFrame } from "remotion";
-import { cameraAt, cameraTransform, type CameraMove, type CursorTrack } from "./camera.ts";
+import { cameraAt, cameraTransform, type CameraMove, type CursorTrack, type PageCrop } from "./camera.ts";
 import type { DemoTheme } from "./theme.ts";
 import {
   colors,
@@ -97,8 +97,19 @@ function AccentedText({
   );
 }
 
+/**
+ * Where a shot's captions sit: along the bottom, higher up over the middle of the frame so a panel along the bottom of
+ * the recording stays in view, or along the top while the camera is close on that panel.
+ */
+export type CaptionPosition = "bottom" | "middle" | "top";
+const captionOffsetPixels: Record<CaptionPosition, { bottom?: number; top?: number }> = {
+  bottom: { bottom: 56 },
+  middle: { bottom: 330 },
+  top: { top: 56 },
+};
+
 /** Whole phrases fade and rise in over 10 frames and fade out over 8, with no bounce. */
-export function CaptionTrack({ captions, theme }: { captions: Caption[]; theme: DemoTheme }) {
+export function CaptionTrack({ captions, theme, position = "bottom" }: { captions: Caption[]; theme: DemoTheme; position?: CaptionPosition }) {
   const frame = useCurrentFrame();
   return (
     <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", pointerEvents: "none" }}>
@@ -114,7 +125,7 @@ export function CaptionTrack({ captions, theme }: { captions: Caption[]; theme: 
             key={captionIndex}
             style={{
               position: "absolute",
-              bottom: 56,
+              ...captionOffsetPixels[position],
               opacity: enter * (1 - exit),
               transform: `translateY(${(1 - enter) * typographyRisePixels}px)`,
               display: "flex",
@@ -152,11 +163,12 @@ export function CaptionTrack({ captions, theme }: { captions: Caption[]; theme: 
 /**
  * #044 Cross dissolve with the brief's blur: the next shot fades in on top of this one over 15 frames,
  * quadratic ease-in-out, while this one stays fully opaque underneath and only blurs out (up to 12 px).
- * The first shot fades in the same way from the dark background, and the last one fades out to it.
+ * The first shot fades in the same way from the dark background, unless it opens on its first frame so the clip's
+ * thumbnail shows it, and the last one fades out to it.
  */
-export function BlurDissolve({ durationInFrames, children, fadesOut }: { durationInFrames: number; children: ReactNode; fadesOut: boolean }) {
+export function BlurDissolve({ durationInFrames, children, fadesOut, fadesIn = true }: { durationInFrames: number; children: ReactNode; fadesOut: boolean; fadesIn?: boolean }) {
   const frame = useCurrentFrame();
-  const inProgress = easeInOutQuadratic(progressBetween(frame, 0, dissolveFrames));
+  const inProgress = fadesIn ? easeInOutQuadratic(progressBetween(frame, 0, dissolveFrames)) : 1;
   const outProgress = easeInOutQuadratic(progressBetween(frame, durationInFrames - dissolveFrames, durationInFrames));
   const blurPixels = 12 * Math.max(1 - inProgress, outProgress);
   const opacity = fadesOut ? inProgress * (1 - outProgress) : inProgress;
@@ -190,6 +202,8 @@ export function Shot({
   soundEndsAtSeconds,
   sourceCredit,
   holdsStill,
+  pageCrop,
+  captionPosition,
 }: {
   recordingFile: string;
   sourceStartSeconds: number;
@@ -202,6 +216,8 @@ export function Shot({
   soundEndsAtSeconds?: number;
   sourceCredit?: string;
   holdsStill?: boolean;
+  pageCrop?: PageCrop;
+  captionPosition?: CaptionPosition;
 }) {
   const frame = useCurrentFrame();
   const recording = (
@@ -220,12 +236,12 @@ export function Shot({
       <AbsoluteFill
         style={{
           transformOrigin: "0 0",
-          transform: cameraTransform(camera.scale, camera.focus, videoWidth, videoHeight),
+          transform: cameraTransform(camera.scale, camera.focus, videoWidth, videoHeight, pageCrop),
         }}
       >
         {holdsStill ? <Freeze frame={0}>{recording}</Freeze> : recording}
       </AbsoluteFill>
-      <CaptionTrack captions={captions} theme={theme} />
+      <CaptionTrack captions={captions} theme={theme} position={captionPosition} />
       {sourceCredit ? <SourceCredit text={sourceCredit} theme={theme} /> : null}
     </AbsoluteFill>
   );
@@ -286,6 +302,40 @@ export function EndCard({ recordingFile, sourceStartSeconds, theme }: { recordin
             {endCard.credit}
           </div>
         ) : null}
+      </AbsoluteFill>
+    </AbsoluteFill>
+  );
+}
+
+/**
+ * A line of text on its own over a blurred, darkened, muted stretch of a recording, like the end card, for a beat
+ * between two parts of a clip.
+ */
+export function TitleCard({ recordingFile, sourceStartSeconds, text, accentWords, theme }: { recordingFile: string; sourceStartSeconds: number; text: string; accentWords?: string[]; theme: DemoTheme }) {
+  const frame = useCurrentFrame();
+  const textEnter = softProgress(frame, 8, typographyEnterFrames);
+  return (
+    <AbsoluteFill style={{ background: colors.background, overflow: "hidden" }}>
+      <AbsoluteFill style={{ transform: "scale(1.12)", filter: "blur(28px)" }}>
+        <OffthreadVideo src={staticFile(recordingFile)} trimBefore={Math.round(sourceStartSeconds * frameRate)} muted />
+      </AbsoluteFill>
+      <AbsoluteFill style={{ background: theme.endCard.scrim }} />
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", padding: "0 160px" }}>
+        <div
+          style={{
+            fontFamily: theme.captionFont,
+            color: theme.endCard.titleColor,
+            fontSize: 72,
+            fontWeight: 700,
+            lineHeight: 1.2,
+            letterSpacing: -1,
+            textAlign: "center",
+            opacity: textEnter,
+            transform: `translateY(${(1 - textEnter) * typographyRisePixels}px)`,
+          }}
+        >
+          <AccentedText text={text} accentWords={accentWords} accent={theme.accent} highlighterProgress={softProgress(frame, 8 + typographyEnterFrames, highlighterSweepFrames)} />
+        </div>
       </AbsoluteFill>
     </AbsoluteFill>
   );

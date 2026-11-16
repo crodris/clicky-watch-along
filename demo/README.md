@@ -63,10 +63,21 @@ TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch c
 ```
 
 An experiment's control panel sits at the bottom of the MacBook screen, below the default recorded area, so a "let me try it" shot stretches the Chrome window to the bottom and records the lower 16:9 area instead.
-Its challenge target is new in every build, so a driver script reads the target from the voice tool endpoint and plays one miss and one hit.
+That area starts below Chrome's toolbar, so the experiment clip's shots use `pageOnlyCrop`, and the camera cuts nothing off the page.
+The rehearsal sets the first run by voice.
+`scripts/drive-trebuchet-shot.sh` then sets the second run and the challenge with the real mouse, dragging the sliders and clicking Run, since the clip shows both ways to change the experiment.
+It finds the sliders in a screenshot with `scripts/experiment-panel.py`, moves the mouse with `scripts/mouse/mouse.swift`, and reads the challenge target through the voice tool endpoint, since the target is new in every build: one overshoot, then corrections until a run lands in the ring.
+The terminal that runs it needs the Accessibility permission to move the mouse.
+The montage takes speak their runs as rehearsal steps instead, with a pause between runs so Clicky finishes reading each result.
 
 ```bash
-DEMO_WINDOW_BOUNDS="0, 38, 1710, 1107" RECORDING_SOURCE_RECT="0,145,1710,962" TRAILING_SECONDS=45 demo/scripts/record-shot.sh trebuchet "+3 let me try it|&I think aiming higher will throw it farther|set the angle to 30 degrees and run it|+15 set the angle to 60 degrees and run it" "https://www.youtube.com/watch?v=jTBDc19eW2o" 384
+take() { DEMO_WINDOW_BOUNDS="0, 38, 1710, 1107" RECORDING_SOURCE_RECT="0,145,1710,962" TRAILING_SECONDS=${4:-15} demo/scripts/record-shot.sh "$1" "$3" "https://www.youtube.com/watch?v=$2" "$5"; }
+demo/scripts/drive-trebuchet-shot.sh demo/public/trebuchet.events.txt.raw &
+take trebuchet jTBDc19eW2o "+3 let me try it|&I think the bigger one will throw it farther|set the angle to 45 degrees and run it" 130 384
+take montage-circuit HsLLq6Rm5tU "+3 let me try it|&I think more resistance means less current|set the resistance to 12 ohms and run it|+8 make the resistance 1 ohm and run it" 15 268
+take montage-refraction zarxpu43-ls "+3 let me try it|&I think the light bends more when it comes in at a steeper angle|set the light angle to 20 degrees and run it|+8 make the light angle 70 degrees and run it" 15 178
+take montage-buoyancy nMlXU97E-uQ "+3 let me try it|&I think a denser ball sinks deeper|run it|+8 make the ball much denser and run it" 15 148
+take montage-molecule FJ0gy48IIzU "+3 let me try it|&I think more lone pairs will squeeze the bonds closer|set the bonded atoms to 2 and the lone pairs to 0 and run it|+10 set the lone pairs to 2 and run it" 15 294
 ```
 
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
@@ -97,9 +108,12 @@ The study guide clip and the combined clip use "Feel Good - It Feels So Good" (9
 The quiz miss clip uses "Pop - Friends Like Us" (122 second version) by Easy_Eva (https://pixabay.com/music/pop-pop-friends-like-us-122sec-564062/), saved as `demo/public/music/friends-like-us.mp3`, under the same license.
 Neither is registered with YouTube Content ID, so a YouTube upload gets no claim, and neither is AI-generated.
 The parallel agents clip uses the same "Feel Good - It Feels So Good" track as the study guide clip.
+The experiment clip uses "Upbeat Lo-Fi Instrumental with Electric Guitar" by NickPanek (https://pixabay.com/music/beats-upbeat-lo-fi-instrumental-with-electric-guitar-251405/), saved as `demo/public/music/upbeat-lo-fi-electric-guitar.mp3`, under the Pixabay Content License, which needs no credit.
+Pixabay blocks scripted downloads, so download it from that page by hand.
+The track is 2:02 and the clip about 2:38, so `pnpm music-experiment` joins two copies with a 4 second crossfade where the first one's music ends, at 2:00.3, into `upbeat-lo-fi-electric-guitar-twice.mp3`, and the seam falls on the dissolve into the title card.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.
-Download all four before rendering.
+Download all five before rendering.
 
 `scripts/mix-music.ts` runs after the Remotion render.
 It gives the voice a high-pass at 80 Hz, a small lift at 3 kHz, and light compression.
@@ -111,8 +125,9 @@ The quiz clip passes `1.5 -5`, so Clicky sits about 15 dB over the music while s
 ## Edit and render
 
 `src/timeline.ts` holds every shot, caption, and camera move, timed from the events files.
-`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `parallelAgentsClipSegments` is the parallel sub-agents clip over the Starship catch, posted first, and `quizMissClipSegments` is the quiz miss clip, which follows it and leaves the sub-agent mechanics to it.
+`segments` is the demo, `quizClipSegments` is the follow-up clip (the facial nerve quiz and the spinning globe), `studyGuideClipSegments` is the Notion study guide clip, `parallelAgentsClipSegments` is the parallel sub-agents clip over the Starship catch, posted first, `quizMissClipSegments` is the quiz miss clip, which follows it and leaves the sub-agent mechanics to it, and `experimentClipSegments` is the "let me try it" clip: the trebuchet experiment end to end, a title card, and a montage of four more experiments, each after a short muted glimpse of its source video.
 `src/theme.ts` gives each clip its own look: the demo and the quiz clip use Inter on dark pills with yellow accent words, the study guide and quiz miss clips use Fraunces on a paper card with an amber highlighter, and the parallel agents clip uses Space Grotesk on a navy card, with each sub-agent's captions in its wingman's color, teal for the task agent and violet for the 3D model.
+The experiment clip uses the demo's dark pills with the experiment wingman's lime on key words.
 A new recording has new times, so update `src/timeline.ts` after recording again.
 
 ```bash
@@ -126,8 +141,8 @@ pnpm render-parallel-agents
 ```
 
 `pnpm render` writes the voice-only `out/clicky-demo-voice.mp4`, then the mix writes `out/clicky-demo.mp4`.
-`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, and `pnpm render-parallel-agents` for `out/clicky-parallel-agents.mp4`.
-`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, and `pnpm mix-parallel-agents` run only the mix, which is enough after changing the music or its levels.
+`pnpm render-quiz` does the same for `out/clicky-quiz.mp4`, `pnpm render-study-guide` for `out/clicky-study-guide.mp4`, `pnpm render-quiz-miss` for `out/clicky-quiz-miss.mp4`, `pnpm render-parallel-agents` for `out/clicky-parallel-agents.mp4`, and `pnpm render-experiment` for `out/clicky-experiment.mp4`.
+`pnpm mix`, `pnpm mix-quiz`, `pnpm mix-study-guide`, `pnpm mix-quiz-miss`, `pnpm mix-parallel-agents`, and `pnpm mix-experiment` run only the mix, which is enough after changing the music or its levels.
 Set `REMOTION_BROWSER_EXECUTABLE` when Remotion's own headless shell hangs at "Waiting for root component to load".
 
 ## Quiz rehearsal
