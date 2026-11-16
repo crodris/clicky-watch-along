@@ -1684,7 +1684,9 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
     }
 
-    /// Returns true only when the line's audio played to its end, so a cancel or the credits fallback reads as unsaid.
+    /// Returns true when the line's own audio started and the task was not cancelled before playback stopped, so a
+    /// cancel or the credits fallback reads as unsaid. A push-to-talk press stops the audio without a cancel, so it
+    /// still reads as said.
     @discardableResult
     private func speakSimulationLine(_ line: String) async -> Bool {
         guard !Task.isCancelled, !line.isEmpty else { return false }
