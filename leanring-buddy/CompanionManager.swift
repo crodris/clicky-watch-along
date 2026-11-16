@@ -970,10 +970,7 @@ final class CompanionManager: ObservableObject {
             startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
             return
         }
-        // A "let me try it" that reaches here, with a scene on screen while another builds, is an ordinary question,
-        // since an experiment is built only by its agent.
-        let requestedSceneKind = liveSceneKind(for: transcript)
-        respondToTranscript(transcript: transcript, requestedSceneKind: requestedSceneKind == .simulation ? nil : requestedSceneKind)
+        respondToTranscript(transcript: transcript, requestedSceneKind: keywordPathSceneKind(for: transcript))
     }
 
     private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
@@ -1421,6 +1418,7 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
+        // The new scene replaces any experiment on screen, so its lesson ends too.
         simulationLesson = nil
         await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
@@ -2282,7 +2280,7 @@ final class CompanionManager: ObservableObject {
                     break
                 }
                 print("Voice command: the router failed, so the keyword path takes it: \(error)")
-                respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
+                respondToTranscript(transcript: transcript, requestedSceneKind: keywordPathSceneKind(for: transcript))
                 return
             }
             guard !Task.isCancelled else { return }
@@ -2638,7 +2636,7 @@ final class CompanionManager: ObservableObject {
     private func buildTheBackgroundScene(whatToBuild: String, agentID: UUID, agentKind: BackgroundAgentKind) async {
         let startedAt = Date()
         let builtThingName = agentKind == .experiment ? "experiment" : "3D model"
-        let sceneKind: LiveSceneKind = agentKind == .experiment ? .simulation : .explore
+        let sceneKind = agentKind.liveSceneKindToBuild ?? .explore
         do {
             let sourceTabURL = videoQuizSession.frontTabURLOfTheFrontWindow()
             let heardText = videoQuizSession.whatTheQuizVideoInFrontJustSaid()

@@ -1648,6 +1648,11 @@ struct leanring_buddyTests {
     @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
         #expect(BackgroundAgentKind.experiment.stepNames == ["Grab the frame", "Build the experiment"])
         #expect(BackgroundAgentKind.experiment.finishedChipText == "Experiment ready")
+        #expect(BackgroundAgentKind.experiment.liveSceneKindToBuild == .simulation)
+        #expect(BackgroundAgentKind.threeDModel.liveSceneKindToBuild == .explore)
+        // Only the agent builds an experiment, so the keyword path answers "let me try it" as a plain question.
+        #expect(keywordPathSceneKind(for: "let me try it") == nil)
+        #expect(keywordPathSceneKind(for: "pop this out") == .framePopout)
 
         // A model needs the video it was built from in front. An experiment with no source tab may rise anywhere.
         let sourceTab = "https://www.youtube.com/watch?v=source"

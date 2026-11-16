@@ -163,6 +163,13 @@ enum LiveSceneAnswerJudge {
     }
 }
 
+/// The scene the keyword path builds for a transcript. An experiment is built only by its background agent, so a
+/// "let me try it" that reaches the keyword path, such as after the voice command router failed, is a plain question.
+nonisolated func keywordPathSceneKind(for transcript: String) -> LiveSceneKind? {
+    let requestedSceneKind = liveSceneKind(for: transcript)
+    return requestedSceneKind == .simulation ? nil : requestedSceneKind
+}
+
 /// The scene this transcript asks for, or nil when it asks for none. An animate request wins, then a pop-out, then a quiz,
 /// then a simulation. A quiz wins over a 3D scene, because "show me inside and quiz me" wants the quiz.
 /// A simulation wins over one too, because "let me try it in 3D" wants something to run.

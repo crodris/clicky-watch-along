@@ -112,6 +112,15 @@ enum BackgroundAgentKind {
         }
     }
 
+    /// The page `POST /live-scene` builds for a scene agent, and nil for an agent that builds no scene.
+    var liveSceneKindToBuild: LiveSceneKind? {
+        switch self {
+        case .threeDModel: return .explore
+        case .experiment: return .simulation
+        case .studyGuide, .studyGuideUpdate, .task: return nil
+        }
+    }
+
     var stepNames: [String] {
         steps.map(\.name)
     }
