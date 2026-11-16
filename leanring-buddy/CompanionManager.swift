@@ -2466,7 +2466,7 @@ final class CompanionManager: ObservableObject {
                 return .changed(state: nil)
             }
             // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
-            guard studyGuidePageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
+            guard pageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
                 return .failed(error: "The study guide page would not open", state: nil)
             }
             return .changed(state: nil)

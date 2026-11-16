@@ -235,8 +235,9 @@ nonisolated extension StudyGuideRecord {
     }
 }
 
-/// The app opens a guide's page with NSWorkspace, which runs any URL scheme, so it opens only an https page on Notion.
-nonisolated func studyGuidePageURLIsOnNotion(_ pageURL: URL) -> Bool {
+/// The app opens a guide's or a task agent's page with NSWorkspace, which runs any URL scheme, so it keeps only an
+/// https page on Notion.
+nonisolated func pageURLIsOnNotion(_ pageURL: URL) -> Bool {
     guard pageURL.scheme?.lowercased() == "https", let host = pageURL.host?.lowercased() else { return false }
     return ["notion.so", "notion.com"].contains { notionHost in host == notionHost || host.hasSuffix("." + notionHost) }
 }
@@ -441,7 +442,7 @@ nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws ->
         throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
     }
     let decodedStudyGuideRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
-    guard studyGuidePageURLIsOnNotion(decodedStudyGuideRecord.pageURL) else {
+    guard pageURLIsOnNotion(decodedStudyGuideRecord.pageURL) else {
         throw StudyGuideError.pageIsNotOnNotion
     }
     return decodedStudyGuideRecord

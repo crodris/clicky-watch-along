@@ -1382,9 +1382,9 @@ struct leanring_buddyTests {
         #expect(throws: StudyGuideError.pageIsNotOnNotion) {
             try studyGuideRecord(statusCode: 200, responseData: fileReplyData)
         }
-        #expect(studyGuidePageURLIsOnNotion(try #require(URL(string: "https://app.notion.com/p/Guide-419eb398"))))
-        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "http://www.notion.so/p1"))))
-        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "https://notnotion.so/p1"))))
+        #expect(pageURLIsOnNotion(try #require(URL(string: "https://app.notion.com/p/Guide-419eb398"))))
+        #expect(!pageURLIsOnNotion(try #require(URL(string: "http://www.notion.so/p1"))))
+        #expect(!pageURLIsOnNotion(try #require(URL(string: "https://notnotion.so/p1"))))
     }
 
     @Test func aHandleTheWorkerRefusesCountsAsAGuideThatIsGone() async throws {
@@ -1489,6 +1489,18 @@ struct leanring_buddyTests {
         #expect(taskAgentPageInputProblem(["title": .string("Catches"), "summary": .string("The ship was caught.")]) == nil)
         #expect(taskAgentPageInputProblem(["title": .string(" "), "summary": .string("")]) == "The page needs a title and summary. Write it once your research is done.")
         #expect(taskAgentPageInputProblem(["title": .string("Catches")])?.contains("summary") == true)
+    }
+
+    @Test func aTaskAgentKeepsOnlyAnHTTPSNotionPageFromTheWorker() async throws {
+        let notionReply = Data(#"{"pageURL":"https://www.notion.so/Catches-419eb398"}"#.utf8)
+        #expect(try taskAgentNotionPageURL(responseData: notionReply) == URL(string: "https://www.notion.so/Catches-419eb398"))
+        // "Open page" hands the URL to NSWorkspace, which would run any scheme.
+        #expect(throws: TaskAgentError.pageIsNotOnNotion) {
+            try taskAgentNotionPageURL(responseData: Data(#"{"pageURL":"file:///Applications/Calculator.app"}"#.utf8))
+        }
+        #expect(throws: TaskAgentError.replyHadNoPageURL) {
+            try taskAgentNotionPageURL(responseData: Data(#"{"ok":true}"#.utf8))
+        }
     }
 
     @Test func aTaskAgentSpeaksAtMostThreeSentencesOfItsAnswer() async throws {
