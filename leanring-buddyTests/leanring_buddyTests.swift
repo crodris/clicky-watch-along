@@ -433,6 +433,27 @@ struct leanring_buddyTests {
         #expect(abs(justBeforeTheLoopRepeats.turnDegrees - 360) < 0.5)
     }
 
+    @Test func experimentLineBubblesEachLetterUpOncePerLoopAndRestsForReduceMotion() async throws {
+        let statusLine = LiveSceneStatusLine.buildingYourExperiment
+        #expect(statusLine.text == "Building your experiment")
+        let letterCount = statusLine.displayedText.count
+        func pose(_ letterIndex: Int, atSeconds elapsedSeconds: Double) -> StatusLetterPose {
+            statusLine.letterPose(letterIndex: letterIndex, letterCount: letterCount, elapsedSeconds: elapsedSeconds)
+        }
+
+        // Reduce Motion shows the still moment, where every letter rests in place.
+        #expect((0..<letterCount).allSatisfy { pose($0, atSeconds: statusLine.stillMomentSeconds) == StatusLetterPose() })
+        // Over one loop after its delay, every letter rises about 4.5 points and glows at the top.
+        let sampleTimes = stride(from: 0.0, through: 6.6, by: 0.02)
+        for letterIndex in 0..<letterCount {
+            let highestRise = sampleTimes.map { -pose(letterIndex, atSeconds: $0).offsetY }.max() ?? 0
+            #expect(highestRise > 4 && highestRise <= 4.5, "letter \(letterIndex) rose \(highestRise)")
+        }
+        // Neighbors bubble at different times, so the line never rises as one block.
+        let firstRiseTimes = (0..<letterCount).map { letterIndex in sampleTimes.first { pose(letterIndex, atSeconds: $0).offsetY < -2 } ?? -1 }
+        #expect(Set(firstRiseTimes).count == letterCount)
+    }
+
     @Test func transcriptLineIsFullyTypedWithTheCaretAtTheEndBeforeItClears() async throws {
         let statusLine = LiveSceneStatusLine.readingTheTranscript
         let letterCount = statusLine.displayedText.count
@@ -466,7 +487,10 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut, .animatingIt])
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.popOutLines, whileShowing: .animatingIt) == nil)
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .animatingIt) == .animatingIt)
-        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
+        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .buildingYourExperiment, .almostThere])
+        // The experiment build swaps its own line for "Almost there", so a push-to-talk press that hid it keeps it hidden.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourExperiment, with: .almostThere, whileShowing: .buildingYourExperiment) == .almostThere)
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourExperiment, with: .almostThere, whileShowing: nil) == nil)
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
@@ -1150,6 +1174,10 @@ struct leanring_buddyTests {
         #expect(rehearsalStepWait("+12.5 build me a 3D model").waitSeconds == 12.5)
         #expect(rehearsalStepWait("+12.5 build me a 3D model").step == "build me a 3D model")
         #expect(rehearsalStepWait("+8 &what did you find").step == "&what did you find")
+        // Steps written as "a | b" arrive with spaces, and every prefix must still be read.
+        #expect(rehearsalStepWait(" +8 make the angle 60 degrees ").waitSeconds == 8)
+        #expect(rehearsalStepWait(" +8 make the angle 60 degrees ").step == "make the angle 60 degrees")
+        #expect(rehearsalStepWait(" ?{answer} ").step == "?{answer}")
         #expect(rehearsalStepWait("build me a 3D model").waitSeconds == 0)
         #expect(rehearsalStepWait("+ten build it").step == "+ten build it")
         #expect(rehearsalStepWait("+inf build it").waitSeconds == 0)
@@ -1806,4 +1834,151 @@ struct leanring_buddyTests {
         #expect(store.agents[0].stepStatuses.isEmpty)
     }
 
+    @Test func tryItPhrasesBuildASimulationAndOrdinaryTalkDoesNot() async throws {
+        for transcript in ["let me try it", "Let me try it.", "let me play with it", "Can I try this?", "can I try", "Let me try.", "simulate this", "okay, let me try this out"] {
+            #expect(liveSceneKind(for: transcript) == .simulation, "\(transcript)")
+        }
+        // "Let me try to ..." and a how-to question are ordinary talk, and the older triggers keep their kinds.
+        #expect(liveSceneKind(for: "let me try to understand this") == nil)
+        // A try phrase in the middle of ordinary talk would start a 20 second, $0.37 build.
+        #expect(liveSceneKind(for: "let me try that again") == nil)
+        #expect(liveSceneKind(for: "can I try this on my phone") == nil)
+        #expect(liveSceneKind(for: "let me try it myself later") == nil)
+        // Up to two short endings still count, and the bare form is only "let me try" or "can I try".
+        for transcript in ["let me try it myself", "let me try it, please", "let me try it out now", "can I try it too"] {
+            #expect(liveSceneKind(for: transcript) == .simulation, "\(transcript)")
+        }
+        #expect(liveSceneKind(for: "let me play") == nil)
+        #expect(liveSceneKind(for: "can I play") == nil)
+        #expect(liveSceneKind(for: "can we simulate this circuit") == .simulation)
+        #expect(liveSceneKind(for: "how do I simulate this in python") == nil)
+        #expect(liveSceneKind(for: "can I try the other tab") == nil)
+        #expect(liveSceneKind(for: "show me this in 3D") == .explore)
+        #expect(liveSceneKind(for: "let me try it in 3D") == .simulation)
+        #expect(liveSceneKind(for: "quiz me, then let me try it") == .quiz)
+        // Only a simulation asks the Worker for a simulation page.
+        #expect(LiveSceneKind.simulation.workerRequestKind == "simulation")
+        for modelKind in [LiveSceneKind.explore, .quiz, .framePopout, .animatedFramePopout] {
+            #expect(modelKind.workerRequestKind == "model")
+        }
+    }
+
+    @Test func aFinishedRunPostsReadoutsThatBecomeOneShortSpokenLine() async throws {
+        let readouts = SimulationReadout.readouts(fromPageJSON: """
+        [{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
+         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]
+        """)
+        #expect(readouts.map(\.label) == ["Landing distance", "Peak height", "Fourth"])
+        // A page that posts nothing usable gets no event, and a label is cut to a spoken length.
+        #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[]}") == nil)
+        #expect(LiveScenePageEvent(messageBody: "runFinished:not json") == nil)
+        #expect(LiveScenePageEvent(messageBody: "guessSkipped") == .simulationGuessSkipped)
+        #expect(SimulationReadout.readouts(fromPageJSON: "[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]").first?.label.count == 40)
+
+        #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters.")
+        #expect(simulationReadoutSpokenLine(for: [SimulationReadout(label: "Energy", value: 3, unit: "J")]) == "That run gave an energy of 3 joules.")
+        #expect(simulationReadoutSpokenLine(for: []) == nil)
+    }
+
+    @Test func simulationToolsAreOfferedFromThePageAndTheAppAndChipTheirCall() async throws {
+        let call = { (name: String, input: [String: JSONValue]) in VoiceToolCall(id: "sim", name: name, input: input) }
+        #expect(pageVoiceToolNames.contains("set_control"))
+        #expect(pageVoiceToolNames.contains("run_simulation"))
+        #expect(call("set_control", ["name": .string("angle"), "value": .number(45)]).chipPhrase == "Setting angle to 45")
+        #expect(call("set_control", ["name": .string("mass"), "value": .number(2.5)]).chipPhrase == "Setting mass to 2.5")
+        #expect(call("set_control", ["name": .string("angle")]).chipPhrase == nil)
+        #expect(call("run_simulation", [:]).chipPhrase == "Running it")
+        #expect(pageVoiceToolNames.contains("set_labels"))
+        #expect(call("set_labels", ["visible": .bool(true)]).chipPhrase == "Showing the labels")
+        #expect(call("set_labels", ["visible": .bool(false)]).chipPhrase == "Hiding the labels")
+        #expect(call("build_simulation", [:]).chipPhrase == nil)
+
+        let openQuestion = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)
+        let noQuestion = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(AppVoiceTool.available(in: noQuestion).contains(.buildSimulation))
+        #expect(!AppVoiceTool.available(in: openQuestion).contains(.buildSimulation))
+        #expect(AppVoiceTool.buildNewScene.descriptor.description.contains("build_simulation"))
+        #expect(AppVoiceTool.buildSimulation.descriptor.description.contains("let me try it"))
+    }
+
+    @Test func aRunReportCarriesThePastRunsAndHowAChallengeTryWent() async throws {
+        let missedReport = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Landing distance","value":40.8,"unit":"m"}],
+         "pastRuns":[{"controls":[{"label":"Launch angle","value":45,"unit":"degrees"}],"readouts":[{"label":"Landing distance","value":40.8,"unit":"m"}]},
+                     {"controls":[{"label":"Launch angle","value":30,"unit":"degrees"}],"readouts":[{"label":"Landing distance","value":35.3,"unit":"m"}]},
+                     {"controls":[],"readouts":[]},{"controls":[],"readouts":[]}],
+         "challenge":{"status":"missed","attempts":2,"difference":10.8,"unit":"m"}}
+        """))
+        #expect(missedReport.pastRuns.count == 4)
+        #expect(missedReport.pastRuns.map(\.trial) == [4, 3, 2, 1])
+        #expect(missedReport.pastRuns[1].controlSettings == [SimulationReadout(label: "Launch angle", value: 30, unit: "degrees")])
+        #expect(missedReport.challengeOutcome == .missed(attempts: 2, difference: 10.8, unit: "m"))
+        #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[{\"label\":\"Range\",\"value\":12,\"unit\":\"m\"}],\"challenge\":{\"status\":\"hit\",\"attempts\":3}}")
+            == .simulationRunFinished(try #require(SimulationRunReport(pageJSON: "{\"readouts\":[{\"label\":\"Range\",\"value\":12,\"unit\":\"m\"}],\"challenge\":{\"status\":\"hit\",\"attempts\":3}}"))))
+        // A challenge entry the page got wrong is read as no challenge, never as a hit.
+        for brokenChallenge in [#"{"status":"hit","attempts":0}"#, #"{"status":"missed","attempts":1}"#, #"{"status":"won","attempts":1}"#] {
+            let report = SimulationRunReport(pageJSON: #"{"readouts":[{"label":"Range","value":12,"unit":"m"}],"challenge":"# + brokenChallenge + "}")
+            #expect(report?.challengeOutcome == nil, "\(brokenChallenge)")
+        }
+
+        #expect(simulationChallengeSpokenLine(for: .missed(attempts: 2, difference: 10.8, unit: "m")) == "That was 10.8 meters over the target. Try again.")
+        #expect(simulationChallengeSpokenLine(for: .missed(attempts: 1, difference: -0.25, unit: "s")) == "That was 0.25 seconds under the target. Try again.")
+        #expect(simulationChallengeSpokenLine(for: .hit(attempts: 1)) == "You hit the target on the first try.")
+        #expect(simulationChallengeSpokenLine(for: .hit(attempts: 3)) == "You hit the target in 3 tries.")
+    }
+
+    @Test func theLessonKeepsTheFirstGuessAndTheCheckReadsItsTag() async throws {
+        var lesson = SimulationLesson(predictionQuestion: "Will 30 or 60 degrees land farther?", physicsExplanation: "Both angles split the speed the same way.")
+        #expect(lesson.guessInvitation == "Will 30 or 60 degrees land farther? What's your guess?")
+        let blankGuessWasTaken = lesson.recordGuess("   ")
+        let firstGuessWasTaken = lesson.recordGuess("60 goes farther")
+        let secondGuessWasTaken = lesson.recordGuess("actually 30")
+        #expect(!blankGuessWasTaken)
+        #expect(firstGuessWasTaken)
+        #expect(!secondGuessWasTaken)
+        #expect(lesson.guess == .heard("60 goes farther"))
+
+        let runReport = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Range","value":35.31,"unit":"m"}],"pastRuns":[{"controls":[{"label":"Launch <angle>","value":60,"unit":"degrees"}],"readouts":[{"label":"Range","value":35.31,"unit":"m"}]}]}
+        """))
+        let userPrompt = simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport)
+        #expect(userPrompt.contains("<guess>60 goes farther</guess>"))
+        // The question is page text too, so it sits inside a data tag the system prompt names.
+        #expect(userPrompt.contains("<question>Will 30 or 60 degrees land farther?</question>"))
+        #expect(simulationPredictionCheckSystemPrompt.contains("<question>"))
+        #expect(userPrompt.contains("trial 1: Launch  angle  60 degrees gave Range 35.31 m"))
+        lesson.guess = .skipped
+        #expect(simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport).contains("(they did not guess)"))
+
+        #expect(SimulationPredictionCheck(replyText: "[SETTLED] You guessed 60, and both tied.") == SimulationPredictionCheck(spokenLine: "You guessed 60, and both tied.", predictionIsSettled: true))
+        #expect(SimulationPredictionCheck(replyText: " [OPEN] Now try 30 degrees.") == SimulationPredictionCheck(spokenLine: "Now try 30 degrees.", predictionIsSettled: false))
+        // Clicky is talking to the learner, so the check speaks to them as "you" (a run said "Their guess is about...").
+        #expect(simulationPredictionCheckSystemPrompt.contains("talk to the learner directly as \"you\""))
+        // With no tag the lesson keeps checking, so a confused reply never skips ahead.
+        #expect(SimulationPredictionCheck(replyText: "They tied.").predictionIsSettled == false)
+    }
+
+    @Test func recordGuessIsOfferedOnlyWhileASimulationWaitsForAGuess() async throws {
+        var context = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        #expect(!AppVoiceTool.available(in: context).contains(.recordGuess))
+        context.simulationIsWaitingForAGuess = true
+        #expect(AppVoiceTool.available(in: context).contains(.recordGuess))
+        context.quizQuestionIsOpen = true
+        #expect(!AppVoiceTool.available(in: context).contains(.recordGuess))
+        #expect(VoiceToolCall(id: "guess", name: "record_guess", input: ["guess": .string("60")]).chipPhrase == "Got your guess")
+        #expect(AppVoiceTool.recordGuess.descriptor.description.contains("predictionQuestion"))
+    }
+
+    @Test func aLongSpokenLineEndsAtItsLastWholeSentence() async throws {
+        let firstSentence = "Your guess didn't quite match, since 60 degrees and 30 degrees both landed at 35.31 meters."
+        let secondSentence = " The steeper shot stays up longer but moves forward more slowly, so the two angles balance out and land on the same spot every time."
+        let longLine = firstSentence + secondSentence
+        #expect(longLine.count > 200)
+
+        #expect(spokenTextCutAtASentenceEnd(longLine, longestLength: 200) == firstSentence)
+        // The period inside 35.31 is not a sentence end, so a limit just past it keeps nothing broken.
+        #expect(spokenTextCutAtASentenceEnd("It landed at 35.31 meters away from the cannon", longestLength: 20) == "It landed at 35.31")
+        #expect(spokenTextCutAtASentenceEnd("Short line.", longestLength: 300) == "Short line.")
+        #expect(SimulationPredictionCheck(replyText: "[SETTLED] " + longLine + " " + longLine).spokenLine.hasSuffix("every time."))
+    }
 }

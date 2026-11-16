@@ -41,8 +41,9 @@ final class LiveSceneClient {
     }
 
     /// Past 60 seconds the request times out and Clicky says it couldn't build the scene.
-    func requestLiveScene(question: String, cursorScreenJPEGData: Data) async throws -> LiveScenePage {
-        let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData)
+    /// `sceneKind` picks a 3D model or, for `.simulation`, a page the learner can run.
+    func requestLiveScene(question: String, cursorScreenJPEGData: Data, sceneKind: LiveSceneKind) async throws -> LiveScenePage {
+        let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData, sceneKind: sceneKind)
         let responseData = try await postJSON(
             url: liveSceneURL,
             body: body,
@@ -81,11 +82,12 @@ final class LiveSceneClient {
         return URLSession(configuration: configuration)
     }
 
-    private func sceneRequestBody(question: String, cursorScreenJPEGData: Data) throws -> Data {
+    private func sceneRequestBody(question: String, cursorScreenJPEGData: Data, sceneKind: LiveSceneKind) throws -> Data {
         let body = [
             "question": question,
             "screenshotBase64": cursorScreenJPEGData.base64EncodedString(),
             "screenshotMediaType": "image/jpeg",
+            "kind": sceneKind.workerRequestKind,
         ]
         return try JSONSerialization.data(withJSONObject: body)
     }

@@ -82,7 +82,7 @@
     },
     {
       "name": "build_new_scene",
-      "description": "Build a brand new 3D model from scratch, which takes about 10 seconds. Use it only when the learner wants a different model or a 3D view of something not on screen yet, never to turn, zoom, or open the model already showing.",
+      "description": "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. When they want to try it, play with it, or simulate it, use build_simulation instead. Never use it to turn, zoom, or open the model already showing.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -94,6 +94,16 @@
         "required": [
           "asQuiz"
         ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_simulation",
+      "description": "Build a playable simulation of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It pauses the video and takes about 20 seconds. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
       },
       "readOnly": false
     },

@@ -71,6 +71,7 @@ private struct StatusLetter: View {
     private var letterFont: Font {
         switch statusLine {
         case .poppingItOut, .buildingYourScene: return .system(size: 19, weight: .black, design: .rounded)
+        case .buildingYourExperiment: return .system(size: 19, weight: .heavy, design: .rounded)
         case .animatingIt: return .system(size: 19, weight: .heavy, design: .rounded).italic()
         case .readingYourScreen: return .system(size: 16, weight: .heavy, design: .monospaced)
         case .almostThere: return .system(size: 19, weight: .black).italic()
@@ -144,6 +145,7 @@ private struct StatusIconTile: View {
             case .animatingIt: StatusIconDrawing.drawFlowingStreams(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .readingYourScreen: StatusIconDrawing.drawScanningScreen(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .buildingYourScene: StatusIconDrawing.drawAssemblingCube(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
+            case .buildingYourExperiment: StatusIconDrawing.drawBubblingFlask(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .almostThere: StatusIconDrawing.drawFillingRing(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .readingTheTranscript: StatusIconDrawing.drawHighlightedPage(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .pickingQuizSpots: StatusIconDrawing.drawMagnifierSweep(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
@@ -382,6 +384,42 @@ private enum StatusIconDrawing {
             facePath.closeSubpath()
             context.fill(facePath, with: .color(face.color.opacity(opacity)))
         }
+    }
+
+    // MARK: Building your experiment: bubbles rise through the liquid in a flask and out of its neck
+
+    static func drawBubblingFlask(in context: inout GraphicsContext, palette: StatusLabelPalette, elapsedSeconds: Double) {
+        var flaskPath = Path()
+        flaskPath.move(to: CGPoint(x: 10.5, y: 3)); flaskPath.addLine(to: CGPoint(x: 10.5, y: 9.5))
+        flaskPath.addLine(to: CGPoint(x: 4, y: 21.5)); flaskPath.addLine(to: CGPoint(x: 22, y: 21.5))
+        flaskPath.addLine(to: CGPoint(x: 15.5, y: 9.5)); flaskPath.addLine(to: CGPoint(x: 15.5, y: 3))
+        flaskPath.closeSubpath()
+        context.fill(flaskPath, with: .color(palette.washColor))
+
+        // The liquid fills the flask from the bottom up to y 15.
+        var liquidContext = context
+        liquidContext.clip(to: flaskPath)
+        liquidContext.fill(Path(CGRect(x: 3, y: 15, width: 20, height: 7)), with: .color(palette.lightColor))
+
+        // Three bubbles rise from the liquid and fade out at the neck, each on its own phase so they never move together.
+        for (bubbleIndex, bubbleX) in [10.0, 13.5, 16.0].enumerated() {
+            let riseFraction = (elapsedSeconds / 1.5 + Double(bubbleIndex) * 0.37).truncatingRemainder(dividingBy: 1)
+            let bubbleY = 20 - 17 * riseFraction
+            // A bubble drifts toward the middle as it climbs, since the neck is narrow.
+            let driftedX = bubbleX + (13 - bubbleX) * min(1, riseFraction * 1.6)
+            let bubbleRadius = 1.2 + 0.6 * riseFraction
+            var bubbleContext = context
+            bubbleContext.opacity = min(1, (1 - riseFraction) / 0.25)
+            bubbleContext.fill(
+                Path(ellipseIn: CGRect(x: driftedX - bubbleRadius, y: bubbleY - bubbleRadius, width: bubbleRadius * 2, height: bubbleRadius * 2)),
+                with: .color(palette.iconColor)
+            )
+        }
+
+        context.stroke(flaskPath, with: .color(palette.textColor), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
+        var rimPath = Path()
+        rimPath.move(to: CGPoint(x: 9, y: 3)); rimPath.addLine(to: CGPoint(x: 17, y: 3))
+        context.stroke(rimPath, with: .color(palette.textColor), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
     }
 
     // MARK: Animating it: particles stream along three curved paths, like the flows on the pop-out

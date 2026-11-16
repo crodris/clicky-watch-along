@@ -325,6 +325,29 @@ function framePartsCase(id: string, frameFileName: string, expected: FramePartsE
   };
 }
 
+/** A "let me try it" request over a physics frame. The reply must hold a page with the controls the app's panel reads. */
+function simulationCase(id: string, frameFileName: string, description: string): BenchCase {
+  return {
+    id,
+    route: "/live-scene",
+    description,
+    requestBody: () => ({
+      question: "let me try it",
+      screenshotBase64: fixtureBase64(frameFileName),
+      screenshotMediaType: "image/jpeg",
+      kind: "simulation",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const html = typeof reply?.html === "string" ? reply.html : "";
+      const quiz = isRecord(reply?.quiz) ? reply.quiz : {};
+      const hasEveryPart = [/\bcontrols\s*[:=]/, /\bsetControl\s*[(:=]/, /\brun\s*[(:=]/].every((pattern) => pattern.test(html));
+      const passed = hasEveryPart && typeof quiz.question === "string";
+      return { passed, detail: passed ? `prediction: ${String(quiz.question)}` : "no simulation page or prediction" };
+    },
+  };
+}
+
 type PictureFlowsExpectation =
   | { kind: "nothingFlows" }
   | { kind: "flows"; colors: string[]; styles: string[] };
@@ -505,6 +528,11 @@ const benchCases: BenchCase[] = [
       return { passed, detail: passed ? `answer ${String(quiz.answerLabel)}` : "no page or quiz" };
     },
   },
+  simulationCase("simulation-projectile", "projectile-frame.jpg", "Builds a simulation over a cannon frame for \"let me try it\""),
+  simulationCase("simulation-lever", "lever-frame.jpg", "Builds a simulation over a lever frame for \"let me try it\""),
+  simulationCase("simulation-pendulum", "pendulum-frame.jpg", "Builds a simulation over a pendulum frame for \"let me try it\""),
+  simulationCase("simulation-dissolving", "dissolving-frame.jpg", "Builds a dissolving experiment over a hot and cold water frame for \"let me try it\""),
+  simulationCase("simulation-cooling", "cooling-frame.jpg", "Builds a cooling experiment over a cocoa mug frame for \"let me try it\""),
   {
     id: "voice-command",
     route: "/voice-command",

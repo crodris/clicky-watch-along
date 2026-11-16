@@ -45,6 +45,25 @@ Add "quiz me" to the request, and one label shows as "?" for you to name.
 Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
+**Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, or a cup of cocoa cooling, end what you say with "let me try it" or "let me play with it", or say "simulate this".
+Clicky pauses the video, and a hands-on experiment of that idea rises out of it, with sliders for the things you can change and a Run button.
+GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
+Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.
+It works like a real experiment, in four steps:
+1. Clicky asks a hypothesis to test, like "Will 30 or 60 degrees send the ball farther?", and waits for your guess.
+   Run stays locked until you answer out loud, or click it to skip.
+2. Once you guess, a dashed line shows where the ball will go as you drag.
+   Each run leaves a faded path and adds a row to a small results table, so you can compare trials.
+3. When your trials answer the question, Clicky says whether your guess was right and why.
+   If they do not answer it yet, Clicky says which setting to try next.
+4. Then comes a challenge, like "Can you land the ball 30 meters away?".
+   The dashed line hides, so you aim from your earlier trials, and Clicky counts your tries and plays a chime on a hit.
+
+The parts have no labels at first, so nothing covers the experiment, and saying "show the labels" brings them back.
+You can say "make it 45 degrees" or "run it" instead of using the sliders.
+The panel looks the same on every experiment, because the app draws it, not the model.
+Escape closes it, and the video picks back up.
+
 **Talk to what's already on screen.** Once a 3D model is up, or a video is playing in Chrome on any site, short commands change it right away instead of building something new.
 Say "turn it to the left", "zoom in on the wing", "pull it apart", or "show me inside", and the model moves in about a second.
 Say "no, the other way" and Clicky undoes its last turn.
@@ -56,7 +75,7 @@ Asking for a different model still builds a new scene.
 This follows Wes Bos's WebMCP demo, where a fast model calls small tools on a 3D page.
 
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
-That covers popping out an image, reading your screen, building a 3D scene, reading a video's transcript, and picking quiz spots.
+That covers popping out an image, reading your screen, building a 3D scene or an experiment, reading a video's transcript, and picking quiz spots.
 While a label shows, its icon sits where Clicky's blue triangle usually is, and the triangle comes back when the step is done.
 
 **Famous places from Google's 3D scan.** Say "show me" over a frame of a famous place, like the Eiffel Tower, and Clicky shows Google's photorealistic 3D scan of it instead of building a model.

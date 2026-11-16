@@ -15,7 +15,7 @@ A request that needs a new scene or a screenshot answer hands off to the old pat
   A voice pause or play drops Clicky's own pause record on that tab.
 - `voice-handoff` sends "show me a different model", "pop this out", and questions about the screen to the old path.
 - `voice-quiz-controls` lets the judge hear skip, repeat, a hint request, or a view command during a quiz question.
-- `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `answer_with_screen`, `show_ready_model`, `hear_task_answer`) whose own scene, speech, status line, or spinner follows.
+- `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `build_simulation`, `answer_with_screen`, `show_ready_model`, `hear_task_answer`) whose own scene, speech, status line, or spinner follows.
 - `voice-debug-log` prints the full JSON of each reply and tool result when the panel's "Log tool call JSON" switch is on (Debug builds).
 - `voice-debug-mcp` serves the same tools at `http://127.0.0.1:8790/mcp` in Debug builds launched with `--voice-tool-debug-server`, which `app-launch` passes.
 
@@ -42,7 +42,7 @@ Preconditions:
 - **Video tools in the app.** With a video playing in Chrome's front tab, on YouTube and again on another site such as a Wikimedia Commons video file, run `$V app-launch "go back ten seconds|pause it"`.
   The log shows `seek_relative(seconds: -10)` and `pause_video()`, and the video's time went back about 10 seconds.
 - **Debug MCP endpoint.** While the Debug app runs, post `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` to `http://127.0.0.1:8790/mcp` with `content-type: application/json`.
-  The result lists the page tools of the scene on screen and the app tools that can work now, without `answer_with_screen` and `build_new_scene`.
+  The result lists the page tools of the scene on screen and the app tools that can work now, without `answer_with_screen`, `build_new_scene`, and `build_simulation`.
   Then post `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rotate_model","arguments":{"yawDegrees":-45}}}`.
   The result's text is `{"ok":true,"state":{...}}` with `yawDegrees` 45 lower than before, and the model turns on screen.
   The same request with an `Origin` header gets HTTP 403.

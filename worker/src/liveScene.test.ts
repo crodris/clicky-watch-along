@@ -135,6 +135,18 @@ const sceneQuiz = { question: "What is this?", answerLabel: "Valve", functionWor
 
 const sceneModelReply = "```html\n" + scenePage + "\n```\n```json\n" + JSON.stringify(sceneQuiz) + "\n```";
 
+const simulationPage = scenePage.replace(
+  "reveal() {},",
+  `reveal() {},
+  controls: [{ name: "angle", label: "Launch angle", min: 5, max: 85, step: 1, value: 45, unit: "degrees" }],
+  setControl(name, value) { return name === "angle"; },
+  run() { return Promise.resolve(); },
+  getState() { return { readouts: [] }; },`,
+);
+
+const simulationModelReply =
+  "```html\n" + simulationPage + "\n```\n```json\n" + JSON.stringify({ ...sceneQuiz, functionWords: [] }) + "\n```";
+
 const sceneKeys = { OPENAI_API_KEY: "openai-key", ANTHROPIC_API_KEY: "anthropic-key" };
 
 describe("handleLiveScene model setting", () => {
@@ -220,6 +232,60 @@ describe("handleLiveScene model setting", () => {
     for (const marker of ["rotateBy(", "endTour()", "getState()", "isOuterShell", "renderer.localClippingEnabled = true"]) {
       expect(systemText).toContain(marker);
     }
+  });
+
+  it("sends the simulation rules only when the request kind is simulation", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(simulationModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+    const sonnetKeys = { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" };
+
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sonnetKeys);
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "model" }), sonnetKeys);
+    await handleLiveScene(requestWithBody(sceneRequest), sonnetKeys);
+
+    const systemTexts = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1].body)).system[0].text as string);
+    expect(systemTexts[0]).toContain("THIS REQUEST IS A SIMULATION");
+    expect(systemTexts[0]).toContain("setControl(name, value)");
+    // The dashed path preview and the hidden labels are part of what a simulation is asked for.
+    expect(systemTexts[0]).toContain("dashed line");
+    expect(systemTexts[0]).toContain("setLabelsVisible(visible)");
+    expect(systemTexts[0]).toContain("hidden at first");
+    expect(systemTexts[0]).toContain("setPreviewVisible(visible)");
+    expect(systemTexts[0]).toContain("setChallengeVisible(visible)");
+    expect(systemTexts[0]).toContain("the marker and the whole path to it are in view");
+    // A screen that is not a science lesson still gets a science experiment, never a copy of the app.
+    expect(systemTexts[0]).toContain("build the science experiment behind what it shows");
+    expect(systemTexts[0]).toContain("Newton's law of cooling");
+    expect(systemTexts[0]).toContain("a grassy field for one that covers many meters");
+    expect(systemTexts[0]).toContain("keep the path it took as a thin, solid, faded line");
+    expect(systemTexts[1]).not.toContain("SIMULATION");
+    expect(systemTexts[2]).toBe(systemTexts[1]);
+  });
+
+  it("returns a simulation page that has its controls, and retries once before a 422 when it has none", async () => {
+    const goodFetch = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(simulationModelReply));
+    vi.stubGlobal("fetch", goodFetch);
+    const goodResponse = await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+    expect(goodResponse.status).toBe(200);
+    expect(goodFetch).toHaveBeenCalledTimes(1);
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const modelPageFetch = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", modelPageFetch);
+    const badResponse = await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+    expect(badResponse.status).toBe(422);
+    expect(await badResponse.json()).toEqual({ error: "The simulation page is missing controls" });
+    expect(modelPageFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a request kind it does not know", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "quiz" }), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refuses an unknown LIVE_SCENE_MODEL without calling a model", async () => {

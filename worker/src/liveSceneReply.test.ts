@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkLiveSceneModelReply } from "./liveSceneReply";
+import { checkLiveSceneModelReply, liveSceneRequestKindSchema } from "./liveSceneReply";
 
 const liveSceneQuiz = {
   question: "Here we are, inside the heart! What is this, and what does it do?",
@@ -91,5 +91,87 @@ describe("live scene reply", () => {
     const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageMissingFocusPart));
 
     expect(checkedReply.accepted).toBe(false);
+  });
+});
+
+const simulationPage = liveScenePage.replace(
+  "reveal() {},",
+  `reveal() {},
+  controls: [{ name: "angle", label: "Launch angle", min: 5, max: 85, step: 1, value: 45, unit: "degrees" }],
+  setControl(name, value) { return name === "angle"; },
+  run() { return Promise.resolve(); },
+  getState() { return { readouts: [] }; },
+  reset() {},`,
+);
+
+describe("simulation reply", () => {
+  it("accepts a simulation page with controls, setControl, and run", () => {
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(simulationPage), "simulation");
+
+    expect(checkedReply.accepted).toBe(true);
+  });
+
+  it.each([
+    ["controls", "controls: [{"],
+    ["setControl", "setControl(name, value)"],
+    ["run", "run()"],
+    ["readouts", "readouts: []"],
+  ])("rejects a simulation page that lacks %s, so the retry runs", (missingName, definition) => {
+    const replacement = definition.replace(missingName, "somethingElse");
+    const pageMissingTheName = simulationPage.replace(definition, replacement);
+    expect(pageMissingTheName).not.toBe(simulationPage);
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageMissingTheName), "simulation");
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: `The simulation page is missing ${missingName}` });
+  });
+
+  it("does not count a name that only appears in a comment", () => {
+    const pageWithControlsOnlyInAComment = simulationPage
+      .replace("controls: [{", "somethingElse: [{")
+      .replace("</body>", "<!-- controls are drawn by the app --></body>");
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithControlsOnlyInAComment), "simulation");
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: "The simulation page is missing controls" });
+  });
+
+  it("does not count run as a word inside another name or a comment", () => {
+    const pageWithOnlyOtherRuns = simulationPage
+      .replace("run() { return Promise.resolve(); },", "runner: 1,")
+      .replace("</body>", "<!-- the app drives the run --></body>");
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithOnlyOtherRuns), "simulation");
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: "The simulation page is missing run" });
+  });
+
+  it("rejects a simulation page that draws its own button, because the app draws the only panel", () => {
+    const pageWithItsOwnButton = simulationPage.replace("</body>", '<button id="go">Run</button></body>');
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithItsOwnButton), "simulation");
+
+    expect(checkedReply).toMatchObject({ accepted: false, reason: expect.stringContaining("<button") });
+  });
+
+  it("still accepts a model page that has no controls", () => {
+    expect(checkLiveSceneModelReply(liveSceneModelReply(liveScenePage), "model").accepted).toBe(true);
+    expect(checkLiveSceneModelReply(liveSceneModelReply(liveScenePage)).accepted).toBe(true);
+  });
+
+  it("rejects a plain model page when a simulation was asked for", () => {
+    expect(checkLiveSceneModelReply(liveSceneModelReply(liveScenePage), "simulation").accepted).toBe(false);
+  });
+});
+
+describe("live scene request kind", () => {
+  it("accepts both kinds and defaults to model", () => {
+    expect(liveSceneRequestKindSchema.parse("model")).toBe("model");
+    expect(liveSceneRequestKindSchema.parse("simulation")).toBe("simulation");
+    expect(liveSceneRequestKindSchema.parse(undefined)).toBe("model");
+  });
+
+  it("rejects a kind it does not know", () => {
+    expect(liveSceneRequestKindSchema.safeParse("quiz").success).toBe(false);
   });
 });

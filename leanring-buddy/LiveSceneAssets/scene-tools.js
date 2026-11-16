@@ -3,6 +3,12 @@
 // { name, description, inputSchema } shape WebMCP and MCP use. A tool is listed only while the page
 // has the primitives it needs, so a generated page that skips one simply offers fewer tools.
 // Every call ends the camera tour first, because the learner asking for a change means the tour is over.
+// A simulation page also defines liveScene.controls, setControl, and run. This file draws the one panel for them
+// (a slider per control, a Run button, the hypothesis while Clicky waits for the guess, the readouts, and a results table
+// of the trials), so the model never draws its own, and offers set_control, run_simulation, and set_labels.
+// It also runs the lesson: the learner guesses first, then explores with
+// the dashed path showing, then takes the page's challenge with the path hidden.
+// A finished run is posted to the app as "runFinished:<report JSON>" so Clicky can say the result.
 (() => {
   const liveScene = () => window.liveScene;
   const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -17,11 +23,90 @@
   let explodeAmount = 0;
   let insideIsOpen = false;
 
+  // A simulation page defines up to 3 controls, setControl, and run. Anything less is a plain 3D model.
+  const maximumControls = 3;
+  const isUsableControl = (control) => control !== null && typeof control === "object" && typeof control.name === "string"
+    && Number.isFinite(Number(control.min)) && Number.isFinite(Number(control.max)) && Number(control.max) > Number(control.min);
+  const simulationControls = () => {
+    const controls = liveScene()?.controls;
+    return Array.isArray(controls) ? controls.filter(isUsableControl).slice(0, maximumControls) : [];
+  };
+  const hasSimulation = () => simulationControls().length > 0
+    && typeof liveScene()?.setControl === "function"
+    && typeof liveScene()?.run === "function";
+  // A control's text is the page's and reaches the panel, the model's tool list, and Clicky's voice, so it is cut short.
+  const controlSummary = (control) => ({
+    name: control.name.slice(0, 40),
+    label: String(control.label ?? control.name).slice(0, 40),
+    min: Number(control.min),
+    max: Number(control.max),
+    step: Number(control.step) > 0 ? Number(control.step) : 1,
+    value: Number(control.value),
+    unit: String(control.unit ?? "").slice(0, 16),
+  });
+  // What the page reports is untrusted text that Clicky may say out loud, so it is cut to a few short, plain entries.
+  const currentReadouts = () => {
+    const readouts = liveScene()?.getState?.()?.readouts;
+    if (!Array.isArray(readouts)) return [];
+    return readouts
+      .filter((readout) => readout !== null && typeof readout === "object" && typeof readout.label === "string" && Number.isFinite(Number(readout.value)))
+      .slice(0, maximumControls)
+      .map((readout) => ({ label: readout.label.slice(0, 40), value: Number(readout.value), unit: String(readout.unit ?? "").slice(0, 16) }));
+  };
+
+  let runIsGoing = false;
+  let latestRunNumber = 0;
+  // A simulation hides its labels until the learner asks, so the model reads whether they show.
+  let labelsAreShown = false;
+
+  // The lesson moves one way: "guess" (Run and the dashed path are locked until the learner guesses or skips),
+  // "explore" (the path shows while dragging), "challenge" (the app starts it once the guess is settled, and the path
+  // hides so the learner reasons from past runs), and "done" after a hit.
+  let lessonStage = "guess";
+  let challengeAttempts = 0;
+  // The results table, like a lab notebook. The page keeps only the last 3 paths on screen.
+  const mostPastRuns = 5;
+  let trialsRun = 0;
+  // The app hands over the hypothesis it asks out loud, so the learner can read it while Clicky waits for the guess.
+  let predictionQuestion = "";
+  const pastRuns = [];
+  const setPathPreview = (visible) => liveScene()?.setPreviewVisible?.(visible);
+  // The page's challenge is untrusted text Clicky says out loud, so only a short prompt and real numbers pass.
+  const usableChallenge = () => {
+    const challenge = liveScene()?.challenge;
+    if (challenge === null || typeof challenge !== "object" || typeof challenge.prompt !== "string" || typeof challenge.readoutLabel !== "string") return null;
+    const target = Number(challenge.target);
+    const tolerance = Number(challenge.tolerance);
+    if (!Number.isFinite(target) || !(tolerance > 0) || challenge.prompt.trim() === "") return null;
+    return { prompt: challenge.prompt.trim().slice(0, 300), readoutLabel: challenge.readoutLabel.slice(0, 40), target, tolerance };
+  };
+  const challengeState = () => {
+    const challenge = usableChallenge();
+    if (challenge === null || (lessonStage !== "challenge" && lessonStage !== "done")) return null;
+    return { prompt: challenge.prompt, readoutLabel: challenge.readoutLabel, target: challenge.target, attempts: challengeAttempts, hit: lessonStage === "done" };
+  };
+  const leaveTheGuessStage = () => {
+    if (lessonStage !== "guess") return false;
+    lessonStage = "explore";
+    setPathPreview(true);
+    refreshPanel();
+    return true;
+  };
+
   const pageState = () => ({
     ...(liveScene()?.getState?.() ?? {}),
     labels: labelsOnScreen(),
     explodeAmount,
     insideIsOpen,
+    ...(hasSimulation() ? {
+      controls: simulationControls().map(controlSummary),
+      readouts: currentReadouts(),
+      runIsGoing,
+      labelsAreShown,
+      lessonStage,
+      challenge: challengeState(),
+      pastRuns,
+    } : {}),
   });
 
   const hasParts = () => Array.isArray(liveScene()?.parts) && liveScene().parts.length > 0 && Boolean(liveScene().THREE);
@@ -116,6 +201,228 @@
     }
     insideIsOpen = open;
   };
+
+  // The panel is styled like the scene labels, and sits on the document root so the rise animation, which moves
+  // the body, never carries it. It appears when the tour ends, which is when the overlay starts taking the mouse.
+  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null, challengeOrQuestionElement: null, pastRunsElement: null };
+  const decimalsOf = (step) => String(step).split(".")[1]?.length ?? 0;
+  const valueText = (control) => `${control.value.toFixed(decimalsOf(control.step))}${control.unit ? " " + control.unit : ""}`;
+
+  // The panel covers the bottom of the view, so the camera's view moves up by half the panel's height and the scene
+  // stays centered in the space above it. The view offset is part of the projection, so the labels the page projects follow.
+  let sceneLift = 0;
+  let panelHeightTheLiftFits = 0;
+  const applySceneLift = () => {
+    const camera = liveScene()?.camera;
+    const canvas = liveScene()?.renderer?.domElement;
+    if (typeof camera?.setViewOffset !== "function" || !canvas) return;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (width > 0 && height > 0) camera.setViewOffset(width, height, 0, sceneLift, width, height);
+  };
+  const keepSceneAbovePanel = () => {
+    const panelHeight = panel.element.offsetHeight;
+    if (panelHeight === panelHeightTheLiftFits) return;
+    panelHeightTheLiftFits = panelHeight;
+    const startLift = sceneLift;
+    const targetLift = Math.round((panelHeight + 16) / 2);
+    tween(0.4, (progress) => {
+      sceneLift = startLift + (targetLift - startLift) * progress;
+      applySceneLift();
+    });
+  };
+
+  const refreshPanel = () => {
+    if (!panel.element) return;
+    simulationControls().map(controlSummary).forEach((control, index) => {
+      const row = panel.controlRows[index];
+      if (!row) return;
+      row.valueElement.textContent = valueText(control);
+      if (Number(row.slider.value) !== control.value) row.slider.value = String(control.value);
+    });
+    panel.runButton.disabled = runIsGoing;
+    // Clicking the locked button skips the guess, so a voice mix-up never leaves the learner stuck.
+    panel.runButton.textContent = lessonStage === "guess" ? "Say your guess" : runIsGoing ? "Running" : "Run";
+    panel.runButton.style.background = lessonStage === "guess" ? "#8a94a3" : "#3380ff";
+    const challenge = challengeState();
+    const questionIsWaiting = lessonStage === "guess" && predictionQuestion !== "";
+    panel.challengeOrQuestionElement.style.display = challenge || questionIsWaiting ? "block" : "none";
+    if (questionIsWaiting) panel.challengeOrQuestionElement.textContent = predictionQuestion;
+    if (challenge) {
+      const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
+      panel.challengeOrQuestionElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
+    }
+    // One row per trial, oldest first like a lab notebook: the trial number, each variable, and the first measurement.
+    panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
+    if (pastRuns.length > 1) {
+      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[0]?.label ?? ""];
+      const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
+      const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), pastRun.readouts[0] ? withUnit(pastRun.readouts[0]) : ""])];
+      panel.pastRunsElement.style.gridTemplateColumns = `auto repeat(${columnLabels.length - 1}, minmax(0, 1fr))`;
+      panel.pastRunsElement.replaceChildren(...rows.flatMap((row, rowIndex) => row.map((cellText) => {
+        const cell = document.createElement("span");
+        cell.textContent = cellText;
+        cell.style.cssText = `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${rowIndex === 0 ? "opacity:0.6;" : ""}`;
+        return cell;
+      })));
+    }
+    const readouts = currentReadouts();
+    panel.readoutsElement.replaceChildren(...readouts.map((readout) => {
+      const line = document.createElement("div");
+      line.style.cssText = "display:flex;gap:6px;white-space:nowrap;";
+      const labelElement = document.createElement("span");
+      labelElement.textContent = readout.label;
+      labelElement.style.opacity = "0.7";
+      const valueElement = document.createElement("span");
+      valueElement.textContent = `${readout.value} ${readout.unit}`.trim();
+      valueElement.style.fontWeight = "700";
+      line.append(labelElement, valueElement);
+      return line;
+    }));
+    panel.readoutsElement.style.display = readouts.length > 0 ? "flex" : "none";
+    keepSceneAbovePanel();
+  };
+
+  const ensurePanel = () => {
+    if (panel.element || !document.body || !hasSimulation()) return;
+    const element = document.createElement("div");
+    element.id = "clicky-simulation-panel";
+    element.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10;box-sizing:border-box;width:min(560px,calc(100vw - 32px));display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px;padding:10px 14px;border-radius:12px;background:rgba(250,246,240,0.96);color:#222;font:600 13px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
+    const style = document.createElement("style");
+    style.textContent = "#clicky-simulation-panel input[type=range]{width:100%;margin:4px 0 0;accent-color:#3380ff;cursor:pointer}#clicky-simulation-panel button{cursor:pointer}#clicky-simulation-panel button:hover:not(:disabled){filter:brightness(1.1)}#clicky-simulation-panel button:disabled{cursor:default;opacity:0.7}";
+    element.append(style);
+    // A press or wheel on the panel is the panel's. It must not turn or zoom the model behind it.
+    for (const eventName of ["pointerdown", "mousedown", "touchstart", "wheel"]) {
+      element.addEventListener(eventName, (event) => event.stopPropagation());
+    }
+    panel.controlRows = simulationControls().map((pageControl) => {
+      // The panel shows the cut text, and the slider hands the page its control's real name.
+      const control = controlSummary(pageControl);
+      const row = document.createElement("div");
+      row.style.cssText = "flex:1 1 140px;min-width:0;";
+      const heading = document.createElement("div");
+      heading.style.cssText = "display:flex;justify-content:space-between;gap:8px;white-space:nowrap;";
+      const labelElement = document.createElement("span");
+      labelElement.textContent = control.label;
+      const valueElement = document.createElement("span");
+      heading.append(labelElement, valueElement);
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = String(control.min);
+      slider.max = String(control.max);
+      slider.step = String(control.step);
+      slider.value = String(control.value);
+      slider.addEventListener("input", () => {
+        liveScene().endTour?.();
+        liveScene().setControl(pageControl.name, Number(slider.value));
+        refreshPanel();
+      });
+      row.append(heading, slider);
+      element.append(row);
+      return { slider, valueElement };
+    });
+    panel.runButton = document.createElement("button");
+    panel.runButton.style.cssText = "flex:0 0 auto;min-width:84px;padding:7px 18px;border:0;border-radius:8px;background:#3380ff;color:#fff;font:700 14px -apple-system,system-ui,sans-serif;";
+    panel.runButton.addEventListener("click", () => {
+      liveScene().endTour?.();
+      if (leaveTheGuessStage()) {
+        window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("guessSkipped");
+        return;
+      }
+      startRun();
+    });
+    panel.challengeOrQuestionElement = document.createElement("div");
+    panel.challengeOrQuestionElement.style.cssText = "display:none;flex-basis:100%;order:-1;color:#1f5fcc;font-weight:700;";
+    panel.readoutsElement = document.createElement("div");
+    panel.readoutsElement.style.cssText = "display:none;flex-basis:100%;flex-wrap:wrap;gap:4px 18px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
+    panel.pastRunsElement = document.createElement("div");
+    panel.pastRunsElement.style.cssText = "display:none;flex-basis:100%;gap:2px 14px;font-weight:500;font-variant-numeric:tabular-nums;";
+    element.append(panel.challengeOrQuestionElement, panel.runButton, panel.readoutsElement, panel.pastRunsElement);
+    document.documentElement.append(element);
+    panel.element = element;
+    // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
+    window.addEventListener("resize", () => requestAnimationFrame(applySceneLift));
+    refreshPanel();
+  };
+
+  // Plays the simulation once. A run that never reports its end is given up after 20 seconds, so Run unlocks.
+  // A newer run, from the button or the voice, replaces an older one, and the older one's end is ignored.
+  const startRun = () => {
+    const controlsAtTheStart = simulationControls().map(controlSummary).map(({ label, value, unit }) => ({ label, value, unit }));
+    // A run counts as a challenge try only when it started in the challenge, with the dashed path already hidden.
+    const runStartedInTheChallenge = lessonStage === "challenge";
+    runIsGoing = true;
+    latestRunNumber += 1;
+    const thisRunNumber = latestRunNumber;
+    refreshPanel();
+    // run() starts in this call, so the motion begins at once, and a throw ends the run like a rejection does.
+    let runResult;
+    try {
+      runResult = liveScene().run();
+    } catch (error) {
+      runResult = Promise.reject(error);
+    }
+    const runEnded = Promise.race([
+      Promise.resolve(runResult).then(() => "ended"),
+      new Promise((resolve) => setTimeout(() => resolve("timedOut"), 20000)),
+    ]);
+    runEnded.catch((error) => {
+      console.error("simulation run failed: " + error);
+      return "failed";
+    }).then((howTheRunEnded) => {
+      if (thisRunNumber !== latestRunNumber) return;
+      runIsGoing = false;
+      // A run that failed or never ended left the readouts from the run before, so it adds no trial and reports nothing.
+      const readouts = howTheRunEnded === "ended" ? currentReadouts() : [];
+      if (readouts.length === 0) {
+        if (howTheRunEnded === "ended") console.error("simulation run ended with no readouts");
+        refreshPanel();
+        return;
+      }
+      trialsRun += 1;
+      pastRuns.unshift({ trial: trialsRun, controls: controlsAtTheStart, readouts });
+      pastRuns.splice(mostPastRuns);
+      const report = { readouts, pastRuns, challenge: null };
+      if (runStartedInTheChallenge && lessonStage === "challenge") report.challenge = scoreTheChallengeRun(readouts);
+      refreshPanel();
+      window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("runFinished:" + JSON.stringify(report));
+    });
+  };
+
+  // One try at the challenge. A hit ends it and brings the dashed path back. The difference is the readout minus the target.
+  const scoreTheChallengeRun = (readouts) => {
+    const challenge = usableChallenge();
+    if (challenge === null) return null;
+    challengeAttempts += 1;
+    const wantedLabel = challenge.readoutLabel.trim().toLowerCase();
+    const readout = readouts.find((candidate) => candidate.label.trim().toLowerCase() === wantedLabel) ?? readouts[0];
+    const difference = readout.value - challenge.target;
+    const hit = Math.abs(difference) <= challenge.tolerance;
+    if (hit) {
+      lessonStage = "done";
+      setPathPreview(true);
+    }
+    return { status: hit ? "hit" : "missed", attempts: challengeAttempts, difference: Math.round(difference * 100) / 100, unit: readout.unit, readoutLabel: readout.label };
+  };
+
+  // The app starts the challenge once the guess is settled. The path hides so the learner reasons from past runs.
+  const startChallenge = () => {
+    const challenge = usableChallenge();
+    if (challenge === null || lessonStage !== "explore") return null;
+    lessonStage = "challenge";
+    challengeAttempts = 0;
+    setPathPreview(false);
+    liveScene().setChallengeVisible?.(true);
+    refreshPanel();
+    return challenge.prompt;
+  };
+
+  // The tour ends by itself or by a call, and either sets __tourFinished. The page defines liveScene during load, so wait for it.
+  const panelWatcher = setInterval(() => {
+    if (window.__tourFinished === true) ensurePanel();
+    if (panel.element) clearInterval(panelWatcher);
+  }, 150);
+  setTimeout(() => clearInterval(panelWatcher), 120000);
 
   const tools = [
     {
@@ -219,6 +526,66 @@
         return { ok: true };
       },
     },
+    {
+      name: "set_control",
+      // A getter, so the model reads the controls this page defines with their ranges. The state holds current values.
+      get description() {
+        const controlList = simulationControls().map(controlSummary)
+          .map((control) => `${control.name} (${control.label}, ${control.min} to ${control.max}${control.unit ? " " + control.unit : ""})`)
+          .join("; ");
+        return `Change one number of the simulation on screen and put it back at its start, without running it. The controls are: ${controlList}. The state's controls hold each one's current value. Use the control's name and a value in its unit.`;
+      },
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The name of one control from the description." },
+          value: { type: "number", description: "The new value in the control's unit. The page clamps it to the control's range." },
+        },
+        required: ["name", "value"],
+      },
+      isAvailable: hasSimulation,
+      run: (input) => {
+        const value = Number(input.value);
+        if (!Number.isFinite(value)) return { ok: false, error: "value must be a number" };
+        const name = String(input.name ?? "");
+        // The model saw each name cut to 40 characters, so it matches here on the cut name and the page gets its real one.
+        const control = simulationControls().find((candidate) => candidate.name === name || controlSummary(candidate).name === name);
+        if (!control || liveScene().setControl(control.name, value) === false) {
+          return { ok: false, error: `No control is named "${name.slice(0, 40)}". The controls are: ${simulationControls().map((candidate) => controlSummary(candidate).name).join(", ")}` };
+        }
+        refreshPanel();
+        return { ok: true };
+      },
+    },
+    {
+      name: "set_labels",
+      description: "Show or hide the part labels and their leader lines on the simulation. They are hidden at first, because they cover the setup, so show them only when the learner asks for labels or asks what the parts are. The state's labelsAreShown says whether they show now.",
+      inputSchema: {
+        type: "object",
+        properties: { visible: { type: "boolean", description: "true shows the labels, false hides them." } },
+        required: ["visible"],
+      },
+      isAvailable: () => typeof liveScene()?.setLabelsVisible === "function",
+      run: (input) => {
+        const visible = input.visible === true;
+        if (liveScene().setLabelsVisible(visible) === false) return stillLoading;
+        labelsAreShown = visible;
+        return { ok: true };
+      },
+    },
+    {
+      name: "run_simulation",
+      description: "Play the simulation on screen once from its start with the current controls. It takes a few seconds, and the state's readouts hold the result when it ends.",
+      inputSchema: { type: "object", properties: {} },
+      isAvailable: hasSimulation,
+      run: () => {
+        if (lessonStage === "guess") {
+          return { ok: false, error: "The learner has not guessed yet. Ask for their guess to the prediction question before running it." };
+        }
+        startRun();
+        return { ok: true };
+      },
+    },
   ];
 
   window.clickyTools = {
@@ -230,6 +597,7 @@
       if (!tool || !tool.isAvailable()) return { ok: false, error: `${name} is not available on this scene`, state: pageState() };
       try {
         liveScene().endTour?.();
+        ensurePanel();
         const outcome = tool.run(input && typeof input === "object" ? input : {});
         return { ...outcome, state: pageState() };
       } catch (error) {
@@ -237,5 +605,14 @@
       }
     },
     state: pageState,
+    // The app's side of the lesson. Neither is a model tool: the app calls them after it hears the guess or settles it.
+    simulation: {
+      guessHeard: () => leaveTheGuessStage(),
+      startChallenge,
+      showQuestion: (questionText) => {
+        predictionQuestion = String(questionText ?? "").trim().slice(0, 300);
+        refreshPanel();
+      },
+    },
   };
 })();

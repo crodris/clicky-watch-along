@@ -17,6 +17,8 @@ import Foundation
 enum LiveScenePageOnScreen {
     /// A page GPT wrote for /live-scene. It gets none of the bundled-page narration or taps.
     case generatedPage
+    /// A generated page with controls and a run. It gets no narration or taps either, only a line about each run's readouts.
+    case simulation
     case framePopout(VideoFramePopout)
     case landmark(FamousPlace)
 }
@@ -36,8 +38,13 @@ enum LiveScenePageEvent: Equatable {
     case returnFinished
     /// The label text comes from the page, so it is untrusted until matched against Clicky's parts list.
     case partTapped(untrustedLabel: String)
+    /// A simulation run ended. scene-tools.js posts the report, which holds the page's text and values.
+    case simulationRunFinished(SimulationRunReport)
+    /// The learner clicked the locked Run button, which skips the guess.
+    case simulationGuessSkipped
 
     private static let partTappedPrefix = "partTapped:"
+    private static let runFinishedPrefix = "runFinished:"
 
     init?(messageBody: Any) {
         guard let messageText = messageBody as? String else { return nil }
@@ -47,6 +54,15 @@ enum LiveScenePageEvent: Equatable {
         }
         if messageText == "returnFinished" {
             self = .returnFinished
+            return
+        }
+        if messageText == "guessSkipped" {
+            self = .simulationGuessSkipped
+            return
+        }
+        if messageText.hasPrefix(Self.runFinishedPrefix) {
+            guard let runReport = SimulationRunReport(pageJSON: String(messageText.dropFirst(Self.runFinishedPrefix.count))) else { return nil }
+            self = .simulationRunFinished(runReport)
             return
         }
         guard messageText.hasPrefix(Self.partTappedPrefix) else { return nil }
