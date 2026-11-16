@@ -279,6 +279,15 @@ describe("handleStudyGuide", () => {
       expect(fetchMockForTooLong).not.toHaveBeenCalled();
     }
 
+    for (const tooLateRequestBody of [
+      { ...validRequestBody, videoURL: videoURLOfLength(1_991), transcriptLines: [...transcriptLines, { seconds: 100_000, text: "the end" }] },
+      { ...validRequestBody, videoURL: videoURLOfLength(1_991), quizResults: [{ ...missedResult, askedAtSeconds: 100_000 }] },
+    ]) {
+      const fetchMockForTooLate = stubFetch();
+      expect((await handleStudyGuide(requestWithBody(tooLateRequestBody), notionEnvironment)).status).toBe(400);
+      expect(fetchMockForTooLate).not.toHaveBeenCalled();
+    }
+
     stubFetch();
     const longestAllowedResponse = await handleStudyGuide(
       requestWithBody({ ...validRequestBody, videoURL: videoURLOfLength(1_991) }),

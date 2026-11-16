@@ -33,7 +33,8 @@ const simulationMarkers = [
 ] as const;
 
 // The app draws the only control panel, so a second one from the page would show twice.
-// A page can draw a control as markup or with createElement, so both forms are refused.
+// A page can draw a control as markup or with createElement or createElementNS, so both forms are refused. The patterns
+// are lowercase because they run on the lowercased page.
 const controlElementNames = ["input", "button", "select", "textarea"] as const;
 const controlElementsASimulationMustNotDraw = controlElementNames.flatMap((controlElementName) => [
   { description: `<${controlElementName}`, pattern: new RegExp(`<${controlElementName}`) },

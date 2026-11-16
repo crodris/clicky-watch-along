@@ -43,9 +43,9 @@ function isYouTubeVideoURL(videoURL: string): boolean {
 }
 
 // Every point links to the video with "&t=<seconds>s" added, and Notion refuses a link URL over 2,000 characters, so
-// the check measures the link Notion receives, with a 27 hour timestamp and any non-ASCII characters percent-encoded.
+// the check measures the link Notion receives, with the latest timestamp allowed and any non-ASCII characters percent-encoded.
 function everyTimestampLinkFitsNotion(videoURL: string): boolean {
-  return isYouTubeVideoURL(videoURL) && videoTimestampURL(videoURL, 99_999).length <= longestNotionBlockText;
+  return isYouTubeVideoURL(videoURL) && videoTimestampURL(videoURL, latestTimestampSeconds).length <= longestNotionBlockText;
 }
 
 /**
@@ -59,8 +59,11 @@ const longestNotionBlockText = 2_000;
 /** A page id and its 64-character hex signature come to about 100 characters. */
 const longestPageHandle = 200;
 
+/** Past any video Clicky quizzes on, and the timestamp every link-length check measures with. */
+const latestTimestampSeconds = 99_999;
+
 const transcriptLineSchema = z.object({
-  seconds: z.number().nonnegative(),
+  seconds: z.number().nonnegative().max(latestTimestampSeconds),
   text: z.string().max(longestNotionBlockText),
 });
 
@@ -94,7 +97,7 @@ const quizResultSchema = z.object({
   question: z.string().max(longestNotionBlockText),
   answerLabel: z.string().max(longestNotionBlockText),
   explanation: z.string().max(longestNotionBlockText),
-  askedAtSeconds: z.number().nonnegative(),
+  askedAtSeconds: z.number().nonnegative().max(latestTimestampSeconds),
   result: z.enum(["gotIt", "missed", "skipped"]),
 });
 
@@ -387,8 +390,10 @@ async function trashNotionPage(notionAPIKey: string, pageId: string): Promise<No
   return await callNotion(notionAPIKey, "/study-guide", "PATCH", `/pages/${encodeURIComponent(pageId)}`, { in_trash: true });
 }
 
-/** Wraps text that came from the video's page in a tag, with every "<" replaced so the text cannot close the tag. */
-// "‹" reads as "<" to the model, so "if x < 5" keeps its meaning, but it cannot open or close a tag.
+/**
+ * Wraps text that came from the video's page in a tag, with every "<" replaced so the text cannot close the tag. "‹"
+ * reads as "<" to the model, so a caption like "if x < 5" keeps its meaning.
+ */
 function untrustedTextInTag(tagName: string, untrustedText: string): string {
   return `<${tagName}>\n${untrustedText.replaceAll("<", "‹")}\n</${tagName}>`;
 }

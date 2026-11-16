@@ -125,7 +125,7 @@ export async function requestAnthropicMessage(
       body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
     });
   } catch (error) {
-    // Without this, a DNS or connection failure reaches the app as a 500 carrying the raw error text.
+    // Without this, a DNS or connection failure reaches the app as the outer catch's generic 500, which does not name Anthropic.
     console.error(`[${routeName}] Anthropic request failed:`, error);
     return { ok: false, response: jsonResponse({ error: "Anthropic could not be reached" }, 502) };
   }
