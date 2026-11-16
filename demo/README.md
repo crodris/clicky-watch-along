@@ -61,6 +61,13 @@ demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw 50 &
 TRAILING_SECONDS=6 demo/scripts/record-shot.sh agents "find out how this catch compares to the first booster catch, and make me a Notion page about it|+15 build me a 3D model of this Starship|&put it back|what did you find" "https://x.com/SpaceX/status/2121715216597827756" "" 1110 680
 ```
 
+An experiment's control panel sits at the bottom of the MacBook screen, below the default recorded area, so a "let me try it" shot stretches the Chrome window to the bottom and records the lower 16:9 area instead.
+Its challenge target is new in every build, so a driver script reads the target from the voice tool endpoint and plays one miss and one hit.
+
+```bash
+DEMO_WINDOW_BOUNDS="0, 38, 1710, 1107" RECORDING_SOURCE_RECT="0,145,1710,962" TRAILING_SECONDS=45 demo/scripts/record-shot.sh trebuchet "+3 let me try it|&I think aiming higher will throw it farther|set the angle to 30 degrees and run it|+15 set the angle to 60 degrees and run it" "https://www.youtube.com/watch?v=jTBDc19eW2o" 384
+```
+
 Each shot writes `<shot>.mov` and `<shot>.events.txt` into `demo/public`.
 The script exits with an error, and keeps no events file, when the rehearsal never logs that it finished.
 The events file stamps each app log line with seconds since the recording started.
