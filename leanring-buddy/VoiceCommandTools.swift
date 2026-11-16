@@ -597,8 +597,24 @@ nonisolated enum VoiceCommandNextStep: Equatable, Sendable {
 /// from it, and none of them can shadow an app tool.
 nonisolated let pageVoiceToolNames: Set<String> = ["rotate_model", "zoom", "zoom_to_part", "reset_view", "explode_view", "set_inside_view", "set_control", "run_simulation", "set_labels"]
 
+/// A page's tool description is page text the model reads, so it is cut to a length that fits the bundled tools' own
+/// text, the longest being set_control's with three controls.
+nonisolated let longestPageToolDescription = 1000
+
+/// The Worker refuses a request with two tools of one name, which would send every command to the keyword path, so a
+/// page that lists a name twice keeps its first entry.
 nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
-    let knownPageTools = pageTools.filter { pageTool in pageVoiceToolNames.contains(pageTool.name) }
+    var pageToolNamesSeen: Set<String> = []
+    let knownPageTools = pageTools
+        .filter { pageTool in pageVoiceToolNames.contains(pageTool.name) && pageToolNamesSeen.insert(pageTool.name).inserted }
+        .map { pageTool in
+            VoiceToolDescriptor(
+                name: pageTool.name,
+                description: String(pageTool.description.prefix(longestPageToolDescription)),
+                inputSchema: pageTool.inputSchema,
+                readOnly: pageTool.readOnly
+            )
+        }
     return knownPageTools + appTools.map(\.descriptor)
 }
 

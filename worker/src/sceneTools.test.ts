@@ -106,6 +106,16 @@ describe("scene-tools.js simulation tools", () => {
     expect(toolNames(loadSceneTools(simulationPage({ controls: [] })).clickyTools)).not.toContain("run_simulation");
   });
 
+  it("keeps every tool description under the 1000 characters the app allows a page tool, even with 3 longest controls", () => {
+    const longControl = (index: number) => ({ name: `control_${index}_`.padEnd(40, "n"), label: "L".repeat(90), min: -100000, max: 100000, step: 0.001, value: 0, unit: "u".repeat(40) });
+    const { clickyTools } = loadSceneTools(simulationPage({ controls: [0, 1, 2].map(longControl), setLabelsVisible: () => true }));
+
+    const longestDescription = Math.max(...clickyTools.list().map((tool) => tool.description.length));
+
+    // longestPageToolDescription in VoiceCommandTools.swift. A longer description would be cut mid-sentence.
+    expect(longestDescription).toBeLessThanOrEqual(1000);
+  });
+
   it("lists set_labels only when the page can show and hide its labels, and tracks whether they show", () => {
     expect(toolNames(loadSceneTools(simulationPage()).clickyTools)).not.toContain("set_labels");
 
