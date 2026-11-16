@@ -305,6 +305,29 @@ describe("scene-tools.js simulation tools", () => {
     }
   });
 
+  it("declines a challenge about a readout the page does not report, so it never scores the wrong readout", () => {
+    const { clickyTools } = loadGuessedSimulation({
+      challenge: { ...rangeChallenge, readoutLabel: "Impact speed" },
+      getState: () => ({ readouts: [{ label: "Landing distance", value: 40.8, unit: "m" }] }),
+    });
+
+    expect(clickyTools.simulation.startChallenge()).toBeNull();
+    expect(clickyTools.state()).toMatchObject({ lessonStage: "explore", challenge: null });
+  });
+
+  it("reports no challenge outcome for a try whose readout the page stopped reporting", async () => {
+    let readouts = [{ label: "Landing distance", value: 40.8, unit: "m" }];
+    const { clickyTools, postedEvents } = loadGuessedSimulation({ challenge: rangeChallenge, getState: () => ({ readouts }) });
+    await finishARun(clickyTools, postedEvents);
+    clickyTools.simulation.startChallenge();
+
+    readouts = [{ label: "Flight time", value: 2, unit: "s" }];
+    const report = await finishARun(clickyTools, postedEvents);
+
+    expect(report.challenge).toBeNull();
+    expect(clickyTools.state()).toMatchObject({ challenge: { attempts: 0, hit: false } });
+  });
+
   it("counts each challenge try, says how far off a miss was, and ends on a hit", async () => {
     let landingDistance = 40.8;
     const setPreviewVisible = vi.fn();

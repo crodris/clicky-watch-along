@@ -432,8 +432,10 @@
   const scoreTheChallengeRun = (readouts) => {
     const challenge = usableChallenge();
     if (challenge === null) return null;
+    // A readout that is not the challenge's would be scored against the target in the wrong unit.
+    const readout = readouts[challengeReadoutIndex(readouts)];
+    if (readout === undefined) return null;
     challengeAttempts += 1;
-    const readout = readouts[challengeReadoutIndex(readouts)] ?? readouts[0];
     const difference = readout.value - challenge.target;
     const hit = Math.abs(difference) <= challenge.tolerance;
     if (hit) {
@@ -447,6 +449,8 @@
   const startChallenge = () => {
     const challenge = usableChallenge();
     if (challenge === null || lessonStage !== "explore") return null;
+    // A challenge about a readout the page never reports could not be hit, so the lesson ends without one.
+    if (challengeReadoutIndex(currentReadouts()) === -1) return null;
     lessonStage = "challenge";
     challengeAttempts = 0;
     setPathPreview(false);
