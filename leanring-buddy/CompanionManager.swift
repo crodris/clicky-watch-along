@@ -3033,8 +3033,8 @@ final class CompanionManager: ObservableObject {
             guard !agentWasCancelled else {
                 // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip. The tab
                 // showing the trashed page still moves to the new one, so the guide never has two tabs.
-                if let pageURLTheRevisionReplaces {
-                    _ = loadThePageInTheTabOfThePageItReplaces(studyGuideRecord.pageURL, replacedPageURL: pageURLTheRevisionReplaces)
+                if let replacingPageURL = pageURLTheRevisionReplaces {
+                    loadThePageInTheTabOfThePageItReplaces(studyGuideRecord.pageURL, replacingPageURL: replacingPageURL)
                 }
                 print("Study guide: kept \(studyGuideRecord.pageURL) for a cancelled agent, since its old page is already trashed")
                 return false
@@ -3059,12 +3059,11 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
-    /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
     /// Loads a revision's new page in the tab Clicky opened for the page it replaces, and files that tab under the new page.
     /// False when Clicky has no tab for the replaced page or the tab is gone.
-    private func loadThePageInTheTabOfThePageItReplaces(_ pageURL: URL, replacedPageURL: URL) -> Bool {
-        guard let replacedPageChromeTabID = notionPageChromeTabIDsByPageURL.removeValue(forKey: replacedPageURL),
+    @discardableResult
+    private func loadThePageInTheTabOfThePageItReplaces(_ pageURL: URL, replacingPageURL: URL) -> Bool {
+        guard let replacedPageChromeTabID = notionPageChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
               videoQuizSession.loadPageInChromeTab(pageURL, tabID: replacedPageChromeTabID) else {
             return false
         }
@@ -3072,6 +3071,8 @@ final class CompanionManager: ObservableObject {
         return true
     }
 
+    /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
+    /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
     private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
         let agentKind = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.kind ?? .studyGuide
         backgroundAgentStore.finish(agentID, with: result)
@@ -3081,7 +3082,7 @@ final class CompanionManager: ObservableObject {
             NSSound(named: "Tink")?.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
             var secondaryChipText = "· say open my study guide"
-            if let replacingPageURL, loadThePageInTheTabOfThePageItReplaces(pageURL, replacedPageURL: replacingPageURL) {
+            if let replacingPageURL, loadThePageInTheTabOfThePageItReplaces(pageURL, replacingPageURL: replacingPageURL) {
                 secondaryChipText = "· updated in its tab"
             } else if let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
