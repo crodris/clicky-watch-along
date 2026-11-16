@@ -67,6 +67,20 @@ describe("system prompt caching on the Anthropic calls", () => {
   });
 });
 
+describe("an error no route handles", () => {
+  it("answers 500 with a fixed message, never the raw error text", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("getaddrinfo ENOTFOUND api.anthropic.com");
+    }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await worker.fetch(new Request("http://127.0.0.1:8787/chat", { method: "POST", body: "{}" }), testEnv);
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("ENOTFOUND");
+  });
+});
+
 describe("POST /voice-command", () => {
   it("is routed to the voice command handler", async () => {
     vi.stubGlobal("fetch", vi.fn());

@@ -154,6 +154,30 @@ describe("simulation reply", () => {
     expect(checkedReply).toMatchObject({ accepted: false, reason: expect.stringContaining("<button") });
   });
 
+  it.each([
+    ['document.createElement("input")', "input"],
+    ["document.createElement('button')", "button"],
+    ['document.createElement( "select" )', "select"],
+    ["document.createElement(`textarea`)", "textarea"],
+    ['document.createElement("button", { is: "fancy-button" })', "button"],
+    ['document.createElementNS("http://www.w3.org/1999/xhtml", "input")', "input"],
+  ])("rejects a simulation page that draws a control with %s", (createElementCall, controlElementName) => {
+    const pageWithAScriptedControl = simulationPage.replace("</body>", `<script>${createElementCall};</script></body>`);
+
+    const checkedReply = checkLiveSceneModelReply(liveSceneModelReply(pageWithAScriptedControl), "simulation");
+
+    expect(checkedReply).toMatchObject({
+      accepted: false,
+      reason: expect.stringContaining(`createElement("${controlElementName}")`),
+    });
+  });
+
+  it("accepts a simulation page that creates an element that is not a control", () => {
+    const pageWithAScriptedLabel = simulationPage.replace("</body>", '<script>document.createElement("div");</script></body>');
+
+    expect(checkLiveSceneModelReply(liveSceneModelReply(pageWithAScriptedLabel), "simulation").accepted).toBe(true);
+  });
+
   it("still accepts a model page that has no controls", () => {
     expect(checkLiveSceneModelReply(liveSceneModelReply(liveScenePage), "model").accepted).toBe(true);
     expect(checkLiveSceneModelReply(liveSceneModelReply(liveScenePage)).accepted).toBe(true);

@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 import { jsonResponse, parseJSONRequest, requestAnthropicMessage } from "./anthropic";
-import { bulletedListItemBlock, createNotionPage, heading2Block, paragraphBlock, richTextItem, type NotionBlock } from "./studyGuide";
+import { bulletedListItemBlock, createNotionPage, heading2Block, paragraphBlock, richTextItem, type NotionBlock } from "./notion";
 import { voiceCommandMessageSchema, voiceCommandToolSchema } from "./voiceCommand";
 
 const backgroundAgentSystemPrompt = [
@@ -46,8 +46,6 @@ const backgroundAgentRequestSchema = z.object({
     .refine((tools) => new Set(tools.map((tool) => tool.name)).size === tools.length, { message: "Tool names must be unique" }),
 });
 
-const anthropicReplySchema = z.object({ content: z.array(z.unknown()), stop_reason: z.string().nullish() });
-
 export async function handleBackgroundAgent(request: Request, anthropicAPIKey: string): Promise<Response> {
   const parsedRequest = await parseJSONRequest(request, backgroundAgentRequestSchema);
   if (!parsedRequest.ok) {
@@ -77,11 +75,8 @@ export async function handleBackgroundAgent(request: Request, anthropicAPIKey: s
   if (!anthropicReply.ok) {
     return anthropicReply.response;
   }
-  const parsedReply = anthropicReplySchema.safeParse(anthropicReply.messageJSON);
-  if (!parsedReply.success) {
-    return jsonResponse({ error: "Anthropic response had no content list" }, 502);
-  }
-  return jsonResponse({ content: parsedReply.data.content, stopReason: parsedReply.data.stop_reason ?? "unknown" }, 200);
+  const { content, stop_reason: stopReason } = anthropicReply.message;
+  return jsonResponse({ content, stopReason: stopReason ?? "unknown" }, 200);
 }
 
 const notionPageRequestSchema = z.object({
@@ -117,7 +112,7 @@ export async function handleNotionPage(request: Request, notionAPIKey: string | 
   if (!parsedRequest.ok) {
     return parsedRequest.response;
   }
-  const createdPage = await createNotionPage(notionAPIKey, parsedRequest.requestBody.title, notionPageBlocks(parsedRequest.requestBody));
+  const createdPage = await createNotionPage(notionAPIKey, "/notion-page", parsedRequest.requestBody.title, notionPageBlocks(parsedRequest.requestBody));
   if (!createdPage.ok) {
     return jsonResponse({ error: createdPage.error }, 502);
   }

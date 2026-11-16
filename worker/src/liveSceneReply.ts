@@ -33,7 +33,16 @@ const simulationMarkers = [
 ] as const;
 
 // The app draws the only control panel, so a second one from the page would show twice.
-const controlElementsASimulationMustNotDraw = ["<input", "<button", "<select", "<textarea"] as const;
+// A page can draw a control as markup or with createElement or createElementNS, so both forms are refused. The patterns
+// are lowercase because they run on the lowercased page.
+const controlElementNames = ["input", "button", "select", "textarea"] as const;
+const controlElementsASimulationMustNotDraw = controlElementNames.flatMap((controlElementName) => [
+  { description: `<${controlElementName}`, pattern: new RegExp(`<${controlElementName}`) },
+  {
+    description: `createElement("${controlElementName}")`,
+    pattern: new RegExp(`createelement(?:ns)?\\s*\\([^)]*?["'\`]${controlElementName}["'\`]\\s*[,)]`),
+  },
+]);
 
 // The SVG namespace is a URL, and a label leader line may use it. Every other
 // http(s) URL is a network request the generated page is not allowed to make.
@@ -85,9 +94,9 @@ export function checkLiveSceneModelReply(modelReply: string, kind: LiveSceneRequ
       return { accepted: false, reason: `The simulation page is missing ${missingSimulationMarker.name}` };
     }
     const lowercaseHTMLForControls = html.toLowerCase();
-    const drawnControl = controlElementsASimulationMustNotDraw.find((controlElement) => lowercaseHTMLForControls.includes(controlElement));
+    const drawnControl = controlElementsASimulationMustNotDraw.find((controlElement) => controlElement.pattern.test(lowercaseHTMLForControls));
     if (drawnControl !== undefined) {
-      return { accepted: false, reason: `The simulation page draws its own control (${drawnControl}), and the app draws the only panel` };
+      return { accepted: false, reason: `The simulation page draws its own control (${drawnControl.description}), and the app draws the only panel` };
     }
   }
 

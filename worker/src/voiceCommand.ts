@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { jsonResponse, parseJSONRequest, requestAnthropicMessage } from "./anthropic";
+import { jsonResponse, parseJSONRequest, requestAnthropicMessage, type AnthropicMessage } from "./anthropic";
 
 const voiceCommandSystemPrompt = [
   "You are Clicky's hands. The learner is watching a 3D scene or a video in Chrome and just spoke a short command by push-to-talk.",
@@ -105,11 +105,6 @@ const toolUseBlockSchema = z.object({
   input: z.record(z.unknown()),
 });
 
-const anthropicReplySchema = z.object({
-  content: z.array(z.unknown()),
-  stop_reason: z.string().nullish(),
-});
-
 export type VoiceCommandReply = {
   content: Array<
     { type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
@@ -117,14 +112,10 @@ export type VoiceCommandReply = {
   stopReason: string;
 };
 
-/** Keeps only the text and tool_use blocks, dropping thinking and every other block type. Undefined when there is no content list. */
-export function voiceCommandReply(anthropicJSON: unknown): VoiceCommandReply | undefined {
-  const parsedReply = anthropicReplySchema.safeParse(anthropicJSON);
-  if (!parsedReply.success) {
-    return undefined;
-  }
+/** Keeps only the text and tool_use blocks, dropping thinking and every other block type. */
+export function voiceCommandReply(anthropicMessage: AnthropicMessage): VoiceCommandReply {
   const content: VoiceCommandReply["content"] = [];
-  for (const block of parsedReply.data.content) {
+  for (const block of anthropicMessage.content) {
     const textBlock = textBlockSchema.safeParse(block);
     if (textBlock.success) {
       content.push(textBlock.data);
@@ -135,7 +126,7 @@ export function voiceCommandReply(anthropicJSON: unknown): VoiceCommandReply | u
       content.push(toolUseBlock.data);
     }
   }
-  return { content, stopReason: parsedReply.data.stop_reason ?? "unknown" };
+  return { content, stopReason: anthropicMessage.stop_reason ?? "unknown" };
 }
 
 export async function handleVoiceCommand(request: Request, anthropicAPIKey: string): Promise<Response> {
@@ -160,9 +151,5 @@ export async function handleVoiceCommand(request: Request, anthropicAPIKey: stri
     return anthropicReply.response;
   }
 
-  const reply = voiceCommandReply(anthropicReply.messageJSON);
-  if (reply === undefined) {
-    return jsonResponse({ error: "Anthropic response had no content list" }, 502);
-  }
-  return jsonResponse(reply, 200);
+  return jsonResponse(voiceCommandReply(anthropicReply.message), 200);
 }

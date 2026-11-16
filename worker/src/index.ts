@@ -7,6 +7,7 @@
  * Routes:
  *   POST /chat         → Anthropic Messages API (streaming)
  *   POST /tts          → ElevenLabs TTS API
+ *   POST /transcribe-token → AssemblyAI streaming token API (a short-lived websocket token, only when Info.plist selects the assemblyai provider)
  *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → Anthropic Messages API (quiz pause moments for a video transcript)
@@ -46,7 +47,7 @@ interface Env {
   GOOGLE_MAPS_API_KEY?: string;
   /**
    * A Notion personal access token, which acts as its owner across their whole workspace, so /study-guide can create
-   * private pages with no parent. Without it, /study-guide and /notion-page answer 503.
+   * private pages with no parent. Without it, /study-guide, /study-guide-status, and /notion-page answer 503.
    */
   NOTION_API_KEY?: string;
   /** The secret the app sends in x-clicky-app-secret. The Notion routes and /background-agent refuse a request without it. */
@@ -132,7 +133,7 @@ export default {
     } catch (error) {
       console.error(`[${url.pathname}] Unhandled error:`, error);
       return new Response(
-        JSON.stringify({ error: String(error) }),
+        JSON.stringify({ error: "The Worker failed to handle the request" }),
         { status: 500, headers: { "content-type": "application/json" } }
       );
     }
