@@ -481,6 +481,12 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         }
     }
 
+    /// The same, but a call to a tool this turn did not offer shows nothing, since `runVoiceTool` refuses it without running it.
+    func chipPhraseToShow(at chipMoment: VoiceToolChipMoment, offeredToolNames: Set<String>) -> String? {
+        guard offeredToolNames.contains(name) else { return nil }
+        return chipPhraseToShow(at: chipMoment)
+    }
+
     /// The call as code, such as rotate_model(yawDegrees: -45). Debug builds show it on the chip
     /// while the panel's "Log tool call JSON" switch is on, and the log always prints it.
     var chipText: String {

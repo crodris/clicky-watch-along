@@ -721,6 +721,16 @@ struct leanring_buddyTests {
         #expect(search.chipPhraseToShow(at: .afterTheCall(.lookedUp(result: .null))) == nil)
     }
 
+    @Test func aCallToAToolTheTurnDidNotOfferShowsNoChipSinceItIsRefusedUnrun() async throws {
+        let search = VoiceToolCall(id: "1", name: "find_moment", input: ["query": .string("magma chamber")])
+        #expect(search.chipPhraseToShow(at: .beforeTheCall, offeredToolNames: ["find_moment"]) == "Finding \u{201C}magma chamber\u{201D}")
+        // find_moment is left out of the tools while the front video is not on YouTube, but a model may still call it.
+        #expect(search.chipPhraseToShow(at: .beforeTheCall, offeredToolNames: ["pause_video"]) == nil)
+        let turn = VoiceToolCall(id: "2", name: "rotate_model", input: ["yawDegrees": .number(-45)])
+        #expect(turn.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: ["rotate_model"]) == "Turning it left")
+        #expect(turn.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: []) == nil)
+    }
+
     @Test func statusLabelKeepsItsIconOnTheTrianglesSpotNearTheScreensRightEdge() async throws {
         let screenFrame = CGRect(x: 1710, y: 0, width: 1920, height: 1080)
         let trianglesSpot = { (mouseLocation: CGPoint) in CGPoint(x: mouseLocation.x + 35, y: mouseLocation.y - 25) }
