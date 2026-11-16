@@ -42,7 +42,8 @@ enum ClickyAppSecret {
     }
 }
 
-/// The one way the app POSTs a JSON body to a Worker route. Each caller keeps its own session, timeout, and error type,
+/// How the app POSTs a JSON body to a Worker route and reads the whole reply. The streamed /chat and /tts requests
+/// build their own, since they read the reply as it arrives. Each caller keeps its own session, timeout, and error type,
 /// since what a non-200 reply means differs per route.
 enum WorkerJSONPost {
     /// `timeoutInterval` nil keeps URLRequest's own default. `sendsAppSecret` is true only for the routes that need
