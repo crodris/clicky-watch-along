@@ -114,7 +114,7 @@ The parallel agents clip uses the same "Feel Good - It Feels So Good" track as t
 The experiment clip uses "Upbeat Lo-Fi Instrumental with Electric Guitar" by NickPanek (https://pixabay.com/music/beats-upbeat-lo-fi-instrumental-with-electric-guitar-251405/), saved as `demo/public/music/upbeat-lo-fi-electric-guitar.mp3`, under the Pixabay Content License, which needs no credit.
 Pixabay blocks scripted downloads, so download it from that page by hand.
 The track is 2:02 and the clip about 2:38, so `pnpm music-experiment` joins two copies with a 4 second crossfade.
-The crossfade starts where the first copy's music ends, at 2:00.3, so the seam falls on the dissolve into the title card.
+The crossfade covers the last 4 seconds of the first copy's music, from 1:56.3 to 2:00.3, so the seam falls on the dissolve into the title card.
 It writes the joined bed as `upbeat-lo-fi-electric-guitar-twice.wav`, so the mix encodes the music only once, and `pnpm mix-experiment` rebuilds it every time.
 
 Both licenses allow commercial use in social media videos with no credit, but not passing a file on by itself, so the tracks stay out of git.

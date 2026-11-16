@@ -6,7 +6,8 @@ export type CameraFocus = { x: number; y: number } | "cursor";
 
 /**
  * From `atSeconds` into the shot, the camera eases to this scale and focus over `durationFrames`. A move at 0 seconds
- * is the shot's opening framing, which holds from the first frame, so it ignores `durationFrames`.
+ * is the shot's opening framing, which holds from the first frame, and its `durationFrames` only delays the slow drift
+ * of the hold that follows.
  */
 export type CameraMove = {
   atSeconds: number;

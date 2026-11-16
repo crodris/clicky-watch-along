@@ -108,11 +108,14 @@ drag_control_to() {
   screencapture -x -R"0,$screenshot_top,1710,$((1107 - screenshot_top))" "$work_folder/panel.png"
   python3 -I "$scripts_folder/experiment-panel.py" find "$work_folder/panel.png" "$screenshot_top" 0 >"$work_folder/panel.json" || { echo "driver: no panel found" >&2; return 1; }
   read_page_state >"$work_folder/state.json"
-  local current_value aim_value="$wanted_value" from_x from_y to_x to_y
+  local current_value aim_value="$wanted_value" from_point to_point from_x from_y to_x to_y
   current_value="$(control_value_in "$work_folder/state.json" "$control_name")" || { echo "driver: no control named $control_name" >&2; return 1; }
   for attempt in 1 2 3; do
-    read -r from_x from_y <<<"$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$current_value")" || return 1
-    read -r to_x to_y <<<"$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$aim_value")" || return 1
+    # The check sits on the assignment, since a read from a here-string succeeds even when the command inside failed.
+    from_point="$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$current_value")" || return 1
+    to_point="$(python3 -I "$scripts_folder/experiment-panel.py" thumb-x "$work_folder/panel.json" "$work_folder/state.json" "$control_name" "$aim_value")" || return 1
+    read -r from_x from_y <<<"$from_point"
+    read -r to_x to_y <<<"$to_point"
     "$mouse" drag "$from_x" "$from_y" "$to_x" "$to_y" 0.9 || return 1
     sleep 0.5
     read_page_state >"$work_folder/state.json"
