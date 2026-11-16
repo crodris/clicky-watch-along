@@ -94,10 +94,6 @@ describe("voiceCommandReply", () => {
       stopReason: "tool_use",
     });
   });
-
-  it("is undefined when the reply has no content list", () => {
-    expect(voiceCommandReply({ stop_reason: "end_turn" })).toBeUndefined();
-  });
 });
 
 describe("handleVoiceCommand", () => {

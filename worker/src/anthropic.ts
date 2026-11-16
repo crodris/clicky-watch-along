@@ -6,14 +6,14 @@
 
 import { z } from "zod";
 
-const anthropicMessageSchema = z.object({
-  content: z.array(
-    z.object({
-      type: z.string(),
-      text: z.string().optional(),
-    }),
-  ),
-});
+// Passthrough keeps every field of each block and of the reply, because /background-agent sends the blocks back to
+// Anthropic unchanged and /voice-command reads tool_use inputs.
+const anthropicMessageSchema = z
+  .object({
+    content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()),
+    stop_reason: z.string().nullish(),
+  })
+  .passthrough();
 
 const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()) });
 
@@ -29,7 +29,7 @@ export function logModelUsage(routeName: string, modelResponseJSON: unknown): vo
   }
 }
 
-type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
+export type AnthropicMessage = z.infer<typeof anthropicMessageSchema>;
 
 /**
  * Zod's own message is pretty-printed JSON across many lines, so a rejection logged with it keeps only
@@ -101,19 +101,18 @@ export async function requestAnthropicReplyText(
   if (!anthropicMessage.ok) {
     return anthropicMessage;
   }
-  const parsedMessage = anthropicMessageSchema.parse(anthropicMessage.messageJSON);
-  return { ok: true, replyText: firstTextBlock(parsedMessage) };
+  return { ok: true, replyText: firstTextBlock(anthropicMessage.message) };
 }
 
 /**
- * One non-streaming Anthropic Messages call. A successful result carries the whole reply JSON, which is
- * known to hold a content list, so a caller that needs tool_use blocks or the stop reason can read them.
+ * One non-streaming Anthropic Messages call. A successful result carries the reply with its content list checked,
+ * so a caller that needs tool_use blocks or the stop reason can read them.
  */
 export async function requestAnthropicMessage(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
-): Promise<{ ok: true; messageJSON: unknown } | { ok: false; response: Response }> {
+): Promise<{ ok: true; message: AnthropicMessage } | { ok: false; response: Response }> {
   let anthropicResponse: Response;
   try {
     anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -151,10 +150,11 @@ export async function requestAnthropicMessage(
   }
   logModelUsage(routeName, anthropicJSON);
 
-  if (!anthropicMessageSchema.safeParse(anthropicJSON).success) {
+  const parsedMessage = anthropicMessageSchema.safeParse(anthropicJSON);
+  if (!parsedMessage.success) {
     return { ok: false, response: jsonResponse({ error: "Anthropic response had no content list" }, 502) };
   }
-  return { ok: true, messageJSON: anthropicJSON };
+  return { ok: true, message: parsedMessage.data };
 }
 
 /**
