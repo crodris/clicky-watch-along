@@ -30,6 +30,9 @@ enum BackgroundAgentKind {
     case studyGuideUpdate
     /// Builds a 3D model of what the video shows while it keeps playing, and lifts it out of the video when it is ready.
     case threeDModel
+    /// Builds a science experiment from what the video or screen shows while the video keeps playing, and lifts it out
+    /// of the video when it is ready, like a 3D model. The learner then guesses, tries it, and takes a challenge.
+    case experiment
     /// Works on any task the learner hands it, with web search, the video's captions, and a Notion page, and reports its
     /// own steps, since nobody knows them in advance.
     case task
@@ -39,6 +42,7 @@ enum BackgroundAgentKind {
         case .studyGuide: return "Study guide"
         case .studyGuideUpdate: return "Study guide update"
         case .threeDModel: return "3D model"
+        case .experiment: return "Experiment"
         case .task: return "Task"
         }
     }
@@ -48,6 +52,7 @@ enum BackgroundAgentKind {
         switch self {
         case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmber
         case .threeDModel: return DS.Colors.backgroundAgentThreeDModelViolet
+        case .experiment: return DS.Colors.backgroundAgentExperimentLime
         case .task: return DS.Colors.backgroundAgentTaskTeal
         }
     }
@@ -58,6 +63,7 @@ enum BackgroundAgentKind {
         switch self {
         case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmberText
         case .threeDModel: return DS.Colors.backgroundAgentThreeDModelVioletText
+        case .experiment: return DS.Colors.backgroundAgentExperimentLimeText
         case .task: return DS.Colors.backgroundAgentTaskTealText
         }
     }
@@ -68,6 +74,7 @@ enum BackgroundAgentKind {
         case .studyGuide: return "Study guide ready"
         case .studyGuideUpdate: return "Study guide updated"
         case .threeDModel: return "3D model ready"
+        case .experiment: return "Experiment ready"
         case .task: return "Task done"
         }
     }
@@ -75,7 +82,7 @@ enum BackgroundAgentKind {
     /// The steps in order. The agent finishes by finishing its last step, so completeStep never moves past the last one.
     /// Reading the captions with yt-dlp took about 3 seconds, and writing the guide 10 to 14, in the demo recordings.
     /// An update reads the captions the quiz already holds, and rebuilds the page with no model call.
-    /// A 3D model's screenshot takes under a second, and `POST /live-scene` about 20 seconds.
+    /// A 3D model's screenshot takes under a second, and `POST /live-scene` about 20 seconds, an experiment's about 30.
     var steps: [BackgroundAgentStep] {
         switch self {
         case .studyGuide:
@@ -93,6 +100,11 @@ enum BackgroundAgentKind {
                 BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
                 BackgroundAgentStep(name: "Build the 3D model", inProgressText: "Building the 3D model", expectedSeconds: 20),
             ]
+        case .experiment:
+            return [
+                BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
+                BackgroundAgentStep(name: "Build the experiment", inProgressText: "Building the experiment", expectedSeconds: 30),
+            ]
         // A task's steps come from the agent as it works (BackgroundAgent.reportedSteps), so its progress runs as one
         // step. A web search answer took about 11 seconds in a test, and one with a Notion page takes longer.
         case .task:
@@ -108,15 +120,15 @@ enum BackgroundAgentKind {
 /// What a finished agent made. The ending Clicky plays for a finished agent is chosen by switching on this.
 enum BackgroundAgentResult: Equatable {
     case notionPage(URL)
-    /// The page itself waits in CompanionManager until it rises out of the video.
-    case threeDModel
+    /// A 3D model or an experiment. The page itself waits in CompanionManager until it rises out of the video.
+    case readyScene
     /// What a task agent found, read aloud when the learner asks, and the Notion page it wrote, if it wrote one.
     case answer(spokenSummary: String, pageURL: URL?)
 
     var pageURL: URL? {
         switch self {
         case .notionPage(let pageURL): return pageURL
-        case .threeDModel: return nil
+        case .readyScene: return nil
         case .answer(_, let pageURL): return pageURL
         }
     }
@@ -404,19 +416,34 @@ func wingmanFormation(for agentsToShow: [BackgroundAgent]) -> WingmanFormation {
     )
 }
 
-// MARK: - 3D model
+// MARK: - Ready scene
 
-/// A 3D model page a background agent built, waiting to rise out of the video it was asked about.
-struct ReadyThreeDModel {
+/// A 3D model or experiment page a background agent built, waiting to rise out of the video it was asked about.
+struct ReadyBackgroundScene {
     let agentID: UUID
-    /// The learner's words, which the narration after the tour answers.
+    let agentKind: BackgroundAgentKind
+    /// The learner's words, which a 3D model's narration after the tour answers.
     let whatToBuild: String
     let pageHTML: String
-    /// The front tab's URL when the build started. The model rises out of the video only while that tab is in front.
+    /// The front tab's URL when the build started. A 3D model rises out of the video only while that tab is in front.
     let sourceTabURL: String?
+    /// The guess, trials, and challenge of an experiment, set when its page plays. Nil for a 3D model.
+    let simulationLesson: SimulationLesson?
 }
 
-enum ThreeDModelBuildError: Error {
+/// Whether a ready scene may rise onto the screen now, given the tab it was built from and the tab in front.
+/// An experiment built with no video tab in front may rise anywhere, since "let me try it" also works on a screen that
+/// is not a video. A 3D model needs the video it was built from.
+func aReadyBackgroundSceneMayRiseOverTheFrontTab(
+    agentKind: BackgroundAgentKind,
+    sourceTabURL: String?,
+    frontTabURL: String?
+) -> Bool {
+    guard let sourceTabURL else { return agentKind == .experiment }
+    return frontTabURL == sourceTabURL
+}
+
+enum BackgroundSceneBuildError: Error {
     /// Screen Recording was turned off, so there is no frame to build from.
     case noScreenshot
 }

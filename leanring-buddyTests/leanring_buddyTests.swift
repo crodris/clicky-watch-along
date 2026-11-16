@@ -433,27 +433,6 @@ struct leanring_buddyTests {
         #expect(abs(justBeforeTheLoopRepeats.turnDegrees - 360) < 0.5)
     }
 
-    @Test func experimentLineBubblesEachLetterUpOncePerLoopAndRestsForReduceMotion() async throws {
-        let statusLine = LiveSceneStatusLine.buildingYourExperiment
-        #expect(statusLine.text == "Building your experiment")
-        let letterCount = statusLine.displayedText.count
-        func pose(_ letterIndex: Int, atSeconds elapsedSeconds: Double) -> StatusLetterPose {
-            statusLine.letterPose(letterIndex: letterIndex, letterCount: letterCount, elapsedSeconds: elapsedSeconds)
-        }
-
-        // Reduce Motion shows the still moment, where every letter rests in place.
-        #expect((0..<letterCount).allSatisfy { pose($0, atSeconds: statusLine.stillMomentSeconds) == StatusLetterPose() })
-        // Over one loop after its delay, every letter rises about 4.5 points and glows at the top.
-        let sampleTimes = stride(from: 0.0, through: 6.6, by: 0.02)
-        for letterIndex in 0..<letterCount {
-            let highestRise = sampleTimes.map { -pose(letterIndex, atSeconds: $0).offsetY }.max() ?? 0
-            #expect(highestRise > 4 && highestRise <= 4.5, "letter \(letterIndex) rose \(highestRise)")
-        }
-        // Neighbors bubble at different times, so the line never rises as one block.
-        let firstRiseTimes = (0..<letterCount).map { letterIndex in sampleTimes.first { pose(letterIndex, atSeconds: $0).offsetY < -2 } ?? -1 }
-        #expect(Set(firstRiseTimes).count == letterCount)
-    }
-
     @Test func transcriptLineIsFullyTypedWithTheCaretAtTheEndBeforeItClears() async throws {
         let statusLine = LiveSceneStatusLine.readingTheTranscript
         let letterCount = statusLine.displayedText.count
@@ -487,10 +466,10 @@ struct leanring_buddyTests {
         #expect(LiveSceneStatusLine.popOutLines == [.poppingItOut, .animatingIt])
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.popOutLines, whileShowing: .animatingIt) == nil)
         #expect(LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines, whileShowing: .animatingIt) == .animatingIt)
-        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .buildingYourExperiment, .almostThere])
-        // The experiment build swaps its own line for "Almost there", so a push-to-talk press that hid it keeps it hidden.
-        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourExperiment, with: .almostThere, whileShowing: .buildingYourExperiment) == .almostThere)
-        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourExperiment, with: .almostThere, whileShowing: nil) == nil)
+        #expect(LiveSceneStatusLine.sceneBuildLines == [.readingYourScreen, .buildingYourScene, .almostThere])
+        // The scene build swaps its own line for "Almost there", so a push-to-talk press that hid it keeps it hidden.
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: .buildingYourScene) == .almostThere)
+        #expect(LiveSceneStatusLine.lineShowing(afterReplacing: .buildingYourScene, with: .almostThere, whileShowing: nil) == nil)
         #expect(LiveSceneStatusLine.videoQuizPlanningLines == [.readingTheTranscript, .pickingQuizSpots])
     }
 
@@ -985,7 +964,7 @@ struct leanring_buddyTests {
         #expect(AppVoiceTool.available(in: context).contains(.buildModelInTheBackground))
         #expect(!AppVoiceTool.available(in: context).contains(.showReadyModel))
 
-        context.threeDModelIsReady = true
+        context.backgroundSceneIsReady = true
         #expect(AppVoiceTool.available(in: context).contains(.showReadyModel))
 
         context.quizQuestionIsOpen = true
@@ -1033,7 +1012,7 @@ struct leanring_buddyTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: true, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
-        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, threeDModelIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, backgroundSceneIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, taskAnswerIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
     }
 
@@ -1666,6 +1645,21 @@ struct leanring_buddyTests {
         #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
     }
 
+    @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
+        #expect(BackgroundAgentKind.experiment.stepNames == ["Grab the frame", "Build the experiment"])
+        #expect(BackgroundAgentKind.experiment.finishedChipText == "Experiment ready")
+
+        // A model needs the video it was built from in front. An experiment with no source tab may rise anywhere.
+        let sourceTab = "https://www.youtube.com/watch?v=source"
+        let otherTab = "https://www.youtube.com/watch?v=other"
+        #expect(aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .experiment, sourceTabURL: nil, frontTabURL: otherTab))
+        #expect(!aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .threeDModel, sourceTabURL: nil, frontTabURL: otherTab))
+        #expect(aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .experiment, sourceTabURL: sourceTab, frontTabURL: sourceTab))
+        #expect(aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .threeDModel, sourceTabURL: sourceTab, frontTabURL: sourceTab))
+        #expect(!aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .experiment, sourceTabURL: sourceTab, frontTabURL: otherTab))
+        #expect(!aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .threeDModel, sourceTabURL: sourceTab, frontTabURL: otherTab))
+    }
+
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
         let store = BackgroundAgentStore()
         let olderAgentID = store.start(kind: .studyGuide)
@@ -1891,7 +1885,7 @@ struct leanring_buddyTests {
         #expect(pageVoiceToolNames.contains("set_labels"))
         #expect(call("set_labels", ["visible": .bool(true)]).chipPhrase == "Showing the labels")
         #expect(call("set_labels", ["visible": .bool(false)]).chipPhrase == "Hiding the labels")
-        #expect(call("build_simulation", [:]).chipPhrase == nil)
+        #expect(call("build_simulation", [:]).chipPhrase == "Starting your experiment")
 
         let openQuestion = AppVoiceTool.Context(sceneIsOnScreen: true, sceneHasLabels: true, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: true, quizQuestionIsOpen: true)
         let noQuestion = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: false, quizQuestionIsOpen: false)

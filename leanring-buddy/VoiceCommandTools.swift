@@ -210,8 +210,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var quizQuestionIsOpen: Bool
         /// A study guide was already written for the YouTube video in front, so it can be revised or opened.
         var studyGuideExistsForTheFrontVideo = false
-        /// A 3D model built in the background waits for the learner to ask for it.
-        var threeDModelIsReady = false
+        /// A 3D model or experiment built in the background waits for the learner to ask for it.
+        var backgroundSceneIsReady = false
         /// A task agent finished, and its answer waits until the learner asks what it found.
         var taskAnswerIsReady = false
         /// A simulation asked its prediction question, and Run stays locked until the learner guesses.
@@ -247,7 +247,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             case .buildModelInTheBackground:
                 return context.videoIsInFront && !context.quizQuestionIsOpen
             case .showReadyModel:
-                return context.threeDModelIsReady && !context.quizQuestionIsOpen
+                return context.backgroundSceneIsReady && !context.quizQuestionIsOpen
             // A question's own answer could come from the web, so a task waits until the learner answers or skips.
             case .startBackgroundTask:
                 return !context.quizQuestionIsOpen
@@ -275,7 +275,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .buildNewScene:
             return "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. When they want to try it, play with it, or simulate it, use build_simulation instead. Never use it to turn, zoom, or open the model already showing."
         case .buildSimulation:
-            return "Build a playable simulation of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It pauses the video and takes about 20 seconds. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\"."
+            return "Build a playable experiment of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It builds in the background for about 30 seconds while the video keeps playing, and then rises out of the video, or waits until the learner asks to see it if something else is on screen. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\", never that it is done."
         case .popOut:
             return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out."
         case .closeScene:
@@ -305,7 +305,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .buildModelInTheBackground:
             return "Build a 3D model of what the video shows in the background, for about 20 seconds, while the video keeps playing. When it is ready it rises out of the video, or waits until the learner asks for it if something else is on screen. Use it when the learner asks to build, make, or create a 3D model, such as \"build me a 3D model of this engine\", or asks for one while they keep watching. Use build_new_scene instead when they ask to show, see, or render something in 3D right now, and for a famous real place, whose real 3D scan only build_new_scene shows. Put what to build in whatToBuild, in the learner's words. Your confirmation is a few plain words that it has started, such as \"starting the model\", never that it is done."
         case .showReadyModel:
-            return "Show the 3D model built in the background, which is ready and waiting. It pauses the video and rises out of it. Use it when the learner asks to see, show, or open the model."
+            return "Show the 3D model or experiment built in the background, which is ready and waiting. It pauses the video and rises out of it. Use it when the learner asks to see, show, or open the model or the experiment."
         case .startBackgroundTask:
             return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
         case .hearTaskAnswer:
@@ -452,10 +452,12 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Opening your study guide"
         case "build_model_in_background":
             return "Starting your 3D model"
+        case "build_simulation":
+            return "Starting your experiment"
         case "start_background_task":
             return "Starting a task"
         default:
-            // pop_out, build_new_scene, build_simulation, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
+            // pop_out, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
             // its own status line, spinner, rising scene, or voice.
             return nil
         }
@@ -652,19 +654,19 @@ nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSO
 }
 
 /// The router takes a command only when something is live to command: a scene on screen, a
-/// video in Chrome's front tab, on any site, a 3D model built in the background waiting to be shown, or a task answer
+/// video in Chrome's front tab, on any site, a 3D model or experiment built in the background waiting to be shown, or a task answer
 /// waiting to be heard, since "what did you find" may come from the page the task agent opened.
 /// A quiz answer goes to the judge, and a scene still building keeps its keyword path.
 nonisolated func voiceCommandRouterTakesTheTranscript(
     sceneIsOnScreen: Bool,
     videoIsInFront: Bool,
-    threeDModelIsReady: Bool = false,
+    backgroundSceneIsReady: Bool = false,
     taskAnswerIsReady: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool
 ) -> Bool {
     if phaseIsWaitingForAQuizAnswer || sceneIsBuilding { return false }
-    return sceneIsOnScreen || videoIsInFront || threeDModelIsReady || taskAnswerIsReady
+    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady
 }
 
 // MARK: - Finding a moment in the captions

@@ -145,9 +145,9 @@ final class CompanionManager: ObservableObject {
     /// cancels one by its id. They are not currentResponseTask, because a push-to-talk press cancels that task and must
     /// not cancel work in the background.
     private var backgroundAgentTasks: [UUID: Task<Void, Never>] = [:]
-    /// The newest 3D model a background agent built that has not been shown yet. It waits here when the screen was
-    /// busy as it finished, until the learner says "show the model".
-    private var readyThreeDModel: ReadyThreeDModel?
+    /// The newest 3D model or experiment a background agent built that has not been shown yet. It waits here when the
+    /// screen was busy as it finished, until the learner says "show the model" or "show the experiment".
+    private var readyBackgroundScene: ReadyBackgroundScene?
     private lazy var taskAgentClient = TaskAgentClient(workerBaseURL: Self.workerBaseURL)
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
     /// the video, and it stays so they can ask again.
@@ -826,7 +826,8 @@ final class CompanionManager: ObservableObject {
     /// later, while a scene is still building. In a "?" step, "{answer}" becomes
     /// the open question's answer label, since the plan picks a new question each run. A transcript that starts
     /// with "&" waits until no background agent is running, and then for what their endings set off, such as a 3D model
-    /// rising and its narration, so a demo can open the guide it just asked for or put back the model it just built.
+    /// or an experiment rising and its narration or guess question, so a demo can open the guide it just asked for,
+    /// put back the model it just built, or answer the experiment's question.
     /// A transcript that starts with "+N " first waits N seconds, before any other prefix is read.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -943,12 +944,12 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        // "Let me try it" always builds a simulation, with no model call to choose it, so a demo never depends on the router.
+        // "Let me try it" always starts an experiment agent, with no model call to choose it, so a demo never depends on the router.
         // Once a scene is on screen the same words may mean a slider ("can I try 60 degrees"), which the router reads.
         if liveSceneKind(for: transcript) == .simulation,
            !LiveSceneOverlay.shared.isShowingAScene,
            !liveScenePhaseIsWaitingForAQuizAnswer {
-            respondToTranscript(transcript: transcript, requestedSceneKind: .simulation)
+            startTheExperimentInTheBackground(transcript: transcript)
             return
         }
 
@@ -960,7 +961,7 @@ final class CompanionManager: ObservableObject {
         let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             videoIsInFront: frontVideoState != nil,
-            threeDModelIsReady: readyThreeDModel != nil,
+            backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding
@@ -969,7 +970,10 @@ final class CompanionManager: ObservableObject {
             startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
             return
         }
-        respondToTranscript(transcript: transcript, requestedSceneKind: liveSceneKind(for: transcript))
+        // A "let me try it" that reaches here, with a scene on screen while another builds, is an ordinary question,
+        // since an experiment is built only by its agent.
+        let requestedSceneKind = liveSceneKind(for: transcript)
+        respondToTranscript(transcript: transcript, requestedSceneKind: requestedSceneKind == .simulation ? nil : requestedSceneKind)
     }
 
     private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
@@ -1015,7 +1019,7 @@ final class CompanionManager: ObservableObject {
             }
             return
         }
-        if requestedKind == .explore || requestedKind == .simulation || requestedKind == .framePopout || requestedKind == .animatedFramePopout {
+        if requestedKind == .explore || requestedKind == .framePopout || requestedKind == .animatedFramePopout {
             let quizWatchesTheVideoInFront = videoQuizSession.isRunning && videoQuizSession.quizVideoIsTheTabInFront()
             let heardText = videoQuizSession.pauseVideoForRequestedScene()
             if quizWatchesTheVideoInFront {
@@ -1418,7 +1422,7 @@ final class CompanionManager: ObservableObject {
             }
         }
         simulationLesson = nil
-        await speakLiveSceneLine(sceneKind == .simulation ? "Sure, let me set that up for you." : "Sure, let me build that for you.")
+        await speakLiveSceneLine("Sure, let me build that for you.")
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var cursorScreenJPEGData: Data?
@@ -1435,15 +1439,13 @@ final class CompanionManager: ObservableObject {
         guard !Task.isCancelled else { return }
 
         if let cursorScreenJPEGData {
-            // An experiment gets its own line, so the label says what the voice says.
-            let buildingLine: LiveSceneStatusLine = sceneKind == .simulation ? .buildingYourExperiment : .buildingYourScene
-            LiveSceneStatusLabel.shared.show(buildingLine)
+            LiveSceneStatusLabel.shared.show(.buildingYourScene)
             let almostThereTask = Task {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 // A newer build owns the label now, so this older one must not swap its line.
                 guard !Task.isCancelled, requestGeneration == self.liveSceneRequestGeneration else { return }
                 // A press that hid the label must not bring it back, so this swaps only while "Building" shows.
-                LiveSceneStatusLabel.shared.replace(buildingLine, with: .almostThere)
+                LiveSceneStatusLabel.shared.replace(.buildingYourScene, with: .almostThere)
                 await self.speakLiveSceneStatus("Almost there")
             }
             let sceneRequestTask = Task {
@@ -1463,7 +1465,7 @@ final class CompanionManager: ObservableObject {
             }
             liveSceneRequestTask = sceneRequestTask
             let buildingLineTask = Task {
-                await self.speakLiveSceneStatus(sceneKind == .simulation ? "Building your experiment" : "Building your 3D scene")
+                await self.speakLiveSceneStatus("Building your 3D scene")
             }
             await sceneRequestTask.value
             almostThereTask.cancel()
@@ -1728,18 +1730,14 @@ final class CompanionManager: ObservableObject {
             guard requestGeneration == liveSceneRequestGeneration else { return }
             // The rise starts from the cursor screen's screenshot, so the scene plays on that screen.
             guard let overlayScreen = screenUnderTheMouseCursor() else { return }
-            let sceneWasPlayed = playGeneratedScenePage(
+            _ = playGeneratedScenePage(
                 html: liveScene.html,
-                pageOnScreen: sceneKind == .simulation ? .simulation : .generatedPage,
+                pageOnScreen: .generatedPage,
                 quizToAskAfterTour: sceneKind == .quiz ? liveScene.quiz : nil,
                 overlayScreen: overlayScreen,
                 screenJPEGData: cursorScreenJPEGData,
                 mediaRectToRiseFrom: mediaRectToRiseFrom
             )
-            // The page's prediction question is asked after the tour. The quiz fields are the page's text, so the lesson cuts them.
-            if sceneWasPlayed && sceneKind == .simulation {
-                simulationLesson = SimulationLesson(predictionQuestion: liveScene.quiz.question, physicsExplanation: liveScene.quiz.explanation)
-            }
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
@@ -2252,7 +2250,7 @@ final class CompanionManager: ObservableObject {
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
             studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo,
-            threeDModelIsReady: readyThreeDModel != nil,
+            backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
         )
@@ -2362,8 +2360,7 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: input["asQuiz"]?.boolValue == true ? .quiz : .explore)
             return .handedOff
         case .buildSimulation:
-            respondToTranscript(transcript: transcript, requestedSceneKind: .simulation)
-            return .handedOff
+            return startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
         case .popOut:
             respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
             return .handedOff
@@ -2441,9 +2438,9 @@ final class CompanionManager: ObservableObject {
             guard let whatToBuild = input["whatToBuild"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !whatToBuild.isEmpty else {
                 return .failed(error: "whatToBuild must say what to build", state: nil)
             }
-            return startBuildingAThreeDModelInTheBackground(whatToBuild: whatToBuild)
+            return startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: .threeDModel)
         case .showReadyModel:
-            startShowingTheReadyThreeDModel()
+            startShowingTheReadyBackgroundScene()
             return .handedOff
         case .startBackgroundTask:
             guard let goal = input["goal"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty else {
@@ -2610,52 +2607,80 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    // MARK: - 3D Model Agent
+    // MARK: - Background Scene Agents (3D model and experiment)
+
+    /// "Let me try it" starts the experiment agent and says one line, so the video keeps playing while it builds.
+    private func startTheExperimentInTheBackground(transcript: String) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+        currentResponseTask = Task {
+            await self.speakLiveSceneLine("Sure, I'll build that while you watch.")
+            await self.waitForClickyToFinishSpeaking()
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
 
     /// Starts the build and returns at once, so the router speaks its confirmation and the video keeps playing.
-    private func startBuildingAThreeDModelInTheBackground(whatToBuild: String) -> VoiceToolOutcome {
-        let agentID = backgroundAgentStore.start(kind: .threeDModel)
+    private func startBuildingASceneInTheBackground(whatToBuild: String, agentKind: BackgroundAgentKind) -> VoiceToolOutcome {
+        let agentID = backgroundAgentStore.start(kind: agentKind)
         runInTheBackground(agentID) {
-            await self.buildTheThreeDModel(whatToBuild: whatToBuild, agentID: agentID)
+            await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
         }
-        return .changed(state: .object(["threeDModel": .string("started")]))
+        return .changed(state: .object(["backgroundScene": .string("started")]))
     }
 
     /// The same `POST /live-scene` request a scene build makes, from a screenshot of the playing video, with no status
-    /// line and no pause. Like a guide, nothing is spoken while it runs.
-    private func buildTheThreeDModel(whatToBuild: String, agentID: UUID) async {
+    /// line and no pause. Like a guide, nothing is spoken while it runs. An experiment asks for a simulation page, and
+    /// its lesson, the page's hypothesis and explanation, waits with the page.
+    private func buildTheBackgroundScene(whatToBuild: String, agentID: UUID, agentKind: BackgroundAgentKind) async {
         let startedAt = Date()
+        let builtThingName = agentKind == .experiment ? "experiment" : "3D model"
+        let sceneKind: LiveSceneKind = agentKind == .experiment ? .simulation : .explore
         do {
             let sourceTabURL = videoQuizSession.frontTabURLOfTheFrontWindow()
             let heardText = videoQuizSession.whatTheQuizVideoInFrontJustSaid()
             let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
             let videoScreen = screenAndCaptureShowing(VideoQuizSession.screenRectOfTheMediaToRiseFrom(), in: screenCaptures)
             guard let videoScreenJPEGData = (videoScreen?.capture ?? screenCaptures.first)?.imageData else {
-                throw ThreeDModelBuildError.noScreenshot
+                throw BackgroundSceneBuildError.noScreenshot
             }
             try Task.checkCancellation()
             backgroundAgentStore.setSubject(whatToBuild, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
-            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: .explore)
-            // A model cancelled from the agent list never shows, even when the Worker had already replied.
+            let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: sceneKind)
+            // A scene cancelled from the agent list never shows, even when the Worker had already replied.
             try Task.checkCancellation()
-            print("3D model: built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
-            if readyThreeDModel != nil {
-                print("3D model: a newer model replaces the one still waiting to be shown")
+            print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
+            if readyBackgroundScene != nil {
+                print("\(agentKind.displayName): a newer \(builtThingName) replaces the scene still waiting to be shown")
             }
-            readyThreeDModel = ReadyThreeDModel(agentID: agentID, whatToBuild: whatToBuild, pageHTML: liveScene.html, sourceTabURL: sourceTabURL)
-            finishTheBackgroundAgent(agentID, with: .threeDModel)
+            // The quiz fields are the page's text, so the lesson cuts them.
+            let simulationLesson = agentKind == .experiment
+                ? SimulationLesson(predictionQuestion: liveScene.quiz.question, physicsExplanation: liveScene.quiz.explanation)
+                : nil
+            readyBackgroundScene = ReadyBackgroundScene(
+                agentID: agentID,
+                agentKind: agentKind,
+                whatToBuild: whatToBuild,
+                pageHTML: liveScene.html,
+                sourceTabURL: sourceTabURL,
+                simulationLesson: simulationLesson
+            )
+            finishTheBackgroundAgent(agentID, with: .readyScene)
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
-                print("3D model: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
+                print("\(agentKind.displayName): cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
                 return
             }
-            print("3D model: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
-            backgroundAgentStore.fail(agentID, reason: "The 3D model could not be built. Ask again to try once more.")
+            print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            backgroundAgentStore.fail(agentID, reason: "The \(builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
-                "Couldn't build the 3D model",
-                sender: .backgroundAgent(.threeDModel),
+                "Couldn't build the \(builtThingName)",
+                sender: .backgroundAgent(agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -2676,20 +2701,24 @@ final class CompanionManager: ObservableObject {
         return (screen: screen, capture: screenCaptures.first { $0.displayFrame == screen.frame })
     }
 
-    /// A model rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or
+    /// A scene rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or
     /// pop-out is building or showing, and the video it was built from is in front. Otherwise it would cover
-    /// something the learner is looking at, so it waits for "show the model".
-    private var aReadyThreeDModelMayRiseNow: Bool {
+    /// something the learner is looking at, so it waits for "show the model" or "show the experiment".
+    private var aReadyBackgroundSceneMayRiseNow: Bool {
         // voiceState goes idle once a spoken line starts, so isPlaying covers the rest of the line.
-        guard let readyThreeDModel, voiceState == .idle, !elevenLabsTTSClient.isPlaying, case .idle = liveScenePhase,
+        guard let readyBackgroundScene, voiceState == .idle, !elevenLabsTTSClient.isPlaying, case .idle = liveScenePhase,
               !LiveSceneOverlay.shared.isShowingAScene, !videoQuizQuestionIsActive else {
             return false
         }
-        return readyThreeDModel.sourceTabURL != nil && videoQuizSession.frontTabURLOfTheFrontWindow() == readyThreeDModel.sourceTabURL
+        return aReadyBackgroundSceneMayRiseOverTheFrontTab(
+            agentKind: readyBackgroundScene.agentKind,
+            sourceTabURL: readyBackgroundScene.sourceTabURL,
+            frontTabURL: videoQuizSession.frontTabURLOfTheFrontWindow()
+        )
     }
 
     /// Like a new scene request, this stops what Clicky says and puts back the scene on screen first.
-    private func startShowingTheReadyThreeDModel() {
+    private func startShowingTheReadyBackgroundScene() {
         currentResponseTask?.cancel()
         liveSceneRequestTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
@@ -2701,16 +2730,18 @@ final class CompanionManager: ObservableObject {
         }
         clearFinishedLiveScene(resumesTheVideo: false)
         currentResponseTask = Task {
-            await self.showTheReadyThreeDModel(requestGeneration: requestGeneration)
+            await self.showTheReadyBackgroundScene(requestGeneration: requestGeneration)
         }
     }
 
-    /// Pauses the video it was built from and lifts the model out of it, then says what the model shows.
+    /// Pauses the video it was built from and lifts the scene out of it. A 3D model then says what it shows, and an
+    /// experiment waits for its tour to end, when the lesson asks for the learner's guess.
     /// The screenshot for the rise is taken now, after the pause, so the still frame matches the video under it.
-    private func showTheReadyThreeDModel(requestGeneration: Int) async {
-        guard let modelToShow = readyThreeDModel else { return }
-        readyThreeDModel = nil
-        let sourceVideoIsInFront = modelToShow.sourceTabURL != nil && videoQuizSession.frontTabURLOfTheFrontWindow() == modelToShow.sourceTabURL
+    private func showTheReadyBackgroundScene(requestGeneration: Int) async {
+        guard let sceneToShow = readyBackgroundScene else { return }
+        readyBackgroundScene = nil
+        let logPrefix = sceneToShow.agentKind.displayName
+        let sourceVideoIsInFront = sceneToShow.sourceTabURL != nil && videoQuizSession.frontTabURLOfTheFrontWindow() == sceneToShow.sourceTabURL
         if sourceVideoIsInFront {
             _ = videoQuizSession.pauseVideoForRequestedScene()
         }
@@ -2719,25 +2750,26 @@ final class CompanionManager: ObservableObject {
         do {
             screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
         } catch {
-            print("3D model: screen capture for the rise failed, so it shows without rising: \(error)")
+            print("\(logPrefix): screen capture for the rise failed, so it shows without rising: \(error)")
         }
         let mediaRectToRiseFrom = sourceVideoIsInFront ? VideoQuizSession.screenRectOfTheMediaToRiseFrom() : nil
         guard requestGeneration == liveSceneRequestGeneration, !Task.isCancelled else {
-            // A push-to-talk press during the capture cancelled the rise, so the model waits again for "show the model",
-            // unless a newer one took its place. The video plays on only when no newer request started, after a cleared
-            // pop-out lands, as every resume waits. Any newer request counts, since a scene request holds Clicky's
-            // pause for its own scene, so a plain question asked during the capture leaves the video paused.
-            readyThreeDModel = readyThreeDModel ?? modelToShow
+            // A push-to-talk press during the capture cancelled the rise, so the scene waits again for "show the model"
+            // or "show the experiment", unless a newer one took its place. The video plays on only when no newer request
+            // started, after a cleared pop-out lands, as every resume waits. Any newer request counts, since a scene request
+            // holds Clicky's pause for its own scene, so a plain question asked during the capture leaves the video paused.
+            readyBackgroundScene = readyBackgroundScene ?? sceneToShow
             guard requestGeneration == liveSceneRequestGeneration else { return }
             await LiveSceneOverlay.shared.waitForReturnToFinish()
             guard requestGeneration == liveSceneRequestGeneration else { return }
             videoQuizSession.resumeVideoAfterRequestedScene()
             return
         }
+        let sceneIsAnExperiment = sceneToShow.agentKind == .experiment
         guard let videoScreen = screenAndCaptureShowing(mediaRectToRiseFrom, in: screenCaptures),
               playGeneratedScenePage(
-                  html: modelToShow.pageHTML,
-                  pageOnScreen: .generatedPage,
+                  html: sceneToShow.pageHTML,
+                  pageOnScreen: sceneIsAnExperiment ? .simulation : .generatedPage,
                   quizToAskAfterTour: nil,
                   overlayScreen: videoScreen.screen,
                   screenJPEGData: videoScreen.capture?.imageData,
@@ -2746,11 +2778,15 @@ final class CompanionManager: ObservableObject {
             await sayTheSceneCouldNotBeBuilt()
             return
         }
-        print("3D model: showing \"\(modelToShow.whatToBuild)\", rising out of the video \(mediaRectToRiseFrom != nil)")
-        await speakAboutTheLiveSceneOnScreen(
-            transcript: modelToShow.whatToBuild,
-            labeledImages: screenCaptures.map { capture in (data: capture.imageData, label: capture.label) }
-        )
+        // The lesson speaks its own guess invitation after the tour, so an experiment is not narrated here.
+        simulationLesson = sceneToShow.simulationLesson
+        print("\(logPrefix): showing \"\(sceneToShow.whatToBuild)\", rising out of the video \(mediaRectToRiseFrom != nil)")
+        if !sceneIsAnExperiment {
+            await speakAboutTheLiveSceneOnScreen(
+                transcript: sceneToShow.whatToBuild,
+                labeledImages: screenCaptures.map { capture in (data: capture.imageData, label: capture.label) }
+            )
+        }
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
@@ -2953,19 +2989,20 @@ final class CompanionManager: ObservableObject {
                 secondaryChipText: secondaryChipText,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
-        case .threeDModel:
+        case .readyScene:
             NSSound(named: "Tink")?.play()
-            let modelRisesNow = aReadyThreeDModelMayRiseNow
+            let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
+            let waitingPhrase = agentKind == .experiment ? "show the experiment" : "show the model"
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
                 sender: .backgroundAgent(agentKind),
-                secondaryChipText: modelRisesNow ? nil : "· say show the model",
+                secondaryChipText: sceneRisesNow ? nil : "· say \(waitingPhrase)",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
-            if modelRisesNow {
-                startShowingTheReadyThreeDModel()
+            if sceneRisesNow {
+                startShowingTheReadyBackgroundScene()
             } else {
-                print("3D model: the screen is busy, so the model waits for \"show the model\"")
+                print("\(agentKind.displayName): the screen is busy, so it waits for \"\(waitingPhrase)\"")
             }
         case .answer(_, let pageURL):
             NSSound(named: "Tink")?.play()
@@ -3010,7 +3047,7 @@ final class CompanionManager: ObservableObject {
             videoQuizIsRunning: videoQuizSession.isRunning,
             quizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer,
             studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState),
-            threeDModelIsReady: readyThreeDModel != nil,
+            backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess"
         )
