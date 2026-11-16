@@ -1758,7 +1758,7 @@ struct leanring_buddyTests {
     @Test func aKeyTypedDuringTheHoldDoesNotFireEvenWhenItIsReleased() async throws {
         var recognizer = AgentListShortcutRecognizer()
         recognizer.modifiersChanged([.shift, .option], at: 10)
-        recognizer.keyWasPressed()
+        recognizer.pressArrived(ofType: .keyDown)
         let fired7 = recognizer.timeAdvanced(to: 10.3)
         #expect(!fired7)
 
@@ -1771,9 +1771,29 @@ struct leanring_buddyTests {
         #expect(fired9)
     }
 
+    @Test func aClickOrADragStartedDuringTheHoldDoesNotFire() async throws {
+        // Shift + option + a click or a drag is a command in many apps, so it must not open the list.
+        for mouseButtonPress in [CGEventType.leftMouseDown, .rightMouseDown] {
+            var recognizer = AgentListShortcutRecognizer()
+            recognizer.modifiersChanged([.shift, .option], at: 10)
+            recognizer.pressArrived(ofType: mouseButtonPress)
+            let firedAfterTheClick = recognizer.timeAdvanced(to: 10.3)
+            #expect(!firedAfterTheClick, "\(mouseButtonPress)")
+        }
+
+        // A key let go, or the mouse moving, is not a press.
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        recognizer.pressArrived(ofType: .keyUp)
+        recognizer.pressArrived(ofType: .mouseMoved)
+        let firedAfterOtherEvents = recognizer.timeAdvanced(to: 10.3)
+        #expect(firedAfterOtherEvents)
+    }
+
     @Test func ordinaryTypingBeforeTheHoldDoesNotBlockIt() async throws {
         var recognizer = AgentListShortcutRecognizer()
-        recognizer.keyWasPressed()
+        recognizer.pressArrived(ofType: .keyDown)
+        recognizer.pressArrived(ofType: .leftMouseDown)
         recognizer.modifiersChanged([.shift, .option], at: 10)
         let fired10 = recognizer.timeAdvanced(to: 10.3)
         #expect(fired10)

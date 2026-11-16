@@ -3,8 +3,9 @@
 //  leanring-buddy
 //
 //  Recognizes holding shift + option for 0.3 seconds with nothing else pressed, which opens and closes the agent list.
-//  It is fed modifier changes, key downs, and the time, and holds no timer, so tests drive it with made-up times.
-//  Ctrl + option is push-to-talk, and shift + option + a key types special characters, so neither may fire it.
+//  It is fed modifier changes, key and mouse button presses, and the time, and holds no timer, so tests drive it with
+//  made-up times. Ctrl + option is push-to-talk, shift + option + a key types special characters, and shift + option
+//  + a click or a drag is a command in many apps, so none of them may fire it.
 //
 
 import AppKit
@@ -12,6 +13,8 @@ import Foundation
 
 struct AgentListShortcutRecognizer {
     static let secondsToHold: TimeInterval = 0.3
+    /// The presses that break a hold, which the event tap listens for besides modifier changes.
+    static let pressEventTypesThatBreakAHold: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown]
 
     private enum State: Equatable {
         case waitingForShiftAndOption
@@ -46,9 +49,10 @@ struct AgentListShortcutRecognizer {
         }
     }
 
-    /// A key typed while a modifier is held. A key typed with no modifier held is ordinary typing and changes nothing.
-    mutating func keyWasPressed() {
-        guard !heldModifiers.isEmpty else { return }
+    /// A key or mouse button pressed while a modifier is held. One pressed with no modifier held is ordinary typing or
+    /// clicking and changes nothing, and so is any other event the tap passes on.
+    mutating func pressArrived(ofType eventType: CGEventType) {
+        guard Self.pressEventTypesThatBreakAHold.contains(eventType), !heldModifiers.isEmpty else { return }
         state = .spent
     }
 
