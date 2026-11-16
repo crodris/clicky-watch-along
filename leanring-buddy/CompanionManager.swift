@@ -1638,12 +1638,12 @@ final class CompanionManager: ObservableObject {
             await speakSimulationLine(simulationTryAnotherSettingLine)
             return
         }
-        voiceState = .processing
         let predictionCheck: SimulationPredictionCheck
         if guessCheckStep == .moveOnWithTheExplanation {
             // An open check moves on with the explanation at this run count, so none is asked for.
             predictionCheck = SimulationPredictionCheck(spokenLine: lesson.physicsExplanation, predictionIsSettled: false)
         } else {
+            voiceState = .processing
             do {
                 let (replyText, _) = try await claudeAPI.analyzeImageStreaming(
                     images: [],
@@ -1666,7 +1666,9 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         let lessonMovesOn = predictionCheck.predictionIsSettled || runsChecked >= SimulationLesson.mostRunsCheckedBeforeTheChallenge
-        print("Simulation: guess check after run \(runsChecked), settled \(predictionCheck.predictionIsSettled)")
+        if guessCheckStep == .checkTheGuess {
+            print("Simulation: guess check after run \(runsChecked), settled \(predictionCheck.predictionIsSettled)")
+        }
         if predictionCheck.predictionIsSettled {
             await speakSimulationLine(predictionCheck.spokenLine)
         } else if lessonMovesOn {
