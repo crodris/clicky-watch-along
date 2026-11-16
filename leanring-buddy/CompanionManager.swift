@@ -1630,20 +1630,33 @@ final class CompanionManager: ObservableObject {
         // Counted before the check runs, so a learner whose push-to-talk keeps cancelling it still reaches the challenge.
         simulationLesson?.runsChecked += 1
         let runsChecked = simulationLesson?.runsChecked ?? 0
-        voiceState = .processing
+        let guessCheckStep = simulationGuessCheckStep(trialsTryMoreThanOneSetting: runReport.trialsTryMoreThanOneSetting, runsChecked: runsChecked)
+        if guessCheckStep != .checkTheGuess {
+            print("Simulation: guess check skipped after run \(runsChecked), one setting tried")
+        }
+        if guessCheckStep == .askForAnotherSetting {
+            await speakSimulationLine(simulationTryAnotherSettingLine)
+            return
+        }
         let predictionCheck: SimulationPredictionCheck
-        do {
-            let (replyText, _) = try await claudeAPI.analyzeImageStreaming(
-                images: [],
-                systemPrompt: simulationPredictionCheckSystemPrompt,
-                userPrompt: simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport),
-                onTextChunk: { _ in }
-            )
-            predictionCheck = SimulationPredictionCheck(replyText: replyText)
-        } catch {
-            predictionCheck = SimulationPredictionCheck(spokenLine: lesson.physicsExplanation, predictionIsSettled: true)
-            if !Task.isCancelled {
-                print("Simulation: the guess check failed, so Clicky says the page's explanation: \(error)")
+        if guessCheckStep == .moveOnWithTheExplanation {
+            // An open check moves on with the explanation at this run count, so none is asked for.
+            predictionCheck = SimulationPredictionCheck(spokenLine: lesson.physicsExplanation, predictionIsSettled: false)
+        } else {
+            voiceState = .processing
+            do {
+                let (replyText, _) = try await claudeAPI.analyzeImageStreaming(
+                    images: [],
+                    systemPrompt: simulationPredictionCheckSystemPrompt,
+                    userPrompt: simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport),
+                    onTextChunk: { _ in }
+                )
+                predictionCheck = SimulationPredictionCheck(replyText: replyText)
+            } catch {
+                predictionCheck = SimulationPredictionCheck(spokenLine: lesson.physicsExplanation, predictionIsSettled: true)
+                if !Task.isCancelled {
+                    print("Simulation: the guess check failed, so Clicky says the page's explanation: \(error)")
+                }
             }
         }
         // A newer run's narration cancels this one and then waits for Clicky to be quiet, so the processing
@@ -1653,7 +1666,9 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         let lessonMovesOn = predictionCheck.predictionIsSettled || runsChecked >= SimulationLesson.mostRunsCheckedBeforeTheChallenge
-        print("Simulation: guess check after run \(runsChecked), settled \(predictionCheck.predictionIsSettled)")
+        if guessCheckStep == .checkTheGuess {
+            print("Simulation: guess check after run \(runsChecked), settled \(predictionCheck.predictionIsSettled)")
+        }
         if predictionCheck.predictionIsSettled {
             await speakSimulationLine(predictionCheck.spokenLine)
         } else if lessonMovesOn {

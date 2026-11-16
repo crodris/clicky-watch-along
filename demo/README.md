@@ -9,6 +9,7 @@ Run these from the main checkout, whose Debug build holds the Accessibility gran
 The recorder brings a new Chrome window to the front of the MacBook's built-in Retina screen and records its 16:9 area at 3420x1924, so the edit's 3x zooms on Clicky's text stay sharp.
 Leave the keyboard and trackpad alone while a shot records, about 2 minutes each.
 A YouTube video plays muted with its captions hidden, so the footage carries only Clicky's voice.
+The recording leaves out the macOS pointer, since Clicky's blue cursor already shows where the mouse is.
 The recorder puts YouTube's saved volume setting back when the shot ends.
 
 ```bash

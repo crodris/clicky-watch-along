@@ -1955,6 +1955,8 @@ struct leanring_buddyTests {
         // The question is page text too, so it sits inside a data tag the system prompt names.
         #expect(userPrompt.contains("<question>Will 30 or 60 degrees land farther?</question>"))
         #expect(simulationPredictionCheckSystemPrompt.contains("<question>"))
+        // A long reveal held the frame for 20 seconds in a demo take, so the settled reply has a word cap.
+        #expect(simulationPredictionCheckSystemPrompt.contains("35 words"))
         #expect(userPrompt.contains("trial 1: Launch  angle  60 degrees gave Range 35.31 m"))
         lesson.guess = .skipped
         #expect(simulationPredictionCheckUserPrompt(lesson: lesson, runReport: runReport).contains("(they did not guess)"))
@@ -1965,6 +1967,27 @@ struct leanring_buddyTests {
         #expect(simulationPredictionCheckSystemPrompt.contains("talk to the learner directly as \"you\""))
         // With no tag the lesson keeps checking, so a confused reply never skips ahead.
         #expect(SimulationPredictionCheck(replyText: "They tied.").predictionIsSettled == false)
+    }
+
+    @Test func theGuessCheckWaitsForASecondSettingSinceOneSettingCannotAnswerAGuessAboutAChange() throws {
+        let oneSettingTwice = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Range","value":20,"unit":"m"}],"pastRuns":[{"controls":[{"label":"Angle","value":30,"unit":"degrees"}],"readouts":[]},{"controls":[{"label":"Angle","value":30,"unit":"degrees"}],"readouts":[]}]}
+        """))
+        let twoSettings = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Range","value":15,"unit":"m"}],"pastRuns":[{"controls":[{"label":"Angle","value":60,"unit":"degrees"}],"readouts":[]},{"controls":[{"label":"Angle","value":30,"unit":"degrees"}],"readouts":[]}]}
+        """))
+        #expect(!oneSettingTwice.trialsTryMoreThanOneSetting)
+        #expect(twoSettings.trialsTryMoreThanOneSetting)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: false, runsChecked: 1) == .askForAnotherSetting)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: false, runsChecked: 2) == .askForAnotherSetting)
+        // After 3 runs the lesson moves on, and with one setting no model call can answer the guess, so none is made.
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: false, runsChecked: 3) == .moveOnWithTheExplanation)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: true, runsChecked: 2) == .checkTheGuess)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: true, runsChecked: 3) == .checkTheGuess)
+    }
+
+    @Test func theChallengeLineNeverMentionsADashedLineSinceACircuitOrAMoleculeDrawsNone() {
+        #expect(!simulationChallengeStartSuffix.lowercased().contains("dashed"))
     }
 
     @Test func recordGuessIsOfferedOnlyWhileASimulationWaitsForAGuess() async throws {

@@ -231,6 +231,9 @@
 
   // The panel covers the bottom of the view, so the camera's view moves up by half the panel's height and the scene
   // stays centered in the space above it. The view offset is part of the projection, so the labels the page projects follow.
+  // The lift starts from the height the panel reaches with a full trials table, and with 3 controls whose Run button
+  // wraps to its own row, so the scene stays still as rows arrive.
+  const panelHeightWithAFullTable = 300;
   let sceneLift = 0;
   let panelHeightTheLiftFits = 0;
   const applySceneLift = () => {
@@ -242,7 +245,7 @@
     if (width > 0 && height > 0) camera.setViewOffset(width, height, 0, sceneLift, width, height);
   };
   const keepSceneAbovePanel = () => {
-    const panelHeight = panel.element.offsetHeight;
+    const panelHeight = Math.max(panel.element.offsetHeight, panelHeightWithAFullTable);
     if (panelHeight === panelHeightTheLiftFits) return;
     panelHeightTheLiftFits = panelHeight;
     const startLift = sceneLift;
@@ -300,7 +303,8 @@
       labelElement.textContent = readout.label;
       labelElement.style.opacity = "0.7";
       const valueElement = document.createElement("span");
-      valueElement.textContent = `${readout.value} ${readout.unit}`.trim();
+      // The values are the run before's until this run ends, so they wait while it plays.
+      valueElement.textContent = runIsGoing ? "…" : `${readout.value} ${readout.unit}`.trim();
       valueElement.style.fontWeight = "700";
       line.append(labelElement, valueElement);
       return line;
@@ -313,7 +317,7 @@
     if (panel.element || !document.body || !hasSimulation()) return;
     const element = document.createElement("div");
     element.id = "clicky-simulation-panel";
-    element.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10;box-sizing:border-box;width:min(560px,calc(100vw - 32px));display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px;padding:10px 14px;border-radius:12px;background:rgba(250,246,240,0.96);color:#222;font:600 13px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
+    element.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10;box-sizing:border-box;width:min(560px,calc(100vw - 32px));display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px;padding:10px 14px;border-radius:12px;background:#faf6f0;color:#222;font:600 13px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
     const style = document.createElement("style");
     style.textContent = "#clicky-simulation-panel input[type=range]{width:100%;margin:4px 0 0;accent-color:#3380ff;cursor:pointer}#clicky-simulation-panel button{cursor:pointer}#clicky-simulation-panel button:hover:not(:disabled){filter:brightness(1.1)}#clicky-simulation-panel button:disabled{cursor:default;opacity:0.7}";
     element.append(style);

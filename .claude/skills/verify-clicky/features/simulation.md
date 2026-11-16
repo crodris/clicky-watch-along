@@ -10,7 +10,7 @@ The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, 
 - `simulation-route` is `/live-scene` with `kind: "simulation"`, which rejects a page with no `controls`, `setControl`, `run`, or `readouts`, or with its own input or button.
 - `simulation-panel` is the panel `scene-tools.js` draws: sliders, Run (labeled "Say your guess" while locked), the hypothesis while Clicky waits for the guess, readouts, the challenge line, and the trials table.
 - `simulation-guess` is `record_guess`, which the router picks for an answer to the hypothesis and which unlocks Run and the dashed path.
-- `simulation-check` is the guess check through `/chat` after each explore run, logged as `Simulation: guess check after run N, settled <bool>`.
+- `simulation-check` is the guess check through `/chat` after each explore run once the trials hold two settings, logged as `Simulation: guess check after run N, settled <bool>`. Before that it logs `Simulation: guess check skipped after run N, one setting tried`, and from run 3 the lesson moves on without the call.
 - `simulation-challenge` starts once the guess is settled, hides the dashed path, and counts tries until a hit, which plays "Glass".
 - `simulation-agent` is the background build, which logs `Experiment: built "<what>" in N s` and then `Experiment: showing "<what>", rising out of the video <bool>`, or `Experiment: the screen is busy, so it waits for "show the experiment"`.
 - `simulation-voice` is `set_control` and `run_simulation` from the router, such as "make the angle 30 degrees" and "run it".
@@ -37,7 +37,7 @@ Preconditions:
   GPT pages matched within 1 percent on 2026-11-15.
 - **App.** Run `$V app-launch "let me try it | &I think 60 degrees will go farther | make the angle 30 degrees | run it | +8 make the angle 60 degrees | run it"`.
   The "&" prefix makes the guess wait for the build, the rise, and the spoken question, since the experiment now builds in the background.
-  The log shows `Experiment: built`, `Experiment: showing`, `Simulation: asked for the guess` before `Live scene rehearsal: saying "I think`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, and `Simulation: guess check after run N`.
+  The log shows `Experiment: built`, `Experiment: showing`, `Simulation: asked for the guess` before `Live scene rehearsal: saying "I think`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, `Simulation: guess check skipped after run 1, one setting tried`, and `Simulation: guess check after run 2`.
   Run `$V shot simulation` once the log shows `Simulation: challenge started`.
 - **Cost ceiling.** One `[/live-scene]` usage line per page with GPT output under 10,000 tokens, and one streamed `/chat` request per guess check.
 
@@ -46,7 +46,7 @@ Preconditions:
 - The experiment is built from the screen showing the video, or the display under the mouse when no video matches.
   Put the experiment's picture in Chrome's front tab and check the tab with AppleScript, because "front window" can be a different Chrome window, such as one a browser tool drives.
   An experiment rises only while the tab it was built from is in front, unless Chrome gave no tab URL when it started.
-- A guess about something the experiment cannot test never settles, so the challenge starts after 3 checked runs.
+- A guess about something the experiment cannot test never settles, so the challenge starts after 3 runs.
 - Chrome's Allow JavaScript from Apple Events must be on to pause a YouTube video for the scene, and the log says `javaScriptFromAppleEventsIsOff` when it is not.
 - A headless harness that adds `scene-tools.js` twice draws two panels, and the first one goes stale.
   Use a fresh page for each load.
