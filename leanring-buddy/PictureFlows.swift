@@ -63,18 +63,20 @@ enum PictureFlowsClient {
         guard let flowsURL = URL(string: "\(workerBaseURL)/picture-flows") else {
             preconditionFailure("Worker base URL did not form the picture flows URL: \(workerBaseURL)")
         }
-        var request = URLRequest(url: flowsURL, timeoutInterval: requestTimeoutSeconds)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        let requestBody = try JSONSerialization.data(withJSONObject: [
             "frameBase64": framePopout.frameGrab.jpeg,
             "frameWidth": framePopout.frameGrab.width,
             "frameHeight": framePopout.frameGrab.height,
             "partLabels": framePopout.parts.map(\.label),
         ])
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            requestBody,
+            to: flowsURL,
+            using: URLSession.shared,
+            timeoutInterval: requestTimeoutSeconds,
+            sendsAppSecret: false
+        )
+        guard statusCode == 200 else {
             throw URLError(.badServerResponse, userInfo: [
                 NSLocalizedDescriptionKey: "Picture flows returned \(statusCode): \(String(decoding: responseData.prefix(300), as: UTF8.self))",
             ])

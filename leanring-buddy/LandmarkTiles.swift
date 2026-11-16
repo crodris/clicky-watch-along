@@ -40,17 +40,19 @@ enum LandmarkClient {
         guard let landmarkURL = URL(string: "\(workerBaseURL)/landmark") else {
             preconditionFailure("Worker base URL did not form the landmark URL: \(workerBaseURL)")
         }
-        var request = URLRequest(url: landmarkURL, timeoutInterval: requestTimeoutSeconds)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        let requestBody = try JSONSerialization.data(withJSONObject: [
             "frameBase64": frameGrab.jpeg,
             "videoTitle": videoTitle,
             "learnerRequest": learnerRequest,
         ])
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            requestBody,
+            to: landmarkURL,
+            using: URLSession.shared,
+            timeoutInterval: requestTimeoutSeconds,
+            sendsAppSecret: false
+        )
+        guard statusCode == 200 else {
             throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "Landmark returned \(statusCode)"])
         }
         let landmarkResponse = try JSONDecoder().decode(LandmarkResponse.self, from: responseData)

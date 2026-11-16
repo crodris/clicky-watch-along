@@ -1656,6 +1656,26 @@ struct leanring_buddyTests {
         #expect(headerSent() == "s3cret")
     }
 
+    @Test func aWorkerPostIsJSONWithItsOwnTimeoutAndTheAppSecretOnlyWhereAsked() async throws {
+        let defaultsSuiteName = "clicky-tests-worker-post-\(UUID().uuidString)"
+        let testDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { testDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+        testDefaults.set("s3cret", forKey: ClickyAppSecret.defaultsKey)
+        let workerURL = try #require(URL(string: "https://worker.example/study-guide-status"))
+        let requestBody = Data("{}".utf8)
+
+        let secretRequest = WorkerJSONPost.makeRequest(to: workerURL, body: requestBody, timeoutInterval: 5, sendsAppSecret: true, appSecretDefaults: testDefaults)
+        #expect(secretRequest.httpMethod == "POST")
+        #expect(secretRequest.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(secretRequest.value(forHTTPHeaderField: "x-clicky-app-secret") == "s3cret")
+        #expect(secretRequest.timeoutInterval == 5)
+        #expect(secretRequest.httpBody == requestBody)
+
+        let plainRequest = WorkerJSONPost.makeRequest(to: workerURL, body: requestBody, sendsAppSecret: false, appSecretDefaults: testDefaults)
+        #expect(plainRequest.value(forHTTPHeaderField: "x-clicky-app-secret") == nil)
+        #expect(plainRequest.timeoutInterval == URLRequest(url: workerURL).timeoutInterval)
+    }
+
     @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
         let labelScreenPoints = [
             LiveScenePartScreenPoint(label: "Rotor blades", globalPoint: CGPoint(x: 10, y: 10)),

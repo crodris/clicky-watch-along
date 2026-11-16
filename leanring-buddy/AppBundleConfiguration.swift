@@ -41,3 +41,44 @@ enum ClickyAppSecret {
         request.setValue(secret, forHTTPHeaderField: headerName)
     }
 }
+
+/// The one way the app POSTs a JSON body to a Worker route. Each caller keeps its own session, timeout, and error type,
+/// since what a non-200 reply means differs per route.
+enum WorkerJSONPost {
+    /// `timeoutInterval` nil keeps URLRequest's own default. `sendsAppSecret` is true only for the routes that need
+    /// x-clicky-app-secret.
+    static func makeRequest(
+        to url: URL,
+        body: Data,
+        timeoutInterval: TimeInterval? = nil,
+        sendsAppSecret: Bool,
+        appSecretDefaults: UserDefaults = .standard
+    ) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if sendsAppSecret {
+            ClickyAppSecret.add(to: &request, from: appSecretDefaults)
+        }
+        if let timeoutInterval {
+            request.timeoutInterval = timeoutInterval
+        }
+        request.httpBody = body
+        return request
+    }
+
+    /// The status code is -1 when the reply is not an HTTP reply, so callers branch on the code alone.
+    static func send(
+        _ body: Data,
+        to url: URL,
+        using session: URLSession,
+        timeoutInterval: TimeInterval? = nil,
+        sendsAppSecret: Bool
+    ) async throws -> (responseData: Data, statusCode: Int) {
+        let request = makeRequest(to: url, body: body, timeoutInterval: timeoutInterval, sendsAppSecret: sendsAppSecret)
+        let (responseData, response) = try await session.data(for: request)
+        // URLSession returns URLResponse. The Worker answers over HTTP.
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        return (responseData, statusCode)
+    }
+}

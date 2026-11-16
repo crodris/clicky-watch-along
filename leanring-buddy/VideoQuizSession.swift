@@ -1502,20 +1502,20 @@ private struct VideoQuizPlanClient {
         guard let planURL = URL(string: "\(workerBaseURL)/video-quiz-plan") else {
             throw VideoQuizFailure.planFailed("Worker base URL did not form a /video-quiz-plan URL: \(workerBaseURL)")
         }
-        var request = URLRequest(url: planURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Sonnet can take 3 tries on a long transcript.
-        request.timeoutInterval = 120
-        request.httpBody = try JSONEncoder().encode(RequestBody(title: title, transcriptLines: transcriptLines))
-
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
+        let (responseData, statusCode) = try await WorkerJSONPost.send(
+            try JSONEncoder().encode(RequestBody(title: title, transcriptLines: transcriptLines)),
+            to: planURL,
+            using: URLSession.shared,
+            // Sonnet can take 3 tries on a long transcript.
+            timeoutInterval: 120,
+            sendsAppSecret: false
+        )
+        guard statusCode != -1 else {
             throw VideoQuizFailure.planFailed("Invalid response")
         }
-        guard httpResponse.statusCode == 200 else {
+        guard statusCode == 200 else {
             let errorBody = String(data: responseData, encoding: .utf8) ?? "Unknown error"
-            throw VideoQuizFailure.planFailed("Video quiz plan API error (\(httpResponse.statusCode)): \(errorBody)")
+            throw VideoQuizFailure.planFailed("Video quiz plan API error (\(statusCode)): \(errorBody)")
         }
 
         return try JSONDecoder().decode(ResponseBody.self, from: responseData).moments

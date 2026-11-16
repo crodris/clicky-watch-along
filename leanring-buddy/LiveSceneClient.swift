@@ -97,23 +97,17 @@ final class LiveSceneClient {
         body: Data,
         session: URLSession
     ) async throws -> Data {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
+        let (data, statusCode) = try await WorkerJSONPost.send(body, to: url, using: session, sendsAppSecret: false)
 
-        let (data, response) = try await session.data(for: request)
-
-        // URLSession returns URLResponse. The Worker answers over HTTP.
-        guard let httpResponse = response as? HTTPURLResponse else {
+        guard statusCode != -1 else {
             throw liveSceneAPIError(statusCode: -1, message: "Invalid response")
         }
 
-        guard httpResponse.statusCode == 200 else {
+        guard statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw liveSceneAPIError(
-                statusCode: httpResponse.statusCode,
-                message: "Live scene API error (\(httpResponse.statusCode)): \(errorBody)"
+                statusCode: statusCode,
+                message: "Live scene API error (\(statusCode)): \(errorBody)"
             )
         }
 
