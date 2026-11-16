@@ -1976,7 +1976,17 @@ struct leanring_buddyTests {
         """))
         #expect(!oneSettingTwice.trialsTryMoreThanOneSetting)
         #expect(twoSettings.trialsTryMoreThanOneSetting)
-        // A circuit or a molecule draws no dashed path, so the challenge line never mentions one.
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: false, runsChecked: 1) == .askForAnotherSetting)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: false, runsChecked: 2) == .askForAnotherSetting)
+        // After 3 runs the lesson moves on, and with one setting no model call can answer the guess, so none is made.
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: false, runsChecked: 3) == .moveOnWithTheExplanation)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: true, runsChecked: 2) == .checkTheGuess)
+        #expect(simulationGuessCheckStep(trialsTryMoreThanOneSetting: true, runsChecked: 3) == .checkTheGuess)
+        // A long reveal held the frame for 20 seconds in a demo take, so the settled reply has a word cap.
+        #expect(simulationPredictionCheckSystemPrompt.contains("35 words"))
+    }
+
+    @Test func theChallengeLineNeverMentionsADashedLineSinceACircuitOrAMoleculeDrawsNone() {
         #expect(!simulationChallengeStartSuffix.lowercased().contains("dashed"))
     }
 

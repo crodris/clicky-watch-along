@@ -231,8 +231,9 @@
 
   // The panel covers the bottom of the view, so the camera's view moves up by half the panel's height and the scene
   // stays centered in the space above it. The view offset is part of the projection, so the labels the page projects follow.
-  // The lift starts from the height the panel reaches with a full trials table, so the scene stays still as rows arrive.
-  const panelHeightWithAFullTable = 240;
+  // The lift starts from the height the panel reaches with a full trials table, and with 3 controls whose Run button
+  // wraps to its own row, so the scene stays still as rows arrive.
+  const panelHeightWithAFullTable = 300;
   let sceneLift = 0;
   let panelHeightTheLiftFits = 0;
   const applySceneLift = () => {

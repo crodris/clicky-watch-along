@@ -69,7 +69,7 @@ struct SimulationRunReport: Equatable {
     /// True once the trials hold two different control settings. One setting alone cannot answer a guess about a change.
     var trialsTryMoreThanOneSetting: Bool {
         let distinctSettings = Set(pastRuns.map { pastRun in
-            pastRun.controlSettings.map { "\($0.label)=\($0.value)" }.joined(separator: "|")
+            pastRun.controlSettings.map { controlSetting in "\(controlSetting.label)=\(controlSetting.value)" }.joined(separator: "|")
         })
         return distinctSettings.count > 1
     }
@@ -219,6 +219,19 @@ let simulationChallengeStartSuffix = "Use your earlier runs to aim."
 
 /// Said after a run instead of the guess check while the trials hold only one setting, so no model call is spent on it.
 let simulationTryAnotherSettingLine = "Change a setting and run it again to compare."
+
+/// What Clicky does after an explore run. One setting cannot answer a guess about a change, so the check waits for a
+/// second one, and after `mostRunsCheckedBeforeTheChallenge` runs the lesson moves on with no model call.
+enum SimulationGuessCheckStep: Equatable {
+    case askForAnotherSetting
+    case checkTheGuess
+    case moveOnWithTheExplanation
+}
+
+func simulationGuessCheckStep(trialsTryMoreThanOneSetting: Bool, runsChecked: Int) -> SimulationGuessCheckStep {
+    if trialsTryMoreThanOneSetting { return .checkTheGuess }
+    return runsChecked < SimulationLesson.mostRunsCheckedBeforeTheChallenge ? .askForAnotherSetting : .moveOnWithTheExplanation
+}
 
 private func spokenSimulationNumber(_ value: Double) -> String {
     value.formatted(.number.precision(.fractionLength(0...2)).grouping(.never).locale(Locale(identifier: "en_US_POSIX")))
