@@ -2260,16 +2260,17 @@ struct leanring_buddyTests {
     }
 
     @Test func aFinishedRunPostsReadoutsThatBecomeOneShortSpokenLine() async throws {
-        let readouts = SimulationReadout.readouts(fromPageJSON: """
-        [{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
-         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]
-        """)
+        let runReport = try #require(SimulationRunReport(pageJSON: """
+        {"readouts":[{"label":"Landing distance","value":40.84,"unit":"m"},{"label":"Peak height","value":10.2,"unit":"m"},
+         {"label":"","value":1,"unit":"m"},{"label":"Bad","value":"far","unit":"m"},{"label":"Fourth","value":4,"unit":""},{"label":"Fifth","value":5,"unit":""}]}
+        """))
+        let readouts = runReport.readouts
         #expect(readouts.map(\.label) == ["Landing distance", "Peak height", "Fourth"])
         // A page that posts nothing usable gets no event, and a label is cut to a spoken length.
         #expect(LiveScenePageEvent(messageBody: "runFinished:{\"readouts\":[]}") == nil)
         #expect(LiveScenePageEvent(messageBody: "runFinished:not json") == nil)
         #expect(LiveScenePageEvent(messageBody: "guessSkipped") == .simulationGuessSkipped)
-        #expect(SimulationReadout.readouts(fromPageJSON: "[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]").first?.label.count == 40)
+        #expect(SimulationRunReport(pageJSON: "{\"readouts\":[{\"label\":\"\(String(repeating: "x", count: 90))\",\"value\":1}]}")?.readouts.first?.label.count == 40)
 
         #expect(simulationReadoutSpokenLine(for: readouts) == "That run gave a landing distance of 40.84 meters, and a peak height of 10.2 meters.")
         #expect(simulationReadoutSpokenLine(for: [SimulationReadout(label: "Energy", value: 3, unit: "J")]) == "That run gave an energy of 3 joules.")
