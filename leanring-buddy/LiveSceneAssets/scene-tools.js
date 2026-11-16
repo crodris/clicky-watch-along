@@ -459,13 +459,6 @@
     return challenge.prompt;
   };
 
-  // The tour ends by itself or by a call, and either sets __tourFinished. The page defines liveScene during load, so wait for it.
-  const panelWatcher = setInterval(() => {
-    if (window.__tourFinished === true) ensurePanel();
-    if (panel.element) clearInterval(panelWatcher);
-  }, 150);
-  setTimeout(() => clearInterval(panelWatcher), 120000);
-
   const tools = [
     {
       name: "rotate_model",
@@ -652,7 +645,9 @@
     simulation: {
       guessHeard: () => leaveTheGuessStage(),
       startChallenge,
+      // The app calls this when the tour ends, whether or not the page set __tourFinished, so it draws the panel too.
       showQuestion: (questionText) => {
+        ensurePanel();
         predictionQuestion = String(questionText ?? "").trim().slice(0, 300);
         refreshPanel();
       },

@@ -6,7 +6,11 @@ type ToolDescriptor = { name: string; description: string; inputSchema: unknown 
 type ToolCallResult = { ok: boolean; error?: string; state: Record<string, unknown> };
 
 /** Runs scene-tools.js against a page whose window.liveScene is `liveScene`. With no document given there is no body, so no panel is drawn. */
-function loadSceneTools(liveScene: Record<string, unknown>, fakeDocument: Record<string, unknown> = { body: null, querySelectorAll: () => [] }) {
+function loadSceneTools(
+  liveScene: Record<string, unknown>,
+  fakeDocument: Record<string, unknown> = { body: null, querySelectorAll: () => [] },
+  timers: { setTimeout?: (callback: () => void, milliseconds: number) => unknown; setInterval?: (callback: () => void, milliseconds: number) => unknown } = {},
+) {
   const postedEvents: string[] = [];
   const fakeWindow: Record<string, unknown> = {
     liveScene,
@@ -29,9 +33,9 @@ function loadSceneTools(liveScene: Record<string, unknown>, fakeDocument: Record
     () => ({ matches: true }),
     { now: () => 0 },
     () => 0,
-    () => 0,
+    timers.setInterval ?? (() => 0),
     () => {},
-    () => 0,
+    timers.setTimeout ?? (() => 0),
   );
   const clickyTools = fakeWindow.clickyTools as {
     list: () => ToolDescriptor[];
@@ -536,6 +540,25 @@ describe("scene-tools.js simulation tools", () => {
     expect(questionLine?.style).toMatchObject({ display: "block" });
     clickyTools.simulation.guessHeard();
     expect(questionLine?.style).toMatchObject({ display: "none" });
+  });
+
+  it("draws the panel when the app shows the question, even if the page never set __tourFinished", () => {
+    const appendedElements: unknown[] = [];
+    const fakeDocument = {
+      body: {},
+      documentElement: { append: (element: unknown) => appendedElements.push(element) },
+      createElement: () => ({ style: {}, offsetHeight: 60, append: () => {}, replaceChildren: () => {}, addEventListener: () => {} }),
+      querySelectorAll: () => [],
+    };
+    const setInterval = vi.fn(() => 0);
+    const { clickyTools } = loadSceneTools(simulationPage(), fakeDocument, { setInterval });
+    expect(appendedElements).toHaveLength(0);
+
+    clickyTools.simulation.showQuestion("Will 30 or 60 degrees send the ball farther?");
+
+    expect(appendedElements).toHaveLength(1);
+    // The page script no longer polls for __tourFinished, so showQuestion is the only way the panel appears after a tour.
+    expect(setInterval).not.toHaveBeenCalled();
   });
 
   it("skips the guess when the learner clicks the locked Run button, and tells the app", () => {

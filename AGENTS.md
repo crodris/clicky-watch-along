@@ -121,7 +121,7 @@ It says `simulationTryAnotherSettingLine` on runs 1 and 2, and from run 3 it mov
 The reply starts with `[SETTLED]` (Clicky says whether the guess was right and why, in at most 35 words) or `[OPEN]` (what to try next), and after 3 runs the lesson moves on anyway with the page's explanation.
 A failed check says the explanation.
 Each challenge try gets `simulationChallengeSpokenLine`, and a hit plays "Glass".
-`scene-tools.js` draws one panel on the document root once the tour ends (a slider per control, a Run button labeled "Say your guess" while locked, the hypothesis while Clicky waits for the guess (`clickyTools.simulation.showQuestion`), the readouts, the challenge line, and a results table of the last 5 trials, styled like the scene labels), and a press on it never turns the model.
+`scene-tools.js` draws one panel on the document root once the tour ends, when the app shows the question or a tool call arrives, never by polling the page's `__tourFinished` (a slider per control, a Run button labeled "Say your guess" while locked, the hypothesis while Clicky waits for the guess (`clickyTools.simulation.showQuestion`), the readouts, the challenge line, and a results table of the last 5 trials, styled like the scene labels), and a press on it never turns the model.
 The table's one measurement column shows the challenge's readout, else the first readout that has differed between trials, else the first readout, so a fixed control sample beside the test one never fills it.
 The panel is opaque, and its readouts show "…" while a run plays, since they are still the run before's.
 The panel covers the bottom of the view, so `keepSceneAbovePanel` moves the camera's view up with `camera.setViewOffset`.
