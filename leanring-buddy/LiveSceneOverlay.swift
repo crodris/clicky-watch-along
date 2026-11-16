@@ -760,7 +760,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         guard let challengePrompt = await callThePageForVoiceTools("return window.clickyTools?.simulation?.startChallenge?.() ?? null")?.stringValue else {
             return nil
         }
-        let trimmedPrompt = spokenTextCutAtASentenceEnd(challengePrompt.trimmingCharacters(in: .whitespacesAndNewlines), longestLength: 200)
+        let trimmedPrompt = spokenTextCutAtASentenceEnd(challengePrompt.trimmingCharacters(in: .whitespacesAndNewlines), longestLength: 300)
         return trimmedPrompt.isEmpty ? nil : trimmedPrompt
     }
 
