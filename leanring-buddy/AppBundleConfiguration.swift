@@ -34,9 +34,10 @@ enum ClickyAppSecret {
     static let headerName = "x-clicky-app-secret"
     static let defaultsKey = "clickyAppSecret"
 
-    /// A request with no secret set goes out without the header, and the Worker answers it with 401.
-    static func add(to request: inout URLRequest) {
-        guard let secret = UserDefaults.standard.string(forKey: defaultsKey), !secret.isEmpty else { return }
+    /// A request with no secret set goes out without the header, and the Worker answers it with 401. Tests pass their
+    /// own defaults, since the hosted tests share Clicky.app's defaults, which hold the real secret.
+    static func add(to request: inout URLRequest, from userDefaults: UserDefaults = .standard) {
+        guard let secret = userDefaults.string(forKey: defaultsKey), !secret.isEmpty else { return }
         request.setValue(secret, forHTTPHeaderField: headerName)
     }
 }

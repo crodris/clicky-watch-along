@@ -456,6 +456,25 @@ func aReadyBackgroundSceneMayRiseOverTheFrontTab(
     return frontTabURL == sourceTabURL
 }
 
+/// A scene rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or pop-out
+/// is building or showing, no video quiz question is open, and the tab rule above allows it. Otherwise it would cover
+/// something the learner is looking at, so it waits for "show the model" or "show the experiment". The front tab is
+/// read last, since reading it is an Apple Event a busy screen does not need.
+func backgroundSceneMayRiseNow(
+    _ readyBackgroundScene: ReadyBackgroundScene,
+    clickyIsIdleAndDoneSpeaking: Bool,
+    aSceneOrPopOutIsBuildingOrShowing: Bool,
+    aVideoQuizQuestionIsOpen: Bool,
+    readFrontTabURL: () -> String?
+) -> Bool {
+    guard clickyIsIdleAndDoneSpeaking, !aSceneOrPopOutIsBuildingOrShowing, !aVideoQuizQuestionIsOpen else { return false }
+    return aReadyBackgroundSceneMayRiseOverTheFrontTab(
+        agentKind: readyBackgroundScene.agentKind,
+        sourceTabURL: readyBackgroundScene.sourceTabURL,
+        frontTabURL: readFrontTabURL()
+    )
+}
+
 /// What a request for an experiment does. One experiment builds at a time, since each build is a paid `POST /live-scene`
 /// call and a newer one would replace the older, and a learner who repeats "let me try it" over a ready one wants to see it.
 enum ExperimentRequestStep: Equatable {

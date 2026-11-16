@@ -65,6 +65,16 @@ nonisolated enum StudyGuideJob: Equatable, Sendable {
         case .refresh: return .studyGuideUpdate
         }
     }
+
+    /// A revise or refresh reply means the Worker already wrote the new page and trashed the old one, so the reply is
+    /// saved even when the agent was cancelled as it arrived, or the saved guide would point at a trashed page and the
+    /// new page would be lost. A cancelled new guide keeps no record.
+    var replyIsSavedEvenWhenCancelled: Bool {
+        switch self {
+        case .write: return false
+        case .revise, .refresh: return true
+        }
+    }
 }
 
 /// A missed or skipped question goes into the guide at once. A question the learner got right changes nothing in it.
@@ -225,8 +235,9 @@ nonisolated extension StudyGuideRecord {
     }
 }
 
-/// The app opens a guide's page with NSWorkspace, which runs any URL scheme, so it opens only an https page on Notion.
-nonisolated func studyGuidePageURLIsOnNotion(_ pageURL: URL) -> Bool {
+/// The app opens a guide's or a task agent's page with NSWorkspace, which runs any URL scheme, so it keeps only an
+/// https page on Notion.
+nonisolated func pageURLIsOnNotion(_ pageURL: URL) -> Bool {
     guard pageURL.scheme?.lowercased() == "https", let host = pageURL.host?.lowercased() else { return false }
     return ["notion.so", "notion.com"].contains { notionHost in host == notionHost || host.hasSuffix("." + notionHost) }
 }
@@ -249,6 +260,38 @@ nonisolated func studyGuideVideoKey(forVideoURL videoURLText: String) -> String 
         return pathParts[1]
     }
     return videoURLText
+}
+
+/// A guide is written from the video in front, so a quiz miss refreshes the quiz video's guide only while that video is
+/// still in front. The caller checks again after each await, since the learner may switch tabs meanwhile.
+nonisolated func studyGuideRefreshMayStart(forQuizVideoURL quizVideoURL: String, frontVideoURL: String?) -> Bool {
+    guard let frontVideoURL else { return false }
+    return studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL)
+}
+
+/// A saved guide is forgotten, so the video can get a new one, only when Notion says its page is gone. When the Worker
+/// cannot say (nil), the saved guide stands, so a network hiccup never loses it. A revise or refresh trashes the old page
+/// before its reply arrives, so a guide with a guide agent running stands too, and so does a guide that a newer one
+/// replaced during the check, since forgetting by video would drop the newer one.
+nonisolated func savedStudyGuideIsForgotten(pageStillExists: Bool?, aGuideAgentIsRunningForTheVideo: Bool, checkedGuideIsStillSaved: Bool) -> Bool {
+    pageStillExists == false && !aGuideAgentIsRunningForTheVideo && checkedGuideIsStillSaved
+}
+
+/// What becomes of a refresh queued for a video, by a quiz miss while its guide was being written, when that guide's
+/// agent ends.
+nonisolated enum QueuedStudyGuideRefreshStep: Equatable {
+    /// A cancel ends an agent at once, so a newer guide agent may have started for the video before the cancelled one
+    /// unwound, and the queued refresh may be that newer agent's. It runs or drops when the newer agent ends.
+    case leaveItForTheRunningGuide
+    /// After a failure or a cancel the refresh would fail the same way or undo the cancel. The miss stays in the quiz
+    /// log, so the video's next refresh or revise sends it.
+    case dropIt
+    case runIt
+}
+
+nonisolated func queuedStudyGuideRefreshStep(endedGuideWasWritten: Bool, aGuideAgentIsRunningForTheVideo: Bool) -> QueuedStudyGuideRefreshStep {
+    if aGuideAgentIsRunningForTheVideo { return .leaveItForTheRunningGuide }
+    return endedGuideWasWritten ? .runIt : .dropIt
 }
 
 /// The guides written so far, one UserDefaults entry per video, so a guide outlives a relaunch and a video never gets a
@@ -399,7 +442,7 @@ nonisolated func studyGuideRecord(statusCode: Int, responseData: Data) throws ->
         throw StudyGuideError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
     }
     let decodedStudyGuideRecord = try JSONDecoder().decode(StudyGuideRecord.self, from: responseData)
-    guard studyGuidePageURLIsOnNotion(decodedStudyGuideRecord.pageURL) else {
+    guard pageURLIsOnNotion(decodedStudyGuideRecord.pageURL) else {
         throw StudyGuideError.pageIsNotOnNotion
     }
     return decodedStudyGuideRecord

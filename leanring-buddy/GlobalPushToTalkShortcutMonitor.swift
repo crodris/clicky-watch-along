@@ -50,7 +50,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         // refreshAllPermissions → start() every few seconds.
         guard globalEventTap == nil else { return }
 
-        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp]
+        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp] + AgentListShortcutRecognizer.pressEventTypesThatBreakAHold
         let eventMask = monitoredEventTypes.reduce(CGEventMask(1) << Self.gestureEventTypeRawValue) { currentMask, eventType in
             currentMask | (CGEventMask(1) << eventType.rawValue)
         }
@@ -165,10 +165,11 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         case .flagsChanged:
             agentListShortcutRecognizer.modifiersChanged(
                 NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)),
-                at: ProcessInfo.processInfo.systemUptime
+                at: ProcessInfo.processInfo.systemUptime,
+                aMouseButtonIsDown: NSEvent.pressedMouseButtons != 0
             )
-        case .keyDown:
-            agentListShortcutRecognizer.keyWasPressed()
+        case let pressEventType where AgentListShortcutRecognizer.pressEventTypesThatBreakAHold.contains(pressEventType):
+            agentListShortcutRecognizer.pressArrived(ofType: pressEventType)
         default:
             return
         }

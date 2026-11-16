@@ -109,9 +109,24 @@ nonisolated struct TaskAgentTurn: Equatable, Sendable {
 
 nonisolated enum TaskAgentError: Error, Equatable {
     case replyHadNoContent
+    case replyHadNoPageURL
+    /// The Worker's /notion-page reply named a page that is not an https page on Notion.
+    case pageIsNotOnNotion
     case workerReturned(statusCode: Int, body: String)
     case ranOutOfTurns
     case endedWithNoAnswer
+}
+
+/// The agent list's "Open page" and the background tab open the page this returns, so it must be on Notion.
+nonisolated func taskAgentNotionPageURL(responseData: Data) throws -> URL {
+    let responseJSON = try JSONDecoder().decode(JSONValue.self, from: responseData)
+    guard let pageURL = responseJSON["pageURL"]?.stringValue.flatMap(URL.init(string:)) else {
+        throw TaskAgentError.replyHadNoPageURL
+    }
+    guard pageURLIsOnNotion(pageURL) else {
+        throw TaskAgentError.pageIsNotOnNotion
+    }
+    return pageURL
 }
 
 /// What the loop does after a turn.
@@ -215,12 +230,7 @@ final class TaskAgentClient {
 
     /// The agent's own write_notion_page input goes to the Worker as it is, which checks it.
     func writeNotionPage(_ pageInput: [String: JSONValue]) async throws -> URL {
-        let responseData = try await post(.object(pageInput), to: notionPageURL)
-        let responseJSON = try JSONDecoder().decode(JSONValue.self, from: responseData)
-        guard let pageURL = responseJSON["pageURL"]?.stringValue.flatMap(URL.init(string:)) else {
-            throw TaskAgentError.replyHadNoContent
-        }
-        return pageURL
+        try taskAgentNotionPageURL(responseData: try await post(.object(pageInput), to: notionPageURL))
     }
 
     private func post(_ requestBody: JSONValue, to url: URL) async throws -> Data {
