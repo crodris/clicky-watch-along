@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 import { jsonResponse, parseJSONRequest, requestAnthropicMessage } from "./anthropic";
-import { bulletedListItemBlock, createNotionPage, heading2Block, paragraphBlock, richTextItem, type NotionBlock } from "./studyGuide";
+import { bulletedListItemBlock, createNotionPage, heading2Block, paragraphBlock, richTextItem, type NotionBlock } from "./notion";
 import { voiceCommandMessageSchema, voiceCommandToolSchema } from "./voiceCommand";
 
 const backgroundAgentSystemPrompt = [
@@ -112,7 +112,7 @@ export async function handleNotionPage(request: Request, notionAPIKey: string | 
   if (!parsedRequest.ok) {
     return parsedRequest.response;
   }
-  const createdPage = await createNotionPage(notionAPIKey, parsedRequest.requestBody.title, notionPageBlocks(parsedRequest.requestBody));
+  const createdPage = await createNotionPage(notionAPIKey, "/notion-page", parsedRequest.requestBody.title, notionPageBlocks(parsedRequest.requestBody));
   if (!createdPage.ok) {
     return jsonResponse({ error: createdPage.error }, 502);
   }

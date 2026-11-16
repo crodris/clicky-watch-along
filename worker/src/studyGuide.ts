@@ -15,6 +15,17 @@
 
 import { z } from "zod";
 import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON, zodIssuesOnOneLine } from "./anthropic";
+import {
+  bulletedListItemBlock,
+  callNotion,
+  createNotionPage,
+  heading2Block,
+  paragraphBlock,
+  richTextItem,
+  type NotionBlock,
+  type NotionCallResult,
+  type NotionRichTextItem,
+} from "./notion";
 import { lineStartAtOrBefore } from "./videoQuizPlan";
 
 /** youtube.com and every subdomain of it, such as music.youtube.com, which the app also offers the guide for. */
@@ -251,56 +262,8 @@ function formatTimestamp(seconds: number): string {
   return `${minutes}:${secondsOfMinute}`;
 }
 
-// Notion's request shapes, narrowed to the few blocks the page uses.
-type NotionRichTextItem = {
-  type: "text";
-  text: { content: string; link?: { url: string } };
-  annotations?: { bold: true };
-};
-
-export type NotionBlock =
-  | { object: "block"; type: "paragraph"; paragraph: { rich_text: NotionRichTextItem[] } }
-  | { object: "block"; type: "heading_2"; heading_2: { rich_text: NotionRichTextItem[] } }
-  | { object: "block"; type: "bulleted_list_item"; bulleted_list_item: { rich_text: NotionRichTextItem[] } };
-
-const notionRichTextCharacterLimit = 2000;
-
-function truncatedForNotion(content: string): string {
-  if (content.length <= notionRichTextCharacterLimit) {
-    return content;
-  }
-  const truncatedContent = content.slice(0, notionRichTextCharacterLimit);
-  const lastCharacterCode = truncatedContent.charCodeAt(notionRichTextCharacterLimit - 1);
-  // A high surrogate left at the end is half of an emoji, which Notion would reject.
-  const endsInHalfOfAnEmoji = lastCharacterCode >= 0xd800 && lastCharacterCode <= 0xdbff;
-  return endsInHalfOfAnEmoji ? truncatedContent.slice(0, -1) : truncatedContent;
-}
-
-export function richTextItem(content: string, options: { linkURL?: string; bold?: boolean } = {}): NotionRichTextItem {
-  return {
-    type: "text",
-    text: {
-      content: truncatedForNotion(content),
-      ...(options.linkURL !== undefined ? { link: { url: options.linkURL } } : {}),
-    },
-    ...(options.bold === true ? { annotations: { bold: true as const } } : {}),
-  };
-}
-
 function timestampLinkItem(videoURL: string, seconds: number): NotionRichTextItem {
   return richTextItem(` (${formatTimestamp(seconds)})`, { linkURL: videoTimestampURL(videoURL, seconds) });
-}
-
-export function paragraphBlock(richText: NotionRichTextItem[]): NotionBlock {
-  return { object: "block", type: "paragraph", paragraph: { rich_text: richText } };
-}
-
-export function heading2Block(heading: string): NotionBlock {
-  return { object: "block", type: "heading_2", heading_2: { rich_text: [richTextItem(heading)] } };
-}
-
-export function bulletedListItemBlock(richText: NotionRichTextItem[]): NotionBlock {
-  return { object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: richText } };
 }
 
 /** The page body, top to bottom. At the largest guide this is 76 blocks, under Notion's 100 children per request. */
@@ -356,61 +319,6 @@ export function studyGuidePageBlocks(
   ];
 }
 
-const notionAPIBaseURL = "https://api.notion.com/v1";
-const notionAPIVersion = "2026-03-11";
-
-const notionPageReplySchema = z.object({ id: z.string(), url: z.string() });
-
-type NotionCallResult<Reply> = { ok: true; reply: Reply } | { ok: false; error: string; status?: number };
-
-async function callNotion(
-  notionAPIKey: string,
-  method: "GET" | "POST" | "PATCH",
-  path: string,
-  requestBody?: unknown,
-): Promise<NotionCallResult<unknown>> {
-  try {
-    const notionResponse = await fetch(`${notionAPIBaseURL}${path}`, {
-      method,
-      headers: {
-        authorization: `Bearer ${notionAPIKey}`,
-        "notion-version": notionAPIVersion,
-        "content-type": "application/json",
-      },
-      body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
-    });
-    if (!notionResponse.ok) {
-      const errorText = await notionResponse.text();
-      console.error(`[/study-guide] Notion API error ${notionResponse.status} on ${method} ${path}: ${errorText}`);
-      return { ok: false, error: `Notion returned ${notionResponse.status}`, status: notionResponse.status };
-    }
-    return { ok: true, reply: await notionResponse.json() };
-  } catch (error) {
-    console.error(`[/study-guide] Notion request failed on ${method} ${path}:`, error);
-    return { ok: false, error: "Notion could not be reached" };
-  }
-}
-
-export async function createNotionPage(
-  notionAPIKey: string,
-  title: string,
-  children: NotionBlock[],
-): Promise<NotionCallResult<{ id: string; url: string }>> {
-  const createdPage = await callNotion(notionAPIKey, "POST", "/pages", {
-    parent: { type: "workspace", workspace: true },
-    properties: { title: { title: [richTextItem(title)] } },
-    children,
-  });
-  if (!createdPage.ok) {
-    return createdPage;
-  }
-  const parsedPage = notionPageReplySchema.safeParse(createdPage.reply);
-  if (!parsedPage.success) {
-    return { ok: false, error: `Notion's reply was not a page: ${zodIssuesOnOneLine(parsedPage.error)}` };
-  }
-  return { ok: true, reply: parsedPage.data };
-}
-
 function hexFromBytes(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -447,7 +355,7 @@ export async function signedPageHandle(notionAPIKey: string, pageId: string): Pr
 }
 
 /** The page id a handle names, or undefined when this Worker did not sign the handle. */
-export async function pageIdFromSignedHandle(notionAPIKey: string, pageHandle: string): Promise<string | undefined> {
+async function pageIdFromSignedHandle(notionAPIKey: string, pageHandle: string): Promise<string | undefined> {
   const separatorIndex = pageHandle.lastIndexOf(".");
   if (separatorIndex <= 0) {
     return undefined;
@@ -467,7 +375,7 @@ export async function pageIdFromSignedHandle(notionAPIKey: string, pageHandle: s
 }
 
 async function trashNotionPage(notionAPIKey: string, pageId: string): Promise<NotionCallResult<unknown>> {
-  return await callNotion(notionAPIKey, "PATCH", `/pages/${encodeURIComponent(pageId)}`, { in_trash: true });
+  return await callNotion(notionAPIKey, "/study-guide", "PATCH", `/pages/${encodeURIComponent(pageId)}`, { in_trash: true });
 }
 
 /** Wraps text that came from the video's page in a tag, with every "<" replaced so the text cannot close the tag. */
@@ -543,7 +451,7 @@ export async function handleStudyGuideStatus(request: Request, environment: Stud
   if (pageId === undefined) {
     return jsonResponse({ error: "pageHandle was not issued by this Worker" }, 400);
   }
-  const notionPage = await callNotion(notionAPIKey, "GET", `/pages/${encodeURIComponent(pageId)}`);
+  const notionPage = await callNotion(notionAPIKey, "/study-guide-status", "GET", `/pages/${encodeURIComponent(pageId)}`);
   if (!notionPage.ok) {
     // A page deleted from the trash, or no longer shared with the token, is gone for the learner too.
     return notionPage.status === 404 ? jsonResponse({ pageExists: false }, 200) : jsonResponse({ error: notionPage.error }, 502);
@@ -629,6 +537,7 @@ async function writeTheGuidePage(
 ): Promise<Response> {
   const createdPage = await createNotionPage(
     notionAPIKey,
+    "/study-guide",
     guide.title,
     studyGuidePageBlocks(guide, studyGuideRequest.quizResults, studyGuideRequest.videoTitle, studyGuideRequest.videoURL),
   );

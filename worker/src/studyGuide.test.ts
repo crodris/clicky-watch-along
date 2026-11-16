@@ -6,10 +6,10 @@ import {
   signedPageHandle,
   studyGuidePageBlocks,
   videoTimestampURL,
-  type NotionBlock,
   type QuizResult,
   type StudyGuide,
 } from "./studyGuide";
+import type { NotionBlock } from "./notion";
 
 const videoURL = "https://www.youtube.com/watch?v=abc123";
 const videoTitle = "How a jet engine works";

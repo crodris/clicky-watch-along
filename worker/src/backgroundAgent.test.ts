@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleBackgroundAgent, notionPageBlocks } from "./backgroundAgent";
+import { handleBackgroundAgent, handleNotionPage, notionPageBlocks } from "./backgroundAgent";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const turnRequest = {
@@ -58,5 +59,23 @@ describe("notionPageBlocks", () => {
 
     expect(blocks.map((block) => block.type)).toEqual(["paragraph", "heading_2", "bulleted_list_item", "bulleted_list_item", "heading_2", "bulleted_list_item"]);
     expect(JSON.stringify(blocks[5])).toContain('"url":"https://www.spacex.com/launches"');
+  });
+});
+
+describe("handleNotionPage", () => {
+  const smallPage = { title: "Ship catch", summary: "The ship was caught.", sections: [], sources: [] };
+
+  function notionPageRequest(body: unknown): Request {
+    return new Request("http://local/notion-page", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+  }
+
+  it("logs a Notion failure under /notion-page, not /study-guide, and answers 502", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+
+    const response = await handleNotionPage(notionPageRequest(smallPage), "notion-key");
+
+    expect(response.status).toBe(502);
+    expect(errorLog.mock.calls[0]?.[0]).toMatch(/^\[\/notion-page\] Notion API error 500 on POST \/pages/);
   });
 });
