@@ -1652,6 +1652,13 @@ struct leanring_buddyTests {
         #expect(!studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: nil))
     }
 
+    @Test func aRefreshQueuedDuringAGuideRunsOnlyAfterItIsWrittenAndWaitsForANewerGuideOnTheSameVideo() async throws {
+        #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: true, aGuideAgentIsRunningForTheVideo: false) == .runIt)
+        #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: false) == .dropIt)
+        // A guide cancelled after a newer one started on the same video must not take the newer guide's queued refresh.
+        #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: true) == .leaveItForTheRunningGuide)
+    }
+
     @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
         #expect(BackgroundAgentKind.experiment.stepNames == ["Grab the frame", "Build the experiment"])
         #expect(BackgroundAgentKind.experiment.finishedChipText == "Experiment ready")

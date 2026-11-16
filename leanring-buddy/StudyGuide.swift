@@ -268,6 +268,23 @@ nonisolated func studyGuideRefreshMayStart(forQuizVideoURL quizVideoURL: String,
     return studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL)
 }
 
+/// What becomes of a refresh queued for a video, by a quiz miss while its guide was being written, when that guide's
+/// agent ends.
+nonisolated enum QueuedStudyGuideRefreshStep: Equatable {
+    /// A cancel ends an agent at once, so a newer guide agent may have started for the video before the cancelled one
+    /// unwound, and the queued refresh may be that newer agent's. It runs or drops when the newer agent ends.
+    case leaveItForTheRunningGuide
+    /// After a failure or a cancel the refresh would fail the same way or undo the cancel. The miss stays in the quiz
+    /// log, so the video's next refresh or revise sends it.
+    case dropIt
+    case runIt
+}
+
+nonisolated func queuedStudyGuideRefreshStep(endedGuideWasWritten: Bool, aGuideAgentIsRunningForTheVideo: Bool) -> QueuedStudyGuideRefreshStep {
+    if aGuideAgentIsRunningForTheVideo { return .leaveItForTheRunningGuide }
+    return endedGuideWasWritten ? .runIt : .dropIt
+}
+
 /// The guides written so far, one UserDefaults entry per video, so a guide outlives a relaunch and a video never gets a
 /// second page. The demo's record-shot.sh deletes its video's entry by this key, so keep the two in step.
 nonisolated struct SavedStudyGuides {

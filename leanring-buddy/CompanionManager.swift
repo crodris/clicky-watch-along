@@ -2909,11 +2909,18 @@ final class CompanionManager: ObservableObject {
         let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
         runInTheBackground(agentID) {
             let guideWasWritten = await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
-            let quizVideoURLDueARefresh = self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey.removeValue(forKey: videoKey)
-            // After a failure or a cancel the queued refresh would fail the same way or undo the cancel, and the miss
-            // stays in the quiz log, so the video's next refresh or revise sends it.
-            if guideWasWritten, let quizVideoURLDueARefresh {
-                self.refreshTheStudyGuide(forQuizVideoURL: quizVideoURLDueARefresh)
+            switch queuedStudyGuideRefreshStep(
+                endedGuideWasWritten: guideWasWritten,
+                aGuideAgentIsRunningForTheVideo: self.backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: videoKey)
+            ) {
+            case .leaveItForTheRunningGuide:
+                break
+            case .dropIt:
+                self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey[videoKey] = nil
+            case .runIt:
+                if let quizVideoURLDueARefresh = self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey.removeValue(forKey: videoKey) {
+                    self.refreshTheStudyGuide(forQuizVideoURL: quizVideoURLDueARefresh)
+                }
             }
         }
         return .changed(state: .object(["studyGuide": .string("started")]))
