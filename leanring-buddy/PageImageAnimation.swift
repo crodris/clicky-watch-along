@@ -18,7 +18,7 @@ enum PageImageAnimation {
     /// Past this many frames the pop-out keeps its still frame, so a long animation cannot bloat the page.
     nonisolated static let largestFrameCount = 150
     /// The page names the URL, so a small file that claims a huge canvas is refused before any frame is decoded.
-    nonisolated static let largestPixelCountPerFrame = 4096 * 4096
+    nonisolated static let largestFrameSide = 4096
     nonisolated static let largestPixelCountForAllFrames = 300_000_000
     /// Every frame is drawn at the capture's size and decoded at once in the page, so this caps the page's memory.
     nonisolated static let largestOutputPixelCountForAllFrames = 60_000_000
@@ -43,7 +43,7 @@ enum PageImageAnimation {
         frameHeight: Int,
         capturedFrameJPEGBase64: String
     ) async -> [PageImageAnimationFrame]? {
-        guard imageURL.scheme == "https" else { return nil }
+        guard mayDownload(imageURL) else { return nil }
         var imageData = Data()
         do {
             let (imageBytes, response) = try await downloadSession.bytes(
@@ -67,6 +67,11 @@ enum PageImageAnimation {
         )
     }
 
+    /// The page names the URL, so only https is fetched, for the first request and for every redirect.
+    nonisolated static func mayDownload(_ imageURL: URL?) -> Bool {
+        imageURL?.scheme == "https"
+    }
+
     /// Each frame drawn at the captured frame's size over `backgroundColor`, since the page stretches
     /// the image to its element box and the screen capture is that box.
     /// Nil for a still image, one with more than `largestFrameCount` frames, one whose frames at the capture's size
@@ -86,7 +91,7 @@ enum PageImageAnimation {
         let imageProperties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any] ?? [:]
         guard let pixelWidth = imageProperties[kCGImagePropertyPixelWidth] as? Int,
               let pixelHeight = imageProperties[kCGImagePropertyPixelHeight] as? Int,
-              pixelWidth * pixelHeight <= largestPixelCountPerFrame,
+              pixelWidth <= largestFrameSide, pixelHeight <= largestFrameSide,
               pixelWidth * pixelHeight * frameCount <= largestPixelCountForAllFrames else {
             return nil
         }
@@ -190,7 +195,7 @@ enum PageImageAnimation {
 
 /// A redirect may only move to another https URL.
 /// The completion-handler form is used because Swift 6.3 crashes emitting the async form's thunk under main-actor default isolation.
-nonisolated private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
+nonisolated final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -198,6 +203,6 @@ nonisolated private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDele
         newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        completionHandler(request.url?.scheme == "https" ? request : nil)
+        completionHandler(PageImageAnimation.mayDownload(request.url) ? request : nil)
     }
 }

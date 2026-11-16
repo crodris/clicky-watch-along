@@ -639,6 +639,56 @@ struct leanring_buddyTests {
         }
     }
 
+    @Test func animatedPageImageIsRefusedForTooManyFramesATooWideFrameOrANonHTTPSURL() async throws {
+        func gifData(frameCount: Int, frameWidth: Int = 4, frameHeight: Int = 4) throws -> Data {
+            let gifData = NSMutableData()
+            let destination = try #require(CGImageDestinationCreateWithData(gifData, "com.compuserve.gif" as CFString, frameCount, nil))
+            let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+            for frameIndex in 0..<frameCount {
+                let frameContext = try #require(CGContext(
+                    data: nil, width: frameWidth, height: frameHeight, bitsPerComponent: 8, bytesPerRow: 0,
+                    space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ))
+                frameContext.setFillColor(CGColor(srgbRed: frameIndex.isMultiple(of: 2) ? 1 : 0, green: 0, blue: 1, alpha: 1))
+                frameContext.fill(CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight))
+                CGImageDestinationAddImage(destination, try #require(frameContext.makeImage()), nil)
+            }
+            #expect(CGImageDestinationFinalize(destination))
+            return gifData as Data
+        }
+        let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(frameCount: 150), frameWidth: 8, frameHeight: 6, backgroundColor: white)?.count == 150)
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(frameCount: 151), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
+
+        // The documented limit is 4096 pixels on each side, so a frame 8192 wide and 16 tall is refused although its area is small.
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(frameCount: 2, frameWidth: 4096, frameHeight: 16), frameWidth: 8, frameHeight: 6, backgroundColor: white)?.count == 2)
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(frameCount: 2, frameWidth: 8192, frameHeight: 16), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
+        #expect(PageImageAnimation.frames(ofImageData: try gifData(frameCount: 2, frameWidth: 16, frameHeight: 8192), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
+
+        // Only https is fetched, for the first request and for every redirect, so these answer before any network use.
+        #expect(PageImageAnimation.mayDownload(URL(string: "https://example.com/animation.gif")))
+        #expect(!PageImageAnimation.mayDownload(URL(string: "http://example.com/animation.gif")))
+        #expect(!PageImageAnimation.mayDownload(URL(string: "file:///var/animation.gif")))
+        #expect(!PageImageAnimation.mayDownload(nil))
+        func redirectTarget(_ redirectURLText: String) throws -> URL? {
+            let imageURL = try #require(URL(string: "https://example.com/animation.gif"))
+            let redirectURL = try #require(URL(string: redirectURLText))
+            let imageTask = URLSession.shared.dataTask(with: imageURL)
+            let redirectResponse = try #require(HTTPURLResponse(url: imageURL, statusCode: 302, httpVersion: nil, headerFields: nil))
+            // The delegate calls its completion handler synchronously, on this thread.
+            nonisolated(unsafe) var followedRequest: URLRequest?
+            HTTPSOnlyRedirects().urlSession(URLSession.shared, task: imageTask, willPerformHTTPRedirection: redirectResponse, newRequest: URLRequest(url: redirectURL)) { followedRequest = $0 }
+            return followedRequest?.url
+        }
+        #expect(try redirectTarget("https://cdn.example.com/animation.gif")?.host() == "cdn.example.com")
+        #expect(try redirectTarget("http://cdn.example.com/animation.gif") == nil)
+        let insecureImageURL = try #require(URL(string: "http://example.com/animation.gif"))
+        #expect(await PageImageAnimation.frames(atImageURL: insecureImageURL, frameWidth: 8, frameHeight: 6, capturedFrameJPEGBase64: "") == nil)
+        let fileImageURL = try #require(URL(string: "file:///var/animation.gif"))
+        #expect(await PageImageAnimation.frames(atImageURL: fileImageURL, frameWidth: 8, frameHeight: 6, capturedFrameJPEGBase64: "") == nil)
+    }
+
     @Test func animatedPageImageGivesEveryFrameAtTheCapturedSizeAndBrowserTiming() async throws {
         func gifData(delaySecondsForEachFrame: [Double]) throws -> Data {
             let gifData = NSMutableData()
