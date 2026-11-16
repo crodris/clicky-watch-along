@@ -145,7 +145,7 @@ final class CompanionManager: ObservableObject {
     /// cancels one by its id. They are not currentResponseTask, because a push-to-talk press cancels that task and must
     /// not cancel work in the background.
     private var backgroundAgentTasks: [UUID: Task<Void, Never>] = [:]
-    /// The newest 3D model or experiment a background agent built that has not been shown yet. It waits here when the
+    /// The 3D model or experiment that finished building last and has not been shown yet. It waits here when the
     /// screen was busy as it finished, until the learner says "show the model" or "show the experiment".
     private var readyBackgroundScene: ReadyBackgroundScene?
     private lazy var taskAgentClient = TaskAgentClient(workerBaseURL: Self.workerBaseURL)
@@ -2725,7 +2725,7 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
             if readyBackgroundScene != nil {
-                print("\(agentKind.displayName): a newer \(builtThingName) replaces the scene still waiting to be shown")
+                print("\(agentKind.displayName): this \(builtThingName) finished last, so it replaces the scene still waiting to be shown")
             }
             // The quiz fields are the page's text, so the lesson cuts them.
             let simulationLesson = agentKind == .experiment
