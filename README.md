@@ -46,7 +46,7 @@ Press Escape to close it, and the video picks back up.
 HeyClicky's real-time graphics demo inspired this part.
 
 **Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, a cup of cocoa cooling, or the shape of a water molecule, end what you say with "let me try it" or "let me play with it", or say "simulate this".
-Clicky pauses the video, and a hands-on experiment of that idea rises out of it, with sliders for the things you can change and a Run button.
+Clicky builds a hands-on experiment of that idea while the video keeps playing, then pauses the video and lifts the experiment out of it, with sliders for the things you can change and a Run button.
 GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
 Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.
 It works like a real experiment, in four steps:
@@ -74,6 +74,16 @@ During a quiz question you can ask for a hint, ask to hear the question again, o
 Asking for a different model still builds a new scene.
 This follows Wes Bos's WebMCP demo, where a fast model calls small tools on a 3D page.
 
+**Background agents.** Some requests take longer than a quick answer, so Clicky hands them to an agent and the video keeps playing.
+Say "make me a study guide" over a YouTube video, and an agent reads the transcript and writes the guide as a Notion page, with a timestamp link on every point.
+If you miss or skip a quiz question later, the guide gets a "Review these first" section with that question a few seconds later.
+Say "build a 3D model of this", and the model rises out of the video once it's ready.
+"Let me try it" builds its experiment the same way.
+For something bigger, like "find out how this catch compares to the first booster catch", a task agent searches the web and can write what it found to a Notion page.
+It tells you what it found when you say "what did you find".
+Up to three running agents follow Clicky's blue triangle as small colored triangles that fill up as they work, and the nearest one says what it's doing.
+Hold Shift + Option to see every agent and its steps, cancel one, or open its page.
+
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
 That covers popping out an image, reading your screen, building a 3D scene or an experiment, reading a video's transcript, and picking quiz spots.
 While a label shows, its icon sits where Clicky's blue triangle usually is, and the triangle comes back when the step is done.
@@ -95,7 +105,7 @@ Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 wi
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
-The Worker has no authentication or rate limits yet, and its 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
+The Notion routes and the task agent's route need an app secret, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
 Everything below is the original Clicky README, with the setup, architecture, and project structure updated for this fork.
 
@@ -255,7 +265,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
+**Menu bar app** (no dock icon) with `NSPanel` windows for the control panel dropdown, the full-screen transparent cursor overlay, the agent list that Shift + Option opens, and the chips and labels next to the cursor. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
 
 ## Project structure
 
@@ -280,9 +290,15 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   LandmarkTiles.swift       # Google's 3D scan of a famous place
   VoiceCommandTools.swift   # Voice tools: what the model can call and what happens next
   VoiceToolCallChip.swift   # The chip that names each tool call
-  LiveSceneAssets/scene-tools.js # The scene's tools: turn, zoom, focus, pull apart, cut open
+  LiveSceneAssets/scene-tools.js # The scene's tools: turn, zoom, focus, pull apart, cut open, and the experiment panel
+  SimulationLesson.swift    # The "let me try it" lesson: the guess, the trials, and what Clicky says
+  StudyGuide.swift          # The Notion study guide request and the guide saved for each video
+  BackgroundAgents.swift    # The record of running agents and the scene a finished one built
+  BackgroundTaskAgent.swift # The task agent that searches the web and writes a Notion page
+  BackgroundAgentWingmen.swift   # The small triangles that follow the cursor while agents work
+  BackgroundAgentListPanel.swift # The agent list that Shift + Option opens
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /v1/3dtiles
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /background-agent, /notion-page, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
   src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
@@ -290,6 +306,10 @@ worker/                  # Cloudflare Worker proxy
   src/voiceCommand.ts       # Asks Haiku which voice tools to call
   src/pictureFlows.ts       # Draws what flows through a popped-out picture
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
+  src/studyGuide.ts         # Writes the study guide and checks a saved guide's page
+  src/backgroundAgent.ts    # One turn of the task agent, and its Notion page
+  src/appSecret.ts          # The app secret the Notion and agent routes require
+demo/                    # The Remotion demo videos and the scripts that record them
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
 

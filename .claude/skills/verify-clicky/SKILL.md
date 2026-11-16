@@ -25,7 +25,7 @@ $V            # prints usage
 - Never run `xcodebuild` on this Mac as Chris's user.
   It resets the app's TCC permissions.
   Build the Debug app with `$V build`, which drives Xcode itself through AppleScript and keeps the grants. Never ask Chris to build.
-  CI builds it on this Mac as the separate `clicky-ci` user, into a temp folder.
+  CI builds it on this Mac as a separate macOS user, into a temp folder.
   That build never replaces the app Chris's grants belong to.
   Fork pull requests build on GitHub's `macos-latest`.
 - Never stop, quit, or drive a Worker or a Clicky instance this script did not start.

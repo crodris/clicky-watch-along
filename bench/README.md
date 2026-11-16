@@ -3,6 +3,7 @@
 `bench.ts` measures the latency, tokens, and cost of every Worker route the demo uses, and checks each reply for quality on fixed fixtures.
 It runs on top of the `verify-clicky` skill, which starts and stops the local Worker and keeps its log.
 Results are JSON files in `results/`, named `<label>-<kind>-<commit>.json`.
+A result whose `workingTreeIsDirty` is true was recorded with uncommitted changes, so the commit in its name does not fully reproduce it.
 
 ## Run it
 
