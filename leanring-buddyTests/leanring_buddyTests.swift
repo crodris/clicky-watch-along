@@ -1279,6 +1279,26 @@ struct leanring_buddyTests {
         #expect(parsedRequest.body == Data("{\"a\":1}".utf8))
     }
 
+    @Test func debugMCPRefusesABrowserRequestAndABodyOverOneMegabyte() async throws {
+        let jsonHeaders = ["content-type": "application/json"]
+        #expect(debugRequestRefusalStatus(method: "POST", path: "/mcp", headers: jsonHeaders) == nil)
+        #expect(debugRequestRefusalStatus(method: "POST", path: "/mcp", headers: ["content-type": "application/json; charset=utf-8"]) == nil)
+        // A browser adds Origin to every cross-site request.
+        #expect(debugRequestRefusalStatus(method: "POST", path: "/mcp", headers: jsonHeaders.merging(["origin": "https://evil.example"]) { _, new in new }) == "403 Forbidden")
+        // A form post cannot send JSON, and a JSON content type forces a preflight this server never answers.
+        #expect(debugRequestRefusalStatus(method: "POST", path: "/mcp", headers: ["content-type": "text/plain"]) == "403 Forbidden")
+        #expect(debugRequestRefusalStatus(method: "POST", path: "/mcp", headers: [:]) == "403 Forbidden")
+        #expect(debugRequestRefusalStatus(method: "GET", path: "/mcp", headers: jsonHeaders) == "404 Not Found")
+        #expect(debugRequestRefusalStatus(method: "POST", path: "/other", headers: jsonHeaders) == "404 Not Found")
+
+        let oversizedHeader = "POST /mcp HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 1000001\r\n\r\n"
+        #expect(DebugHTTPRequest(bytes: Data((oversizedHeader + String(repeating: "x", count: 1_000_001)).utf8)) == nil)
+        let largestHeader = "POST /mcp HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n"
+        #expect(DebugHTTPRequest(bytes: Data((largestHeader + String(repeating: "x", count: 1_000_000)).utf8))?.body.count == 1_000_000)
+        #expect(!debugRequestHasGrownTooLarge(byteCount: 1_000_000))
+        #expect(debugRequestHasGrownTooLarge(byteCount: 1_000_001))
+    }
+
     @Test func aRehearsalAnswersWithTheOpenQuestionsLabel() async throws {
         #expect(rehearsalTranscript("is it the {answer}", answeringWith: "Stylomastoid foramen") == "is it the stylomastoid foramen")
         #expect(rehearsalTranscript("stop the quiz", answeringWith: "Ash") == "stop the quiz")

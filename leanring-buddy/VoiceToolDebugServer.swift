@@ -77,7 +77,7 @@ final class VoiceToolDebugServer {
                         connection.cancel()
                         Task { @MainActor in self.connectionsWithAWholeRequest.remove(ObjectIdentifier(connection)) }
                     })
-                } else if isComplete || receiveError != nil || requestBytes.count > 1_000_000 {
+                } else if isComplete || receiveError != nil || debugRequestHasGrownTooLarge(byteCount: requestBytes.count) {
                     connection.cancel()
                 } else {
                     self.receiveRequest(on: connection, bytesSoFar: requestBytes)
@@ -87,13 +87,8 @@ final class VoiceToolDebugServer {
     }
 
     private func response(to request: DebugHTTPRequest) async -> Data {
-        guard request.method == "POST", request.path == "/mcp" else {
-            return httpResponse(status: "404 Not Found", body: nil)
-        }
-        // A browser adds Origin to every cross-site request, and a JSON content type forces a preflight this server never answers.
-        guard request.headers["origin"] == nil,
-              request.headers["content-type"]?.hasPrefix("application/json") == true else {
-            return httpResponse(status: "403 Forbidden", body: nil)
+        if let refusalStatus = debugRequestRefusalStatus(method: request.method, path: request.path, headers: request.headers) {
+            return httpResponse(status: refusalStatus, body: nil)
         }
         guard let rpcRequest = try? JSONDecoder().decode(JSONValue.self, from: request.body),
               let method = rpcRequest["method"]?.stringValue else {
@@ -156,6 +151,26 @@ final class VoiceToolDebugServer {
     }
 }
 
+/// The status the server refuses a request with before it reads the body, or nil when the request may go on.
+/// A browser adds Origin to every cross-site request, and a JSON content type forces a preflight this server never
+/// answers, so neither can come from a web page.
+nonisolated func debugRequestRefusalStatus(method: String, path: String, headers: [String: String]) -> String? {
+    guard method == "POST", path == "/mcp" else { return "404 Not Found" }
+    guard headers["origin"] == nil,
+          headers["content-type"]?.hasPrefix("application/json") == true else {
+        return "403 Forbidden"
+    }
+    return nil
+}
+
+/// The most bytes of one request body the server reads, headers aside.
+nonisolated let debugRequestLargestBodyBytes = 1_000_000
+
+/// A sender that keeps sending past the body limit without finishing a request is cut off.
+nonisolated func debugRequestHasGrownTooLarge(byteCount: Int) -> Bool {
+    byteCount > debugRequestLargestBodyBytes
+}
+
 /// Just enough HTTP/1.1 for one request: the request line, the headers, and a Content-Length body.
 /// Nil until every byte of the body has arrived.
 nonisolated struct DebugHTTPRequest: Equatable {
@@ -177,7 +192,7 @@ nonisolated struct DebugHTTPRequest: Equatable {
             headers[headerName] = headerLine[headerLine.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
         }
         // A negative length would trap in prefix(_:), and the server reads at most 1 MB.
-        guard let contentLength = Int(headers["content-length"] ?? "0"), (0...1_000_000).contains(contentLength) else { return nil }
+        guard let contentLength = Int(headers["content-length"] ?? "0"), (0...debugRequestLargestBodyBytes).contains(contentLength) else { return nil }
         let bodyBytes = bytes[headerEnd.upperBound...]
         guard bodyBytes.count >= contentLength else { return nil }
         method = String(requestLineParts[0])
