@@ -8,6 +8,7 @@ import {
   videoTimestampURL,
   type QuizResult,
   type StudyGuide,
+  type StudyGuideEnvironment,
 } from "./studyGuide";
 import type { NotionBlock } from "./notion";
 
@@ -569,5 +570,87 @@ describe("handleStudyGuide", () => {
 
     expect(response.status).toBe(502);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("handleStudyGuideStatus", () => {
+  const notionEnvironment = { ANTHROPIC_API_KEY: "anthropic-key", NOTION_API_KEY: "notion-key" };
+
+  async function askWhetherThePageExists(pageHandle: string, environment: StudyGuideEnvironment = notionEnvironment): Promise<Response> {
+    return await handleStudyGuideStatus(
+      new Request("https://worker.test/study-guide-status", { method: "POST", body: JSON.stringify({ pageHandle }) }),
+      environment,
+    );
+  }
+
+  function stubNotionPage(notionResponse: Response) {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => notionResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("says the page exists when Notion returns it out of the trash, and reads it by the id in the handle", async () => {
+    const fetchMock = stubNotionPage(new Response(JSON.stringify({ id: "page-1", in_trash: false })));
+
+    const response = await askWhetherThePageExists(await signedPageHandle("notion-key", "page-1"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ pageExists: true });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://api.notion.com/v1/pages/page-1");
+  });
+
+  it("says the page is gone when Notion answers 404", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    stubNotionPage(new Response("{}", { status: 404 }));
+
+    const response = await askWhetherThePageExists(await signedPageHandle("notion-key", "page-1"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ pageExists: false });
+  });
+
+  it.each([{ in_trash: true }, { archived: true }])("says the page is gone when Notion reports %j", async (trashState) => {
+    stubNotionPage(new Response(JSON.stringify({ id: "page-1", ...trashState })));
+
+    const response = await askWhetherThePageExists(await signedPageHandle("notion-key", "page-1"));
+
+    expect(await response.json()).toEqual({ pageExists: false });
+  });
+
+  it("answers 502 when Notion answers 500, so the app keeps the saved guide", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    stubNotionPage(new Response("{}", { status: 500 }));
+
+    const response = await askWhetherThePageExists(await signedPageHandle("notion-key", "page-1"));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "Notion returned 500" });
+  });
+
+  it("logs a Notion failure under /study-guide-status", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubNotionPage(new Response("{}", { status: 500 }));
+
+    await askWhetherThePageExists(await signedPageHandle("notion-key", "page-1"));
+
+    expect(errorLog.mock.calls[0]?.[0]).toMatch(/^\[\/study-guide-status\] Notion API error 500/);
+  });
+
+  it("answers 400 for a handle signed with a different key, without calling Notion", async () => {
+    const fetchMock = stubNotionPage(new Response("{}"));
+
+    const response = await askWhetherThePageExists(await signedPageHandle("another-key", "someone-elses-page"));
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 when the Notion key is missing", async () => {
+    const fetchMock = stubNotionPage(new Response("{}"));
+
+    const response = await askWhetherThePageExists("page-1.abcd", { ...notionEnvironment, NOTION_API_KEY: undefined });
+
+    expect(response.status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
