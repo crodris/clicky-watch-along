@@ -1382,9 +1382,9 @@ struct leanring_buddyTests {
         #expect(throws: StudyGuideError.pageIsNotOnNotion) {
             try studyGuideRecord(statusCode: 200, responseData: fileReplyData)
         }
-        #expect(studyGuidePageURLIsOnNotion(try #require(URL(string: "https://app.notion.com/p/Guide-419eb398"))))
-        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "http://www.notion.so/p1"))))
-        #expect(!studyGuidePageURLIsOnNotion(try #require(URL(string: "https://notnotion.so/p1"))))
+        #expect(pageURLIsOnNotion(try #require(URL(string: "https://app.notion.com/p/Guide-419eb398"))))
+        #expect(!pageURLIsOnNotion(try #require(URL(string: "http://www.notion.so/p1"))))
+        #expect(!pageURLIsOnNotion(try #require(URL(string: "https://notnotion.so/p1"))))
     }
 
     @Test func aHandleTheWorkerRefusesCountsAsAGuideThatIsGone() async throws {
@@ -1396,6 +1396,33 @@ struct leanring_buddyTests {
         #expect(throws: StudyGuideError.workerReturned(statusCode: 502, body: "down")) {
             try studyGuidePageExists(statusCode: 502, responseData: Data("down".utf8))
         }
+    }
+
+    @Test func aGuideBeingRewrittenOrReplacedIsNotForgottenWhenItsOldPageIsGone() async throws {
+        #expect(savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: true))
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: true, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: true))
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: nil, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: true))
+        // A revision trashes the old page before its reply arrives.
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: true, checkedGuideIsStillSaved: true))
+        // A revision that finished during the check saved a newer guide under the same video.
+        #expect(!savedStudyGuideIsForgotten(pageStillExists: false, aGuideAgentIsRunningForTheVideo: false, checkedGuideIsStillSaved: false))
+    }
+
+    @Test func theAppSecretHeaderIsSentOnlyWhenASecretIsSet() async throws {
+        let defaultsSuiteName = "clicky-tests-app-secret-\(UUID().uuidString)"
+        let testDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { testDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let workerURL = try #require(URL(string: "https://worker.example/notion-page"))
+        func headerSent() -> String? {
+            var request = URLRequest(url: workerURL)
+            ClickyAppSecret.add(to: &request, from: testDefaults)
+            return request.value(forHTTPHeaderField: "x-clicky-app-secret")
+        }
+        #expect(headerSent() == nil)
+        testDefaults.set("", forKey: ClickyAppSecret.defaultsKey)
+        #expect(headerSent() == nil)
+        testDefaults.set("s3cret", forKey: ClickyAppSecret.defaultsKey)
+        #expect(headerSent() == "s3cret")
     }
 
     @Test func theQuizQuestionIsFoundByThePartMarkedAsTheAnswer() async throws {
@@ -1479,6 +1506,18 @@ struct leanring_buddyTests {
         #expect(taskAgentPageInputProblem(["title": .string("Catches"), "summary": .string("The ship was caught.")]) == nil)
         #expect(taskAgentPageInputProblem(["title": .string(" "), "summary": .string("")]) == "The page needs a title and summary. Write it once your research is done.")
         #expect(taskAgentPageInputProblem(["title": .string("Catches")])?.contains("summary") == true)
+    }
+
+    @Test func aTaskAgentKeepsOnlyAnHTTPSNotionPageFromTheWorker() async throws {
+        let notionReply = Data(#"{"pageURL":"https://www.notion.so/Catches-419eb398"}"#.utf8)
+        #expect(try taskAgentNotionPageURL(responseData: notionReply) == URL(string: "https://www.notion.so/Catches-419eb398"))
+        // "Open page" hands the URL to NSWorkspace, which would run any scheme.
+        #expect(throws: TaskAgentError.pageIsNotOnNotion) {
+            try taskAgentNotionPageURL(responseData: Data(#"{"pageURL":"file:///Applications/Calculator.app"}"#.utf8))
+        }
+        #expect(throws: TaskAgentError.replyHadNoPageURL) {
+            try taskAgentNotionPageURL(responseData: Data(#"{"ok":true}"#.utf8))
+        }
     }
 
     @Test func aTaskAgentSpeaksAtMostThreeSentencesOfItsAnswer() async throws {
@@ -1645,6 +1684,20 @@ struct leanring_buddyTests {
         #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
     }
 
+    @Test func aQuizMissRefreshesTheGuideOnlyWhileTheQuizVideoIsInFront() async throws {
+        let quizVideoURL = "https://www.youtube.com/watch?v=quizvideo&t=42"
+        #expect(studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: "https://youtu.be/quizvideo"))
+        #expect(!studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: "https://www.youtube.com/watch?v=othervideo"))
+        #expect(!studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: nil))
+    }
+
+    @Test func aRefreshQueuedDuringAGuideRunsOnlyAfterItIsWrittenAndWaitsForANewerGuideOnTheSameVideo() async throws {
+        #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: true, aGuideAgentIsRunningForTheVideo: false) == .runIt)
+        #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: false) == .dropIt)
+        // A guide cancelled after a newer one started on the same video must not take the newer guide's queued refresh.
+        #expect(queuedStudyGuideRefreshStep(endedGuideWasWritten: false, aGuideAgentIsRunningForTheVideo: true) == .leaveItForTheRunningGuide)
+    }
+
     @Test func anExperimentAgentBuildsInTwoStepsAndRisesLikeA3DModel() async throws {
         #expect(BackgroundAgentKind.experiment.stepNames == ["Grab the frame", "Build the experiment"])
         #expect(BackgroundAgentKind.experiment.finishedChipText == "Experiment ready")
@@ -1675,6 +1728,40 @@ struct leanring_buddyTests {
         #expect(!aReadyBackgroundSceneMayRiseOverTheFrontTab(agentKind: .threeDModel, sourceTabURL: sourceTab, frontTabURL: otherTab))
     }
 
+    @Test func aReadySceneRisesAtOnceOnlyOntoAFreeScreenOverTheTabItWasBuiltFrom() async throws {
+        let sourceTab = "https://www.youtube.com/watch?v=source"
+        let readyModel = ReadyBackgroundScene(agentID: UUID(), agentKind: .threeDModel, whatToBuild: "the engine", pageHTML: "<html></html>", sourceTabURL: sourceTab, simulationLesson: nil)
+        func mayRise(idleAndDoneSpeaking: Bool = true, sceneBuildingOrShowing: Bool = false, quizQuestionOpen: Bool = false, frontTab: String? = sourceTab) -> Bool {
+            backgroundSceneMayRiseNow(
+                readyModel,
+                clickyIsIdleAndDoneSpeaking: idleAndDoneSpeaking,
+                aSceneOrPopOutIsBuildingOrShowing: sceneBuildingOrShowing,
+                aVideoQuizQuestionIsOpen: quizQuestionOpen,
+                readFrontTabURL: { frontTab }
+            )
+        }
+        #expect(mayRise())
+        #expect(!mayRise(idleAndDoneSpeaking: false))
+        #expect(!mayRise(sceneBuildingOrShowing: true))
+        #expect(!mayRise(quizQuestionOpen: true))
+        #expect(!mayRise(frontTab: "https://www.youtube.com/watch?v=other"))
+
+        // A busy screen decides without the front tab, since reading it is an Apple Event to Chrome.
+        var frontTabWasRead = false
+        let mayRiseOverABusyScreen = backgroundSceneMayRiseNow(
+            readyModel,
+            clickyIsIdleAndDoneSpeaking: false,
+            aSceneOrPopOutIsBuildingOrShowing: true,
+            aVideoQuizQuestionIsOpen: true,
+            readFrontTabURL: {
+                frontTabWasRead = true
+                return sourceTab
+            }
+        )
+        #expect(!mayRiseOverABusyScreen)
+        #expect(!frontTabWasRead)
+    }
+
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
         let store = BackgroundAgentStore()
         let olderAgentID = store.start(kind: .studyGuide)
@@ -1688,6 +1775,21 @@ struct leanring_buddyTests {
     }
 
     // MARK: - Agent list shortcut
+
+    @Test func aDragThatBeganBeforeShiftAndOptionNeverOpensTheList() async throws {
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.option], at: 10, aMouseButtonIsDown: true)
+        recognizer.modifiersChanged([.shift, .option], at: 10.1, aMouseButtonIsDown: true)
+        #expect(recognizer.holdCompletesAt == nil)
+        let firedDuringTheDrag = recognizer.timeAdvanced(to: 11)
+        #expect(!firedDuringTheDrag)
+
+        var middleClickRecognizer = AgentListShortcutRecognizer()
+        middleClickRecognizer.modifiersChanged([.shift, .option], at: 20)
+        middleClickRecognizer.pressArrived(ofType: .otherMouseDown)
+        let firedAfterAMiddleClick = middleClickRecognizer.timeAdvanced(to: 21)
+        #expect(!firedAfterAMiddleClick)
+    }
 
     @Test func shiftAndOptionHeldForThreeTenthsOfASecondFiresOnce() async throws {
         var recognizer = AgentListShortcutRecognizer()
@@ -1722,7 +1824,7 @@ struct leanring_buddyTests {
     @Test func aKeyTypedDuringTheHoldDoesNotFireEvenWhenItIsReleased() async throws {
         var recognizer = AgentListShortcutRecognizer()
         recognizer.modifiersChanged([.shift, .option], at: 10)
-        recognizer.keyWasPressed()
+        recognizer.pressArrived(ofType: .keyDown)
         let fired7 = recognizer.timeAdvanced(to: 10.3)
         #expect(!fired7)
 
@@ -1735,9 +1837,29 @@ struct leanring_buddyTests {
         #expect(fired9)
     }
 
+    @Test func aClickOrADragStartedDuringTheHoldDoesNotFire() async throws {
+        // Shift + option + a click or a drag is a command in many apps, so it must not open the list.
+        for mouseButtonPress in [CGEventType.leftMouseDown, .rightMouseDown] {
+            var recognizer = AgentListShortcutRecognizer()
+            recognizer.modifiersChanged([.shift, .option], at: 10)
+            recognizer.pressArrived(ofType: mouseButtonPress)
+            let firedAfterTheClick = recognizer.timeAdvanced(to: 10.3)
+            #expect(!firedAfterTheClick, "\(mouseButtonPress)")
+        }
+
+        // A key let go, or the mouse moving, is not a press.
+        var recognizer = AgentListShortcutRecognizer()
+        recognizer.modifiersChanged([.shift, .option], at: 10)
+        recognizer.pressArrived(ofType: .keyUp)
+        recognizer.pressArrived(ofType: .mouseMoved)
+        let firedAfterOtherEvents = recognizer.timeAdvanced(to: 10.3)
+        #expect(firedAfterOtherEvents)
+    }
+
     @Test func ordinaryTypingBeforeTheHoldDoesNotBlockIt() async throws {
         var recognizer = AgentListShortcutRecognizer()
-        recognizer.keyWasPressed()
+        recognizer.pressArrived(ofType: .keyDown)
+        recognizer.pressArrived(ofType: .leftMouseDown)
         recognizer.modifiersChanged([.shift, .option], at: 10)
         let fired10 = recognizer.timeAdvanced(to: 10.3)
         #expect(fired10)
@@ -1778,6 +1900,13 @@ struct leanring_buddyTests {
         #expect(errorIsACancellation(URLError(.cancelled)))
         #expect(!errorIsACancellation(URLError(.timedOut)))
         #expect(!errorIsACancellation(StudyGuideError.notionIsNotConnected))
+    }
+
+    @Test func aCancelledRevisionOrRefreshKeepsItsReplyButACancelledNewGuideDoesNot() async throws {
+        // The Worker trashed the old page before a revise or refresh reply arrived, so dropping it would orphan the new page.
+        #expect(StudyGuideJob.revise(instruction: "Shorter").replyIsSavedEvenWhenCancelled)
+        #expect(StudyGuideJob.refresh.replyIsSavedEvenWhenCancelled)
+        #expect(!StudyGuideJob.write(focus: nil).replyIsSavedEvenWhenCancelled)
     }
 
     @Test func onlyAnHTTPSPageOpensInABackgroundChromeTabAndTheTabInFrontIsPutBack() async throws {

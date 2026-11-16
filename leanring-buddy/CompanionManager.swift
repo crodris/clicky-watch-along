@@ -145,7 +145,7 @@ final class CompanionManager: ObservableObject {
     /// cancels one by its id. They are not currentResponseTask, because a push-to-talk press cancels that task and must
     /// not cancel work in the background.
     private var backgroundAgentTasks: [UUID: Task<Void, Never>] = [:]
-    /// The newest 3D model or experiment a background agent built that has not been shown yet. It waits here when the
+    /// The 3D model or experiment that finished building last and has not been shown yet. It waits here when the
     /// screen was busy as it finished, until the learner says "show the model" or "show the experiment".
     private var readyBackgroundScene: ReadyBackgroundScene?
     private lazy var taskAgentClient = TaskAgentClient(workerBaseURL: Self.workerBaseURL)
@@ -2466,7 +2466,7 @@ final class CompanionManager: ObservableObject {
                 return .changed(state: nil)
             }
             // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
-            guard studyGuidePageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
+            guard pageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
                 return .failed(error: "The study guide page would not open", state: nil)
             }
             return .changed(state: nil)
@@ -2725,7 +2725,7 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
             if readyBackgroundScene != nil {
-                print("\(agentKind.displayName): a newer \(builtThingName) replaces the scene still waiting to be shown")
+                print("\(agentKind.displayName): this \(builtThingName) finished last, so it replaces the scene still waiting to be shown")
             }
             // The quiz fields are the page's text, so the lesson cuts them.
             let simulationLesson = agentKind == .experiment
@@ -2770,19 +2770,17 @@ final class CompanionManager: ObservableObject {
         return (screen: screen, capture: screenCaptures.first { $0.displayFrame == screen.frame })
     }
 
-    /// A scene rises at once only onto a free screen: Clicky is not listening, thinking, or talking, no scene or
-    /// pop-out is building or showing, and the video it was built from is in front. Otherwise it would cover
-    /// something the learner is looking at, so it waits for "show the model" or "show the experiment".
     private var aReadyBackgroundSceneMayRiseNow: Bool {
-        // voiceState goes idle once a spoken line starts, so isPlaying covers the rest of the line.
-        guard let readyBackgroundScene, voiceState == .idle, !elevenLabsTTSClient.isPlaying, case .idle = liveScenePhase,
-              !LiveSceneOverlay.shared.isShowingAScene, !videoQuizQuestionIsActive else {
-            return false
-        }
-        return aReadyBackgroundSceneMayRiseOverTheFrontTab(
-            agentKind: readyBackgroundScene.agentKind,
-            sourceTabURL: readyBackgroundScene.sourceTabURL,
-            frontTabURL: videoQuizSession.frontTabURLOfTheFrontWindow()
+        guard let readyBackgroundScene else { return false }
+        var liveScenePhaseIsIdle = false
+        if case .idle = liveScenePhase { liveScenePhaseIsIdle = true }
+        return backgroundSceneMayRiseNow(
+            readyBackgroundScene,
+            // voiceState goes idle once a spoken line starts, so isPlaying covers the rest of the line.
+            clickyIsIdleAndDoneSpeaking: voiceState == .idle && !elevenLabsTTSClient.isPlaying,
+            aSceneOrPopOutIsBuildingOrShowing: !liveScenePhaseIsIdle || LiveSceneOverlay.shared.isShowingAScene,
+            aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            readFrontTabURL: { self.videoQuizSession.frontTabURLOfTheFrontWindow() }
         )
     }
 
@@ -2875,25 +2873,34 @@ final class CompanionManager: ObservableObject {
 
     /// The guide saved for this video, unless its Notion page was trashed or deleted. Then the saved guide is forgotten,
     /// so the video can get a new one. Each guide is checked once per launch, or every time with checkEvenIfCheckedBefore.
-    /// When the Worker cannot say, the saved guide stands, so a network hiccup never loses it.
     private func savedStudyGuideStillInNotion(forVideoURL videoURL: String, checkEvenIfCheckedBefore: Bool) async -> StudyGuideRecord? {
         guard let savedRecord = savedStudyGuides.record(forVideoURL: videoURL) else { return nil }
         if !checkEvenIfCheckedBefore && studyGuidePageHandlesFoundInNotion.contains(savedRecord.pageHandle) {
             return savedRecord
         }
+        var pageStillExists: Bool?
         do {
-            guard try await studyGuideClient.pageStillExists(pageHandle: savedRecord.pageHandle) else {
-                print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
-                savedStudyGuides.forget(forVideoURL: videoURL)
-                studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
-                notionPageChromeTabIDsByPageURL[savedRecord.pageURL] = nil
-                return nil
-            }
-            studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
+            pageStillExists = try await studyGuideClient.pageStillExists(pageHandle: savedRecord.pageHandle)
         } catch {
             print("Study guide: could not check \(savedRecord.pageURL) in Notion, so the saved guide stands: \(error)")
         }
-        return savedRecord
+        if pageStillExists == true {
+            studyGuidePageHandlesFoundInNotion.insert(savedRecord.pageHandle)
+        }
+        // Read after the check, since a guide agent may have started or saved a new guide meanwhile.
+        let recordSavedNow = savedStudyGuides.record(forVideoURL: videoURL)
+        guard savedStudyGuideIsForgotten(
+            pageStillExists: pageStillExists,
+            aGuideAgentIsRunningForTheVideo: backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: studyGuideVideoKey(forVideoURL: videoURL)),
+            checkedGuideIsStillSaved: recordSavedNow?.pageHandle == savedRecord.pageHandle
+        ) else {
+            return recordSavedNow
+        }
+        print("Study guide: \(savedRecord.pageURL) is no longer in Notion, so the saved guide is forgotten")
+        savedStudyGuides.forget(forVideoURL: videoURL)
+        studyGuidePageHandlesFoundInNotion.remove(savedRecord.pageHandle)
+        notionPageChromeTabIDsByPageURL[savedRecord.pageURL] = nil
+        return nil
     }
 
     /// Starts the guide in the background and returns at once, so the router speaks its own confirmation
@@ -2909,11 +2916,18 @@ final class CompanionManager: ObservableObject {
         let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
         runInTheBackground(agentID) {
             let guideWasWritten = await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
-            let quizVideoURLDueARefresh = self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey.removeValue(forKey: videoKey)
-            // After a failure or a cancel the queued refresh would fail the same way or undo the cancel, and the miss
-            // stays in the quiz log, so the video's next refresh or revise sends it.
-            if guideWasWritten, let quizVideoURLDueARefresh {
-                self.refreshTheStudyGuide(forQuizVideoURL: quizVideoURLDueARefresh)
+            switch queuedStudyGuideRefreshStep(
+                endedGuideWasWritten: guideWasWritten,
+                aGuideAgentIsRunningForTheVideo: self.backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: videoKey)
+            ) {
+            case .leaveItForTheRunningGuide:
+                break
+            case .dropIt:
+                self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey[videoKey] = nil
+            case .runIt:
+                if let quizVideoURLDueARefresh = self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey.removeValue(forKey: videoKey) {
+                    self.refreshTheStudyGuide(forQuizVideoURL: quizVideoURLDueARefresh)
+                }
             }
         }
         return .changed(state: .object(["studyGuide": .string("started")]))
@@ -2942,18 +2956,19 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing happens for a video with no guide, whose next guide includes the miss anyway. The page is checked in
-    /// Notion first, so a miss never brings back a guide the learner trashed. A guide is written from the video in
-    /// front, so the refresh runs only while the quiz video is still there; otherwise the miss stays in the quiz log
-    /// for that video's next refresh or revise.
+    /// Notion first, so a miss never brings back a guide the learner trashed. When the quiz video is not in front, the
+    /// miss stays in the quiz log for that video's next refresh or revise.
     private func refreshTheStudyGuide(forQuizVideoURL quizVideoURL: String) {
-        guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow(),
-              studyGuideVideoKey(forVideoURL: frontVideoURL) == studyGuideVideoKey(forVideoURL: quizVideoURL) else {
+        guard studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: videoQuizSession.frontTabURLOfTheFrontWindow()) else {
             return
         }
         studyGuideRefreshesBeingChecked += 1
         Task {
             defer { self.studyGuideRefreshesBeingChecked -= 1 }
-            guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil else { return }
+            guard await self.savedStudyGuideStillInNotion(forVideoURL: quizVideoURL, checkEvenIfCheckedBefore: true) != nil,
+                  studyGuideRefreshMayStart(forQuizVideoURL: quizVideoURL, frontVideoURL: self.videoQuizSession.frontTabURLOfTheFrontWindow()) else {
+                return
+            }
             let quizVideoKey = studyGuideVideoKey(forVideoURL: quizVideoURL)
             guard !self.backgroundAgentStore.aStudyGuideAgentIsRunning(forVideoKey: quizVideoKey) else {
                 self.studyGuideRefreshIsDueForQuizVideoURLByVideoKey[quizVideoKey] = quizVideoURL
@@ -3009,10 +3024,21 @@ final class CompanionManager: ObservableObject {
                 revision: studyGuideRevision
             ))
             studyGuideRecord.quizResults = quizResultsForTheGuide
-            // A guide cancelled from the agent list keeps no record, even when the Worker had already replied.
-            try Task.checkCancellation()
+            let agentWasCancelled = Task.isCancelled
+            guard !agentWasCancelled || studyGuideJob.replyIsSavedEvenWhenCancelled else { throw CancellationError() }
             // Filed under the video the guide was written for, not whichever tab is in front now.
             savedStudyGuides.save(studyGuideRecord, forVideoURL: video.url)
+            // The Worker just wrote this page, so the next voice command does not wait on a status check for it.
+            studyGuidePageHandlesFoundInNotion.insert(studyGuideRecord.pageHandle)
+            guard !agentWasCancelled else {
+                // cancelBackgroundAgent already marked the agent cancelled, and a cancelled guide shows no chip. The tab
+                // showing the trashed page still moves to the new one, so the guide never has two tabs.
+                if let replacingPageURL = pageURLTheRevisionReplaces {
+                    loadThePageInTheTabOfThePageItReplaces(studyGuideRecord.pageURL, replacingPageURL: replacingPageURL)
+                }
+                print("Study guide: kept \(studyGuideRecord.pageURL) for a cancelled agent, since its old page is already trashed")
+                return false
+            }
             print("Study guide: wrote \(studyGuideRecord.pageURL) in \(Int(Date().timeIntervalSince(startedAt))) s")
             finishTheBackgroundAgent(agentID, with: .notionPage(studyGuideRecord.pageURL), replacingPageURL: pageURLTheRevisionReplaces)
             return true
@@ -3033,6 +3059,18 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Loads a revision's new page in the tab Clicky opened for the page it replaces, and files that tab under the new page.
+    /// False when Clicky has no tab for the replaced page or the tab is gone.
+    @discardableResult
+    private func loadThePageInTheTabOfThePageItReplaces(_ pageURL: URL, replacingPageURL: URL) -> Bool {
+        guard let replacedPageChromeTabID = notionPageChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
+              videoQuizSession.loadPageInChromeTab(pageURL, tabID: replacedPageChromeTabID) else {
+            return false
+        }
+        notionPageChromeTabIDsByPageURL[pageURL] = replacedPageChromeTabID
+        return true
+    }
+
     /// The ending Clicky plays for a finished agent depends on what it made. A revision's page loads in the tab of the
     /// page it replaces, which the Worker trashed, so the learner never has two tabs for one guide.
     private func finishTheBackgroundAgent(_ agentID: UUID, with result: BackgroundAgentResult, replacingPageURL: URL? = nil) {
@@ -3044,9 +3082,7 @@ final class CompanionManager: ObservableObject {
             NSSound(named: "Tink")?.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
             var secondaryChipText = "· say open my study guide"
-            if let replacingPageURL, let replacedPageChromeTabID = notionPageChromeTabIDsByPageURL.removeValue(forKey: replacingPageURL),
-               videoQuizSession.loadPageInChromeTab(pageURL, tabID: replacedPageChromeTabID) {
-                notionPageChromeTabIDsByPageURL[pageURL] = replacedPageChromeTabID
+            if let replacingPageURL, loadThePageInTheTabOfThePageItReplaces(pageURL, replacingPageURL: replacingPageURL) {
                 secondaryChipText = "· updated in its tab"
             } else if let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
@@ -3088,7 +3124,8 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Cancels a running agent from the agent list. The cancelled agent keeps no chip and no record.
+    /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
+    /// record. A cancelled revise or refresh whose reply already arrived is saved (`StudyGuideJob.replyIsSavedEvenWhenCancelled`).
     func cancelBackgroundAgent(_ agentID: UUID) {
         backgroundAgentTasks[agentID]?.cancel()
         backgroundAgentStore.cancel(agentID)
