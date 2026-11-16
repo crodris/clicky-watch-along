@@ -721,6 +721,14 @@ struct leanring_buddyTests {
         #expect(search.chipPhraseToShow(at: .afterTheCall(.lookedUp(result: .null))) == nil)
     }
 
+    @Test func whenTheRouterTurnsRunOutClickySaysTheModelsLastWordsOrAnApology() async throws {
+        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: "  I could not find that moment.  ") == "I could not find that moment.")
+        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: "") == voiceCommandGaveUpLine)
+        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: " \n ") == voiceCommandGaveUpLine)
+        #expect(voiceCommandLineWhenTheTurnsRunOut(lastReplyText: String(repeating: "a", count: 500)).count == longestSpokenVoiceCommandLine)
+        #expect(voiceCommandGaveUpLine == "Sorry, I couldn't do that one.")
+    }
+
     @Test func showingAReadyExperimentThroughBuildSimulationShowsNoStartingChip() async throws {
         let buildSimulation = VoiceToolCall(id: "1", name: "build_simulation", input: [:])
         #expect(buildSimulation.chipPhraseToShow(at: .afterTheCall(.changed(state: nil))) == "Starting your experiment")

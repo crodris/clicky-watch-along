@@ -2298,7 +2298,10 @@ final class CompanionManager: ObservableObject {
         var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
+        // When the third turn still needs the model, this is what Clicky says instead of going quiet.
+        var lineToSpeakIfTheTurnsRunOut: String?
         for _ in 0..<3 {
+            lineToSpeakIfTheTurnsRunOut = nil
             let reply: VoiceCommandReply
             do {
                 reply = try await voiceCommandClient.requestToolCalls(messages: messages, tools: tools)
@@ -2312,7 +2315,7 @@ final class CompanionManager: ObservableObject {
                 // so handing it back would loop between the two on every failure.
                 if liveScenePhaseIsWaitingForAQuizAnswer {
                     print("Voice command: the router failed during a quiz question: \(error)")
-                    await speakLiveSceneLine("Sorry, I couldn't do that one.")
+                    await speakLiveSceneLine(voiceCommandGaveUpLine)
                     break
                 }
                 print("Voice command: the router failed, so the keyword path takes it: \(error)")
@@ -2358,6 +2361,7 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
                 return
             case .askTheModelAgain:
+                lineToSpeakIfTheTurnsRunOut = voiceCommandLineWhenTheTurnsRunOut(lastReplyText: reply.text)
                 messages.append(.object(["role": .string("assistant"), "content": .array(reply.assistantContent)]))
                 messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
                 continue
@@ -2367,6 +2371,10 @@ final class CompanionManager: ObservableObject {
                 }
             }
             break
+        }
+        guard !Task.isCancelled else { return }
+        if let lineToSpeakIfTheTurnsRunOut {
+            await speakLiveSceneLine(lineToSpeakIfTheTurnsRunOut)
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle

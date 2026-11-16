@@ -627,6 +627,15 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
     return .speak(String(confirmations.joined(separator: " ").prefix(longestSpokenVoiceCommandLine)))
 }
 
+/// What Clicky says when the router's turns run out with the model still waiting on a lookup or a failure, so the learner
+/// is never left in silence. It is the model's last words when it had any, else an apology.
+nonisolated let voiceCommandGaveUpLine = "Sorry, I couldn't do that one."
+
+nonisolated func voiceCommandLineWhenTheTurnsRunOut(lastReplyText: String) -> String {
+    let lastWords = lastReplyText.trimmingCharacters(in: .whitespacesAndNewlines)
+    return lastWords.isEmpty ? voiceCommandGaveUpLine : String(lastWords.prefix(longestSpokenVoiceCommandLine))
+}
+
 /// A play counts only once the video is really playing, meaning not paused and holding data to play, so Clicky
 /// never says "playing" over a stopped video. Chrome refuses a video with sound on a page never clicked, and
 /// some pages load their video only after a click, which leaves an empty player that reports itself unpaused.
