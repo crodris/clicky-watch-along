@@ -114,15 +114,22 @@ export async function requestAnthropicMessage(
   routeName: string,
   messagesRequestBody: unknown,
 ): Promise<{ ok: true; messageJSON: unknown } | { ok: false; response: Response }> {
-  const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": anthropicAPIKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
-  });
+  let anthropicResponse: Response;
+  try {
+    anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicAPIKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
+    });
+  } catch (error) {
+    // Without this, a DNS or connection failure reaches the app as a 500 carrying the raw error text.
+    console.error(`[${routeName}] Anthropic request failed:`, error);
+    return { ok: false, response: jsonResponse({ error: "Anthropic could not be reached" }, 502) };
+  }
 
   if (!anthropicResponse.ok) {
     const errorText = await anthropicResponse.text();
