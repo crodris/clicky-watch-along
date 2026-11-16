@@ -88,23 +88,18 @@
   // The trials table has room for one measurement. An experiment that runs a fixed control sample beside the test one
   // reports the control first, and its value never changes, so the table shows the challenge's readout, else the first
   // readout that has differed between trials, else the first. It keeps a readout once it has differed, so 5 runs at one
-  // setting never bring the control back.
-  let changingReadoutIndex = null;
-  // A trial's readout for the column at `index` of the newest run. It matches the label first, since a readout with no
-  // finite value is dropped and shifts the rest, and falls back to the position, since a page may put a setting in a label.
-  const pastRunReadoutAt = (pastRun, index) => {
-    const columnLabel = pastRuns[0].readouts[index]?.label;
-    return pastRun.readouts.find((readout) => readout.label === columnLabel) ?? pastRun.readouts[index];
-  };
-  const tableMeasurementIndex = () => {
-    const challengeIndex = challengeReadoutIndex(pastRuns[0].readouts);
-    if (challengeIndex !== -1) return challengeIndex;
-    if (changingReadoutIndex === null) {
-      const valuesAt = (index) => pastRuns.map((pastRun) => pastRunReadoutAt(pastRun, index)?.value).filter((value) => value !== undefined);
-      const index = pastRuns[0].readouts.findIndex((_, readoutIndex) => new Set(valuesAt(readoutIndex)).size > 1);
-      if (index !== -1) changingReadoutIndex = index;
+  // setting never bring the control back. Every trial is matched by label, since a readout with no finite value is dropped
+  // and moves the rest.
+  let changingReadoutLabel = null;
+  const tableMeasurementLabel = () => {
+    const newestReadouts = pastRuns[0].readouts;
+    const challengeIndex = challengeReadoutIndex(newestReadouts);
+    if (challengeIndex !== -1) return newestReadouts[challengeIndex].label;
+    if (changingReadoutLabel === null) {
+      const valuesOf = (label) => pastRuns.map((pastRun) => pastRun.readouts.find((readout) => readout.label === label)?.value).filter((value) => value !== undefined);
+      changingReadoutLabel = newestReadouts.find((readout) => new Set(valuesOf(readout.label)).size > 1)?.label ?? null;
     }
-    return changingReadoutIndex ?? 0;
+    return changingReadoutLabel ?? newestReadouts[0]?.label ?? "";
   };
   const challengeState = () => {
     const challenge = usableChallenge();
@@ -281,11 +276,11 @@
     // One row per trial, oldest first like a lab notebook: the trial number, each variable, and one measurement.
     panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
     if (pastRuns.length > 1) {
-      const measurementIndex = tableMeasurementIndex();
-      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), pastRuns[0].readouts[measurementIndex]?.label ?? ""];
+      const measurementLabel = tableMeasurementLabel();
+      const columnLabels = ["Trial", ...pastRuns[0].controls.map((control) => control.label), measurementLabel];
       const withUnit = (number) => `${number.value}${number.unit ? " " + number.unit : ""}`;
       const measurementText = (pastRun) => {
-        const readout = pastRunReadoutAt(pastRun, measurementIndex);
+        const readout = pastRun.readouts.find((candidate) => candidate.label === measurementLabel);
         return readout ? withUnit(readout) : "";
       };
       const rows = [columnLabels, ...[...pastRuns].reverse().map((pastRun) => [String(pastRun.trial), ...pastRun.controls.map(withUnit), measurementText(pastRun)])];

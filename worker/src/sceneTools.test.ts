@@ -363,7 +363,7 @@ describe("scene-tools.js simulation tools", () => {
 
   it("puts the readout that answers the experiment in the trials table, not a fixed control sample", async () => {
     /** Runs one trial per pair of times on a page whose first readout is a control beaker, and returns the table's measurement column, header first. */
-    const measurementColumnAfterTrials = async (challenge: unknown, coolTimes: number[], warmTimes: number[], warmLabels: string[] = []) => {
+    const measurementColumnAfterTrials = async (challenge: unknown, coolTimes: number[], warmTimes: number[]) => {
       const createdElements: Array<Record<string, unknown>> = [];
       const fakeDocument = {
         body: {},
@@ -385,7 +385,7 @@ describe("scene-tools.js simulation tools", () => {
         getState: () => ({
           readouts: [
             { label: "Cool sample dissolving time", value: coolTimes[Math.max(0, trialsRun - 1)], unit: "s" },
-            { label: warmLabels[Math.max(0, trialsRun - 1)] ?? "Warm sample dissolving time", value: warmTimes[Math.max(0, trialsRun - 1)], unit: "s" },
+            { label: "Warm sample dissolving time", value: warmTimes[Math.max(0, trialsRun - 1)], unit: "s" },
           ],
         }),
       });
@@ -408,9 +408,7 @@ describe("scene-tools.js simulation tools", () => {
     // Once a readout has changed, it keeps the column after 5 runs at one setting push that change out of the table.
     expect(await measurementColumnAfterTrials(undefined, Array(7).fill(120), [120, 30, 30, 30, 30, 30, 30])).toEqual(["Warm sample dissolving time", "30 s", "30 s", "30 s", "30 s", "30 s"]);
     // A cool time that never ends is dropped, which moves the warm time first, so each trial finds the column by its label.
-    expect(await measurementColumnAfterTrials(undefined, [Infinity, 120, 120], [120, 30, 60])).toEqual(["Warm sample dissolving time", "120 s", "30 s", "60 s"]);
-    // A label that names the setting differs every trial, so the older trials find the column by its position.
-    expect(await measurementColumnAfterTrials(undefined, [120, 120], [120, 30], ["Time at 20 °C", "Time at 40 °C"])).toEqual(["Time at 40 °C", "120 s", "30 s"]);
+    expect(await measurementColumnAfterTrials(undefined, [Infinity, 120, Infinity], [120, 30, 60])).toEqual(["Warm sample dissolving time", "120 s", "30 s", "60 s"]);
   });
 
   it("shows the hypothesis in the panel while Clicky waits for the guess", () => {
