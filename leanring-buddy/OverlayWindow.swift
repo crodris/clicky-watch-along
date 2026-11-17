@@ -207,6 +207,10 @@ struct BlueCursorView: View {
     /// an energetic "swooping" feel.
     @State private var buddyFlightScale: CGFloat = 1.0
 
+    /// How much bigger the buddy is at the middle of a flight. The volleyball's streaks
+    /// divide by it, so they show fully at the middle and fade out as the ball lands.
+    private let buddyFlightPeakExtraScale: CGFloat = 0.3
+
     /// Scale factor for the navigation speech bubble's pop-in entrance.
     /// Starts at 0.5 and springs to 1.0 when the first character appears.
     @State private var navigationBubbleScale: CGFloat = 1.0
@@ -353,7 +357,7 @@ struct BlueCursorView: View {
                     }
             }
 
-            // Blue triangle cursor — shown when idle or while TTS is playing (responding).
+            // Blue triangle cursor, or a school theme's volleyball, shown when idle or while TTS is playing (responding).
             // All three states (triangle, waveform, spinner) stay in the view tree
             // permanently and cross-fade via opacity so SwiftUI doesn't remove/re-insert
             // them (which caused a visible cursor "pop").
@@ -361,14 +365,17 @@ struct BlueCursorView: View {
             // During cursor following: fast spring animation for snappy tracking.
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
-            Triangle()
-                .fill(themeSettings.theme.cursorColor)
-                // A light team color would vanish on a light page, so a team theme outlines the triangle.
-                .overlay {
-                    if let cursorOutlineColor = themeSettings.theme.cursorOutlineColor {
-                        Triangle().stroke(cursorOutlineColor, lineWidth: 1.5)
-                    }
+            Group {
+                if let cursorVolleyballColors = themeSettings.theme.cursorVolleyballColors {
+                    VolleyballCursorView(
+                        volleyballColors: cursorVolleyballColors,
+                        flightStreakColor: themeSettings.theme.cursorColor,
+                        flightStreakOpacity: (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
+                    )
+                } else {
+                    Triangle().fill(themeSettings.theme.cursorColor)
                 }
+            }
                 .frame(width: 16, height: 16)
                 .rotationEffect(.degrees(triangleRotationDegrees))
                 .shadow(color: themeSettings.theme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
@@ -648,7 +655,7 @@ struct BlueCursorView: View {
             // Scale pulse: sin curve peaks at midpoint of the flight.
             // Buddy grows to ~1.3x at the apex, then shrinks back to 1.0x on landing.
             let scalePulse = sin(linearProgress * .pi)
-            self.buddyFlightScale = 1.0 + scalePulse * 0.3
+            self.buddyFlightScale = 1.0 + scalePulse * self.buddyFlightPeakExtraScale
         }
     }
 

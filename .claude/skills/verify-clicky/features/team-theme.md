@@ -1,14 +1,16 @@
 # Team theme
 
 The learner picks Clicky blue, one of ten Haikyu!! schools, or Random in the menu bar panel's "Team theme" section.
-A school recolors the cursor, swaps the menu bar icon for a volleyball, and turns every background agent that starts into one of that team's players, shown as a round portrait in a progress ring beside the cursor and as a themed row in the shift + option agent list.
+A school turns the cursor into a volleyball in the team's colors, and turns every background agent that starts into one of that team's players, shown as a round portrait in a progress ring beside the cursor and as a themed row in the shift + option agent list.
 
 ## Sub-features
 
 - `theme-picker` saves the pick under `companionTheme` in UserDefaults and applies it at once, with no relaunch.
-- `theme-cursor` colors the cursor triangle, its glow, the spinner, the waveform, and the navigation bubble in the school's accent, outlined in its contrast color.
-  Random and Clicky blue keep the blue cursor.
-- `theme-icon` shows the volleyball menu bar icon under a school or Random, and the triangle under Clicky blue.
+- `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the spinner, the waveform, and the navigation bubble in the school's accent.
+  Nekoma's ball is red with a black outline and white seams, and Inarizaki's is black with white lines.
+  Three streaks in the team color trail the ball only while it flies to a part and back.
+  Random and Clicky blue keep the blue triangle.
+- `theme-icon` keeps the Clicky cursor menu bar icon under every theme.
 - `theme-wingmen` shows each agent's player in a ring that fills clockwise in the school's color, the nearest one with "<name> · <step>", a finished one ahead of the tip with a green check, and a failed one in grayscale with a red ring.
 - `theme-player-pick` gives each new agent the team's best-known player that the agent list does not already show, so one list never shows a player twice while the roster has others.
 - `theme-chip` shows an ending agent's portrait as the chip's icon, and moves the chip above and to the right of the cursor while player wingmen trail under it, or below the whole trail at the screen's top edge.

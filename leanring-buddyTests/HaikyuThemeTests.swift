@@ -125,16 +125,23 @@ struct HaikyuThemeTests {
         #expect(CompanionThemeSettings(userDefaults: testDefaults).theme == .school(.nekoma))
     }
 
-    @Test func onlyATeamThemeRecolorsTheCursorAndOutlinesIt() async throws {
-        #expect(CompanionTheme.clickyBlue.cursorOutlineColor == nil)
-        #expect(CompanionTheme.random.cursorOutlineColor == nil)
+    @Test func onlyASchoolThemeTurnsTheCursorIntoAVolleyball() async throws {
+        #expect(CompanionTheme.clickyBlue.cursorVolleyballColors == nil)
+        #expect(CompanionTheme.random.cursorVolleyballColors == nil)
         #expect(CompanionTheme.random.cursorColorHex == "#3380ff")
-        #expect(CompanionTheme.school(.nekoma).cursorOutlineColor != nil)
         #expect(CompanionTheme.school(.nekoma).cursorColorHex == "#E0313B")
         #expect(CompanionTheme.school(.karasuno).cursorContrastColorHex == "#1A1A1A")
-        #expect(!CompanionTheme.clickyBlue.usesVolleyballMenuBarIcon)
-        #expect(CompanionTheme.random.usesVolleyballMenuBarIcon)
-        #expect(CompanionTheme.school(.itachiyama).usesVolleyballMenuBarIcon)
+
+        #expect(CompanionTheme.school(.karasuno).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#F26B1D", outlineHex: "#1A1A1A", seamHex: "#1A1A1A"))
+        // A red ball keeps a black outline, so white seams never leave it edgeless on a light page.
+        #expect(CompanionTheme.school(.nekoma).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#E0313B", outlineHex: "#1A1A1A", seamHex: "#FFFFFF"))
+        #expect(CompanionTheme.school(.aobaJohsai).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#5CC8B8", outlineHex: "#1A1A1A", seamHex: "#FFFFFF"))
+        // Inarizaki's white ball would vanish on a light page, so its ball is black with white lines.
+        #expect(CompanionTheme.school(.inarizaki).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#1A1A1A", outlineHex: "#FFFFFF", seamHex: "#FFFFFF"))
     }
 
     // MARK: - Portrait names

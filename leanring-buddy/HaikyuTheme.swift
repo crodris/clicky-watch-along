@@ -51,6 +51,13 @@ struct HaikyuPlayer: Equatable, Hashable {
 
 // MARK: - Schools
 
+/// The three colors of the volleyball a school theme draws in place of the cursor triangle.
+struct VolleyballCursorColors: Equatable {
+    let fillHex: String
+    let outlineHex: String
+    let seamHex: String
+}
+
 enum HaikyuSchool: String, CaseIterable {
     case karasuno
     case nekoma
@@ -101,6 +108,23 @@ enum HaikyuSchool: String, CaseIterable {
         case .inarizaki: return "#F4F4F5"
         case .kamomedai: return "#6EC1E4"
         case .itachiyama: return "#F2D600"
+        }
+    }
+
+    /// The cursor volleyball's colors. Most schools get a ball in their accent color with a black outline
+    /// and seams in their contrast color, such as Nekoma's red ball with white seams.
+    /// Aoba Johsai's dark teal seams would vanish on its teal ball, so it gets white seams like its jersey,
+    /// and Inarizaki's white ball would vanish on a light page, so it turns into a black ball with white lines.
+    var volleyballColors: VolleyballCursorColors {
+        let blackHex = "#1A1A1A"
+        let whiteHex = "#FFFFFF"
+        switch self {
+        case .aobaJohsai:
+            return VolleyballCursorColors(fillHex: accentHex, outlineHex: blackHex, seamHex: whiteHex)
+        case .inarizaki:
+            return VolleyballCursorColors(fillHex: blackHex, outlineHex: whiteHex, seamHex: whiteHex)
+        default:
+            return VolleyballCursorColors(fillHex: accentHex, outlineHex: blackHex, seamHex: contrastHex)
         }
     }
 
@@ -259,11 +283,11 @@ enum CompanionTheme: Equatable {
         }
     }
 
-    /// Drawn around the cursor triangle so a light team color still shows on a light page. Nil keeps today's look.
-    var cursorOutlineColor: Color? {
+    /// A school theme draws the cursor as a volleyball in these colors. Nil keeps the triangle, so Random stays Clicky blue.
+    var cursorVolleyballColors: VolleyballCursorColors? {
         switch self {
         case .clickyBlue, .random: return nil
-        case .school(let school): return school.contrastColor
+        case .school(let school): return school.volleyballColors
         }
     }
 
@@ -287,13 +311,6 @@ enum CompanionTheme: Equatable {
         switch self {
         case .clickyBlue, .random: return "#ffffff"
         case .school(let school): return school.contrastHex
-        }
-    }
-
-    var usesVolleyballMenuBarIcon: Bool {
-        switch self {
-        case .clickyBlue: return false
-        case .school, .random: return true
         }
     }
 }
