@@ -1773,9 +1773,31 @@ struct leanring_buddyTests {
     }
 
     @Test func aTaskAgentPageNeedsATitleAndASummaryBeforeItReachesTheWorker() async throws {
-        #expect(taskAgentPageInputProblem(["title": .string("Catches"), "summary": .string("The ship was caught.")]) == nil)
+        let findingsSection: JSONValue = .array([.object(["heading": .string("Result"), "points": .array([.string("Karasuno won in 3 sets.")])])])
+        #expect(taskAgentPageInputProblem([
+            "title": .string("Catches"),
+            "summary": .string("The ship was caught by the tower's arms on its first try."),
+            "sections": findingsSection,
+        ]) == nil)
         #expect(taskAgentPageInputProblem(["title": .string(" "), "summary": .string("")]) == "The page needs a title and summary. Write it once your research is done.")
         #expect(taskAgentPageInputProblem(["title": .string("Catches")])?.contains("summary") == true)
+    }
+
+    @Test func aTaskAgentPageWithAPlaceholderSummaryOrNoSectionsGoesBackToTheAgent() async throws {
+        // A demo take on 2026-11-16 wrote a page whose whole body was "x", with no sections or sources.
+        let placeholderPage: [String: JSONValue] = [
+            "title": .string("Karasuno vs Nekoma at Nationals: Karasuno wins"),
+            "summary": .string("x"),
+            "sections": .array([]),
+            "sources": .array([]),
+        ]
+        #expect(taskAgentPageInputProblem(placeholderPage) != nil)
+        var placeholderSummaryWithASection = placeholderPage
+        placeholderSummaryWithASection["sections"] = .array([.object(["heading": .string("Result"), "points": .array([.string("Karasuno won in 3 sets.")])])])
+        #expect(taskAgentPageInputProblem(placeholderSummaryWithASection)?.contains("too short") == true)
+        var pageWithNoSections = placeholderPage
+        pageWithNoSections["summary"] = .string("Karasuno beat Nekoma 2 sets to 1 at the Spring High nationals.")
+        #expect(taskAgentPageInputProblem(pageWithNoSections)?.contains("section") == true)
     }
 
     @Test func aTaskAgentKeepsOnlyAnHTTPSNotionPageFromTheWorker() async throws {
