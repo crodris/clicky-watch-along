@@ -332,7 +332,6 @@ final class BackgroundAgentStore: ObservableObject {
 
     @discardableResult
     func start(kind: BackgroundAgentKind, studyGuideVideoKey: String? = nil) -> UUID {
-        let startedAt = Date()
         var systemRandomNumberGenerator = SystemRandomNumberGenerator()
         let player = nextHaikyuPlayer(
             for: themeSettings.theme,
@@ -340,6 +339,47 @@ final class BackgroundAgentStore: ObservableObject {
             playersOfEndedAgentsStillListed: agents.filter { !$0.isRunning }.compactMap(\.player),
             randomNumberGenerator: &systemRandomNumberGenerator
         )
+        return startAgent(kind: kind, studyGuideVideoKey: studyGuideVideoKey, player: player)
+    }
+
+    #if DEBUG
+    /// For screenshots and demo takes (`debug_seed_agents`): three running agents, one finished, and one failed, with
+    /// volleyball subjects. The formation and the agent list put the newest agent first, so the team's best-known player,
+    /// who the theme hands out first, starts last and leads. The third player starts first, so the failed portrait takes
+    /// the third slot for the 4 seconds it shows, instead of hiding in the "+N" overflow. Returns the finished agent's
+    /// id, for its ending chip.
+    @discardableResult
+    func seedAgentsForScreenshots() -> UUID {
+        var systemRandomNumberGenerator = SystemRandomNumberGenerator()
+        var seedPlayers: [HaikyuPlayer?] = []
+        for _ in 0..<5 {
+            seedPlayers.append(nextHaikyuPlayer(
+                for: themeSettings.theme,
+                playersOfRunningAgents: seedPlayers.compactMap { $0 },
+                playersOfEndedAgentsStillListed: [],
+                randomNumberGenerator: &systemRandomNumberGenerator
+            ))
+        }
+        let studyGuideAgentID = startAgent(kind: .studyGuide, studyGuideVideoKey: nil, player: seedPlayers[2])
+        setSubject("HAIKYU!! The Dumpster Battle trailer", for: studyGuideAgentID)
+        completeStep(for: studyGuideAgentID)
+        let failedAgentID = startAgent(kind: .experiment, studyGuideVideoKey: nil, player: seedPlayers[4])
+        setSubject("The spin on a jump serve", for: failedAgentID)
+        fail(failedAgentID, reason: "The experiment could not be built. Ask again to try once more.")
+        let finishedAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[3])
+        setSubject("Who won the Spring High final", for: finishedAgentID)
+        finish(finishedAgentID, with: .answer(spokenSummary: "Karasuno won 2 sets to 1.", pageURL: nil))
+        let threeDModelAgentID = startAgent(kind: .threeDModel, studyGuideVideoKey: nil, player: seedPlayers[1])
+        setSubject("The volleyball court with the net", for: threeDModelAgentID)
+        let taskAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[0])
+        setSubject("Karasuno vs Nekoma at nationals", for: taskAgentID)
+        reportStep("Reading the Haikyuu wiki", for: taskAgentID)
+        return finishedAgentID
+    }
+    #endif
+
+    private func startAgent(kind: BackgroundAgentKind, studyGuideVideoKey: String?, player: HaikyuPlayer?) -> UUID {
+        let startedAt = Date()
         let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0), player: player)
         agents.insert(agent, at: 0)
         var endedAgentsKept = 0

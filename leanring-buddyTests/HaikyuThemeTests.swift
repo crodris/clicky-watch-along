@@ -242,6 +242,18 @@ struct HaikyuThemeTests {
         }
     }
 
+    #if DEBUG
+    @Test func seededScreenshotAgentsPutTheTeamsBestKnownPlayerAtTheFrontOfTheFormation() async throws {
+        let store = makeBackgroundAgentStore(theme: .school(.aobaJohsai))
+        store.seedAgentsForScreenshots()
+        let roster = HaikyuSchool.aobaJohsai.roster
+        let runningPlayers = store.agents.filter(\.isRunning).map(\.player)
+        #expect(runningPlayers == [roster[0], roster[1], roster[2]])
+        let trailPlayers = wingmanFormation(for: store.agents).placements.filter { $0.agent.finishedResult == nil }.map(\.agent.player)
+        #expect(trailPlayers.first == roster[0])
+    }
+    #endif
+
     @Test func clickyBlueAgentsHaveNoPlayer() async throws {
         let store = makeBackgroundAgentStore()
         store.start(kind: .studyGuide)
