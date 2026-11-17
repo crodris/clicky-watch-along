@@ -324,6 +324,9 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        VoiceToolCallChip.shared.avatarWingmenAreShowing = { [weak self] in
+            self?.backgroundAgentStore.agents.contains { $0.player != nil && $0.isShownAsAWingman(at: Date()) } ?? false
+        }
         #if DEBUG
         // Off unless asked for, since any process on this Mac can reach a loopback port.
         if CommandLine.arguments.contains("--voice-tool-debug-server") {
@@ -3203,8 +3206,8 @@ final class CompanionManager: ObservableObject {
         return outcome
     }
 
-    /// Puts three running agents, one finished, and one failed on screen with no Worker call, so every wingman and agent
-    /// list state can be captured at once. Running agents fill from the clock and stay up until cancelled from the list.
+    /// Puts three running agents, one finished with its ending chip, and one failed on screen with no Worker call, so
+    /// every wingman, chip, and agent list state can be captured at once. Running agents fill from the clock and stay up until cancelled from the list.
     /// The running ones start first, so they take the team's best-known players.
     private func seedBackgroundAgentsForScreenshots() {
         let studyGuideAgentID = backgroundAgentStore.start(kind: .studyGuide)
@@ -3219,6 +3222,12 @@ final class CompanionManager: ObservableObject {
         let finishedAgentID = backgroundAgentStore.start(kind: .task)
         backgroundAgentStore.setSubject("Find the engine's thrust", for: finishedAgentID)
         backgroundAgentStore.finish(finishedAgentID, with: .answer(spokenSummary: "About 100,000 pounds of thrust.", pageURL: nil))
+        VoiceToolCallChip.shared.show(
+            BackgroundAgentKind.task.finishedChipText,
+            sender: chipSender(forAgent: finishedAgentID, kind: .task),
+            secondaryChipText: "· say what did you find",
+            secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+        )
         let failedAgentID = backgroundAgentStore.start(kind: .experiment)
         backgroundAgentStore.setSubject("Lift on a wing", for: failedAgentID)
         backgroundAgentStore.fail(failedAgentID, reason: "The experiment could not be built. Ask again to try once more.")

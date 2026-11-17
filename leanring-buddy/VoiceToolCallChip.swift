@@ -119,10 +119,11 @@ private struct OutlinedChipText: View {
 final class VoiceToolCallChip {
     static let shared = VoiceToolCallChip()
 
-    private static let panelSize = CGSize(width: 520, height: 34)
-    /// Under the spot where Clicky's triangle and the status label sit, so neither covers the chip.
-    private static let distanceFromCursor = CGPoint(x: 35 - 19, y: -25 - 30 - 34)
+    nonisolated static let panelSize = CGSize(width: 520, height: 34)
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
+
+    /// Whether team player wingmen trail the cursor now. CompanionManager sets it, since it owns the agent store.
+    var avatarWingmenAreShowing: () -> Bool = { false }
 
     private let chipModel = VoiceToolCallChipModel()
     private var chipPanel: NSPanel?
@@ -156,12 +157,11 @@ final class VoiceToolCallChip {
 
     private func placeChipUnderTheCursor(_ panel: NSPanel) {
         guard let screenFrame = screenUnderTheMouseCursor()?.frame else { return }
-        let mouseLocation = NSEvent.mouseLocation
-        let origin = CGPoint(
-            x: min(mouseLocation.x + Self.distanceFromCursor.x, screenFrame.maxX - Self.panelSize.width),
-            y: max(mouseLocation.y + Self.distanceFromCursor.y, screenFrame.minY)
-        )
-        panel.setFrameOrigin(origin)
+        panel.setFrameOrigin(voiceToolCallChipOrigin(
+            mouseLocation: NSEvent.mouseLocation,
+            screenFrame: screenFrame,
+            avatarWingmenAreShowing: avatarWingmenAreShowing()
+        ))
     }
 
     private func makeChipPanel() -> NSPanel {
@@ -182,4 +182,16 @@ final class VoiceToolCallChip {
         panel.contentView = NSHostingView(rootView: VoiceToolCallChipView(chipModel: chipModel))
         return panel
     }
+}
+
+/// The chip panel's bottom-left corner in AppKit screen points. It sits under the spot where Clicky's triangle and the
+/// status label sit, so neither covers it. While team player wingmen show, their portraits trail down and to the right
+/// through that spot, so the chip moves above and to the right of the cursor, which the trail and the finished
+/// player's hop up and to the left both leave empty.
+nonisolated func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect, avatarWingmenAreShowing: Bool) -> CGPoint {
+    let distanceFromCursor = avatarWingmenAreShowing ? CGPoint(x: 16, y: 12) : CGPoint(x: 35 - 19, y: -25 - 30 - 34)
+    return CGPoint(
+        x: min(mouseLocation.x + distanceFromCursor.x, screenFrame.maxX - VoiceToolCallChip.panelSize.width),
+        y: min(max(mouseLocation.y + distanceFromCursor.y, screenFrame.minY), screenFrame.maxY - VoiceToolCallChip.panelSize.height)
+    )
 }

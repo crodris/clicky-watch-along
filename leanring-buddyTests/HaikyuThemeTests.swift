@@ -213,6 +213,18 @@ struct HaikyuThemeTests {
         #expect(agentListPortraitBorderColor(phase: .cancelled, school: .nekoma) == DS.Colors.textTertiary)
     }
 
+    @Test func theChipMovesAboveTheCursorWhilePlayerWingmenTrailThroughTheSpotUnderIt() async throws {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
+        let mouseLocation = CGPoint(x: 500, y: 500)
+        let chipOriginUnderTheCursor = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, avatarWingmenAreShowing: false)
+        let chipOriginWithPlayerWingmen = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, avatarWingmenAreShowing: true)
+        #expect(chipOriginUnderTheCursor.y < mouseLocation.y)
+        #expect(chipOriginWithPlayerWingmen.y > mouseLocation.y)
+        // Near the top edge the chip stays on screen.
+        let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 1100), screenFrame: screenFrame, avatarWingmenAreShowing: true)
+        #expect(chipOriginAtTheTop.y + 34 <= screenFrame.maxY)
+    }
+
     @Test func clickyBlueAgentsHaveNoPlayer() async throws {
         let store = makeBackgroundAgentStore()
         store.start(kind: .studyGuide)
