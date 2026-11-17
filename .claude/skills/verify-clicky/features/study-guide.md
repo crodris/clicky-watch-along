@@ -21,6 +21,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-forgotten` forgets a saved guide whose page was trashed or deleted in Notion at its next status check, so `open_study_guide` fails with "This video's study guide was deleted in Notion" and `make_study_guide` is offered again. A guide being rewritten by a running guide agent is never forgotten.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
 - `guide-quiz-update` spawns a "Study guide update" wingman when a video quiz question on a video with a saved guide is missed or skipped, logs `Study guide: updating the guide with the quiz miss`, makes no Anthropic call for it, and the page's "Review these first" then lists the question. A miss while a guide is being written runs the refresh once that guide is written, only while that video is still in front, and never after a failure or a cancel; the app cuts quiz text to 2,000 UTF-16 units first. Earlier misses stay on the page after a relaunch, since each saved guide keeps the quiz results it was written with.
+- `guide-team-theme` shows the agent as a team player when a school is picked: a round portrait (or the school's color with the player's initials when no portrait is bundled) in a ring in the school's color that fills clockwise, the player's name before the step line, the portrait as the ending chip's icon, and a themed row in the agent list with the school's name in its header. Clicky blue keeps the amber triangle.
 - `guide-step-line` shows the running step beside the wingman closest to the blue triangle, such as "Reading the captions" and then "Writing the guide in Notion".
 - `guide-open-tab` switches to that tab when the learner says "open my study guide", so Chrome holds one tab with the guide, and opens the page again only when that tab was closed. A revision's page loads in that same tab, and the chip says "· updated in its tab".
 
@@ -55,6 +56,8 @@ Preconditions:
 - **Wingman.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
   The screenshot shows an amber outline triangle down and to the right of the blue cursor triangle.
   After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the amber triangle with a green check mark ahead of the tip and the "Study guide ready" chip.
+- **Team theme.** Not run yet. Quit Clicky, run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno`, start it, post `make_study_guide`, and run `$V shot guide-themed`, then `$V key agents-list` and `$V shot guide-themed-list`.
+  The wingman is Hinata's portrait in an orange ring with "Hinata" before the step line, and the list header says Karasuno with "on court". Delete the key to go back to Clicky blue.
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
   The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
   Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.
