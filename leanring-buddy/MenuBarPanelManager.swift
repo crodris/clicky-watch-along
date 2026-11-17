@@ -27,6 +27,7 @@ private class KeyablePanel: NSPanel {
 @MainActor
 final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
+    private var isShowingVolleyballIcon = false
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
@@ -102,6 +103,93 @@ final class MenuBarPanelManager: NSObject {
 
         NSColor.black.setFill()
         path.fill()
+
+        image.unlockFocus()
+        return image
+    }
+
+    /// Swaps the menu bar icon between the clicky triangle and a volleyball.
+    /// A team theme turns the volleyball on. Does nothing when the icon
+    /// already matches, so repeated theme updates never reset the button image.
+    func showVolleyballIcon(_ shouldShowVolleyball: Bool) {
+        guard shouldShowVolleyball != isShowingVolleyballIcon else { return }
+        guard let button = statusItem?.button else { return }
+
+        let iconImage = shouldShowVolleyball ? makeVolleyballMenuBarIcon() : makeClickyMenuBarIcon()
+        iconImage.isTemplate = true
+        button.image = iconImage
+        isShowingVolleyballIcon = shouldShowVolleyball
+    }
+
+    /// Draws a volleyball as an 18 point template icon: a circle outline and
+    /// three long curved seams that cross to form a small triangle at the
+    /// center. The image is black on clear, so macOS tints it for light and
+    /// dark menu bars like the triangle icon.
+    private func makeVolleyballMenuBarIcon() -> NSImage {
+        let iconSize: CGFloat = 18
+        let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
+        image.lockFocus()
+
+        let center = CGPoint(x: iconSize / 2, y: iconSize / 2)
+        // Inset by just over half the outline width so the stroke stays inside the image.
+        let ballRadius = iconSize / 2 - 1.1
+        let outlineLineWidth: CGFloat = 1.3
+        let seamLineWidth: CGFloat = 1.1
+
+        // How far around the ball each seam travels (radians), and how close to the
+        // center its curve pulls. A long sweep with the pull near the center gives
+        // the swirl of a real volleyball. Shorter sweeps read as a play button.
+        let seamSweepRadians: CGFloat = 2.4
+        let seamCurveControlRadiusShare: CGFloat = 0.05
+        // Turns the whole seam pattern so no seam sits exactly at the top.
+        let seamPatternRotationRadians: CGFloat = 0.4
+
+        func pointOnBall(angleRadians: CGFloat, radiusShare: CGFloat) -> CGPoint {
+            CGPoint(
+                x: center.x + cos(angleRadians) * radiusShare * ballRadius,
+                y: center.y + sin(angleRadians) * radiusShare * ballRadius
+            )
+        }
+
+        NSColor.black.setStroke()
+
+        let outlinePath = NSBezierPath(ovalIn: NSRect(
+            x: center.x - ballRadius,
+            y: center.y - ballRadius,
+            width: ballRadius * 2,
+            height: ballRadius * 2
+        ))
+        outlinePath.lineWidth = outlineLineWidth
+        outlinePath.stroke()
+
+        for seamIndex in 0..<3 {
+            let seamStartAngle = CGFloat(seamIndex) * 2.0 * .pi / 3.0 + .pi / 2 + seamPatternRotationRadians
+            let seamStart = pointOnBall(angleRadians: seamStartAngle, radiusShare: 1.0)
+            let seamEnd = pointOnBall(angleRadians: seamStartAngle - seamSweepRadians, radiusShare: 1.0)
+            let seamCurveControl = pointOnBall(
+                angleRadians: seamStartAngle - seamSweepRadians / 2,
+                radiusShare: seamCurveControlRadiusShare
+            )
+
+            // NSBezierPath has no quadratic curve, so raise the single control
+            // point to the two cubic control points that draw the same curve.
+            let seamPath = NSBezierPath()
+            seamPath.move(to: seamStart)
+            seamPath.curve(
+                to: seamEnd,
+                controlPoint1: CGPoint(
+                    x: seamStart.x + 2.0 / 3.0 * (seamCurveControl.x - seamStart.x),
+                    y: seamStart.y + 2.0 / 3.0 * (seamCurveControl.y - seamStart.y)
+                ),
+                controlPoint2: CGPoint(
+                    x: seamEnd.x + 2.0 / 3.0 * (seamCurveControl.x - seamEnd.x),
+                    y: seamEnd.y + 2.0 / 3.0 * (seamCurveControl.y - seamEnd.y)
+                )
+            )
+            seamPath.lineWidth = seamLineWidth
+            seamPath.lineCapStyle = .round
+            seamPath.stroke()
+        }
 
         image.unlockFocus()
         return image
