@@ -56,8 +56,7 @@ Preconditions:
 - **Wingman.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
   The screenshot shows an amber outline triangle down and to the right of the blue cursor triangle.
   After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the amber triangle with a green check mark ahead of the tip and the "Study guide ready" chip.
-- **Team theme.** Not run yet. Quit Clicky, run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno`, start it, post `make_study_guide`, and run `$V shot guide-themed`, then `$V key agents-list` and `$V shot guide-themed-list`.
-  The wingman is Hinata's portrait in an orange ring with "Hinata" before the step line, and the list header says Karasuno with "on court". Delete the key to go back to Clicky blue.
+- **Team theme.** [`team-theme.md`](./team-theme.md) drives every themed wingman and list state with seeded agents and no model call.
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
   The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
   Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.
