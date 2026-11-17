@@ -639,6 +639,25 @@ struct leanring_buddyTests {
         }
     }
 
+    @Test func framePopoutPageCarriesTheCursorColorForTheQuizLabel() async throws {
+        // The label's "?" must match the cursor that points at it, so the page reads both colors from its data.
+        let overlayScreen = try #require(NSScreen.screens.first)
+        let frameGrab = VideoFrameGrab(jpeg: "", width: 100, height: 80, videoSeconds: nil, rectX: 0, rectY: 0, rectWidth: 100, rectHeight: 80)
+        let framePopout = VideoFramePopout(
+            frameGrab: frameGrab,
+            subjectBox: VideoFramePopout.SubjectBox(left: 0, top: 0, right: 99, bottom: 79),
+            parts: [VideoFramePopout.Part(label: "Fan", x: 10, y: 10, isQuizAnswer: true)],
+            subjectMaskPNGBase64: "",
+            pictureShowsDepth: false,
+            isArtwork: false
+        )
+        let unthemedPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
+        #expect(unthemedPageHTML.contains("\"quizLabelColor\":\"#3380ff\""))
+        #expect(unthemedPageHTML.contains("\"quizLabelTextColor\":\"#ffffff\""))
+        let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: .school(.nekoma)))
+        #expect(nekomaPageHTML.contains("\"quizLabelColor\":\"#E0313B\""))
+    }
+
     @Test func animatedPageImageIsRefusedForTooManyFramesATooWideFrameOrANonHTTPSURL() async throws {
         func gifData(frameCount: Int, frameWidth: Int = 4, frameHeight: Int = 4) throws -> Data {
             let gifData = NSMutableData()

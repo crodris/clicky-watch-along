@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <style>
 :root {
-  /* Mirrors DS.Colors.overlayCursorBlue, the blue of Clicky's cursor. */
+  /* Mirrors the cursor's color, DS.Colors.overlayCursorBlue unless a team theme is on. The page data sets both at startup. */
   --clicky-blue: #3380ff;
+  /* The letters on that color, white unless a team theme is on. */
+  --clicky-blue-text: #ffffff;
   /* Mirrors DS.Colors.success. */
   --clicky-success-green: #34d399;
 }
@@ -18,7 +20,7 @@ svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-e
 .scene-label.focused { background: #ffe066; }
 .scene-label.quiz-answer { z-index: 2; }
 /* The "?" waiting to be named is larger and Clicky blue. The class comes off when the name shows. */
-.scene-label.quiz-answer.unanswered { background: var(--clicky-blue); color: #fff; font-size: 22px; padding: 7px 16px; border-radius: 11px; }
+.scene-label.quiz-answer.unanswered { background: var(--clicky-blue); color: var(--clicky-blue-text); font-size: 22px; padding: 7px 16px; border-radius: 11px; }
 .scene-label.quiz-answer.answered-correctly { background: var(--clicky-success-green); color: #04291b; }
 /* translate is its own property, so the shake does not fight the transform that places the label. */
 .scene-label.shaking { animation: label-shake 0.45s ease-in-out 1; }
@@ -40,6 +42,9 @@ body.labels-take-clicks .scene-label:hover { box-shadow: 0 2px 8px rgba(0, 0, 0,
 <script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
 <script type="module">
 const popout = window.__framePopout;
+// Both come from Swift as hex strings it built itself, so the cursor and the quiz label always share a color.
+if (popout.quizLabelColor) document.documentElement.style.setProperty('--clicky-blue', popout.quizLabelColor);
+if (popout.quizLabelTextColor) document.documentElement.style.setProperty('--clicky-blue-text', popout.quizLabelTextColor);
 const labelEntries = [];
 let focusedEntry = null;
 let tourDone = false;

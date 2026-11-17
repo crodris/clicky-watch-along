@@ -26,7 +26,7 @@ done
 
 # These tests read a page from the app bundle, which only exists when Xcode hosts the tests in Clicky.app,
 # so they are skipped here. CI and Cmd+U still run them.
-tests_that_need_the_app_bundle=(framePopoutPageCarriesWhetherThePictureShowsDepth)
+tests_that_need_the_app_bundle=(framePopoutPageCarriesWhetherThePictureShowsDepth framePopoutPageCarriesTheCursorColorForTheQuizLabel)
 skip_arguments=()
 for test_name in "${tests_that_need_the_app_bundle[@]}"; do
   skip_arguments+=(--skip "$test_name")
