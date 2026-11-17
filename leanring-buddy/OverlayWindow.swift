@@ -181,8 +181,9 @@ struct BlueCursorView: View {
     /// The buddy's current behavioral mode (following cursor, navigating, or pointing).
     @State private var buddyNavigationMode: BuddyNavigationMode = .followingCursor
 
-    /// The rotation angle of the triangle in degrees. Default is -35° (cursor-like).
-    /// Changes to face the direction of travel when navigating to a target.
+    /// The buddy's rotation in degrees. Default is -35° (cursor-like).
+    /// Changes to face the direction of travel when navigating to a target. The triangle also
+    /// uses it while following, and the volleyball uses `volleyballFollowMotion` then.
     @State private var triangleRotationDegrees: Double = -35.0
 
     /// Speech bubble text shown when pointing at a detected element.
@@ -202,7 +203,7 @@ struct BlueCursorView: View {
     /// Invalidated when the flight completes, is canceled, or the view disappears.
     @State private var navigationAnimationTimer: Timer?
 
-    /// Scale factor applied to the buddy triangle during flight. Grows to ~1.3x
+    /// Scale factor applied to the buddy during flight. Grows to ~1.3x
     /// at the midpoint of the arc and shrinks back to 1.0x on landing, creating
     /// an energetic "swooping" feel.
     @State private var buddyFlightScale: CGFloat = 1.0
@@ -212,7 +213,11 @@ struct BlueCursorView: View {
     private let buddyFlightPeakExtraScale: CGFloat = 0.3
 
     /// While a school theme's volleyball follows the mouse, it turns toward the mouse's movement and shows streaks at speed.
+    /// It advances under every theme, so switching to a school theme never shows an old facing or old streaks.
     @State private var volleyballFollowMotion = VolleyballFollowMotion.atRest
+
+    /// Reduce Motion keeps the following ball still: no turning toward the mouse and no streaks.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotionIsOn
 
     /// The volleyball faces the mouse's movement while it follows, and its flight direction otherwise.
     /// The triangle keeps its pointer angle while it follows.
@@ -388,7 +393,7 @@ struct BlueCursorView: View {
                     VolleyballCursorView(
                         volleyballColors: cursorVolleyballColors,
                         flightStreakColor: themeSettings.theme.cursorColor,
-                        flightStreakOpacity: volleyballStreakOpacity
+                        streakOpacity: volleyballStreakOpacity
                     )
                 } else {
                     Triangle()
@@ -549,7 +554,7 @@ struct BlueCursorView: View {
             let buddyX = swiftUIPosition.x + 35
             let buddyY = swiftUIPosition.y + 25
             let nextCursorPosition = CGPoint(x: buddyX, y: buddyY)
-            if self.themeSettings.theme.cursorVolleyballColors != nil {
+            if !self.reduceMotionIsOn {
                 let mouseMovement = CGVector(
                     dx: nextCursorPosition.x - self.cursorPosition.x,
                     dy: nextCursorPosition.y - self.cursorPosition.y
@@ -849,6 +854,9 @@ struct BlueCursorView: View {
         isReturningToCursor = false
         currentTargetHoldsUntilReleased = false
         triangleRotationDegrees = -35.0
+        // The follow motion froze before the flight. Starting it at rest lets the ball ease to the
+        // pointer angle like the triangle, instead of spinning back to an old facing with old streaks.
+        volleyballFollowMotion = .atRest
         buddyFlightScale = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0

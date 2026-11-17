@@ -12,10 +12,11 @@ import SwiftUI
 
 struct VolleyballCursorView: View {
     let volleyballColors: VolleyballCursorColors
-    /// The team color the streaks behind a flying ball use, the same color as the glow.
+    /// The team color of the streaks behind a moving ball, the same color as the glow.
     let flightStreakColor: Color
-    /// 0 at rest and 1 at the middle of a flight, so the streaks fade in after takeoff and out before landing.
-    let flightStreakOpacity: Double
+    /// 0 hides the streaks and 1 shows them fully. The overlay passes the flight's size pulse while the ball
+    /// flies to a part, and `VolleyballFollowMotion.streakStrength` while it follows the mouse.
+    let streakOpacity: Double
 
     // Line widths in points. The seams are thinner than the outline, since full-width seams turn an orange ball brown.
     private let outlineLineWidth: CGFloat = 1.6
@@ -27,7 +28,7 @@ struct VolleyballCursorView: View {
         ZStack {
             VolleyballFlightStreaks()
                 .stroke(flightStreakColor, style: StrokeStyle(lineWidth: flightStreakLineWidth, lineCap: .round))
-                .opacity(min(max(flightStreakOpacity, 0), 1))
+                .opacity(min(max(streakOpacity, 0), 1))
             // A light ring outside the outline keeps the ball's edge visible on a dark video frame.
             VolleyballOutline(radiusInBoxUnits: 11.3)
                 .stroke(Color.white.opacity(0.6), lineWidth: lightRingLineWidth)

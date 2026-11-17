@@ -41,12 +41,16 @@ Preconditions:
   Run `$V shot themed-running` 5 seconds later: three running players in orange rings, the nearest with "Hinata · Reading the Haikyuu wiki".
 - **Agent list.** Run `$V key agents-list`, then `$V shot themed-list`.
   The panel says "Karasuno" and "3 on court" with an orange border, the rows read "Hinata #10 · Task", "Kageyama #9 · 3D model", and so on, and no player shows twice.
+- **Volleyball cursor.** With `school:karasuno` written, put the mouse on the display where Chrome shows a YouTube video and run `screencapture -x -V 22 -D <that display> "$RUN/flight.mov"` in the background, then `$V app-launch "where is the YouTube search box? point at it"` and `$V app-wait 120`.
+  The log shows `Element pointing`, and frames from `ffmpeg -i flight.mov -vf fps=20` show an orange ball with streaks trailing it on the way to the search box, then the ball and its bubble beside it.
+  Claude points on the screen that shows the element, which may not be the main display.
+  For the follow motion, launch with `+40 thanks`, record the mouse's display, and run `swift demo/scripts/mouse/mouse.swift move <x> <y> 0.5` across it: the ball turns toward the movement with streaks behind it, and they fade once the mouse stops.
 - **Other teams.** `$V app-quit`, write another value such as `school:inarizaki`, and repeat.
   Inarizaki's white accent is the hardest case for contrast.
 - **Theme off.** Write `clickyBlue` and repeat.
   The wingmen are colored triangles and the list says "Agents" and "3 running".
 - **Picker.** The panel's buttons have no accessibility names, so press one with the real mouse: `swift demo/scripts/mouse/mouse.swift click <x> <y>` at a button's center in global points, read from a `$V shot` of the open panel.
-  `defaults read com.crodris.clicky-watch-along companionTheme` shows the new value, and the cursor and menu bar icon change at once.
+  `defaults read com.crodris.clicky-watch-along companionTheme` shows the new value, the cursor changes at once, and the menu bar icon stays the Clicky cursor.
 - Delete the key with `defaults delete com.crodris.clicky-watch-along companionTheme` when done, so the everyday app stays Clicky blue.
 
 ## Gotchas
