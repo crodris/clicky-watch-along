@@ -485,13 +485,6 @@ struct WingmanFormation: Equatable {
 
     static let mostWingmen = 3
 
-    /// The triangle's spot ahead of the tip. The formation's own style decides which one applies.
-    static let aheadOfTheTipOffset = WingmanStyle.triangle.aheadOfTheTipOffset
-
-    static func offset(forSlot slot: Int) -> CGSize {
-        WingmanStyle.triangle.offset(forSlot: slot)
-    }
-
     let placements: [Placement]
     let overflowCount: Int
     /// Portraits when any shown agent has a player, so one formation never mixes two sizes of wingman.

@@ -2046,7 +2046,7 @@ struct leanring_buddyTests {
         store.finish(newerAgentID, with: .notionPage(studyGuidePageURL))
         let formation = wingmanFormation(for: store.agents)
         #expect(formation.placements.map(\.agent.id) == [newerAgentID, olderAgentID])
-        #expect(formation.placements.map(\.offset) == [WingmanFormation.aheadOfTheTipOffset, CGSize(width: 15, height: 18)])
+        #expect(formation.placements.map(\.offset) == [WingmanStyle.triangle.aheadOfTheTipOffset, CGSize(width: 15, height: 18)])
         #expect(formation.overflowCount == 0)
         #expect(wingmanFormation(for: []).placements.isEmpty)
     }

@@ -80,37 +80,15 @@ enum HaikyuSchool: String, CaseIterable {
 
     /// The team's color: the cursor, the progress ring, the portrait border, and the list's meter.
     var accentColor: Color {
-        switch self {
-        case .karasuno: return Color(hex: "#F26B1D")
-        case .nekoma: return Color(hex: "#E0313B")
-        case .aobaJohsai: return Color(hex: "#5CC8B8")
-        case .fukurodani: return Color(hex: "#D4A017")
-        case .dateTech: return Color(hex: "#2EA58F")
-        case .shiratorizawa: return Color(hex: "#A0457F")
-        case .johzenji: return Color(hex: "#F5C518")
-        case .inarizaki: return Color(hex: "#F4F4F5")
-        case .kamomedai: return Color(hex: "#6EC1E4")
-        case .itachiyama: return Color(hex: "#F2D600")
-        }
+        Color(hex: accentHex)
     }
 
     /// Text and outlines drawn on or around the accent color, picked to stay readable on it.
     var contrastColor: Color {
-        switch self {
-        case .karasuno: return Color(hex: "#1A1A1A")
-        case .nekoma: return Color(hex: "#FFFFFF")
-        case .aobaJohsai: return Color(hex: "#0F2E2A")
-        case .fukurodani: return Color(hex: "#141414")
-        case .dateTech: return Color(hex: "#FFFFFF")
-        case .shiratorizawa: return Color(hex: "#FFFFFF")
-        case .johzenji: return Color(hex: "#1A1A1A")
-        case .inarizaki: return Color(hex: "#111111")
-        case .kamomedai: return Color(hex: "#1F3A5F")
-        case .itachiyama: return Color(hex: "#1E6B30")
-        }
+        Color(hex: contrastHex)
     }
 
-    /// The same two colors as hex strings, for the quiz label's page, which cannot read a SwiftUI Color.
+    /// Hex strings, so the quiz label's page, which cannot read a SwiftUI Color, gets the same colors.
     var accentHex: String {
         switch self {
         case .karasuno: return "#F26B1D"
@@ -382,11 +360,6 @@ enum HaikyuPortraitCache {
     }
 }
 
-@MainActor
-func haikyuPortraitImage(for player: HaikyuPlayer) -> NSImage? {
-    HaikyuPortraitCache.image(for: player)
-}
-
 /// A player's round portrait, or the school's accent filled with the player's initials when none is bundled.
 struct HaikyuPortraitView: View {
     let player: HaikyuPlayer
@@ -396,7 +369,7 @@ struct HaikyuPortraitView: View {
 
     var body: some View {
         Group {
-            if let portrait = haikyuPortraitImage(for: player) {
+            if let portrait = HaikyuPortraitCache.image(for: player) {
                 Image(nsImage: portrait)
                     .resizable()
                     .scaledToFill()
@@ -407,7 +380,6 @@ struct HaikyuPortraitView: View {
                     Text(player.initials)
                         .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
                         .foregroundColor(player.school.contrastColor)
-                        .grayscale(isGrayscale ? 1 : 0)
                 }
                 .grayscale(isGrayscale ? 1 : 0)
             }
