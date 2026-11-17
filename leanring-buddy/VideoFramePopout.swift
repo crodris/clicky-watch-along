@@ -450,7 +450,8 @@ func indexOfTheScreenFrameHolding(
 
 /// The bundled pop-out page with this frame's data in it, or nil when the template is missing.
 /// The overlay covers `overlayScreen`, so the video rect is moved into that screen's page coordinates.
-func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScreen) -> String? {
+/// The quiz label takes the cursor's color from `theme`, so it matches the cursor that points at it.
+func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScreen, theme: CompanionTheme = .clickyBlue) -> String? {
     let templateURL = Bundle.main.url(forResource: "frame-popout", withExtension: "html", subdirectory: "LiveSceneAssets")
         ?? Bundle.main.url(forResource: "frame-popout", withExtension: "html")
     guard let templateURL, let templateHTML = try? String(contentsOf: templateURL, encoding: .utf8) else {
@@ -473,6 +474,8 @@ func framePopoutPageHTML(for framePopout: VideoFramePopout, overlayScreen: NSScr
             ["label": part.label, "x": part.x, "y": part.y, "isQuizAnswer": part.isQuizAnswer] as [String: Any]
         },
         "pictureShowsDepth": framePopout.pictureShowsDepth,
+        "quizLabelColor": theme.cursorColorHex,
+        "quizLabelTextColor": theme.cursorContrastColorHex,
         "textBoxesToHide": framePopout.textBoxesToHide.map { textBox in
             ["left": textBox.left, "top": textBox.top, "right": textBox.right, "bottom": textBox.bottom]
         },

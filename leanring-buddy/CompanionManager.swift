@@ -163,10 +163,13 @@ final class CompanionManager: ObservableObject {
     /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
     /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.
     private var studyGuideRefreshesBeingChecked = 0
+    /// The Haikyu!! team theme the learner picked in the menu bar panel, the one source of truth for it.
+    let themeSettings = CompanionThemeSettings()
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
-    let backgroundAgentStore = BackgroundAgentStore()
+    private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
         store: backgroundAgentStore,
+        themeSettings: themeSettings,
         cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) }
     )
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
@@ -321,6 +324,9 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        VoiceToolCallChip.shared.avatarWingmenAreShowing = { [weak self] in
+            self?.backgroundAgentStore.agents.contains { $0.player != nil && $0.isShownAsAWingman(at: Date()) } ?? false
+        }
         #if DEBUG
         // Off unless asked for, since any process on this Mac can reach a loopback port.
         if CommandLine.arguments.contains("--voice-tool-debug-server") {
@@ -1303,7 +1309,7 @@ final class CompanionManager: ObservableObject {
 
         guard let framePopout,
               let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
-              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.theme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
             await speakLiveSceneLine(failureLine)
@@ -2071,7 +2077,7 @@ final class CompanionManager: ObservableObject {
         videoQuizQuestionIsActive = true
         if let framePopout,
            let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
-           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen),
+           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.theme),
            LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, isFramePopout: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
@@ -2584,7 +2590,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .backgroundAgent(.task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
         }
     }
 
@@ -2776,7 +2782,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
                 "Couldn't build the \(agentKind.builtThingName)",
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -3079,7 +3085,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
             VoiceToolCallChip.shared.show(
                 studyGuideFailureLine(for: error),
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
             return false
@@ -3116,7 +3122,7 @@ final class CompanionManager: ObservableObject {
             }
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondaryChipText: secondaryChipText,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -3125,7 +3131,7 @@ final class CompanionManager: ObservableObject {
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -3142,11 +3148,16 @@ final class CompanionManager: ObservableObject {
             }
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondaryChipText: "· say what did you find",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
+    }
+
+    /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
+    private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
+        .backgroundAgent(kind, player: backgroundAgentStore.player(for: agentID))
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
@@ -3179,13 +3190,47 @@ final class CompanionManager: ObservableObject {
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
     }
 
+    /// Not listed by tools/list, since it is for screenshots and demo takes, not for the model.
+    private static let debugSeedAgentsToolName = "debug_seed_agents"
+
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
+        if toolName == Self.debugSeedAgentsToolName {
+            seedBackgroundAgentsForScreenshots()
+            return .changed(state: nil)
+        }
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
         showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
         let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
         showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
         return outcome
+    }
+
+    /// Puts three running agents, one finished with its ending chip, and one failed on screen with no Worker call, so
+    /// every wingman, chip, and agent list state can be captured at once. Running agents fill from the clock and stay up until cancelled from the list.
+    /// The running ones start first, so they take the team's best-known players.
+    private func seedBackgroundAgentsForScreenshots() {
+        let studyGuideAgentID = backgroundAgentStore.start(kind: .studyGuide)
+        backgroundAgentStore.setSubject("How a jet engine works", for: studyGuideAgentID)
+        backgroundAgentStore.completeStep(for: studyGuideAgentID)
+        let threeDModelAgentID = backgroundAgentStore.start(kind: .threeDModel)
+        backgroundAgentStore.setSubject("The turbofan's fan blades", for: threeDModelAgentID)
+        let taskAgentID = backgroundAgentStore.start(kind: .task)
+        backgroundAgentStore.setSubject("Compare this catch to the first booster catch", for: taskAgentID)
+        backgroundAgentStore.reportStep("Searching the web", for: taskAgentID)
+
+        let finishedAgentID = backgroundAgentStore.start(kind: .task)
+        backgroundAgentStore.setSubject("Find the engine's thrust", for: finishedAgentID)
+        backgroundAgentStore.finish(finishedAgentID, with: .answer(spokenSummary: "About 100,000 pounds of thrust.", pageURL: nil))
+        VoiceToolCallChip.shared.show(
+            BackgroundAgentKind.task.finishedChipText,
+            sender: chipSender(forAgent: finishedAgentID, kind: .task),
+            secondaryChipText: "· say what did you find",
+            secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+        )
+        let failedAgentID = backgroundAgentStore.start(kind: .experiment)
+        backgroundAgentStore.setSubject("Lift on a wing", for: failedAgentID)
+        backgroundAgentStore.fail(failedAgentID, reason: "The experiment could not be built. Ask again to try once more.")
     }
     #endif
 

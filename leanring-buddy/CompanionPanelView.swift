@@ -35,6 +35,10 @@ struct CompanionPanelView: View {
                 modelPickerRow
                     .padding(.horizontal, 16)
 
+                TeamThemePickerView(themeSettings: companionManager.themeSettings)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
                 #if DEBUG
                 voiceToolCallLoggingRow
                     .padding(.horizontal, 16)
@@ -794,4 +798,120 @@ struct CompanionPanelView: View {
         }
     }
 
+}
+
+// MARK: - Team Theme Picker
+
+/// The "Team theme" section: Clicky blue, the ten Haikyu!! schools, and Random, in two columns.
+/// Picking one recolors the cursor now, and gives each agent that starts afterward a player of that team.
+private struct TeamThemePickerView: View {
+    @ObservedObject var themeSettings: CompanionThemeSettings
+
+    private static let allThemes: [CompanionTheme] =
+        [.clickyBlue] + HaikyuSchool.allCases.map(CompanionTheme.school) + [.random]
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 6),
+        GridItem(.flexible(), spacing: 6),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Team theme")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
+
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(Self.allThemes, id: \.rawValue) { theme in
+                    TeamThemeOptionButton(
+                        theme: theme,
+                        isSelected: themeSettings.theme == theme,
+                        select: { themeSettings.theme = theme }
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct TeamThemeOptionButton: View {
+    let theme: CompanionTheme
+    let isSelected: Bool
+    let select: () -> Void
+
+    @State private var isHovered = false
+
+    private var name: String {
+        switch theme {
+        case .clickyBlue: return "Clicky blue"
+        case .school(let school): return school.displayName
+        case .random: return "Random"
+        }
+    }
+
+    /// The selected button's border: the theme's own color, which for Random is Clicky blue.
+    private var selectionColor: Color {
+        theme.cursorColor
+    }
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                TeamThemeSwatch(theme: theme)
+                    .frame(width: 18, height: 18)
+                Text(name)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                    .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(isHovered ? 0.1 : 0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? selectionColor : DS.Colors.borderSubtle, lineWidth: isSelected ? 1.5 : 0.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
+    }
+}
+
+/// A small round swatch: solid blue for Clicky blue, the team's two colors for a school, and four teams' colors for Random.
+private struct TeamThemeSwatch: View {
+    let theme: CompanionTheme
+
+    var body: some View {
+        Group {
+            switch theme {
+            case .clickyBlue:
+                DS.Colors.overlayCursorBlue
+            case .school(let school):
+                HStack(spacing: 0) {
+                    school.accentColor
+                    school.contrastColor
+                }
+            case .random:
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        HaikyuSchool.karasuno.accentColor
+                        HaikyuSchool.nekoma.accentColor
+                    }
+                    HStack(spacing: 0) {
+                        HaikyuSchool.aobaJohsai.accentColor
+                        HaikyuSchool.fukurodani.accentColor
+                    }
+                }
+            }
+        }
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
+    }
 }

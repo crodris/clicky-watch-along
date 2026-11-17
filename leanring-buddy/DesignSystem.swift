@@ -195,7 +195,10 @@ enum DS {
         /// The blue cursor/bubble color used in OverlayWindow.
         /// Kept distinct from the accent since it serves a different purpose
         /// (screen overlay vs in-app UI).
-        static let overlayCursorBlue = Color(hex: "#3380FF")
+        static let overlayCursorBlue = Color(hex: overlayCursorBlueHex)
+
+        /// The same blue as text, for the frame pop-out page, which cannot read a SwiftUI Color.
+        static let overlayCursorBlueHex = "#3380ff"
 
         // ── Background Agents ────────────────────────────────────────
 
@@ -216,6 +219,15 @@ enum DS {
 
         /// The task agent's chip letters. Tailwind Teal 700.
         static let backgroundAgentTaskTealText = Color(hex: "#0f766e")
+
+        /// The dark gap between a team player's portrait and its progress ring, so the ring reads on any video.
+        static let backgroundAgentPortraitGap = Color(hex: "#0d0f12")
+
+        /// A team player's name on the white step pill and the ending chip. Tailwind Gray 900, since a pale team color fails as text.
+        static let backgroundAgentPlayerNameText = Color(hex: "#111827")
+
+        /// The step after the player's name on the white step pill. Tailwind Gray 700, a step quieter than the name.
+        static let backgroundAgentPlayerStepText = Color(hex: "#374151")
 
         /// The wingman of an experiment agent. Lime reads apart from the model's violet and the task's teal.
         static let backgroundAgentExperimentLime = lime500
