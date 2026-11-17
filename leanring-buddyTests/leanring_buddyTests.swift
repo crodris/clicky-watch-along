@@ -1798,6 +1798,25 @@ struct leanring_buddyTests {
         var pageWithNoSections = placeholderPage
         pageWithNoSections["summary"] = .string("Karasuno beat Nekoma 2 sets to 1 at the Spring High nationals.")
         #expect(taskAgentPageInputProblem(pageWithNoSections)?.contains("section") == true)
+        // The Worker refuses an empty heading or a blank point, so the app sends those back with a reason first.
+        var pageWithABlankPoint = pageWithNoSections
+        pageWithABlankPoint["sections"] = .array([.object(["heading": .string("Result"), "points": .array([.string(" ")])])])
+        #expect(taskAgentPageInputProblem(pageWithABlankPoint)?.contains("section") == true)
+        var pageWithAnEmptyHeading = pageWithNoSections
+        pageWithAnEmptyHeading["sections"] = .array([
+            .object(["heading": .string("Result"), "points": .array([.string("Karasuno won in 3 sets.")])]),
+            .object(["heading": .string(""), "points": .array([.string("Hinata scored the last point.")])]),
+        ])
+        #expect(taskAgentPageInputProblem(pageWithAnEmptyHeading)?.contains("heading") == true)
+    }
+
+    @Test func aFinishInTheSameTurnAsARefusedPageWaitsForTheAgentToFixThePage() async throws {
+        let pageCall = VoiceToolCall(id: "t1", name: "write_notion_page", input: [:])
+        let stepCall = VoiceToolCall(id: "t2", name: "report_step", input: [:])
+        #expect(taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: false))
+        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: true))
+        // A finish with no page call is the agent's choice to answer without one.
+        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [stepCall], pageWasWritten: false))
     }
 
     @Test func aTaskAgentKeepsOnlyAnHTTPSNotionPageFromTheWorker() async throws {

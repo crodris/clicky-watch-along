@@ -173,15 +173,28 @@ nonisolated func taskAgentPageInputProblem(_ pageInput: [String: JSONValue]) -> 
     if summary.count < shortestTaskAgentPageSummary {
         return "The summary \"\(summary)\" is too short to answer the task. Write two to four sentences from your research."
     }
-    let sectionsWithAPoint = (pageInput["sections"]?.arrayValue ?? []).filter { section in
-        (section["points"]?.arrayValue ?? []).contains { point in
-            !(point.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-    }
-    if sectionsWithAPoint.isEmpty {
+    let sections = pageInput["sections"]?.arrayValue ?? []
+    if sections.isEmpty {
         return "The page needs at least one section with a point from your research."
     }
+    // The same rule the Worker applies, so a page it would refuse comes back here with a clear reason.
+    func hasText(_ value: JSONValue?) -> Bool {
+        !(value?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    let everySectionHasAHeadingAndPoints = sections.allSatisfy { section in
+        let points = section["points"]?.arrayValue ?? []
+        return hasText(section["heading"]) && !points.isEmpty && points.allSatisfy { point in hasText(point) }
+    }
+    if !everySectionHasAHeadingAndPoints {
+        return "Every section needs a heading and at least one point, and no heading or point may be empty."
+    }
     return nil
+}
+
+/// A turn that writes the page and calls finish ends the task only when the page was written. Otherwise the agent
+/// gets the refusal and another turn, since it decided to finish before it knew the page failed.
+nonisolated func taskAgentFinishWaitsForTheRefusedPage(otherCalls: [VoiceToolCall], pageWasWritten: Bool) -> Bool {
+    otherCalls.contains { $0.name == TaskAgentTool.writeNotionPage.rawValue } && !pageWasWritten
 }
 
 /// About one short sentence. A summary shorter than this is a placeholder, not an answer.

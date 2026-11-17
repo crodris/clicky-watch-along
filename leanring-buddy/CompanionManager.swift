@@ -2557,11 +2557,26 @@ final class CompanionManager: ObservableObject {
                 case .continueThePausedTurn:
                     continue
                 case .finish(let spokenSummary, let otherCalls):
+                    var toolResultBlocks: [JSONValue] = []
                     for toolCall in otherCalls {
                         let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
                         writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
+                        toolResultBlocks.append(toolRun.toolResultBlock)
                     }
                     try Task.checkCancellation()
+                    // A page refused in the same turn as finish goes back to the agent with a finish that did not
+                    // count, so it writes the page again instead of the task ending without one.
+                    if taskAgentFinishWaitsForTheRefusedPage(otherCalls: otherCalls, pageWasWritten: writtenPageURL != nil),
+                       let finishCall = turn.toolCalls.first(where: { $0.name == TaskAgentTool.finish.rawValue }) {
+                        toolResultBlocks.append(.object([
+                            "type": .string("tool_result"),
+                            "tool_use_id": .string(finishCall.id),
+                            "content": .string("Not finished: the page was not written. Fix it, write it, then call finish again."),
+                            "is_error": .bool(true),
+                        ]))
+                        messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
+                        continue
+                    }
                     guard !spokenSummary.isEmpty else { throw TaskAgentError.endedWithNoAnswer }
                     print("Task agent: finished in \(Int(Date().timeIntervalSince(startedAt))) s after \(turnNumber) turns")
                     finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
