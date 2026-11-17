@@ -12,6 +12,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 extension Notification.Name {
@@ -31,6 +32,7 @@ final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
+    private var themeIconSubscription: AnyCancellable?
 
     private let companionManager: CompanionManager
     private let panelWidth: CGFloat = 320
@@ -40,6 +42,9 @@ final class MenuBarPanelManager: NSObject {
         self.companionManager = companionManager
         super.init()
         createStatusItem()
+        themeIconSubscription = companionManager.themeSettings.$theme.sink { [weak self] theme in
+            self?.showVolleyballIcon(theme.usesVolleyballMenuBarIcon)
+        }
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
             forName: .clickyDismissPanel,
@@ -111,7 +116,7 @@ final class MenuBarPanelManager: NSObject {
     /// Swaps the menu bar icon between the clicky triangle and a volleyball.
     /// A team theme turns the volleyball on. Does nothing when the icon
     /// already matches, so repeated theme updates never reset the button image.
-    func showVolleyballIcon(_ shouldShowVolleyball: Bool) {
+    private func showVolleyballIcon(_ shouldShowVolleyball: Bool) {
         guard shouldShowVolleyball != isShowingVolleyballIcon else { return }
         guard let button = statusItem?.button else { return }
 
