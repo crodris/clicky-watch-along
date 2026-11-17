@@ -351,7 +351,8 @@ final class BackgroundAgentStore: ObservableObject {
     @discardableResult
     func seedAgentsForScreenshots() -> UUID {
         var systemRandomNumberGenerator = SystemRandomNumberGenerator()
-        // Agents already in the store count too, so seeding twice never lists one player twice.
+        // Agents already in the store count too, so a second seed gives its running agents new players while the
+        // roster has them, and only reuses a player whose agent has ended.
         let playersOfRunningAgents = agents.filter(\.isRunning).compactMap(\.player)
         let playersOfEndedAgents = agents.filter { !$0.isRunning }.compactMap(\.player)
         var seedPlayers: [HaikyuPlayer?] = []
