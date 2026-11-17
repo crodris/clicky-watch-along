@@ -11,6 +11,7 @@ xcuserdata/
 worker/.wrangler/
 *.profraw
 .verify-clicky/
+.playwright-mcp/
 bench/node_modules/
 demo-refs/
 demo/node_modules/
