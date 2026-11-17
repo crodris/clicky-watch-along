@@ -42,9 +42,9 @@ PORTRAIT_PIXEL_SIZE = 160
 DEFAULT_CROP_TOP_SHARE = 0.12
 
 # Pages whose default crop misses the face. Each entry scales the image to a larger square first
-# (so the face fills the 160 pixel frame), then crops 160x160 from the horizontal center at the
-# given share of the leftover height.
-# wikiTitle: (square size in pixels, share of leftover height cropped from the top)
+# (so the face fills the 160 pixel frame), then crops 160x160 at the given shares of the leftover
+# height and width. A face off to one side, as in an action shot, sets a left share other than 0.5.
+# wikiTitle: (square size in pixels, share of leftover height cropped from the top[, share of leftover width cropped from the left])
 FACE_CROP_OVERRIDES = {
     "Kanji Koganegawa": (330, 0.10),
     "Takanobu Aone": (280, 0.12),
@@ -53,6 +53,7 @@ FACE_CROP_OVERRIDES = {
     "Hitoshi Ginjima": (440, 0.13),
     "Ren Ōmimi": (440, 0.085),
     "Michinari Akagi": (420, 0.11),
+    "Yū Nishinoya": (300, 0.16, 0.36),
 }
 
 WIKI_TITLE_PATTERN = re.compile(r'wikiTitle:\s*"([^"]+)"')
@@ -105,14 +106,16 @@ def page_image_url(wiki_title: str) -> str:
 
 
 def crop_filter(wiki_title: str) -> str:
-    if wiki_title in FACE_CROP_OVERRIDES:
-        square_size, crop_top_share = FACE_CROP_OVERRIDES[wiki_title]
+    override = FACE_CROP_OVERRIDES.get(wiki_title)
+    if override is None:
+        square_size, crop_top_share, crop_left_share = PORTRAIT_PIXEL_SIZE, DEFAULT_CROP_TOP_SHARE, 0.5
     else:
-        square_size, crop_top_share = PORTRAIT_PIXEL_SIZE, DEFAULT_CROP_TOP_SHARE
+        square_size, crop_top_share = override[0], override[1]
+        crop_left_share = override[2] if len(override) > 2 else 0.5
     return (
         f"scale={square_size}:{square_size}:force_original_aspect_ratio=increase,"
         f"crop={PORTRAIT_PIXEL_SIZE}:{PORTRAIT_PIXEL_SIZE}:"
-        f"(iw-{PORTRAIT_PIXEL_SIZE})/2:(ih-{PORTRAIT_PIXEL_SIZE})*{crop_top_share}"
+        f"(iw-{PORTRAIT_PIXEL_SIZE})*{crop_left_share}:(ih-{PORTRAIT_PIXEL_SIZE})*{crop_top_share}"
     )
 
 
