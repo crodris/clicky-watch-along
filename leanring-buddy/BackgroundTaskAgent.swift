@@ -30,7 +30,7 @@ nonisolated enum TaskAgentTool: String, CaseIterable, Sendable {
         case .lookAtVideo:
             return "See the video in Chrome's front tab as it is now, cropped to the video."
         case .writeNotionPage:
-            return "Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once. No field may be empty. The title is at most 120 characters and the summary at most 1500. There are at most 8 sections, each with a heading of at most 120 characters and 1 to 10 points of at most 600 characters. There are at most 10 sources, each with a title of at most 200 characters and an https link."
+            return "Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once. No field may be empty. The title is at most 120 characters and the summary at most 1500. There are 1 to 8 sections, each with a heading of at most 120 characters and 1 to 10 points of at most 600 characters. There are at most 10 sources, each with a title of at most 200 characters and an https link."
         case .finish:
             return "End the task. spokenSummary is read aloud when the learner asks what you found."
         }
@@ -159,14 +159,47 @@ nonisolated func taskAgentNextStep(after turn: TaskAgentTurn) -> TaskAgentNextSt
 }
 
 /// What is missing from a write_notion_page input, or nil when it can be written. Strict tools guarantee the shape,
-/// not that a string says anything, and an agent that called it before its research sent an empty title and summary.
+/// not that a string says anything: an agent that called it before its research sent an empty title and summary,
+/// and one demo take wrote a page whose whole body was the summary "x". The problem goes back to the agent as a tool
+/// error, so it writes the page again from its research instead of leaving the learner an empty page.
 nonisolated func taskAgentPageInputProblem(_ pageInput: [String: JSONValue]) -> String? {
     let emptyFields = ["title", "summary"].filter { fieldName in
         (pageInput[fieldName]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    guard !emptyFields.isEmpty else { return nil }
-    return "The page needs a \(emptyFields.joined(separator: " and ")). Write it once your research is done."
+    if !emptyFields.isEmpty {
+        return "The page needs a \(emptyFields.joined(separator: " and ")). Write it once your research is done."
+    }
+    let summary = (pageInput["summary"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if summary.count < shortestTaskAgentPageSummary {
+        return "The summary \"\(summary)\" is too short to answer the task. Write two to four sentences from your research."
+    }
+    let sections = pageInput["sections"]?.arrayValue ?? []
+    if sections.isEmpty {
+        return "The page needs at least one section with a point from your research."
+    }
+    // The same rule the Worker applies, so a page it would refuse comes back here with a clear reason.
+    func hasText(_ value: JSONValue?) -> Bool {
+        !(value?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    let everySectionHasAHeadingAndPoints = sections.allSatisfy { section in
+        let points = section["points"]?.arrayValue ?? []
+        return hasText(section["heading"]) && !points.isEmpty && points.allSatisfy { point in hasText(point) }
+    }
+    if !everySectionHasAHeadingAndPoints {
+        return "Every section needs a heading and at least one point, and no heading or point may be empty."
+    }
+    return nil
 }
+
+/// A turn that writes the page and calls finish ends the task only when the page was written. Otherwise the agent
+/// gets the refusal and another turn, since it decided to finish before it knew the page failed. On the last turn
+/// there is no other turn, so its spoken answer stands without the page rather than the task failing.
+nonisolated func taskAgentFinishWaitsForTheRefusedPage(otherCalls: [VoiceToolCall], pageWasWritten: Bool, isTheLastTurn: Bool) -> Bool {
+    otherCalls.contains { $0.name == TaskAgentTool.writeNotionPage.rawValue } && !pageWasWritten && !isTheLastTurn
+}
+
+/// About one short sentence. A summary shorter than this is a placeholder, not an answer.
+nonisolated let shortestTaskAgentPageSummary = 40
 
 /// The first message: the learner's words and the page they were on, which "this" in the task refers to.
 nonisolated func taskAgentFirstMessage(goal: String, frontTabTitle: String?, frontTabURL: String?) -> String {
