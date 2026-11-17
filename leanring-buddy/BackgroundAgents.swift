@@ -488,7 +488,8 @@ struct WingmanFormation: Equatable {
 
     let placements: [Placement]
     let overflowCount: Int
-    /// Portraits when any shown agent has a player, so one formation never mixes two sizes of wingman.
+    /// Portraits when any shown agent has a player. A triangle agent that started before the theme was picked keeps
+    /// its own size, at the portrait spacing.
     var style: WingmanStyle = .triangle
 }
 

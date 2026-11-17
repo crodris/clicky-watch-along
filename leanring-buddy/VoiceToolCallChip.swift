@@ -78,12 +78,11 @@ private struct VoiceToolCallChipView: View {
     }
 
     /// Dark gray, readable inside the white outline whatever the team's color is.
-    private static let themedChipTextColor = Color(hex: "#111827")
 
     private var chipTextColor: Color {
         switch chipModel.sender {
         case .voiceToolCall: return DS.Colors.blue700
-        case .backgroundAgent(_, player: .some): return Self.themedChipTextColor
+        case .backgroundAgent(_, player: .some): return DS.Colors.backgroundAgentPlayerNameText
         case .backgroundAgent(let agentKind, nil): return agentKind.chipTextColor
         }
     }
@@ -187,9 +186,20 @@ final class VoiceToolCallChip {
 /// The chip panel's bottom-left corner in AppKit screen points. It sits under the spot where Clicky's triangle and the
 /// status label sit, so neither covers it. While team player wingmen show, their portraits trail down and to the right
 /// through that spot, so the chip moves above and to the right of the cursor, which the trail and the finished
-/// player's hop up and to the left both leave empty.
+/// player's hop up and to the left both leave empty. Where the screen's top edge leaves no room above, it goes below
+/// the whole trail, past the "+N" label, instead of being pushed down onto the cursor.
 nonisolated func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect, avatarWingmenAreShowing: Bool) -> CGPoint {
-    let distanceFromCursor = avatarWingmenAreShowing ? CGPoint(x: 16, y: 12) : CGPoint(x: 35 - 19, y: -25 - 30 - 34)
+    let aboveTheCursor = CGPoint(x: 16, y: 12)
+    let belowThePlayerTrail = CGPoint(x: 16, y: -150 - VoiceToolCallChip.panelSize.height)
+    let underTheCursor = CGPoint(x: 35 - 19, y: -25 - 30 - 34)
+    let distanceFromCursor: CGPoint
+    if !avatarWingmenAreShowing {
+        distanceFromCursor = underTheCursor
+    } else if mouseLocation.y + aboveTheCursor.y + VoiceToolCallChip.panelSize.height <= screenFrame.maxY {
+        distanceFromCursor = aboveTheCursor
+    } else {
+        distanceFromCursor = belowThePlayerTrail
+    }
     return CGPoint(
         x: min(mouseLocation.x + distanceFromCursor.x, screenFrame.maxX - VoiceToolCallChip.panelSize.width),
         y: min(max(mouseLocation.y + distanceFromCursor.y, screenFrame.minY), screenFrame.maxY - VoiceToolCallChip.panelSize.height)

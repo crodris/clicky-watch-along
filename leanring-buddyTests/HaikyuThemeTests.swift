@@ -32,8 +32,10 @@ struct SeededRandomNumberGenerator: RandomNumberGenerator {
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
 func makeThemeSettings(startingWith theme: CompanionTheme = .clickyBlue) -> CompanionThemeSettings {
-    // The suite name is a fresh UUID, which UserDefaults accepts, so the optional is never nil.
-    let testDefaults = UserDefaults(suiteName: "HaikyuThemeTests-" + UUID().uuidString)!
+    // One fixed suite for every test, since macOS keeps an empty preferences file for each suite even after its domain
+    // is removed. Sharing it is safe because each test sets the theme right after this reads it and never reads the
+    // saved value back. The name is a plain string UserDefaults accepts, so the optional is never nil.
+    let testDefaults = UserDefaults(suiteName: "HaikyuThemeTests")!
     let themeSettings = CompanionThemeSettings(userDefaults: testDefaults)
     themeSettings.theme = theme
     return themeSettings
@@ -113,8 +115,9 @@ struct HaikyuThemeTests {
     }
 
     @Test func theThemeIsSavedWhenItChangesAndReadBackOnTheNextLaunch() async throws {
-        let suiteName = "HaikyuThemeTests-" + UUID().uuidString
+        let suiteName = "HaikyuThemeTests-SavedTheme"
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
+        testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
 
         #expect(CompanionThemeSettings(userDefaults: testDefaults).theme == .clickyBlue)
@@ -220,9 +223,23 @@ struct HaikyuThemeTests {
         let chipOriginWithPlayerWingmen = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, avatarWingmenAreShowing: true)
         #expect(chipOriginUnderTheCursor.y < mouseLocation.y)
         #expect(chipOriginWithPlayerWingmen.y > mouseLocation.y)
-        // Near the top edge the chip stays on screen.
-        let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 1100), screenFrame: screenFrame, avatarWingmenAreShowing: true)
-        #expect(chipOriginAtTheTop.y + 34 <= screenFrame.maxY)
+        // Near the top edge, with no room above, the chip goes below the whole trail instead of onto the cursor.
+        let mouseAtTheTop = CGPoint(x: 500, y: 1100)
+        let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: mouseAtTheTop, screenFrame: screenFrame, avatarWingmenAreShowing: true)
+        let lowestPlayerWingmanBottomBelowTheCursor: CGFloat = 102 + 16
+        #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height < mouseAtTheTop.y - lowestPlayerWingmanBottomBelowTheCursor)
+    }
+
+    @Test func everyWikiTitleIsAsciiOnceItsAccentsAreRemovedSoSwiftAndThePortraitScriptNameTheFileAlike() async throws {
+        // tools/fetch-haikyu-portraits.py builds the same slug with NFKD, which agrees with Swift's folding only for
+        // accented ASCII letters, so a title outside that set would make the app look for a file the script never wrote.
+        for player in HaikyuSchool.allCases.flatMap(\.roster) {
+            let scalarsWithoutAccents = player.wikiTitle.decomposedStringWithCanonicalMapping.unicodeScalars.filter { scalar in
+                scalar.properties.generalCategory != .nonspacingMark
+            }
+            let titleIsAsciiWithoutAccents = scalarsWithoutAccents.allSatisfy { scalar in scalar.isASCII }
+            #expect(titleIsAsciiWithoutAccents, "\(player.wikiTitle) has a letter the two slug rules may name differently")
+        }
     }
 
     @Test func clickyBlueAgentsHaveNoPlayer() async throws {

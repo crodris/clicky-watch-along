@@ -65,7 +65,6 @@ struct WingmanAvatarView: View {
 
     private static let ringWidth: CGFloat = 3
     private static let gapWidth: CGFloat = 2
-    private static let gapColor = Color(hex: "#0d0f12")
 
     /// A finished agent keeps its team color. A failed one is red, and a cancelled one gray, as with the triangle.
     private var ringColor: Color {
@@ -102,7 +101,7 @@ struct WingmanAvatarView: View {
                     .padding(Self.ringWidth / 2)
             }
             Circle()
-                .fill(Self.gapColor)
+                .fill(DS.Colors.backgroundAgentPortraitGap)
                 .frame(width: size - 2 * Self.ringWidth, height: size - 2 * Self.ringWidth)
             HaikyuPortraitView(player: player, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         }
@@ -195,14 +194,14 @@ private struct WingmanStepLine: View {
     private var line: Text {
         let stepText = Text(text)
             .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundColor(playerName == nil ? textColor : Color(hex: "#374151"))
+            .foregroundColor(playerName == nil ? textColor : DS.Colors.backgroundAgentPlayerStepText)
         guard let playerName else { return stepText }
         let nameText = Text(playerName)
             .font(.system(size: 11, weight: .bold, design: .rounded))
-            .foregroundColor(Color(hex: "#111827"))
+            .foregroundColor(DS.Colors.backgroundAgentPlayerNameText)
         let separatorText = Text(" · ")
             .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundColor(Color(hex: "#374151"))
+            .foregroundColor(DS.Colors.backgroundAgentPlayerStepText)
         return nameText + separatorText + stepText
     }
 

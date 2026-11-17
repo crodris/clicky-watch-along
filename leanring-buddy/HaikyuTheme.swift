@@ -319,7 +319,7 @@ final class CompanionThemeSettings: ObservableObject {
 /// The player a new agent becomes. An unthemed Clicky gets nil. A school hands out its roster in popularity order,
 /// skipping players the agent list still shows, so one list never shows the same player twice while the roster has
 /// others. Once every player is listed it reuses one whose agent has ended, and only past that one already working.
-/// Random follows the same order over every school's players.
+/// Random applies the same three steps over every school's players, picking at random within each step.
 func nextHaikyuPlayer(
     for theme: CompanionTheme,
     playersOfRunningAgents: [HaikyuPlayer],

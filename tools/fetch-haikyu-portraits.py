@@ -79,10 +79,26 @@ def read_wiki_titles(swift_file: Path) -> list[str]:
     return wiki_titles
 
 
+# The wiki's API names the image URL, so only its own image host over https is fetched, and no reply is read past
+# this size.
+PORTRAIT_IMAGE_HOST = "static.wikia.nocookie.net"
+MOST_REPLY_BYTES = 8 * 1024 * 1024
+
+
 def open_url(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": REQUEST_USER_AGENT})
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        return response.read()
+        reply_bytes = response.read(MOST_REPLY_BYTES + 1)
+    if len(reply_bytes) > MOST_REPLY_BYTES:
+        raise RuntimeError(f"the reply from {url} is over {MOST_REPLY_BYTES} bytes")
+    return reply_bytes
+
+
+def checked_image_url(image_url: str) -> str:
+    parsed_image_url = urllib.parse.urlparse(image_url)
+    if parsed_image_url.scheme != "https" or parsed_image_url.hostname != PORTRAIT_IMAGE_HOST:
+        raise RuntimeError(f"the page image is not on https://{PORTRAIT_IMAGE_HOST}: {image_url}")
+    return image_url
 
 
 def page_image_url(wiki_title: str) -> str:
@@ -120,24 +136,30 @@ def crop_filter(wiki_title: str) -> str:
 
 
 def download_portrait(wiki_title: str, output_file: Path) -> None:
-    image_bytes = open_url(page_image_url(wiki_title))
+    image_bytes = open_url(checked_image_url(page_image_url(wiki_title)))
+    # ffmpeg writes next to the portrait and the result replaces it only on success, so a failed --force run keeps
+    # the portrait that was there.
+    partial_output_file = output_file.with_name(output_file.stem + ".partial.jpg")
     with tempfile.TemporaryDirectory() as temporary_directory:
         downloaded_file = Path(temporary_directory) / "download"
         downloaded_file.write_bytes(image_bytes)
         result = subprocess.run(
             [
                 "ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+                # The download is untrusted, so ffmpeg may open only that local file, never a URL a playlist names.
+                "-protocol_whitelist", "file",
                 "-i", str(downloaded_file),
                 "-vf", crop_filter(wiki_title),
                 "-frames:v", "1", "-q:v", "3",
-                str(output_file),
+                str(partial_output_file),
             ],
             capture_output=True,
             text=True,
         )
     if result.returncode != 0:
-        output_file.unlink(missing_ok=True)
+        partial_output_file.unlink(missing_ok=True)
         raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()}")
+    partial_output_file.replace(output_file)
 
 
 def main() -> int:

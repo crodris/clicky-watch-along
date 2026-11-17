@@ -892,7 +892,7 @@ private struct TeamThemeSwatch: View {
         Group {
             switch theme {
             case .clickyBlue:
-                Color(hex: "#3380FF")
+                DS.Colors.overlayCursorBlue
             case .school(let school):
                 HStack(spacing: 0) {
                     school.accentColor

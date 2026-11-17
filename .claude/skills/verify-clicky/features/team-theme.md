@@ -6,7 +6,8 @@ A school recolors the cursor, swaps the menu bar icon for a volleyball, and turn
 ## Sub-features
 
 - `theme-picker` saves the pick under `companionTheme` in UserDefaults and applies it at once, with no relaunch.
-- `theme-cursor` colors the cursor triangle, its glow, the spinner, the waveform, and the navigation bubble in the school's accent, outlined in its contrast color. Random and Clicky blue keep the blue cursor.
+- `theme-cursor` colors the cursor triangle, its glow, the spinner, the waveform, and the navigation bubble in the school's accent, outlined in its contrast color.
+  Random and Clicky blue keep the blue cursor.
 - `theme-icon` shows the volleyball menu bar icon under a school or Random, and the triangle under Clicky blue.
 - `theme-wingmen` shows each agent's player in a ring that fills clockwise in the school's color, the nearest one with "<name> · <step>", a finished one ahead of the tip with a green check, and a failed one in grayscale with a red ring.
 - `theme-player-pick` gives each new agent the team's best-known player that the agent list does not already show, so one list never shows a player twice while the roster has others.
@@ -25,8 +26,10 @@ A school recolors the cursor, swaps the menu bar icon for a volleyball, and turn
 
 Preconditions:
 
-- A Debug build that bundles the portraits. Run `python3 -I tools/fetch-haikyu-portraits.py` once per checkout, then `$V build`.
-- A Worker this run started on 8787, which `app-launch` requires. The recipe makes no model call.
+- A Debug build that bundles the portraits.
+  Run `python3 -I tools/fetch-haikyu-portraits.py` once per checkout, then `$V build`.
+- A Worker this run started on 8787, which `app-launch` requires.
+  The recipe makes no model call.
 - The mouse on the main display, since the overlay draws on the screen under it.
 
 - **Seeded agents.** Run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno`, then `$V app-launch "+600 thanks"`, which keeps the app idle for 10 minutes.
@@ -36,8 +39,10 @@ Preconditions:
   Run `$V shot themed-running` 5 seconds later: three running players in orange rings, the nearest with "Tsukishima · Searching the web".
 - **Agent list.** Run `$V key agents-list`, then `$V shot themed-list`.
   The panel says "Karasuno" and "3 on court" with an orange border, the rows read "Hinata #10 · Study guide" and so on, and no player shows twice.
-- **Other teams.** `$V app-quit`, write another value such as `school:inarizaki`, and repeat. Inarizaki's white accent is the hardest case for contrast.
-- **Theme off.** Write `clickyBlue` and repeat. The wingmen are colored triangles and the list says "Agents" and "3 running".
+- **Other teams.** `$V app-quit`, write another value such as `school:inarizaki`, and repeat.
+  Inarizaki's white accent is the hardest case for contrast.
+- **Theme off.** Write `clickyBlue` and repeat.
+  The wingmen are colored triangles and the list says "Agents" and "3 running".
 - **Picker.** The panel's buttons have no accessibility names, so press one with the real mouse: `swift demo/scripts/mouse/mouse.swift click <x> <y>` at a button's center in global points, read from a `$V shot` of the open panel.
   `defaults read com.crodris.clicky-watch-along companionTheme` shows the new value, and the cursor and menu bar icon change at once.
 - Delete the key with `defaults delete com.crodris.clicky-watch-along companionTheme` when done, so the everyday app stays Clicky blue.
@@ -45,6 +50,8 @@ Preconditions:
 ## Gotchas
 
 - The bundle ID is shared with the everyday Debug app, so the `companionTheme` key changes Chris's everyday Clicky too until it is deleted.
-- Portraits are gitignored. A build from a checkout that never ran the script shows initials circles, which is the fallback working, not a bug.
-- Seeded agents never end on their own. Cancel them from the agent list or quit the app.
+- Portraits are gitignored.
+  A build from a checkout that never ran the script shows initials circles, which is the fallback working, not a bug.
+- Seeded agents never end on their own.
+  Cancel them from the agent list or quit the app.
 - A seeded finished or failed wingman leaves 4 seconds after it ends, while its list row stays.
