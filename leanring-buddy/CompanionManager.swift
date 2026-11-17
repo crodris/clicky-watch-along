@@ -169,6 +169,7 @@ final class CompanionManager: ObservableObject {
     private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
         store: backgroundAgentStore,
+        themeSettings: themeSettings,
         cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) }
     )
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4

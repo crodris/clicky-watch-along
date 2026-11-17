@@ -41,6 +41,7 @@ final class AgentListPanelController {
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
 
     private let store: BackgroundAgentStore
+    private let themeSettings: CompanionThemeSettings
     private let cancelAgent: (UUID) -> Void
     private var panel: AgentListPanel?
     private var clickOutsideMonitor: Any?
@@ -48,8 +49,9 @@ final class AgentListPanelController {
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
 
-    init(store: BackgroundAgentStore, cancelAgent: @escaping (UUID) -> Void) {
+    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, cancelAgent: @escaping (UUID) -> Void) {
         self.store = store
+        self.themeSettings = themeSettings
         self.cancelAgent = cancelAgent
     }
 
@@ -66,7 +68,7 @@ final class AgentListPanelController {
         visibleFrame = screen?.visibleFrame ?? .zero
         anchorTopLeft = CGPoint(x: mouseLocation.x + Self.gapFromTheMouse, y: mouseLocation.y - Self.gapFromTheMouse)
 
-        let agentListView = AgentListView(store: store, cancelAgent: cancelAgent) { [weak self] contentSize in
+        let agentListView = AgentListView(store: store, themeSettings: themeSettings, cancelAgent: cancelAgent) { [weak self] contentSize in
             self?.resizePanel(to: contentSize)
         }
         let hostingView = AgentListHostingView(rootView: agentListView)
@@ -196,6 +198,7 @@ private struct AgentListSizePreferenceKey: PreferenceKey {
 
 private struct AgentListView: View {
     @ObservedObject var store: BackgroundAgentStore
+    @ObservedObject var themeSettings: CompanionThemeSettings
     let cancelAgent: (UUID) -> Void
     let onContentSizeChange: (CGSize) -> Void
 
@@ -203,14 +206,44 @@ private struct AgentListView: View {
 
     private static let headerHeight: CGFloat = 40
 
+    /// A school theme borders the panel in the team's color. Every other theme keeps today's thin gray border.
+    private var panelBorderColor: Color {
+        if case .school(let school) = themeSettings.theme { return school.accentColor }
+        return DS.Colors.borderSubtle
+    }
+
+    private var panelBorderWidth: CGFloat {
+        if case .school = themeSettings.theme { return 1.5 }
+        return 1
+    }
+
+    /// "Agents" with Clicky blue, the team's name after a small accent square for a school, or "Random lineup".
+    @ViewBuilder private var headerTitle: some View {
+        switch themeSettings.theme {
+        case .clickyBlue:
+            Text("Agents")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+        case .school(let school):
+            RoundedRectangle(cornerRadius: 3)
+                .fill(school.accentColor)
+                .frame(width: 10, height: 10)
+            Text(school.displayName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+        case .random:
+            Text("Random lineup")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Agents")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textPrimary)
+            HStack(spacing: 8) {
+                headerTitle
                 Spacer()
-                Text("\(store.agents.filter(\.isRunning).count) running")
+                Text("\(store.agents.filter(\.isRunning).count) \(themeSettings.theme == .clickyBlue ? "running" : "on court")")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -249,7 +282,7 @@ private struct AgentListView: View {
         .fixedSize(horizontal: false, vertical: true)
         .background(DS.Colors.surface1)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(panelBorderColor, lineWidth: panelBorderWidth))
         .background(
             GeometryReader { geometryProxy in
                 Color.clear.preference(key: AgentListSizePreferenceKey.self, value: geometryProxy.size)
@@ -273,7 +306,8 @@ private struct AgentRowView: View {
     /// The meter's filled segments and the wingman share one color for each phase.
     private var meterColor: Color {
         switch agent.phase {
-        case .running: return agent.kind.color
+        // The team's color only shows while the agent runs, so it never stands for a state.
+        case .running: return agent.player?.school.accentColor ?? agent.kind.color
         case .finished: return DS.Colors.success
         case .failed: return DS.Colors.destructive
         case .cancelled: return DS.Colors.textTertiary
@@ -285,12 +319,9 @@ private struct AgentRowView: View {
             Button(action: onToggle) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 10) {
-                        WingmanTriangleView(agent: agent, size: 11)
-                            .frame(width: 16, height: 16)
+                        rowIcon
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(agent.kind.displayName)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(DS.Colors.textPrimary)
+                            rowTitle
                             Text(agent.subject ?? "Finding the video")
                                 .font(.system(size: 11))
                                 .foregroundColor(DS.Colors.textSecondary)
@@ -315,6 +346,36 @@ private struct AgentRowView: View {
                 expandedDetails
             }
         }
+    }
+
+    @ViewBuilder private var rowIcon: some View {
+        if let player = agent.player {
+            HaikyuPortraitView(player: player, size: 28)
+                .overlay(Circle().stroke(player.school.accentColor, lineWidth: 2))
+                // A finished agent's portrait steps back, as its meter turns green.
+                .opacity(agent.finishedResult == nil ? 1 : 0.5)
+        } else {
+            WingmanTriangleView(agent: agent, size: 11)
+                .frame(width: 16, height: 16)
+        }
+    }
+
+    /// "Hinata #10 · Study guide" for a player, with the number quieter, and just the kind's name otherwise.
+    private var rowTitle: Text {
+        let kindName = Text(agent.kind.displayName)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(DS.Colors.textPrimary)
+        guard let player = agent.player else { return kindName }
+        let playerName = Text(player.displayName)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(DS.Colors.textPrimary)
+        let jerseyNumber = Text(" #\(player.jerseyNumber)")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(DS.Colors.textSecondary)
+        let separator = Text(" · ")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(DS.Colors.textPrimary)
+        return playerName + jerseyNumber + separator + kindName
     }
 
     /// Only a running agent's time ticks, and the clock stops with the list, since the list's view is dropped on close.
@@ -384,7 +445,8 @@ private struct AgentRowView: View {
                 }
             }
         }
-        .padding(.leading, 40)
+        // Lines up under the title, which starts after the icon.
+        .padding(.leading, agent.player == nil ? 40 : 52)
         .padding(.trailing, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
