@@ -3187,13 +3187,41 @@ final class CompanionManager: ObservableObject {
         return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
     }
 
+    /// Not listed by tools/list, since it is for screenshots and demo takes, not for the model.
+    private static let debugSeedAgentsToolName = "debug_seed_agents"
+
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
+        if toolName == Self.debugSeedAgentsToolName {
+            seedBackgroundAgentsForScreenshots()
+            return .changed(state: nil)
+        }
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
         showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
         let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: "")
         showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
         return outcome
+    }
+
+    /// Puts three running agents, one finished, and one failed on screen with no Worker call, so every wingman and agent
+    /// list state can be captured at once. Running agents fill from the clock and stay up until cancelled from the list.
+    /// The running ones start first, so they take the team's best-known players.
+    private func seedBackgroundAgentsForScreenshots() {
+        let studyGuideAgentID = backgroundAgentStore.start(kind: .studyGuide)
+        backgroundAgentStore.setSubject("How a jet engine works", for: studyGuideAgentID)
+        backgroundAgentStore.completeStep(for: studyGuideAgentID)
+        let threeDModelAgentID = backgroundAgentStore.start(kind: .threeDModel)
+        backgroundAgentStore.setSubject("The turbofan's fan blades", for: threeDModelAgentID)
+        let taskAgentID = backgroundAgentStore.start(kind: .task)
+        backgroundAgentStore.setSubject("Compare this catch to the first booster catch", for: taskAgentID)
+        backgroundAgentStore.reportStep("Searching the web", for: taskAgentID)
+
+        let finishedAgentID = backgroundAgentStore.start(kind: .task)
+        backgroundAgentStore.setSubject("Find the engine's thrust", for: finishedAgentID)
+        backgroundAgentStore.finish(finishedAgentID, with: .answer(spokenSummary: "About 100,000 pounds of thrust.", pageURL: nil))
+        let failedAgentID = backgroundAgentStore.start(kind: .experiment)
+        backgroundAgentStore.setSubject("Lift on a wing", for: failedAgentID)
+        backgroundAgentStore.fail(failedAgentID, reason: "The experiment could not be built. Ask again to try once more.")
     }
     #endif
 
