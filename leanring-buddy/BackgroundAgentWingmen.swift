@@ -8,6 +8,7 @@
 //  blue triangle shows the step it is on in a small line to its right. A finished agent's wingman fills, hops ahead of the blue triangle's
 //  tip, and shows a green check mark, and a failed one turns into a red outline. Each grows and fades away
 //  when it leaves.
+//  With a Haikyu!! team theme on, a wingman is the agent's player instead: a round portrait inside a progress ring.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on
 //  high-refresh displays.
 //
@@ -48,6 +49,68 @@ struct WingmanTriangleView: View {
             if agent.finishedResult != nil {
                 FinishedCheckMark(size: size * 0.8)
                     .offset(x: size * 0.45, y: size * 0.35)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: agent.phase)
+    }
+}
+
+/// One agent as a team player: the portrait in a circle, inside a progress ring with a thin dark gap between them.
+/// The ring fills in the school's color from 12 o'clock, clockwise, in a straight line with the progress.
+struct WingmanAvatarView: View {
+    let agent: BackgroundAgent
+    let player: HaikyuPlayer
+    let size: CGFloat
+
+    private static let ringWidth: CGFloat = 3
+    private static let gapWidth: CGFloat = 2
+    private static let gapColor = Color(hex: "#0d0f12")
+
+    /// A finished agent keeps its team color. A failed one is red, and a cancelled one gray, as with the triangle.
+    private var ringColor: Color {
+        switch agent.phase {
+        case .running, .finished: return player.school.accentColor
+        case .failed: return DS.Colors.destructive
+        case .cancelled: return DS.Colors.textTertiary
+        }
+    }
+
+    /// A failed agent shows a full ring, since the red says the state and its phase does not keep how far it got.
+    private func ringProgress(shownProgress: Double) -> Double {
+        switch agent.phase {
+        case .running, .finished: return shownProgress
+        case .failed: return 1
+        case .cancelled: return 0
+        }
+    }
+
+    private var faceDiameter: CGFloat {
+        size - 2 * (Self.ringWidth + Self.gapWidth)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.black.opacity(0.55), lineWidth: Self.ringWidth)
+                .padding(Self.ringWidth / 2)
+            AgentProgressView(agent: agent) { shownProgress in
+                Circle()
+                    .trim(from: 0, to: ringProgress(shownProgress: shownProgress))
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: Self.ringWidth, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+                    .padding(Self.ringWidth / 2)
+            }
+            Circle()
+                .fill(Self.gapColor)
+                .frame(width: size - 2 * Self.ringWidth, height: size - 2 * Self.ringWidth)
+            HaikyuPortraitView(player: player, size: faceDiameter, isGrayscale: agent.phase.isFailed)
+        }
+        .frame(width: size, height: size)
+        .overlay(alignment: .bottomTrailing) {
+            if agent.finishedResult != nil {
+                FinishedCheckMark(size: size * 0.4)
+                    .offset(x: size * 0.08, y: size * 0.08)
                     .transition(.scale.combined(with: .opacity))
             }
         }
@@ -126,11 +189,25 @@ struct WingmanTriangleFill: Shape {
 private struct WingmanStepLine: View {
     let text: String
     let textColor: Color
+    /// A team player's name, shown before the step in bold: "Hinata · Writing the guide in Notion".
+    var playerName: String? = nil
+
+    private var line: Text {
+        let stepText = Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundColor(playerName == nil ? textColor : Color(hex: "#374151"))
+        guard let playerName else { return stepText }
+        let nameText = Text(playerName)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundColor(Color(hex: "#111827"))
+        let separatorText = Text(" · ")
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundColor(Color(hex: "#374151"))
+        return nameText + separatorText + stepText
+    }
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundColor(textColor)
+        line
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
             .background(
@@ -142,7 +219,7 @@ private struct WingmanStepLine: View {
 }
 
 /// A white check on a green dot, at the base of a finished wingman.
-private struct FinishedCheckMark: View {
+struct FinishedCheckMark: View {
     let size: CGFloat
 
     var body: some View {
@@ -171,7 +248,7 @@ struct WingmenView: View {
                     .transition(.opacity)
             }
             if formation.overflowCount > 0 {
-                let overflowOffset = WingmanFormation.offset(forSlot: WingmanFormation.mostWingmen)
+                let overflowOffset = formation.style.offset(forSlot: WingmanFormation.mostWingmen)
                 Text("+\(formation.overflowCount)")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
@@ -207,24 +284,41 @@ private struct WingmanView: View {
     /// Set just before an ended agent's wingman is removed, so it grows and fades out instead of vanishing.
     @State private var isLeaving = false
 
+    /// An agent that started before a team theme was picked has no player and stays a triangle, even in a formation of portraits.
+    private var agentStyle: WingmanStyle {
+        placement.agent.player == nil ? .triangle : .avatar
+    }
+
+    @ViewBuilder private var wingmanBody: some View {
+        if let player = placement.agent.player {
+            WingmanAvatarView(agent: placement.agent, player: player, size: agentStyle.size(forSlot: placement.slot))
+        } else {
+            WingmanTriangleView(agent: placement.agent, size: agentStyle.size(forSlot: placement.slot))
+        }
+    }
+
     var body: some View {
         let wingmanPosition = CGPoint(
             x: cursorPosition.x + placement.offset.width,
             y: cursorPosition.y + placement.offset.height
         )
-        WingmanTriangleView(agent: placement.agent)
+        wingmanBody
             // Only the wingman closest to the blue triangle says what it is doing, so lines in a formation never overlap.
             .overlay(alignment: .leading) {
                 if placement.slot == 0, let inProgressText = placement.agent.inProgressText {
-                    WingmanStepLine(text: inProgressText, textColor: placement.agent.kind.chipTextColor)
-                        .fixedSize()
-                        .offset(x: 16)
-                        .transition(.opacity)
+                    WingmanStepLine(
+                        text: inProgressText,
+                        textColor: placement.agent.kind.chipTextColor,
+                        playerName: placement.agent.player?.displayName
+                    )
+                    .fixedSize()
+                    .offset(x: agentStyle.stepLineOffset)
+                    .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.2), value: placement.agent.inProgressText)
             // Before .position, so it grows around the triangle, not around the screen's center.
-            .scaleEffect(isLeaving ? 1.8 : 1)
+            .scaleEffect(isLeaving ? agentStyle.exitScale : 1)
             .opacity(isLeaving ? 0 : 1)
             .position(wingmanPosition)
             .animation(placement.agent.finishedResult == nil ? Self.followSpring(slot: placement.slot) : Self.hopSpring, value: wingmanPosition)

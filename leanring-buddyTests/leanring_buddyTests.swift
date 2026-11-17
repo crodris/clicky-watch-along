@@ -1692,7 +1692,7 @@ struct leanring_buddyTests {
     private let studyGuidePageURL = URL(string: "https://www.notion.so/p1")!
 
     @Test func anAgentMovesThroughItsStepsAndFinishesWithItsResult() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .studyGuide)
         #expect(store.agents.first?.phase == .running(completedStepCount: 0))
         #expect(store.agents.first?.filledFraction == 0)
@@ -1710,7 +1710,7 @@ struct leanring_buddyTests {
     }
 
     @Test func guideAgentsOnTwoVideosRunAtOnceButOneVideoHasOneAtATime() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let firstVideoAgentID = store.start(kind: .studyGuide, studyGuideVideoKey: "video-one")
         store.start(kind: .studyGuide, studyGuideVideoKey: "video-two")
         store.start(kind: .studyGuide)
@@ -1778,7 +1778,7 @@ struct leanring_buddyTests {
     }
 
     @Test func aTaskAgentShowsTheStepsItReports() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .task)
         #expect(store.agents.first?.inProgressText == "Getting started")
         #expect(store.agents.first?.stepStatuses == [.current])
@@ -1796,7 +1796,7 @@ struct leanring_buddyTests {
     }
 
     @Test func anAgentThatEndedIgnoresEveryLaterChange() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let finishedAgentID = store.start(kind: .studyGuide)
         store.finish(finishedAgentID, with: .notionPage(studyGuidePageURL))
         store.completeStep(for: finishedAgentID)
@@ -1813,7 +1813,7 @@ struct leanring_buddyTests {
     }
 
     @Test func aFailedAgentKeepsItsReasonAndShowsAnEmptyOutline() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .studyGuide)
         store.completeStep(for: agentID)
         store.fail(agentID, reason: "Notion isn't connected yet")
@@ -1822,7 +1822,7 @@ struct leanring_buddyTests {
     }
 
     @Test func theLastStepIsFinishedByFinishingTheAgentNotByCompletingAStep() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .studyGuide)
         store.completeStep(for: agentID)
         store.completeStep(for: agentID)
@@ -1831,7 +1831,7 @@ struct leanring_buddyTests {
     }
 
     @Test func theStoreKeepsTheNewestTenEndedAgentsAndEveryRunningOne() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let longTaskID = store.start(kind: .task)
         let endedAgentIDs = (0..<12).map { _ in
             let agentID = store.start(kind: .studyGuideUpdate)
@@ -1864,7 +1864,7 @@ struct leanring_buddyTests {
     }
 
     @Test func fiveRunningAgentsShowThreeWingmenDownAndRightOfTheTriangleAndCountTwoMore() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         for _ in 0..<5 { store.start(kind: .studyGuide) }
         let formation = wingmanFormation(for: store.agents)
         #expect(formation.placements.count == 3)
@@ -1969,7 +1969,7 @@ struct leanring_buddyTests {
         #expect(experimentRequestStep(anExperimentIsReady: true, anExperimentIsBuilding: true) == .showTheReadyExperiment)
         #expect(experimentRequestStep(anExperimentIsReady: false, anExperimentIsBuilding: true) == .sayItIsStillBuilding)
         #expect(experimentRequestStep(anExperimentIsReady: false, anExperimentIsBuilding: false) == .startBuilding)
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         _ = store.start(kind: .threeDModel)
         #expect(!store.anAgentIsRunning(ofKind: .experiment))
         _ = store.start(kind: .experiment)
@@ -2021,7 +2021,7 @@ struct leanring_buddyTests {
     }
 
     @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let olderAgentID = store.start(kind: .studyGuide)
         let newerAgentID = store.start(kind: .studyGuide)
         store.finish(newerAgentID, with: .notionPage(studyGuidePageURL))
@@ -2215,7 +2215,7 @@ struct leanring_buddyTests {
     }
 
     @Test func theExpandedRowMarksDoneCurrentAndPendingStepsAndShowsNoneForAnEndedWithoutResult() async throws {
-        let store = BackgroundAgentStore()
+        let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .studyGuide)
         #expect(store.agents[0].stepStatuses == [.current, .pending])
         #expect(store.agents[0].stepStatuses.map(\.symbol) == ["●", "○"])

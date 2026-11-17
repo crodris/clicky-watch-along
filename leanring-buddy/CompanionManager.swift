@@ -163,8 +163,10 @@ final class CompanionManager: ObservableObject {
     /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
     /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.
     private var studyGuideRefreshesBeingChecked = 0
+    /// The Haikyu!! team theme the learner picked in the menu bar panel, the one source of truth for it.
+    let themeSettings = CompanionThemeSettings()
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
-    let backgroundAgentStore = BackgroundAgentStore()
+    private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
         store: backgroundAgentStore,
         cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) }
@@ -2584,7 +2586,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .backgroundAgent(.task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
         }
     }
 
@@ -2776,7 +2778,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
                 "Couldn't build the \(agentKind.builtThingName)",
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -3079,7 +3081,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
             VoiceToolCallChip.shared.show(
                 studyGuideFailureLine(for: error),
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
             return false
@@ -3116,7 +3118,7 @@ final class CompanionManager: ObservableObject {
             }
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondaryChipText: secondaryChipText,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -3125,7 +3127,7 @@ final class CompanionManager: ObservableObject {
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
@@ -3142,11 +3144,16 @@ final class CompanionManager: ObservableObject {
             }
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
-                sender: .backgroundAgent(agentKind),
+                sender: chipSender(forAgent: agentID, kind: agentKind),
                 secondaryChipText: "· say what did you find",
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
+    }
+
+    /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
+    private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
+        .backgroundAgent(kind, player: backgroundAgentStore.player(for: agentID))
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no

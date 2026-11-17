@@ -158,6 +158,11 @@ enum BackgroundAgentPhase: Equatable {
     case finished(BackgroundAgentResult)
     case failed(reason: String)
     case cancelled
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
 struct BackgroundAgent: Identifiable, Equatable {
@@ -175,6 +180,9 @@ struct BackgroundAgent: Identifiable, Equatable {
     var phase: BackgroundAgentPhase
     /// The steps a task agent said it was on, oldest first. Empty for every other kind, whose steps are fixed.
     var reportedSteps: [String] = []
+    /// The Haikyu!! player this agent is while a team theme is on, kept for the agent's whole life, so a running agent
+    /// keeps its player when the learner changes the theme. Nil under the Clicky blue theme.
+    var player: HaikyuPlayer? = nil
 
     /// The steps the agent list shows: a task agent's reported steps, or the kind's fixed steps.
     var stepNames: [String] {
@@ -312,13 +320,26 @@ final class BackgroundAgentStore: ObservableObject {
     /// Newest first.
     @Published private(set) var agents: [BackgroundAgent] = []
 
+    /// Read when an agent starts, to pick its player. Changing the theme later never changes a running agent.
+    private let themeSettings: CompanionThemeSettings
+
+    init(themeSettings: CompanionThemeSettings) {
+        self.themeSettings = themeSettings
+    }
+
     /// Running agents are always kept, so one is never dropped while its task can still be cancelled or finish.
     private static let mostEndedAgentsKept = 10
 
     @discardableResult
     func start(kind: BackgroundAgentKind, studyGuideVideoKey: String? = nil) -> UUID {
         let startedAt = Date()
-        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0))
+        var systemRandomNumberGenerator = SystemRandomNumberGenerator()
+        let player = nextHaikyuPlayer(
+            for: themeSettings.theme,
+            playersOfRunningAgents: agents.filter(\.isRunning).compactMap(\.player),
+            randomNumberGenerator: &systemRandomNumberGenerator
+        )
+        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0), player: player)
         agents.insert(agent, at: 0)
         var endedAgentsKept = 0
         agents = agents.filter { existingAgent in
@@ -327,6 +348,11 @@ final class BackgroundAgentStore: ObservableObject {
             return endedAgentsKept <= Self.mostEndedAgentsKept
         }
         return agent.id
+    }
+
+    /// The player of an agent, for the ending chip, which outlives the agent's wingman only by a moment.
+    func player(for agentID: UUID) -> HaikyuPlayer? {
+        agents.first { $0.id == agentID }?.player
     }
 
     func anAgentIsRunning(ofKind agentKind: BackgroundAgentKind) -> Bool {
@@ -399,6 +425,53 @@ final class BackgroundAgentStore: ObservableObject {
 
 // MARK: - Formation
 
+/// The two looks a wingman can have, as one table of numbers. The triangle is the unthemed wingman, and the avatar is
+/// a team player's portrait, which is bigger and so sits farther from the blue triangle.
+enum WingmanStyle: Equatable {
+    case triangle
+    case avatar
+
+    /// Where the wingman in a slot sits, from the blue triangle's center, in points. Slot 0 is the one closest to it.
+    func offset(forSlot slot: Int) -> CGSize {
+        switch self {
+        case .triangle: return CGSize(width: 15 * CGFloat(slot + 1), height: 18 * CGFloat(slot + 1))
+        case .avatar: return CGSize(width: 30 + 22 * CGFloat(slot), height: 34 + 34 * CGFloat(slot))
+        }
+    }
+
+    /// A finished agent's wingman hops from its slot to just ahead of the blue triangle's tip, which points up and to the left.
+    var aheadOfTheTipOffset: CGSize {
+        switch self {
+        case .triangle: return CGSize(width: -14, height: -20)
+        case .avatar: return CGSize(width: -30, height: -34)
+        }
+    }
+
+    /// The wingman's width and height. The one closest to the blue triangle is a little larger.
+    func size(forSlot slot: Int) -> CGFloat {
+        switch self {
+        case .triangle: return 11
+        case .avatar: return slot == 0 ? 40 : 32
+        }
+    }
+
+    /// How much the wingman grows while it fades out.
+    var exitScale: CGFloat {
+        switch self {
+        case .triangle: return 1.8
+        case .avatar: return 1.25
+        }
+    }
+
+    /// Where the step pill starts, from the wingman's leading edge.
+    var stepLineOffset: CGFloat {
+        switch self {
+        case .triangle: return 16
+        case .avatar: return 48
+        }
+    }
+}
+
 /// Where each wingman sits behind the blue triangle. The wingmen of the three newest agents trail down and to the right,
 /// along the triangle's tail, and the rest are counted in the overflow.
 struct WingmanFormation: Equatable {
@@ -412,30 +485,34 @@ struct WingmanFormation: Equatable {
 
     static let mostWingmen = 3
 
-    /// A finished agent's wingman hops from its slot to just ahead of the blue triangle's tip, which points up and to the left.
-    static let aheadOfTheTipOffset = CGSize(width: -14, height: -20)
+    /// The triangle's spot ahead of the tip. The formation's own style decides which one applies.
+    static let aheadOfTheTipOffset = WingmanStyle.triangle.aheadOfTheTipOffset
 
     static func offset(forSlot slot: Int) -> CGSize {
-        CGSize(width: 15 * CGFloat(slot + 1), height: 18 * CGFloat(slot + 1))
+        WingmanStyle.triangle.offset(forSlot: slot)
     }
 
     let placements: [Placement]
     let overflowCount: Int
+    /// Portraits when any shown agent has a player, so one formation never mixes two sizes of wingman.
+    var style: WingmanStyle = .triangle
 }
 
 /// `agentsToShow` is newest first. A finished agent takes the spot ahead of the tip and no slot in the trail,
 /// so the trail has no gap while it waits to leave.
 func wingmanFormation(for agentsToShow: [BackgroundAgent]) -> WingmanFormation {
+    let style: WingmanStyle = agentsToShow.contains { $0.player != nil } ? .avatar : .triangle
     let agentsInTheTrail = agentsToShow.filter { $0.finishedResult == nil }
     let finishedPlacements = agentsToShow.filter { $0.finishedResult != nil }.map { finishedAgent in
-        WingmanFormation.Placement(agent: finishedAgent, slot: 0, offset: WingmanFormation.aheadOfTheTipOffset)
+        WingmanFormation.Placement(agent: finishedAgent, slot: 0, offset: style.aheadOfTheTipOffset)
     }
     let trailPlacements = agentsInTheTrail.prefix(WingmanFormation.mostWingmen).enumerated().map { slot, agent in
-        WingmanFormation.Placement(agent: agent, slot: slot, offset: WingmanFormation.offset(forSlot: slot))
+        WingmanFormation.Placement(agent: agent, slot: slot, offset: style.offset(forSlot: slot))
     }
     return WingmanFormation(
         placements: finishedPlacements + trailPlacements,
-        overflowCount: max(0, agentsInTheTrail.count - WingmanFormation.mostWingmen)
+        overflowCount: max(0, agentsInTheTrail.count - WingmanFormation.mostWingmen),
+        style: style
     )
 }
 

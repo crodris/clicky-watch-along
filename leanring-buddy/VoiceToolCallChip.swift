@@ -16,7 +16,8 @@ import SwiftUI
 /// Who the chip speaks for, which sets its icon and letter color.
 enum VoiceToolCallChipSender: Equatable {
     case voiceToolCall
-    case backgroundAgent(BackgroundAgentKind)
+    /// `player` is the Haikyu!! player the agent was, so the chip shows the portrait instead of the triangle.
+    case backgroundAgent(BackgroundAgentKind, player: HaikyuPlayer?)
 }
 
 @MainActor
@@ -64,7 +65,10 @@ private struct VoiceToolCallChipView: View {
             Image(systemName: "hand.point.up.left.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(DS.Colors.blue600)
-        case .backgroundAgent(let agentKind):
+        case .backgroundAgent(_, let player?):
+            HaikyuPortraitView(player: player, size: 22)
+                .overlay(Circle().stroke(player.school.accentColor, lineWidth: 2))
+        case .backgroundAgent(let agentKind, nil):
             // The wingman's tilt, so the icon reads as the triangle beside the cursor.
             Triangle()
                 .fill(agentKind.color)
@@ -73,10 +77,14 @@ private struct VoiceToolCallChipView: View {
         }
     }
 
+    /// Dark gray, readable inside the white outline whatever the team's color is.
+    private static let themedChipTextColor = Color(hex: "#111827")
+
     private var chipTextColor: Color {
         switch chipModel.sender {
         case .voiceToolCall: return DS.Colors.blue700
-        case .backgroundAgent(let agentKind): return agentKind.chipTextColor
+        case .backgroundAgent(_, player: .some): return Self.themedChipTextColor
+        case .backgroundAgent(let agentKind, nil): return agentKind.chipTextColor
         }
     }
 }
