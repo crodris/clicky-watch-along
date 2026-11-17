@@ -3,8 +3,9 @@
 //  leanring-buddy
 //
 //  The volleyball a school theme draws in place of the blue cursor triangle.
-//  The drawing follows a 24 point box, the one the design mocks used, and
-//  scales to whatever frame the overlay gives it (16 points).
+//  The drawing follows a 24 point box, the one the design mocks used, and the
+//  view draws at that size, larger than the 16 point triangle, since a 16 point
+//  ball was hard to follow while it flew.
 //
 
 import SwiftUI
@@ -16,12 +17,11 @@ struct VolleyballCursorView: View {
     /// 0 at rest and 1 at the middle of a flight, so the streaks fade in after takeoff and out before landing.
     let flightStreakOpacity: Double
 
-    // Line widths in points for the 16 point cursor. The seams are thinner than the outline,
-    // since at this size full-width seams turn an orange ball brown.
-    private let outlineLineWidth: CGFloat = 1.2
-    private let seamLineWidth: CGFloat = 0.8
-    private let lightRingLineWidth: CGFloat = 0.7
-    private let flightStreakLineWidth: CGFloat = 1.5
+    // Line widths in points. The seams are thinner than the outline, since full-width seams turn an orange ball brown.
+    private let outlineLineWidth: CGFloat = 1.6
+    private let seamLineWidth: CGFloat = 1.1
+    private let lightRingLineWidth: CGFloat = 0.9
+    private let flightStreakLineWidth: CGFloat = 2.0
 
     var body: some View {
         ZStack {
@@ -38,6 +38,7 @@ struct VolleyballCursorView: View {
             VolleyballOutline(radiusInBoxUnits: 10)
                 .stroke(Color(hex: volleyballColors.outlineHex), lineWidth: outlineLineWidth)
         }
+        .frame(width: VolleyballBox.sideLength, height: VolleyballBox.sideLength)
     }
 }
 

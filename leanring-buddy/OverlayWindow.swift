@@ -373,10 +373,11 @@ struct BlueCursorView: View {
                         flightStreakOpacity: (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
                     )
                 } else {
-                    Triangle().fill(themeSettings.theme.cursorColor)
+                    Triangle()
+                        .fill(themeSettings.theme.cursorColor)
+                        .frame(width: 16, height: 16)
                 }
             }
-                .frame(width: 16, height: 16)
                 .rotationEffect(.degrees(triangleRotationDegrees))
                 .shadow(color: themeSettings.theme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)

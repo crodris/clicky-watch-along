@@ -63,7 +63,7 @@ Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by de
 
 **Team theme**: The "Team theme" section of the menu bar panel picks Clicky blue (the default), one of ten Haikyu!! schools, or Random (`CompanionTheme`, saved under the `companionTheme` key in UserDefaults, with an unknown value reading as Clicky blue).
 `CompanionThemeSettings`, owned by `CompanionManager`, is the one source of truth, and `HaikyuTheme.swift` holds the schools, their rosters in popularity order, and each team's accent and contrast colors.
-A school theme turns the cursor triangle into a volleyball (`VolleyballCursorView`), and recolors its glow, the spinner, the waveform, and the navigation bubble, and the quiz label in the pop-out page, in the team's color.
+A school theme turns the cursor triangle into a volleyball (`VolleyballCursorView`), drawn in a 24 point frame instead of the triangle's 16 so it stays easy to follow in flight, and recolors its glow, the spinner, the waveform, and the navigation bubble, and the quiz label in the pop-out page, in the team's color.
 The ball's fill, outline, and seam colors come from `HaikyuSchool.volleyballColors`: the team's accent color with a black outline and seams in the team's contrast color, except Aoba Johsai, which gets white seams, and Inarizaki, whose ball is black with white lines.
 Three motion streaks in the team's color trail the ball only while it flies, fading in and out with the flight's size pulse.
 Random keeps the cursor Clicky blue.
