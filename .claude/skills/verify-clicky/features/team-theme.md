@@ -8,7 +8,7 @@ A school turns the cursor into a volleyball in the team's colors, and turns ever
 - `theme-picker` saves the pick under `companionTheme` in UserDefaults and applies it at once, with no relaunch.
 - `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the spinner, the waveform, and the navigation bubble in the school's accent.
   Nekoma's ball is red with a black outline and white seams, and Inarizaki's is black with white lines.
-  Three streaks in the team color trail the ball only while it flies to a part and back.
+  Three streaks in the team color trail the ball while it flies to a part and back, and while it follows a fast-moving mouse, turned toward the movement.
   Random and Clicky blue keep the blue triangle.
 - `theme-icon` keeps the Clicky cursor menu bar icon under every theme.
 - `theme-wingmen` shows each agent's player in a ring that fills clockwise in the school's color, the nearest one with "<name> · <step>", a finished one ahead of the tip with a green check, and a failed one in grayscale with a red ring.

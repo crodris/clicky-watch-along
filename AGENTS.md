@@ -65,7 +65,8 @@ Worker vars: `ELEVENLABS_VOICE_ID`, and optional `LIVE_SCENE_MODEL` (`gpt` by de
 `CompanionThemeSettings`, owned by `CompanionManager`, is the one source of truth, and `HaikyuTheme.swift` holds the schools, their rosters in popularity order, and each team's accent and contrast colors.
 A school theme turns the cursor triangle into a volleyball (`VolleyballCursorView`), drawn in a 24 point frame instead of the triangle's 16 so it stays easy to follow in flight, and recolors its glow, the spinner, the waveform, and the navigation bubble, and the quiz label in the pop-out page, in the team's color.
 The ball's fill, outline, and seam colors come from `HaikyuSchool.volleyballColors`: the team's accent color with a black outline and seams in the team's contrast color, except Aoba Johsai, which gets white seams, and Inarizaki, whose ball is black with white lines.
-Three motion streaks in the team's color trail the ball only while it flies, fading in and out with the flight's size pulse.
+Three motion streaks in the team's color trail the ball while it flies, fading in and out with the flight's size pulse.
+While the ball follows the mouse, it turns toward the mouse's movement and shows the streaks once the mouse moves faster than about 180 points a second, fading them within a fraction of a second after it stops (`VolleyballFollowMotion`). The triangle keeps its pointer angle.
 Random keeps the cursor Clicky blue.
 `BackgroundAgentStore` picks a player when an agent starts (`nextHaikyuPlayer`): a school gives the first roster player the agent list does not show, then, once every player is listed, the first one whose agent has ended, and past that it starts over from the roster's start.
 Random applies the same three steps over every school's players, picking at random within each step.

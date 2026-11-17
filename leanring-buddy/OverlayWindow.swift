@@ -211,6 +211,24 @@ struct BlueCursorView: View {
     /// divide by it, so they show fully at the middle and fade out as the ball lands.
     private let buddyFlightPeakExtraScale: CGFloat = 0.3
 
+    /// While a school theme's volleyball follows the mouse, it turns toward the mouse's movement and shows streaks at speed.
+    @State private var volleyballFollowMotion = VolleyballFollowMotion.atRest
+
+    /// The volleyball faces the mouse's movement while it follows, and its flight direction otherwise.
+    /// The triangle keeps its pointer angle while it follows.
+    private var buddyRotationDegrees: Double {
+        let volleyballIsFollowingTheMouse = buddyNavigationMode == .followingCursor
+            && themeSettings.theme.cursorVolleyballColors != nil
+        return volleyballIsFollowingTheMouse ? volleyballFollowMotion.facingDegrees : triangleRotationDegrees
+    }
+
+    /// The volleyball's streaks show the mouse's speed while it follows, and the flight's size pulse while it flies.
+    private var volleyballStreakOpacity: Double {
+        buddyNavigationMode == .followingCursor
+            ? volleyballFollowMotion.streakStrength
+            : (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
+    }
+
     /// Scale factor for the navigation speech bubble's pop-in entrance.
     /// Starts at 0.5 and springs to 1.0 when the first character appears.
     @State private var navigationBubbleScale: CGFloat = 1.0
@@ -370,7 +388,7 @@ struct BlueCursorView: View {
                     VolleyballCursorView(
                         volleyballColors: cursorVolleyballColors,
                         flightStreakColor: themeSettings.theme.cursorColor,
-                        flightStreakOpacity: (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
+                        flightStreakOpacity: volleyballStreakOpacity
                     )
                 } else {
                     Triangle()
@@ -378,7 +396,7 @@ struct BlueCursorView: View {
                         .frame(width: 16, height: 16)
                 }
             }
-                .rotationEffect(.degrees(triangleRotationDegrees))
+                .rotationEffect(.degrees(buddyRotationDegrees))
                 .shadow(color: themeSettings.theme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
@@ -530,7 +548,15 @@ struct BlueCursorView: View {
             let swiftUIPosition = self.convertScreenPointToSwiftUICoordinates(mouseLocation)
             let buddyX = swiftUIPosition.x + 35
             let buddyY = swiftUIPosition.y + 25
-            self.cursorPosition = CGPoint(x: buddyX, y: buddyY)
+            let nextCursorPosition = CGPoint(x: buddyX, y: buddyY)
+            if self.themeSettings.theme.cursorVolleyballColors != nil {
+                let mouseMovement = CGVector(
+                    dx: nextCursorPosition.x - self.cursorPosition.x,
+                    dy: nextCursorPosition.y - self.cursorPosition.y
+                )
+                self.volleyballFollowMotion = self.volleyballFollowMotion.advanced(byMouseMovement: mouseMovement)
+            }
+            self.cursorPosition = nextCursorPosition
         }
     }
 
