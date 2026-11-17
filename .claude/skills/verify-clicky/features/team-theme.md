@@ -34,7 +34,7 @@ Preconditions:
 
 - **Seeded agents.** Run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno`, then `$V app-launch "+600 thanks"`, which keeps the app idle for 10 minutes.
   Post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{}}}` to `http://127.0.0.1:8790/mcp`.
-  It starts 3 running agents, then 1 finished with its ending chip and 1 failed, straight in the agent store with no Worker call.
+  It puts 3 running agents, 1 finished with its ending chip, and 1 failed straight in the agent store, with no Worker call.
   Run `$V shot themed-ended` within 4 seconds: a finished portrait with a green check ahead of the tip, the "Task done · say what did you find" chip with that portrait above and right of the cursor, Hinata and Kageyama leading, a grayscale failed portrait with a red ring in the third slot, and "+1".
   Run `$V shot themed-running` 5 seconds later: three running players in orange rings, the nearest with "Hinata · Reading the Haikyuu wiki".
 - **Agent list.** Run `$V key agents-list`, then `$V shot themed-list`.

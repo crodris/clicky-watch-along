@@ -249,8 +249,16 @@ struct HaikyuThemeTests {
         let roster = HaikyuSchool.aobaJohsai.roster
         let runningPlayers = store.agents.filter(\.isRunning).map(\.player)
         #expect(runningPlayers == [roster[0], roster[1], roster[2]])
-        let trailPlayers = wingmanFormation(for: store.agents).placements.filter { $0.agent.finishedResult == nil }.map(\.agent.player)
-        #expect(trailPlayers.first == roster[0])
+        let formation = wingmanFormation(for: store.agents)
+        let trailPlayers = formation.placements.filter { $0.agent.finishedResult == nil }.map(\.agent.player)
+        // The failed portrait shows in the third slot while it lingers, and the third player waits in the overflow.
+        #expect(trailPlayers == [roster[0], roster[1], roster[4]])
+        #expect(formation.overflowCount == 1)
+        // A second seed gives its running agents new players, never a second Oikawa. Ten listed agents outnumber the
+        // 9 players, so only an ended agent may repeat one.
+        store.seedAgentsForScreenshots()
+        let runningPlayersAfterTwoSeeds = store.agents.filter(\.isRunning).compactMap(\.player)
+        #expect(Set(runningPlayersAfterTwoSeeds).count == runningPlayersAfterTwoSeeds.count)
     }
     #endif
 

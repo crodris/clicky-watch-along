@@ -351,12 +351,15 @@ final class BackgroundAgentStore: ObservableObject {
     @discardableResult
     func seedAgentsForScreenshots() -> UUID {
         var systemRandomNumberGenerator = SystemRandomNumberGenerator()
+        // Agents already in the store count too, so seeding twice never lists one player twice.
+        let playersOfRunningAgents = agents.filter(\.isRunning).compactMap(\.player)
+        let playersOfEndedAgents = agents.filter { !$0.isRunning }.compactMap(\.player)
         var seedPlayers: [HaikyuPlayer?] = []
         for _ in 0..<5 {
             seedPlayers.append(nextHaikyuPlayer(
                 for: themeSettings.theme,
-                playersOfRunningAgents: seedPlayers.compactMap { $0 },
-                playersOfEndedAgentsStillListed: [],
+                playersOfRunningAgents: playersOfRunningAgents + seedPlayers.compactMap { $0 },
+                playersOfEndedAgentsStillListed: playersOfEndedAgents,
                 randomNumberGenerator: &systemRandomNumberGenerator
             ))
         }
