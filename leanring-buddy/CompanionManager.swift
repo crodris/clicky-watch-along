@@ -2566,7 +2566,7 @@ final class CompanionManager: ObservableObject {
                     try Task.checkCancellation()
                     // A page refused in the same turn as finish goes back to the agent with a finish that did not
                     // count, so it writes the page again instead of the task ending without one.
-                    if taskAgentFinishWaitsForTheRefusedPage(otherCalls: otherCalls, pageWasWritten: writtenPageURL != nil),
+                    if taskAgentFinishWaitsForTheRefusedPage(otherCalls: otherCalls, pageWasWritten: writtenPageURL != nil, isTheLastTurn: turnNumber == mostTaskAgentTurns),
                        let finishCall = turn.toolCalls.first(where: { $0.name == TaskAgentTool.finish.rawValue }) {
                         toolResultBlocks.append(.object([
                             "type": .string("tool_result"),

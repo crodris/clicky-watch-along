@@ -1813,10 +1813,12 @@ struct leanring_buddyTests {
     @Test func aFinishInTheSameTurnAsARefusedPageWaitsForTheAgentToFixThePage() async throws {
         let pageCall = VoiceToolCall(id: "t1", name: "write_notion_page", input: [:])
         let stepCall = VoiceToolCall(id: "t2", name: "report_step", input: [:])
-        #expect(taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: false))
-        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: true))
+        #expect(taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: false, isTheLastTurn: false))
+        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: true, isTheLastTurn: false))
         // A finish with no page call is the agent's choice to answer without one.
-        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [stepCall], pageWasWritten: false))
+        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [stepCall], pageWasWritten: false, isTheLastTurn: false))
+        // The last turn has no turn after it, so the spoken answer stands without the page.
+        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: false, isTheLastTurn: true))
     }
 
     @Test func aTaskAgentKeepsOnlyAnHTTPSNotionPageFromTheWorker() async throws {

@@ -192,9 +192,10 @@ nonisolated func taskAgentPageInputProblem(_ pageInput: [String: JSONValue]) -> 
 }
 
 /// A turn that writes the page and calls finish ends the task only when the page was written. Otherwise the agent
-/// gets the refusal and another turn, since it decided to finish before it knew the page failed.
-nonisolated func taskAgentFinishWaitsForTheRefusedPage(otherCalls: [VoiceToolCall], pageWasWritten: Bool) -> Bool {
-    otherCalls.contains { $0.name == TaskAgentTool.writeNotionPage.rawValue } && !pageWasWritten
+/// gets the refusal and another turn, since it decided to finish before it knew the page failed. On the last turn
+/// there is no other turn, so its spoken answer stands without the page rather than the task failing.
+nonisolated func taskAgentFinishWaitsForTheRefusedPage(otherCalls: [VoiceToolCall], pageWasWritten: Bool, isTheLastTurn: Bool) -> Bool {
+    otherCalls.contains { $0.name == TaskAgentTool.writeNotionPage.rawValue } && !pageWasWritten && !isTheLastTurn
 }
 
 /// About one short sentence. A summary shorter than this is a placeholder, not an answer.
