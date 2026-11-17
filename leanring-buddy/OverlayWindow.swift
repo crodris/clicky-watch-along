@@ -216,8 +216,6 @@ struct BlueCursorView: View {
     /// It advances under every theme, so switching to a school theme never shows an old facing or old streaks.
     @State private var volleyballFollowMotion = VolleyballFollowMotion.atRest
 
-    /// Reduce Motion keeps the following ball still: no turning toward the mouse and no streaks.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotionIsOn
 
     /// The volleyball faces the mouse's movement while it follows, and its flight direction otherwise.
     /// The triangle keeps its pointer angle while it follows.
@@ -554,7 +552,12 @@ struct BlueCursorView: View {
             let buddyX = swiftUIPosition.x + 35
             let buddyY = swiftUIPosition.y + 25
             let nextCursorPosition = CGPoint(x: buddyX, y: buddyY)
-            if !self.reduceMotionIsOn {
+            // Reduce Motion keeps the following ball still: no turning toward the mouse and no streaks.
+            // It is read from the system on each tick, because this timer closure holds a copy of the view
+            // made when it appeared, and an @Environment value in that copy never updates.
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                self.volleyballFollowMotion = .atRest
+            } else {
                 let mouseMovement = CGVector(
                     dx: nextCursorPosition.x - self.cursorPosition.x,
                     dy: nextCursorPosition.y - self.cursorPosition.y

@@ -31,7 +31,7 @@ Preconditions:
 - A Debug build that bundles the portraits.
   Run `python3 -I tools/fetch-haikyu-portraits.py` once per checkout, then `$V build`.
 - A Worker this run started on 8787, which `app-launch` requires.
-  The recipe makes no model call.
+  The seeded-agent steps make no model call, and the Volleyball cursor step makes one pointing request (`/voice-command`, `/chat`, and `/tts`).
 - The mouse on the main display, since the overlay draws on the screen under it.
 
 - **Seeded agents.** Run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno`, then `$V app-launch "+600 thanks"`, which keeps the app idle for 10 minutes.
@@ -41,10 +41,11 @@ Preconditions:
   Run `$V shot themed-running` 5 seconds later: three running players in orange rings, the nearest with "Hinata · Reading the Haikyuu wiki".
 - **Agent list.** Run `$V key agents-list`, then `$V shot themed-list`.
   The panel says "Karasuno" and "3 on court" with an orange border, the rows read "Hinata #10 · Task", "Kageyama #9 · 3D model", and so on, and no player shows twice.
-- **Volleyball cursor.** With `school:karasuno` written, put the mouse on the display where Chrome shows a YouTube video and run `screencapture -x -V 22 -D <that display> "$RUN/flight.mov"` in the background, then `$V app-launch "where is the YouTube search box? point at it"` and `$V app-wait 120`.
-  The log shows `Element pointing`, and frames from `ffmpeg -i flight.mov -vf fps=20` show an orange ball with streaks trailing it on the way to the search box, then the ball and its bubble beside it.
+- **Volleyball cursor.** With `school:karasuno` written, run `$V app-quit` and set `RUN="$(readlink .verify-clicky/current)"`.
+  Put the mouse on the display where Chrome shows a YouTube video, run `screencapture -x -V 22 -D <that display> "$RUN/flight.mov"` in the background, then `$V app-launch "where is the YouTube search box? point at it"` and `$V app-wait 120`.
+  The log shows `Element pointing`, and the frames from `ffmpeg -i "$RUN/flight.mov" -vf fps=20 "$RUN/flight-%03d.png"` show an orange ball with streaks trailing it on the way to the search box, then the ball and its bubble beside it.
   Claude points on the screen that shows the element, which may not be the main display.
-  For the follow motion, launch with `+40 thanks`, record the mouse's display, and run `swift demo/scripts/mouse/mouse.swift move <x> <y> 0.5` across it: the ball turns toward the movement with streaks behind it, and they fade once the mouse stops.
+  For the follow motion, run `$V app-quit`, launch with `+40 thanks`, record the mouse's display, and run `swift demo/scripts/mouse/mouse.swift move <x> <y> 0.5` across it: the ball turns toward the movement with streaks behind it, and they fade once the mouse stops.
 - **Other teams.** `$V app-quit`, write another value such as `school:inarizaki`, and repeat.
   Inarizaki's white accent is the hardest case for contrast.
 - **Theme off.** Write `clickyBlue` and repeat.
