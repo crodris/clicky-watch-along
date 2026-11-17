@@ -226,8 +226,8 @@ struct HaikyuThemeTests {
         // Near the top edge, with no room above, the chip goes below the whole trail instead of onto the cursor.
         let mouseAtTheTop = CGPoint(x: 500, y: 1100)
         let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: mouseAtTheTop, screenFrame: screenFrame, avatarWingmenAreShowing: true)
-        let lowestPlayerWingmanBottomBelowTheCursor: CGFloat = 102 + 16
-        #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height < mouseAtTheTop.y - lowestPlayerWingmanBottomBelowTheCursor)
+        let overflowLabelBottomBelowTheMouse = 25 + WingmanStyle.avatar.offset(forSlot: WingmanFormation.mostWingmen).height + 8
+        #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height < mouseAtTheTop.y - overflowLabelBottomBelowTheMouse)
     }
 
     @Test func everyWikiTitleIsAsciiOnceItsAccentsAreRemovedSoSwiftAndThePortraitScriptNameTheFileAlike() async throws {

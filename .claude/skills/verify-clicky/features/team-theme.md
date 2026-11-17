@@ -11,7 +11,7 @@ A school recolors the cursor, swaps the menu bar icon for a volleyball, and turn
 - `theme-icon` shows the volleyball menu bar icon under a school or Random, and the triangle under Clicky blue.
 - `theme-wingmen` shows each agent's player in a ring that fills clockwise in the school's color, the nearest one with "<name> · <step>", a finished one ahead of the tip with a green check, and a failed one in grayscale with a red ring.
 - `theme-player-pick` gives each new agent the team's best-known player that the agent list does not already show, so one list never shows a player twice while the roster has others.
-- `theme-chip` shows an ending agent's portrait as the chip's icon, and moves the chip above and to the right of the cursor while player wingmen trail under it.
+- `theme-chip` shows an ending agent's portrait as the chip's icon, and moves the chip above and to the right of the cursor while player wingmen trail under it, or below the whole trail at the screen's top edge.
 - `theme-agent-list` titles each row "<name> #<jersey> · <kind>", heads the list with the school's name and "N on court", borders it in the school's color, and marks a failed row's portrait with a red border.
 - `theme-off` keeps today's look under Clicky blue: colored triangles, the "Agents" header, and "N running".
 - `theme-portraits` loads `HaikyuPortraits/<slug>.jpg` from the app bundle and draws the school's color with the player's initials when the file is missing.

@@ -228,7 +228,8 @@ enum HaikyuSchool: String, CaseIterable {
 enum CompanionTheme: Equatable {
     case clickyBlue
     case school(HaikyuSchool)
-    /// Every agent is a random player from any team, and the cursor stays Clicky blue.
+    /// Every agent is a player from any team, picked at random among those the agent list does not show, and the
+    /// cursor stays Clicky blue.
     case random
 
     /// The saved form in UserDefaults. A string nothing here produces reads back as Clicky blue.
@@ -277,7 +278,7 @@ enum CompanionTheme: Equatable {
     /// The same two colors as hex strings, for the frame pop-out page's quiz label.
     var cursorColorHex: String {
         switch self {
-        case .clickyBlue, .random: return "#3380ff"
+        case .clickyBlue, .random: return DS.Colors.overlayCursorBlueHex
         case .school(let school): return school.accentHex
         }
     }

@@ -85,9 +85,32 @@ PORTRAIT_IMAGE_HOST = "static.wikia.nocookie.net"
 MOST_REPLY_BYTES = 8 * 1024 * 1024
 
 
+class SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to https on the host the request went to, so a checked URL cannot hop elsewhere."""
+
+    def redirect_request(self, request, response_file, code, message, headers, new_url):
+        original_host = urllib.parse.urlparse(request.full_url).hostname
+        parsed_new_url = urllib.parse.urlparse(new_url)
+        if parsed_new_url.scheme != "https" or parsed_new_url.hostname != original_host:
+            raise RuntimeError(f"refused a redirect from {request.full_url} to {new_url}")
+        return super().redirect_request(request, response_file, code, message, headers, new_url)
+
+
+URL_OPENER = urllib.request.build_opener(SameHostRedirectHandler)
+
+# The image formats the wiki serves, by their first bytes. ffmpeg guesses a format from the bytes it gets, so anything
+# else, such as a playlist that names other files, is refused before ffmpeg sees it.
+IMAGE_FILE_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")
+
+
+def is_an_image(image_bytes: bytes) -> bool:
+    is_webp = image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP"
+    return is_webp or image_bytes.startswith(IMAGE_FILE_SIGNATURES)
+
+
 def open_url(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": REQUEST_USER_AGENT})
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+    with URL_OPENER.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         reply_bytes = response.read(MOST_REPLY_BYTES + 1)
     if len(reply_bytes) > MOST_REPLY_BYTES:
         raise RuntimeError(f"the reply from {url} is over {MOST_REPLY_BYTES} bytes")
@@ -137,11 +160,13 @@ def crop_filter(wiki_title: str) -> str:
 
 def download_portrait(wiki_title: str, output_file: Path) -> None:
     image_bytes = open_url(checked_image_url(page_image_url(wiki_title)))
-    # ffmpeg writes next to the portrait and the result replaces it only on success, so a failed --force run keeps
-    # the portrait that was there.
-    partial_output_file = output_file.with_name(output_file.stem + ".partial.jpg")
+    if not is_an_image(image_bytes):
+        raise RuntimeError("the page image is not a PNG, JPEG, GIF, or WebP file")
+    # ffmpeg writes into the temporary folder, and the result replaces the portrait only on success, so a failed or
+    # interrupted --force run keeps the portrait that was there and leaves nothing in the bundled folder.
     with tempfile.TemporaryDirectory() as temporary_directory:
         downloaded_file = Path(temporary_directory) / "download"
+        partial_output_file = Path(temporary_directory) / "portrait.jpg"
         downloaded_file.write_bytes(image_bytes)
         result = subprocess.run(
             [
@@ -156,10 +181,9 @@ def download_portrait(wiki_title: str, output_file: Path) -> None:
             capture_output=True,
             text=True,
         )
-    if result.returncode != 0:
-        partial_output_file.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()}")
-    partial_output_file.replace(output_file)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed: {result.stderr.strip()}")
+        shutil.move(partial_output_file, output_file)
 
 
 def main() -> int:

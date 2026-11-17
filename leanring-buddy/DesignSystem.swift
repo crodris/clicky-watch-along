@@ -195,7 +195,10 @@ enum DS {
         /// The blue cursor/bubble color used in OverlayWindow.
         /// Kept distinct from the accent since it serves a different purpose
         /// (screen overlay vs in-app UI).
-        static let overlayCursorBlue = Color(hex: "#3380FF")
+        static let overlayCursorBlue = Color(hex: overlayCursorBlueHex)
+
+        /// The same blue as text, for the frame pop-out page, which cannot read a SwiftUI Color.
+        static let overlayCursorBlueHex = "#3380ff"
 
         // ── Background Agents ────────────────────────────────────────
 

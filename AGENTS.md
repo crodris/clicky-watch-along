@@ -71,6 +71,7 @@ An agent keeps its player for its whole life, so changing the theme only affects
 A wingman with a player is a round portrait inside a progress ring in the school's color, with the player's name before its step line (`WingmanStyle.avatar`), and the agent list and the ending chip show the same portrait.
 The team's color never stands for a state: a failed agent's portrait is grayscale with a red ring in the formation and a red border in the list (`agentListPortraitBorderColor`), and a finished meter turns green.
 While player wingmen show, the voice tool chip, which an agent's ending also uses, moves above and to the right of the cursor (`voiceToolCallChipOrigin`), since the bigger portraits trail through the spot under it.
+At the screen's top edge, where nothing fits above, it goes below the whole trail, past the "+N" label.
 A school or Random also swaps the menu bar icon for a volleyball template image (`CompanionTheme.usesVolleyballMenuBarIcon`, applied by `MenuBarPanelManager` as the theme changes).
 Portraits are `leanring-buddy/HaikyuPortraits/<portraitResourceName>.jpg`, named from each player's `wikiTitle`, gitignored because they are anime art in a public repo, and fetched by `python3 -I tools/fetch-haikyu-portraits.py`, so CI and a fresh clone have none, and the views draw the school's color with the player's initials instead (`HaikyuPortraitView`).
 The Xcode target uses file system synchronized groups, so the fetched files bundle with no project change.
