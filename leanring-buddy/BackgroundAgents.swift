@@ -337,6 +337,7 @@ final class BackgroundAgentStore: ObservableObject {
         let player = nextHaikyuPlayer(
             for: themeSettings.theme,
             playersOfRunningAgents: agents.filter(\.isRunning).compactMap(\.player),
+            playersOfEndedAgentsStillListed: agents.filter { !$0.isRunning }.compactMap(\.player),
             randomNumberGenerator: &systemRandomNumberGenerator
         )
         let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0), player: player)

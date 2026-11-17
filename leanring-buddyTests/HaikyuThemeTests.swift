@@ -46,9 +46,16 @@ func makeBackgroundAgentStore(theme: CompanionTheme = .clickyBlue) -> Background
 
 @MainActor
 struct HaikyuThemeTests {
-    private func nextPlayer(for theme: CompanionTheme, running: [HaikyuPlayer], seed: UInt64 = 1) -> HaikyuPlayer? {
+    private func nextPlayer(for theme: CompanionTheme, running: [HaikyuPlayer], ended: [HaikyuPlayer] = [], seed: UInt64 = 1) -> HaikyuPlayer? {
         var randomNumberGenerator = SeededRandomNumberGenerator(seed: seed)
-        return nextHaikyuPlayer(for: theme, playersOfRunningAgents: running, randomNumberGenerator: &randomNumberGenerator)
+        return nextHaikyuPlayer(for: theme, playersOfRunningAgents: running, playersOfEndedAgentsStillListed: ended, randomNumberGenerator: &randomNumberGenerator)
+    }
+
+    @Test func aPlayerWhoseAgentEndedIsNotReusedWhileTheListStillShowsThemAndOthersAreFree() async throws {
+        let roster = HaikyuSchool.karasuno.roster
+        #expect(nextPlayer(for: .school(.karasuno), running: [roster[0]], ended: [roster[1]]) == roster[2])
+        // Once every player is listed, an ended agent's player comes back before a working one is doubled up.
+        #expect(nextPlayer(for: .school(.karasuno), running: Array(roster.dropLast()), ended: [roster[roster.count - 1]]) == roster[roster.count - 1])
     }
 
     // MARK: - Picking a player
@@ -190,14 +197,20 @@ struct HaikyuThemeTests {
         #expect(store.agents.reversed().map(\.player) == [roster[0], roster[1], roster[2]])
     }
 
-    @Test func aFinishedAgentFreesItsPlayerForTheNextAgent() async throws {
+    @Test func theNextAgentSkipsAPlayerWhoseFinishedAgentTheListStillShows() async throws {
         let store = makeBackgroundAgentStore(theme: .school(.nekoma))
         let roster = HaikyuSchool.nekoma.roster
         let firstAgentID = store.start(kind: .studyGuide)
         store.start(kind: .task)
         store.finish(firstAgentID, with: .readyScene)
         store.start(kind: .experiment)
-        #expect(store.agents.first?.player == roster[0])
+        #expect(store.agents.first?.player == roster[2])
+    }
+
+    @Test func aFailedOrCancelledAgentsPortraitBorderShowsItsStateInsteadOfTheTeamColor() async throws {
+        #expect(agentListPortraitBorderColor(phase: .running(completedStepCount: 0), school: .nekoma) == HaikyuSchool.nekoma.accentColor)
+        #expect(agentListPortraitBorderColor(phase: .failed(reason: "Broke"), school: .nekoma) == DS.Colors.destructive)
+        #expect(agentListPortraitBorderColor(phase: .cancelled, school: .nekoma) == DS.Colors.textTertiary)
     }
 
     @Test func clickyBlueAgentsHaveNoPlayer() async throws {

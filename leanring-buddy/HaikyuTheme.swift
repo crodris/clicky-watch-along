@@ -317,25 +317,34 @@ final class CompanionThemeSettings: ObservableObject {
 // MARK: - Picking a player
 
 /// The player a new agent becomes. An unthemed Clicky gets nil. A school hands out its roster in popularity order,
-/// skipping players already working, and starts over once the roster runs out. Random picks any free player.
+/// skipping players the agent list still shows, so one list never shows the same player twice while the roster has
+/// others. Once every player is listed it reuses one whose agent has ended, and only past that one already working.
+/// Random follows the same order over every school's players.
 func nextHaikyuPlayer(
     for theme: CompanionTheme,
     playersOfRunningAgents: [HaikyuPlayer],
+    playersOfEndedAgentsStillListed: [HaikyuPlayer],
     randomNumberGenerator: inout some RandomNumberGenerator
 ) -> HaikyuPlayer? {
+    let playersStillListed = playersOfRunningAgents + playersOfEndedAgentsStillListed
     switch theme {
     case .clickyBlue:
         return nil
     case .school(let school):
         let roster = school.roster
-        if let freePlayer = roster.first(where: { !playersOfRunningAgents.contains($0) }) {
-            return freePlayer
+        if let unlistedPlayer = roster.first(where: { !playersStillListed.contains($0) }) {
+            return unlistedPlayer
+        }
+        if let playerNotWorking = roster.first(where: { !playersOfRunningAgents.contains($0) }) {
+            return playerNotWorking
         }
         return roster[playersOfRunningAgents.count % roster.count]
     case .random:
         let everyPlayer = HaikyuSchool.allCases.flatMap(\.roster)
-        let freePlayers = everyPlayer.filter { !playersOfRunningAgents.contains($0) }
-        return (freePlayers.isEmpty ? everyPlayer : freePlayers).randomElement(using: &randomNumberGenerator)
+        let unlistedPlayers = everyPlayer.filter { !playersStillListed.contains($0) }
+        let playersNotWorking = everyPlayer.filter { !playersOfRunningAgents.contains($0) }
+        let candidates = !unlistedPlayers.isEmpty ? unlistedPlayers : (!playersNotWorking.isEmpty ? playersNotWorking : everyPlayer)
+        return candidates.randomElement(using: &randomNumberGenerator)
     }
 }
 
