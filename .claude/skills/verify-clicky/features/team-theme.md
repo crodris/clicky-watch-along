@@ -34,11 +34,11 @@ Preconditions:
 
 - **Seeded agents.** Run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno`, then `$V app-launch "+600 thanks"`, which keeps the app idle for 10 minutes.
   Post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{}}}` to `http://127.0.0.1:8790/mcp`.
-  It starts 3 running agents, then 1 finished with its ending chip and 1 failed, straight in the agent store with no Worker call.
-  Run `$V shot themed-ended` within 4 seconds: a finished portrait with a green check ahead of the tip, the "Task done · say what did you find" chip with that portrait above and right of the cursor, a grayscale failed portrait with a red ring, two running portraits, and "+1".
-  Run `$V shot themed-running` 5 seconds later: three running players in orange rings, the nearest with "Tsukishima · Searching the web".
+  It puts 3 running agents, 1 finished with its ending chip, and 1 failed straight in the agent store, with no Worker call.
+  Run `$V shot themed-ended` within 4 seconds: a finished portrait with a green check ahead of the tip, the "Task done · say what did you find" chip with that portrait above and right of the cursor, Hinata and Kageyama leading, a grayscale failed portrait with a red ring in the third slot, and "+1".
+  Run `$V shot themed-running` 5 seconds later: three running players in orange rings, the nearest with "Hinata · Reading the Haikyuu wiki".
 - **Agent list.** Run `$V key agents-list`, then `$V shot themed-list`.
-  The panel says "Karasuno" and "3 on court" with an orange border, the rows read "Hinata #10 · Study guide" and so on, and no player shows twice.
+  The panel says "Karasuno" and "3 on court" with an orange border, the rows read "Hinata #10 · Task", "Kageyama #9 · 3D model", and so on, and no player shows twice.
 - **Other teams.** `$V app-quit`, write another value such as `school:inarizaki`, and repeat.
   Inarizaki's white accent is the hardest case for contrast.
 - **Theme off.** Write `clickyBlue` and repeat.
