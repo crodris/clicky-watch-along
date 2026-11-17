@@ -125,16 +125,55 @@ struct HaikyuThemeTests {
         #expect(CompanionThemeSettings(userDefaults: testDefaults).theme == .school(.nekoma))
     }
 
-    @Test func onlyATeamThemeRecolorsTheCursorAndOutlinesIt() async throws {
-        #expect(CompanionTheme.clickyBlue.cursorOutlineColor == nil)
-        #expect(CompanionTheme.random.cursorOutlineColor == nil)
+    @Test func onlyASchoolThemeTurnsTheCursorIntoAVolleyball() async throws {
+        #expect(CompanionTheme.clickyBlue.cursorVolleyballColors == nil)
+        #expect(CompanionTheme.random.cursorVolleyballColors == nil)
         #expect(CompanionTheme.random.cursorColorHex == "#3380ff")
-        #expect(CompanionTheme.school(.nekoma).cursorOutlineColor != nil)
         #expect(CompanionTheme.school(.nekoma).cursorColorHex == "#E0313B")
         #expect(CompanionTheme.school(.karasuno).cursorContrastColorHex == "#1A1A1A")
-        #expect(!CompanionTheme.clickyBlue.usesVolleyballMenuBarIcon)
-        #expect(CompanionTheme.random.usesVolleyballMenuBarIcon)
-        #expect(CompanionTheme.school(.itachiyama).usesVolleyballMenuBarIcon)
+
+        #expect(CompanionTheme.school(.karasuno).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#F26B1D", outlineHex: "#1A1A1A", seamHex: "#1A1A1A"))
+        // A red ball keeps a black outline, so white seams never leave it edgeless on a light page.
+        #expect(CompanionTheme.school(.nekoma).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#E0313B", outlineHex: "#1A1A1A", seamHex: "#FFFFFF"))
+        #expect(CompanionTheme.school(.aobaJohsai).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#5CC8B8", outlineHex: "#1A1A1A", seamHex: "#FFFFFF"))
+        // Inarizaki's white ball would vanish on a light page, so its ball is black with white lines.
+        #expect(CompanionTheme.school(.inarizaki).cursorVolleyballColors
+            == VolleyballCursorColors(fillHex: "#1A1A1A", outlineHex: "#FFFFFF", seamHex: "#FFFFFF"))
+    }
+
+    @Test func theFollowingVolleyballFacesTheMouseMovementShowsStreaksAtSpeedAndFadesWhenItStops() async throws {
+        var followMotion = VolleyballFollowMotion.atRest
+
+        // A slow drift shows no streaks and keeps the resting angle.
+        for _ in 0..<10 { followMotion = followMotion.advanced(byMouseMovement: CGVector(dx: 1, dy: 0)) }
+        #expect(followMotion.streakStrength == 0)
+        #expect(followMotion.facingDegrees == -35)
+
+        // A fast move right turns the ball to face right (90 degrees) with full streaks.
+        for _ in 0..<20 { followMotion = followMotion.advanced(byMouseMovement: CGVector(dx: 30, dy: 0)) }
+        #expect(abs(followMotion.facingDegrees - 90) < 0.5)
+        #expect(followMotion.streakStrength == 1)
+
+        // Moving left with jitter across the +180 and -180 wrap turns at most half a turn per tick, never a full spin.
+        var previousFacingDegrees = followMotion.facingDegrees
+        for tick in 0..<30 {
+            let jitter: CGFloat = tick.isMultiple(of: 2) ? 1 : -1
+            followMotion = followMotion.advanced(byMouseMovement: CGVector(dx: -30, dy: jitter))
+            #expect(abs(followMotion.facingDegrees - previousFacingDegrees) <= 180)
+            previousFacingDegrees = followMotion.facingDegrees
+        }
+        let facingDegreesWithinOneTurn = (followMotion.facingDegrees.truncatingRemainder(dividingBy: 360) + 360)
+            .truncatingRemainder(dividingBy: 360)
+        #expect(abs(facingDegreesWithinOneTurn - 270) < 2)
+
+        // Once the mouse stops, the streaks fade within half a second and the motion settles on one value.
+        for _ in 0..<30 { followMotion = followMotion.advanced(byMouseMovement: .zero) }
+        #expect(followMotion.streakStrength == 0)
+        #expect(followMotion.smoothedMovementPerTick == .zero)
+        #expect(followMotion.advanced(byMouseMovement: .zero) == followMotion)
     }
 
     // MARK: - Portrait names
