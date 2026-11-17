@@ -350,8 +350,8 @@ private struct AgentRowView: View {
 
     @ViewBuilder private var rowIcon: some View {
         if let player = agent.player {
-            HaikyuPortraitView(player: player, size: 28)
-                .overlay(Circle().stroke(player.school.accentColor, lineWidth: 2))
+            HaikyuPortraitView(player: player, size: 28, isGrayscale: agent.phase.isFailed)
+                .overlay(Circle().stroke(agentListPortraitBorderColor(phase: agent.phase, school: player.school), lineWidth: 2))
                 // A finished agent's portrait steps back, as its meter turns green.
                 .opacity(agent.finishedResult == nil ? 1 : 0.5)
         } else {
@@ -504,5 +504,15 @@ private struct StepMeterFill: Shape {
             path.addRoundedRect(in: segmentRect, cornerSize: CGSize(width: rect.height / 2, height: rect.height / 2))
         }
         return path
+    }
+}
+
+/// The portrait took the triangle's place in the list, so its border carries the state the triangle's color used to:
+/// red for a failed agent and gray for a cancelled one. The team's color only marks a running or finished agent.
+func agentListPortraitBorderColor(phase: BackgroundAgentPhase, school: HaikyuSchool) -> Color {
+    switch phase {
+    case .running, .finished: return school.accentColor
+    case .failed: return DS.Colors.destructive
+    case .cancelled: return DS.Colors.textTertiary
     }
 }
