@@ -25,9 +25,14 @@ const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrit
   "claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 },
   "claude-haiku-5-5": { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
 };
-// OpenAI's pricing page refuses automated fetches, so a GPT scene uses the repo's estimate per call: $0.23 measured at
-// low effort, scaled by the 1.6 times as many output tokens medium effort wrote on 2026-11-14.
-const gptLiveSceneCostPerCallUSD = 0.37;
+// USD per million tokens on the Ultrafast tier the Worker uses. OpenAI's pricing page refuses automated fetches, so these
+// are the standard prices from OpenAI's GPT-6.2 announcement (2026-11-17) times 6, the Ultrafast multiple reported for
+// GPT-6.1 Sol. OpenAI counts cached tokens inside input_tokens.
+const openAIUltrafastPricesPerMillionTokens: Record<string, { input: number; cachedInput: number; output: number }> = {
+  "gpt-6.1-sol": { input: 12, cachedInput: 0.6, output: 60 },
+  "gpt-6.2-sol": { input: 12, cachedInput: 0.6, output: 60 },
+  "gpt-6.2-astra": { input: 48, cachedInput: 2.4, output: 240 },
+};
 // https://elevenlabs.io/pricing/api (fetched 2026-11-13): multilingual v2 costs $0.08 per 1,000 characters, Flash and Turbo $0.04.
 const elevenLabsPricePerThousandCharacters: Record<string, number> = {
   eleven_v4: 0.08,
@@ -109,8 +114,18 @@ function usageLineFromUsageObject(route: string, usageObject: Record<string, unk
 
 /** Null when the model has no price, so one unpriced reply cannot end a run that has already spent money. */
 function costOfUsageLine(usageLine: UsageLine): number | null {
-  if (usageLine.model.startsWith("gpt-")) {
-    return gptLiveSceneCostPerCallUSD;
+  // A reply can name a dated snapshot, such as gpt-6.2-sol-2026-11-17, so match the model the snapshot belongs to.
+  const openAIModel = Object.keys(openAIUltrafastPricesPerMillionTokens).find(
+    (modelID) => usageLine.model === modelID || usageLine.model.startsWith(`${modelID}-`),
+  );
+  if (openAIModel !== undefined) {
+    const openAIPrices = openAIUltrafastPricesPerMillionTokens[openAIModel];
+    return (
+      ((usageLine.inputTokens - usageLine.cacheReadTokens) * openAIPrices.input +
+        usageLine.cacheReadTokens * openAIPrices.cachedInput +
+        usageLine.outputTokens * openAIPrices.output) /
+      1_000_000
+    );
   }
   const prices = anthropicPricesPerMillionTokens[usageLine.model];
   if (prices === undefined) {
@@ -691,6 +706,13 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
     costUSD = pricePerThousandCharacters === undefined ? null : (ttsCharacters / 1000) * pricePerThousandCharacters;
   }
 
+  const pagesDirectory = commandLineOption("pages-dir");
+  const scenePage = benchCase.route === "/live-scene" ? parseJSONObject(replyText)?.html : undefined;
+  if (pagesDirectory !== undefined && typeof scenePage === "string") {
+    mkdirSync(pagesDirectory, { recursive: true });
+    writeFileSync(join(pagesDirectory, `${side.label}-${benchCase.id}-${runIndex + 1}.html`), scenePage);
+  }
+
   const quality = response.ok
     ? benchCase.checkReply(replyText, contentType, replyBytes)
     : { passed: false, detail: `HTTP ${response.status}: ${replyText.slice(0, 200)}` };
@@ -848,7 +870,7 @@ async function main() {
   const benchKind = process.argv[2];
   const label = commandLineOption("label");
   if ((benchKind !== "worker" && benchKind !== "app") || label === undefined) {
-    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789] [--side label:port:checkout ...]");
+    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789] [--side label:port:checkout ...] [--pages-dir <dir>]");
     process.exit(1);
   }
   const runCount = Number(commandLineOption("runs") ?? (benchKind === "worker" ? 5 : 3));
