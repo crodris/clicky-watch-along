@@ -1,0 +1,316 @@
+{
+  "label": "sim3-app",
+  "benchKind": "worker",
+  "commitSHA": "62f143f8f19e",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T19:06:56.900Z",
+  "runCount": 1,
+  "port": 8799,
+  "interleavedWith": [
+    "sim3-sol62"
+  ],
+  "summary": [
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 23211,
+        "p95": 23211,
+        "min": 23211,
+        "max": 23211
+      },
+      "firstByteMs": {
+        "p50": 23205,
+        "p95": 23205,
+        "min": 23205,
+        "max": 23205
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 4200,
+      "meanOutputTokens": 7173,
+      "meanCostUSD": 0.43294
+    },
+    {
+      "caseId": "simulation-lever",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a lever frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 17342,
+        "p95": 17342,
+        "min": 17342,
+        "max": 17342
+      },
+      "firstByteMs": {
+        "p50": 17341,
+        "p95": 17341,
+        "min": 17341,
+        "max": 17341
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 4200,
+      "meanOutputTokens": 5813,
+      "meanCostUSD": 0.35134
+    },
+    {
+      "caseId": "simulation-pendulum",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a pendulum frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 15961,
+        "p95": 15961,
+        "min": 15961,
+        "max": 15961
+      },
+      "firstByteMs": {
+        "p50": 15960,
+        "p95": 15960,
+        "min": 15960,
+        "max": 15960
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3087,
+      "meanOutputTokens": 5281,
+      "meanCostUSD": 0.3321
+    },
+    {
+      "caseId": "simulation-dissolving",
+      "route": "/live-scene",
+      "description": "Builds a dissolving experiment over a hot and cold water frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 17291,
+        "p95": 17291,
+        "min": 17291,
+        "max": 17291
+      },
+      "firstByteMs": {
+        "p50": 17289,
+        "p95": 17289,
+        "min": 17289,
+        "max": 17289
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3087,
+      "meanOutputTokens": 5829,
+      "meanCostUSD": 0.36498
+    },
+    {
+      "caseId": "simulation-cooling",
+      "route": "/live-scene",
+      "description": "Builds a cooling experiment over a cocoa mug frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 18616,
+        "p95": 18616,
+        "min": 18616,
+        "max": 18616
+      },
+      "firstByteMs": {
+        "p50": 18615,
+        "p95": 18615,
+        "min": 18615,
+        "max": 18615
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3087,
+      "meanOutputTokens": 6739,
+      "meanCostUSD": 0.41958
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 23205.486458,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 23210.77325,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4200,
+          "outputTokens": 7173
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.432936,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: How does changing the launch angle change how far the ball lands when its speed stays at 20 m/s?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 17340.680999999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 17342.442207999993,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4200,
+          "outputTokens": 5813
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.351336,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: Keep the test weight the same and move it farther from the pivot. How will that change the lever's turning force?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-pendulum",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 15959.698292000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 15960.626124999995,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3087,
+          "outputTokens": 5281
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.33210419999999996,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: What happens to the time for one full swing when you make the string longer?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-dissolving",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 17289.437750000012,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 17290.93758299999,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3087,
+          "outputTokens": 5829
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.3649842,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: Try changing the warm water temperature. How will it change the time a sugar cube takes to dissolve?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-cooling",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 18614.65520900002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 18616.082792,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3087,
+          "outputTokens": 6739
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.41958419999999996,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If the room is warmer, will the cocoa be warmer after 10 minutes?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}
