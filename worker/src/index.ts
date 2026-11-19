@@ -20,9 +20,14 @@
  *   POST /study-guide-status → Notion API (whether a saved guide's page is still out of the trash)
  *   POST /notion-page  → Notion API (a background agent's findings as a private page)
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
+ *
+ * A Worker started with --var BENCH_MODEL:<model> runs the model routes and /chat on that model, for bench/bench.ts
+ * (see benchModelOverride.ts). The deployed Worker and the app's Worker never set it.
  */
 
 import { appSecretHeaderName, requestCarriesTheAppSecret, routesThatNeedTheAppSecret } from "./appSecret";
+import { jsonResponse } from "./anthropic";
+import { benchModelOverride, claudeChatBodyText, configureBenchModelOverride, forwardChatToOpenAI } from "./benchModelOverride";
 import { handleNotionPage } from "./notionPage";
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
@@ -52,11 +57,22 @@ interface Env {
   NOTION_API_KEY?: string;
   /** The secret the app sends in x-clicky-app-secret. The Notion routes and /v1/messages refuse a request without it. */
   CLICKY_APP_SECRET?: string;
+  /** Local benchmark runs only: a claude-* or gpt-* model that replaces the one each model route and /chat asks for. */
+  BENCH_MODEL?: string;
+  /** With BENCH_MODEL: replaces the route's effort. */
+  BENCH_EFFORT?: string;
+  /** With a gpt-* BENCH_MODEL: the OpenAI service tier, such as ultrafast. */
+  BENCH_SERVICE_TIER?: string;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    const benchOverrideProblem = configureBenchModelOverride(env);
+    if (benchOverrideProblem !== undefined) {
+      return jsonResponse({ error: benchOverrideProblem }, 500);
+    }
 
     if (request.method === "GET" && isMapTilesRequest(url)) {
       return await handleMapTiles(request, env.GOOGLE_MAPS_API_KEY);
@@ -155,7 +171,16 @@ async function forwardToAnthropic(
   env: Env,
   options: { routeName: string; forwardsCallerBetaHeader: boolean },
 ): Promise<Response> {
-  const body = await request.text();
+  let body = await request.text();
+
+  // /v1/messages serves the agent harness, so only /chat, the app's voice reply, runs on the benchmark's model.
+  const benchOverride = options.routeName === "/chat" ? benchModelOverride() : undefined;
+  if (benchOverride?.provider === "openai") {
+    return await forwardChatToOpenAI(benchOverride, body);
+  }
+  if (benchOverride?.provider === "anthropic") {
+    body = claudeChatBodyText(body, benchOverride);
+  }
 
   const anthropicHeaders: Record<string, string> = {
     "x-api-key": env.ANTHROPIC_API_KEY,

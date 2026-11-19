@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { applyClaudeBenchOverride, benchModelOverride, requestBenchOpenAIMessage } from "./benchModelOverride";
 
 // Passthrough keeps every field of each block and of the reply, because /voice-command reads tool_use inputs and a
 // caller may send the blocks back to Anthropic unchanged.
@@ -107,12 +108,28 @@ export async function requestAnthropicReplyText(
 /**
  * One non-streaming Anthropic Messages call. A successful result carries the reply with its content list checked,
  * so a caller that needs tool_use blocks or the stop reason can read them.
+ * A Worker started for a benchmark with BENCH_MODEL swaps the model here (see benchModelOverride.ts), and any other Worker never does.
  */
 export async function requestAnthropicMessage(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
 ): Promise<{ ok: true; message: AnthropicMessage } | { ok: false; response: Response }> {
+  const benchOverride = benchModelOverride();
+  if (benchOverride?.provider === "openai") {
+    const openAIReply = await requestBenchOpenAIMessage(benchOverride, routeName, messagesRequestBody);
+    if (!openAIReply.ok) {
+      return { ok: false, response: jsonResponse({ error: openAIReply.error }, openAIReply.status) };
+    }
+    logModelUsage(routeName, openAIReply.usageForLog);
+    const parsedOpenAIMessage = anthropicMessageSchema.safeParse(openAIReply.message);
+    if (!parsedOpenAIMessage.success) {
+      return { ok: false, response: jsonResponse({ error: "OpenAI response had no content list" }, 502) };
+    }
+    return { ok: true, message: parsedOpenAIMessage.data };
+  }
+  const sentRequestBody = benchOverride === undefined ? messagesRequestBody : applyClaudeBenchOverride(messagesRequestBody, benchOverride);
+
   let anthropicResponse: Response;
   try {
     anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -122,7 +139,7 @@ export async function requestAnthropicMessage(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
+      body: JSON.stringify(withCachedSystemPrompt(sentRequestBody)),
     });
   } catch (error) {
     // Without this, a DNS or connection failure reaches the app as the outer catch's generic 500, which does not name Anthropic.
