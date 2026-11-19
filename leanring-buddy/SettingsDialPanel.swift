@@ -363,6 +363,8 @@ struct SettingsDialView: View {
                     }
                 }
                 .position(itemCenter)
+                // The enlarged ball and its label draw over the smaller balls next to it.
+                .zIndex(isEmphasized ? 1 : 0)
                 .animation(viewModel.reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.8), value: isEmphasized)
                 .transition(fanItemTransition(forItemAt: itemIndex))
             }
