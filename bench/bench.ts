@@ -688,11 +688,33 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
   const logOffsetBeforeRequest = statSync(logPath).size;
   const requestStartMs = performance.now();
   const requestQuery = benchCase.requestQuery?.(appProfile) ?? "";
-  const response = await fetch(`http://127.0.0.1:${port}${benchCase.route}${requestQuery}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: requestBodyText,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`http://127.0.0.1:${port}${benchCase.route}${requestQuery}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBodyText,
+    });
+  } catch (fetchError) {
+    // No reply at all, such as a model still thinking past fetch's 5 minute header timeout, is a failed sample, so
+    // one slow call never ends the run and loses every other side's results. Its cost is unknown, not zero.
+    const totalMs = performance.now() - requestStartMs;
+    const reason = fetchError instanceof Error && fetchError.cause instanceof Error ? fetchError.cause.message : String(fetchError);
+    return {
+      caseId: benchCase.id,
+      runIndex,
+      httpStatus: 0,
+      firstByteMs: totalMs,
+      firstTokenMs: null,
+      firstAudioMs: null,
+      totalMs,
+      usageLines: [],
+      ttsCharacters: 0,
+      costUSD: null,
+      quality: { passed: false, detail: `no reply after ${Math.round(totalMs / 1000)} s: ${reason}` },
+      replyPreview: "",
+    };
+  }
   const firstByteMs = performance.now() - requestStartMs;
   const contentType = response.headers.get("content-type") ?? "";
 
