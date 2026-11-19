@@ -115,6 +115,19 @@ describe("POST /v1/messages", () => {
     });
   });
 
+  it("forwards the anthropic-beta header on /v1/messages but never on /chat, which has no secret gate", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const betaHeaders = { "x-clicky-app-secret": "app-secret", "anthropic-beta": "some-beta-2026-01-01" };
+
+    await worker.fetch(new Request("http://127.0.0.1:8787/chat", { method: "POST", body: "{}", headers: betaHeaders }), messagesEnv);
+    await worker.fetch(messagesRequest(betaHeaders, "{}"), messagesEnv);
+
+    const [chatInit, messagesInit] = fetchMock.mock.calls.map((fetchCall) => fetchCall[1]);
+    expect(chatInit?.headers).toEqual({ "x-api-key": "anthropic-key", "anthropic-version": "2023-06-01", "content-type": "application/json" });
+    expect(messagesInit?.headers).toMatchObject({ "anthropic-beta": "some-beta-2026-01-01" });
+  });
+
   it("passes an Anthropic error back with its status and body, so the SDK reports the real cause", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response('{"type":"error","error":{"type":"overloaded_error"}}', { status: 529 })));
     vi.spyOn(console, "error").mockImplementation(() => undefined);

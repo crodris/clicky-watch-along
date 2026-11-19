@@ -77,11 +77,11 @@ export default {
 
     try {
       if (url.pathname === "/chat") {
-        return await forwardToAnthropic(request, env, "/chat");
+        return await forwardToAnthropic(request, env, { routeName: "/chat", forwardsCallerBetaHeader: false });
       }
 
       if (url.pathname === "/v1/messages") {
-        return await forwardToAnthropic(request, env, "/v1/messages");
+        return await forwardToAnthropic(request, env, { routeName: "/v1/messages", forwardsCallerBetaHeader: true });
       }
 
       if (url.pathname === "/tts") {
@@ -150,9 +150,16 @@ export default {
 /**
  * Sends the caller's request body to Anthropic's Messages API as it is and streams the reply back with its status and
  * content type. Both /chat and /v1/messages come here, so the Worker holds the API key and nothing else changes the
- * request. An anthropic-beta header the caller sent goes along, since the Anthropic SDKs set it for beta features.
+ * request.
+ *
+ * forwardsCallerBetaHeader is true only for /v1/messages, which requires the app secret. /chat has no secret gate, so
+ * it never passes the caller's anthropic-beta header on, and an anonymous caller cannot switch on beta features.
  */
-async function forwardToAnthropic(request: Request, env: Env, routeName: string): Promise<Response> {
+async function forwardToAnthropic(
+  request: Request,
+  env: Env,
+  options: { routeName: string; forwardsCallerBetaHeader: boolean },
+): Promise<Response> {
   const body = await request.text();
 
   const anthropicHeaders: Record<string, string> = {
@@ -161,7 +168,7 @@ async function forwardToAnthropic(request: Request, env: Env, routeName: string)
     "content-type": "application/json",
   };
   const callerBetaHeader = request.headers.get("anthropic-beta");
-  if (callerBetaHeader !== null) {
+  if (options.forwardsCallerBetaHeader && callerBetaHeader !== null) {
     anthropicHeaders["anthropic-beta"] = callerBetaHeader;
   }
 
@@ -173,7 +180,7 @@ async function forwardToAnthropic(request: Request, env: Env, routeName: string)
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error(`[${routeName}] Anthropic API error ${response.status}: ${errorBody}`);
+    console.error(`[${options.routeName}] Anthropic API error ${response.status}: ${errorBody}`);
     return new Response(errorBody, {
       status: response.status,
       headers: { "content-type": "application/json" },
