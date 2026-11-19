@@ -6,6 +6,7 @@
  *
  * Routes:
  *   POST /chat         → Anthropic Messages API (streaming)
+ *   POST /v1/messages  → Anthropic Messages API (the body and stream pass through unchanged, for the agent harness's SDK)
  *   POST /tts          → ElevenLabs TTS API
  *   POST /transcribe-token → AssemblyAI streaming token API (a short-lived websocket token, only when Info.plist selects the assemblyai provider)
  *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
@@ -76,7 +77,11 @@ export default {
 
     try {
       if (url.pathname === "/chat") {
-        return await handleChat(request, env);
+        return await forwardToAnthropic(request, env, "/chat");
+      }
+
+      if (url.pathname === "/v1/messages") {
+        return await forwardToAnthropic(request, env, "/v1/messages");
       }
 
       if (url.pathname === "/tts") {
@@ -142,22 +147,33 @@ export default {
   },
 };
 
-async function handleChat(request: Request, env: Env): Promise<Response> {
+/**
+ * Sends the caller's request body to Anthropic's Messages API as it is and streams the reply back with its status and
+ * content type. Both /chat and /v1/messages come here, so the Worker holds the API key and nothing else changes the
+ * request. An anthropic-beta header the caller sent goes along, since the Anthropic SDKs set it for beta features.
+ */
+async function forwardToAnthropic(request: Request, env: Env, routeName: string): Promise<Response> {
   const body = await request.text();
+
+  const anthropicHeaders: Record<string, string> = {
+    "x-api-key": env.ANTHROPIC_API_KEY,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  };
+  const callerBetaHeader = request.headers.get("anthropic-beta");
+  if (callerBetaHeader !== null) {
+    anthropicHeaders["anthropic-beta"] = callerBetaHeader;
+  }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
+    headers: anthropicHeaders,
     body,
   });
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error(`[/chat] Anthropic API error ${response.status}: ${errorBody}`);
+    console.error(`[${routeName}] Anthropic API error ${response.status}: ${errorBody}`);
     return new Response(errorBody, {
       status: response.status,
       headers: { "content-type": "application/json" },

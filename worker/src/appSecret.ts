@@ -6,8 +6,8 @@
 
 export const appSecretHeaderName = "x-clicky-app-secret";
 
-/** Every route that uses the Notion token, and the task agent's route, which runs web search on the owner's key. */
-export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/background-agent"]);
+/** Every route that uses the Notion token, and the Messages passthrough, which spends the owner's Anthropic key for the agent harness. */
+export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/background-agent", "/v1/messages"]);
 
 async function sha256Digest(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
