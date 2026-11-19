@@ -1,0 +1,194 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "<scene_state>{\"page\":\"none\",\"video\":{\"durationSeconds\":612,\"onYouTube\":true,\"paused\":false,\"playbackRate\":1,\"playing\":true,\"seconds\":124,\"title\":\"How sharks float\"},\"videoQuizIsRunning\":false}</scene_state>\n<recent_actions>\n\n</recent_actions>\nLearner said: \"go back 30 seconds\""
+    }
+  ],
+  "tools": [
+    {
+      "name": "answer_with_screen",
+      "description": "Answer a question about what is on screen, using a screenshot. Use it for questions and for anything no other tool can do, not for changing the view.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_new_scene",
+      "description": "Build a 3D view now, which pauses the video and takes about 20 seconds. Use it when the learner asks to show, see, or render something in 3D, such as \"show me this in 3D\" over a video, where a famous real place appears as its real 3D scan, and when they want a different model or something not on screen yet. When they ask to build, make, or create a 3D model, use build_model_in_background instead, if it is offered. When they want to try it, play with it, or simulate it, use build_simulation instead. Never use it to turn, zoom, or open the model already showing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asQuiz": {
+            "type": "boolean",
+            "description": "true when they asked to be quizzed or tested on it."
+          }
+        },
+        "required": [
+          "asQuiz"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_simulation",
+      "description": "Build a playable simulation of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It pauses the video and takes about 20 seconds. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "pop_out",
+      "description": "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it when they say pop this out.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "pause_video",
+      "description": "Pause the video in Chrome's front tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "play_video",
+      "description": "Play the video in Chrome's front tab.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "seek_relative",
+      "description": "Move the video in Chrome's front tab forward (positive seconds) or back (negative seconds).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "seconds": {
+            "type": "number",
+            "description": "Seconds to move, negative to go back."
+          }
+        },
+        "required": [
+          "seconds"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "seek_to_time",
+      "description": "Move the video in Chrome's front tab to a time, in seconds from the start.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "seconds": {
+            "type": "number",
+            "description": "Seconds from the start of the video."
+          }
+        },
+        "required": [
+          "seconds"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "set_speed",
+      "description": "Set how fast the video in Chrome's front tab plays. 1 is normal speed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rate": {
+            "type": "number",
+            "description": "From 0.25 to 2."
+          }
+        },
+        "required": [
+          "rate"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "find_moment",
+      "description": "Search the video's captions for where something is said. Returns up to 3 moments, best match first, with their times, so you can call seek_to_time next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "A few words that would be said at that moment."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "readOnly": true
+    },
+    {
+      "name": "make_study_guide",
+      "description": "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and a chip under the cursor shows when the page is ready, with nothing spoken. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "focus": {
+            "type": "string",
+            "description": "An extra wish for the guide, such as only the part about the engine. Leave it out when they made none."
+          }
+        },
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "build_model_in_background",
+      "description": "Build a 3D model of what the video shows in the background, for about 20 seconds, while the video keeps playing. When it is ready it rises out of the video, or waits until the learner asks for it if something else is on screen. Use it when the learner asks to build, make, or create a 3D model, such as \"build me a 3D model of this engine\", or asks for one while they keep watching. Use build_new_scene instead when they ask to show, see, or render something in 3D right now, and for a famous real place, whose real 3D scan only build_new_scene shows. Put what to build in whatToBuild, in the learner's words. Your confirmation is a few plain words that it has started, such as \"starting the model\", never that it is done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "whatToBuild": {
+            "type": "string",
+            "description": "What to build, in the learner's words, such as this jet engine."
+          }
+        },
+        "required": [
+          "whatToBuild"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "start_background_task",
+      "description": "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "description": "The task in the learner's words, with what it refers to on screen."
+          }
+        },
+        "required": [
+          "goal"
+        ]
+      },
+      "readOnly": false
+    }
+  ]
+}
