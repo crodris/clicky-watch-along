@@ -167,6 +167,8 @@ final class CompanionManager: ObservableObject {
     private var studyGuideRefreshesBeingChecked = 0
     /// The Haikyu!! team theme the learner picked in the menu bar panel, the one source of truth for it.
     let themeSettings = CompanionThemeSettings()
+    /// The loop around the video or image a request looks at, which the cursor overlay draws.
+    let cursorLoopController = CursorLoopController()
     /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
     private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
@@ -238,6 +240,8 @@ final class CompanionManager: ObservableObject {
     private var escapeKeyCancellable: AnyCancellable?
     private var agentListShortcutCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
+    private var scrollWheelCancellable: AnyCancellable?
+    private var cursorLoopVoiceStateCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
@@ -338,6 +342,9 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
+        LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
+            self?.cursorLoopController.end(because: .aSceneStartedToShow)
+        }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
         }
@@ -361,6 +368,7 @@ final class CompanionManager: ObservableObject {
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
         bindShiftOptionHoldToTheAgentList()
+        bindTheCursorLoopToVoiceStateAndScrolling()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -682,6 +690,31 @@ final class CompanionManager: ObservableObject {
             }
     }
 
+    /// The loop around the media ends when Clicky stops thinking or starts to speak, and when the page scrolls.
+    /// The label is part of the pair because Clicky speaks while a build runs, and the loop stays through that.
+    private func bindTheCursorLoopToVoiceStateAndScrolling() {
+        cursorLoopVoiceStateCancellable = Publishers.CombineLatest(
+            $voiceState,
+            LiveSceneStatusLabel.shared.statusLabelModel.$isVisible
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] voiceState, aStatusLabelIsShowing in
+            guard let self else { return }
+            if aStatusLabelIsShowing {
+                self.cursorLoopController.aStatusLabelStartedShowing()
+            }
+            if let endReason = cursorLoopEndReason(forVoiceState: voiceState, aStatusLabelIsShowing: aStatusLabelIsShowing) {
+                self.cursorLoopController.end(because: endReason)
+            }
+        }
+        scrollWheelCancellable = globalPushToTalkShortcutMonitor
+            .scrollWheelPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.cursorLoopController.end(because: .scrolled)
+            }
+    }
+
     private func bindPinchToLiveSceneZoom() {
         pinchCancellable = globalPushToTalkShortcutMonitor
             .pinchMagnificationPublisher
@@ -709,8 +742,9 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
-            // A new press starts a new request, so the label from the last build is out of date.
+            // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
+            cursorLoopController.pushToTalkWasPressed()
 
             showTheCursorOverlayForThisInteraction()
 
@@ -762,6 +796,8 @@ final class CompanionManager: ObservableObject {
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
+            // The media rect is read beside the router call. It draws a loop only if the request becomes a look at it.
+            cursorLoopController.pushToTalkWasReleased()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
             buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
@@ -884,6 +920,9 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
+            // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
+            cursorLoopController.pushToTalkWasPressed()
+            cursorLoopController.pushToTalkWasReleased()
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
             if nextStepInterruptsThisOne {
                 try? await Task.sleep(nanoseconds: 6_000_000_000)
@@ -956,6 +995,7 @@ final class CompanionManager: ObservableObject {
         }
         // "Animate this" has no voice tool, so its keyword path animates the pop-out on screen or pops one out.
         if liveSceneKind(for: transcript) == .animatedFramePopout {
+            theRequestBecameALookAtTheMedia()
             respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
             return
         }
@@ -986,7 +1026,28 @@ final class CompanionManager: ObservableObject {
             startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
             return
         }
-        respondToTranscript(transcript: transcript, requestedSceneKind: keywordPathSceneKind(for: transcript))
+        respondByTheKeywordPath(transcript: transcript)
+    }
+
+    /// The keyword path: a scene, a pop-out, or an answer about the screen. A scene or a pop-out is a look at the media,
+    /// so it draws the loop. A plain answer does not, since no router decided that the request is about the media.
+    private func respondByTheKeywordPath(transcript: String) {
+        let requestedSceneKind = keywordPathSceneKind(for: transcript)
+        if requestedSceneKind != nil {
+            theRequestBecameALookAtTheMedia()
+        }
+        respondToTranscript(transcript: transcript, requestedSceneKind: requestedSceneKind)
+    }
+
+    /// The request became a look at the video or image Clicky sees, so the loop draws around it once its rect is in hand.
+    /// Nothing draws while a scene covers the media or a quiz question is open, since the loop would frame the wrong thing.
+    private func theRequestBecameALookAtTheMedia() {
+        guard !LiveSceneOverlay.shared.isShowingAScene,
+              !liveScenePhaseIsWaitingForAQuizAnswer,
+              !videoQuizQuestionIsActive else {
+            return
+        }
+        cursorLoopController.requestBecameALookAtTheMedia()
     }
 
     private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
@@ -2341,7 +2402,7 @@ final class CompanionManager: ObservableObject {
                     break
                 }
                 print("Voice command: the router failed, so the keyword path takes it: \(error)")
-                respondToTranscript(transcript: transcript, requestedSceneKind: keywordPathSceneKind(for: transcript))
+                respondByTheKeywordPath(transcript: transcript)
                 return
             }
             guard !Task.isCancelled else { return }
@@ -2416,6 +2477,9 @@ final class CompanionManager: ObservableObject {
     }
 
     private func runAppVoiceTool(_ appVoiceTool: AppVoiceTool, input: [String: JSONValue], transcript: String) async -> VoiceToolOutcome {
+        if appVoiceTool.handsOffToALookAtTheMedia {
+            theRequestBecameALookAtTheMedia()
+        }
         switch appVoiceTool {
         case .answerWithScreen:
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)

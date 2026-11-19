@@ -16,6 +16,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
     let pinchMagnificationPublisher = PassthroughSubject<Double, Never>()
     let escapeKeyPressPublisher = PassthroughSubject<Void, Never>()
+    /// Sends for each scroll wheel or trackpad scroll event that moves something, which clears the loop around the media.
+    let scrollWheelPublisher = PassthroughSubject<Void, Never>()
     /// Sends once each time shift + option is held for 0.3 seconds with nothing else pressed.
     let agentListShortcutPublisher = PassthroughSubject<Void, Never>()
     private static let escapeKeyCode: UInt16 = 53
@@ -50,7 +52,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         // refreshAllPermissions → start() every few seconds.
         guard globalEventTap == nil else { return }
 
-        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp] + AgentListShortcutRecognizer.pressEventTypesThatBreakAHold
+        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp, .scrollWheel] + AgentListShortcutRecognizer.pressEventTypesThatBreakAHold
         let eventMask = monitoredEventTypes.reduce(CGEventMask(1) << Self.gestureEventTypeRawValue) { currentMask, eventType in
             currentMask | (CGEventMask(1) << eventType.rawValue)
         }
@@ -130,6 +132,16 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         if eventType.rawValue == Self.gestureEventTypeRawValue {
             if event.getIntegerValueField(Self.gestureKindField) == Self.gestureKindZoom {
                 pinchMagnificationPublisher.send(event.getDoubleValueField(Self.gestureZoomAmountField))
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        if eventType == .scrollWheel {
+            // A scroll that moves nothing, such as the end of a momentum scroll, leaves the loop alone.
+            let scrolledByLines = event.getIntegerValueField(.scrollWheelEventDeltaAxis1) != 0 || event.getIntegerValueField(.scrollWheelEventDeltaAxis2) != 0
+            let scrolledByPixels = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) != 0 || event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2) != 0
+            if scrolledByLines || scrolledByPixels {
+                scrollWheelPublisher.send()
             }
             return Unmanaged.passUnretained(event)
         }
