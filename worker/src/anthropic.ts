@@ -5,7 +5,13 @@
  */
 
 import { z } from "zod";
-import { applyClaudeBenchOverride, benchModelOverride, requestBenchGeminiMessage, requestBenchOpenAIMessage } from "./benchModelOverride";
+import {
+  applyClaudeBenchOverride,
+  benchModelOverride,
+  type OpenAIBenchOverride,
+  requestBenchGeminiMessage,
+  requestBenchOpenAIMessage,
+} from "./benchModelOverride";
 
 // Passthrough keeps every field of each block and of the reply, because /voice-command reads tool_use inputs and a
 // caller may send the blocks back to Anthropic unchanged.
@@ -78,8 +84,9 @@ export async function requestAnthropicReplyJSON(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
+  routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; replyJSON: unknown } | { ok: false; response: Response }> {
-  const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, routeName, messagesRequestBody);
+  const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, routeName, messagesRequestBody, routeOpenAIModel);
   if (!anthropicReply.ok) {
     return anthropicReply;
   }
@@ -98,8 +105,9 @@ export async function requestAnthropicReplyText(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
+  routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; replyText: string | undefined } | { ok: false; response: Response }> {
-  const anthropicMessage = await requestAnthropicMessage(anthropicAPIKey, routeName, messagesRequestBody);
+  const anthropicMessage = await requestAnthropicMessage(anthropicAPIKey, routeName, messagesRequestBody, routeOpenAIModel);
   if (!anthropicMessage.ok) {
     return anthropicMessage;
   }
@@ -109,14 +117,18 @@ export async function requestAnthropicReplyText(
 /**
  * One non-streaming Anthropic Messages call. A successful result carries the reply with its content list checked,
  * so a caller that needs tool_use blocks or the stop reason can read them.
- * A Worker started for a benchmark with BENCH_MODEL swaps the model here (see benchModelOverride.ts), and any other Worker never does.
+ * A route that runs on a GPT model passes routeOpenAIModel, and its Anthropic-shaped request goes to OpenAI through the
+ * same mapping the benchmark uses, so the route reads the same reply shape on either vendor.
+ * A Worker started for a benchmark with BENCH_MODEL swaps the model here (see benchModelOverride.ts), ahead of the route's
+ * own model, and any other Worker never does.
  */
 export async function requestAnthropicMessage(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
+  routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; message: AnthropicMessage } | { ok: false; response: Response }> {
-  const benchOverride = benchModelOverride();
+  const benchOverride = benchModelOverride() ?? routeOpenAIModel;
   if (benchOverride?.provider === "openai" || benchOverride?.provider === "gemini") {
     const vendorName = benchOverride.provider === "openai" ? "OpenAI" : "Gemini";
     const vendorReply =

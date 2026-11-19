@@ -1,7 +1,7 @@
 /**
  * POST /video-quiz-plan
  *
- * The app sends a video's timestamped transcript once. Sonnet decides how many
+ * The app sends a video's timestamped transcript once. GPT-6.2 Sol decides how many
  * moments the video is worth pausing for, picks them, and writes a quiz question
  * for each. parseVideoQuizPlan is
  * the only place the model reply is trusted, so every rule that can be checked
@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 import { jsonResponse, parseJSONRequest, requestAnthropicReplyJSON, zodIssuesOnOneLine } from "./anthropic";
+import type { OpenAIBenchOverride } from "./benchModelOverride";
 
 const transcriptLineSchema = z.object({
   seconds: z.number().nonnegative(),
@@ -268,6 +269,7 @@ function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError
         type: "text" as const,
         text: [`Video title: ${videoQuizPlanRequest.title}`, "", "Transcript:", transcriptText].join("\n"),
         // A retry sends the same system prompt and transcript, so it reads them from the cache instead of paying full price.
+        // OpenAI caches the shared start of a request on its own and ignores this mark, which a Claude model reads.
         cache_control: { type: "ephemeral" as const },
       },
       ...(rejectedReplyError.length > 0
@@ -282,7 +284,16 @@ function userTurn(videoQuizPlanRequest: VideoQuizPlanRequest, rejectedReplyError
   };
 }
 
-export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: string): Promise<Response> {
+/**
+ * GPT-6.2 Sol at Ultrafast beat Sonnet 5.5 here on 2026-11-19: it passed every case, took 4.7 seconds where Sonnet took
+ * 14.9 (p95 7.3 against 23.8), cost 2.3 times as much, and won the blind judge 2-0. bench/README.md has the bakeoff.
+ * It runs at OpenAI's default reasoning effort, which is what the bakeoff measured.
+ */
+function quizPlanModel(openAIAPIKey: string): OpenAIBenchOverride {
+  return { provider: "openai", model: "gpt-6.2-sol", apiKey: openAIAPIKey, serviceTier: "ultrafast" };
+}
+
+export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: string, openAIAPIKey: string): Promise<Response> {
   const parsedRequest = await parseJSONRequest(request, videoQuizPlanRequestSchema);
   if (!parsedRequest.ok) {
     return parsedRequest.response;
@@ -294,15 +305,20 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
   // the first minute, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
   for (let attempt = 1; attempt <= maximumPlanAttempts; attempt += 1) {
-    const anthropicReply = await requestAnthropicReplyJSON(anthropicAPIKey, "/video-quiz-plan", {
-      model: "claude-sonnet-5-5",
-      // Sonnet 5.5 thinks before it answers, and that thinking counts toward this limit.
-      max_tokens: 16000,
-      system: systemPrompt,
-      // Sonnet 5.5 rejects a forced tool call, so the plan comes back as schema-checked JSON text.
-      output_config: { format: { type: "json_schema", schema: planOutputSchema } },
-      messages: [userTurn(videoQuizPlanRequest, lastValidationError)],
-    });
+    // The request is in Anthropic's shape, with no model, since quizPlanModel names it and a bench Claude model replaces it.
+    const anthropicReply = await requestAnthropicReplyJSON(
+      anthropicAPIKey,
+      "/video-quiz-plan",
+      {
+        // The model thinks before it answers, and that thinking counts toward this limit.
+        max_tokens: 16000,
+        system: systemPrompt,
+        // The plan comes back as schema-checked JSON text, which OpenAI's strict mode also enforces.
+        output_config: { format: { type: "json_schema", schema: planOutputSchema } },
+        messages: [userTurn(videoQuizPlanRequest, lastValidationError)],
+      },
+      quizPlanModel(openAIAPIKey),
+    );
     if (!anthropicReply.ok) {
       return anthropicReply.response;
     }

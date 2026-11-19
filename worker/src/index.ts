@@ -110,7 +110,7 @@ export default {
       }
 
       if (url.pathname === "/video-quiz-plan") {
-        return await handleVideoQuizPlan(request, env.ANTHROPIC_API_KEY);
+        return await handleVideoQuizPlan(request, env.ANTHROPIC_API_KEY, env.OPENAI_API_KEY);
       }
 
       if (url.pathname === "/live-scene") {

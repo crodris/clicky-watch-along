@@ -30,35 +30,41 @@ const openAIURL = "https://api.openai.com/v1/responses";
 const geminiURL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 /** One valid request per route that calls requestAnthropicMessage, as the app sends it. */
-const routeRequests: Array<{ route: string; body: unknown; defaultModel: string }> = [
+const routeRequests: Array<{ route: string; body: unknown; defaultModel: string; defaultURL: string }> = [
   {
     route: "/judge-answer",
     defaultModel: "claude-sonnet-5-5",
+    defaultURL: anthropicURL,
     body: { question: "What is this?", answerLabel: "left ventricle", explanation: "It pumps blood.", transcript: "the left ventricle" },
   },
   {
     route: "/video-quiz-plan",
-    defaultModel: "claude-sonnet-5-5",
+    defaultModel: "gpt-6.2-sol",
+    defaultURL: openAIURL,
     body: { title: "Sharks", transcriptLines: [{ seconds: 0, text: "Sharks float." }, { seconds: 30, text: "Their liver holds oil." }] },
   },
   {
     route: "/video-frame-parts",
     defaultModel: "claude-sonnet-5-5",
+    defaultURL: anthropicURL,
     body: { frameBase64: "QUJD", frameWidth: 1280, frameHeight: 720, subject: "", question: "", answerLabel: "" },
   },
   {
     route: "/landmark",
     defaultModel: "claude-sonnet-5-5",
+    defaultURL: anthropicURL,
     body: { frameBase64: "QUJD", videoTitle: "A day in Paris", learnerRequest: "show me this in 3D" },
   },
   {
     route: "/picture-flows",
-    defaultModel: "claude-opus-5-5",
+    defaultModel: "claude-sonnet-5-5",
+    defaultURL: anthropicURL,
     body: { frameBase64: "QUJD", frameWidth: 1280, frameHeight: 720, partLabels: ["Aorta"] },
   },
   {
     route: "/voice-command",
     defaultModel: "claude-haiku-5-5",
+    defaultURL: anthropicURL,
     body: {
       messages: [{ role: "user", content: 'Learner said: "turn it left"' }],
       tools: [
@@ -132,13 +138,13 @@ describe("with no BENCH_MODEL", () => {
     expect(sentBody(fetchMock)).toEqual({ ...requestBody, system: [{ type: "text", text: "you're clicky", cache_control: { type: "ephemeral" } }] });
   });
 
-  it.each(routeRequests)("keeps $route on $defaultModel and calls only Anthropic", async ({ route, body, defaultModel }) => {
-    const fetchMock = stubFetch(emptyAnthropicReply);
+  it.each(routeRequests)("keeps $route on $defaultModel and calls only its own vendor", async ({ route, body, defaultModel, defaultURL }) => {
+    const fetchMock = stubFetch(defaultURL === openAIURL ? emptyOpenAIReply : emptyAnthropicReply);
 
     await post(route, body, baseEnv);
 
-    expect(fetchMock.mock.calls.map((fetchCall) => fetchCall[0])).toEqual(expect.arrayContaining([anthropicURL]));
-    expect(fetchMock.mock.calls.every((fetchCall) => fetchCall[0] === anthropicURL)).toBe(true);
+    expect(fetchMock.mock.calls.map((fetchCall) => fetchCall[0])).toEqual(expect.arrayContaining([defaultURL]));
+    expect(fetchMock.mock.calls.every((fetchCall) => fetchCall[0] === defaultURL)).toBe(true);
     expect(sentBody(fetchMock).model).toBe(defaultModel);
   });
 

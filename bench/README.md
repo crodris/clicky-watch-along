@@ -178,10 +178,10 @@ wait
 |---|---|---|
 | `/judge-answer` | Sonnet 5.5, low effort | pass counts |
 | `/voice-command` | Haiku 5.5, low effort, thinking off | pass counts |
-| `/video-quiz-plan` | Sonnet 5.5 | pass counts and the blind judge |
+| `/video-quiz-plan` | GPT-6.2 Sol Ultrafast, OpenAI's default effort (Sonnet 5.5 before 2026-11-19) | pass counts and the blind judge |
 | `/video-frame-parts` | Sonnet 5.5, low effort | pass counts and the blind judge |
 | `/chat` | Sonnet 5.5, low effort | pass counts and the blind judge |
-| `/picture-flows` | Opus 5.5, low effort | pass counts and the blind judge |
+| `/picture-flows` | Sonnet 5.5, low effort (Opus 5.5 before 2026-11-19) | pass counts and the blind judge |
 | `/landmark` | Sonnet 5.5, low effort | pass counts |
 | `/live-scene` | GPT-6.1 Sol Ultrafast, medium effort | baseline only, below |
 | task agent (`/v1/messages`) | Sonnet 5.5, medium effort | `taskAgent.ts`, below |
