@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  Streams of what flows through a popped-out picture, like air through an engine or blood
-//  through a heart. Opus draws them through POST /picture-flows when the learner says
+//  through a heart. Sonnet draws them through POST /picture-flows when the learner says
 //  "animate this", and the pop-out page draws each one on top of the picture as smoke,
 //  sparks, lava, droplets, air, current, or beads. An artwork is never animated.
 //
@@ -55,7 +55,7 @@ enum PictureFlowsClient {
         let flows: [PictureFlow]
     }
 
-    /// Opus answers in about 2 to 7 seconds, while the pop-out tour plays.
+    /// Sonnet answers in about 1 to 5 seconds, while the pop-out tour plays.
     private static let requestTimeoutSeconds: TimeInterval = 15
 
     /// Empty when nothing in the picture flows.

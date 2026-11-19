@@ -1,0 +1,357 @@
+{
+  "label": "landmark-sol62",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:21:12.757Z",
+  "runCount": 5,
+  "port": 8796,
+  "interleavedWith": [
+    "landmark-base",
+    "landmark-haiku",
+    "landmark-sonnet",
+    "landmark-opus",
+    "landmark-fable",
+    "landmark-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "landmark",
+      "route": "/landmark",
+      "description": "Recognizes the Eiffel Tower in a 1280x720 frame",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1830,
+        "p95": 2207,
+        "min": 1668,
+        "max": 2207
+      },
+      "firstByteMs": {
+        "p50": 1829,
+        "p95": 2207,
+        "min": 1667,
+        "max": 2207
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1497,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1236,
+      "meanOutputTokens": 54,
+      "meanCostUSD": 0.00711
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "route": "/landmark",
+      "description": "Says a heart diagram is not a famous place",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1812,
+        "p95": 2316,
+        "min": 1056,
+        "max": 2316
+      },
+      "firstByteMs": {
+        "p50": 1811,
+        "p95": 2316,
+        "min": 1055,
+        "max": 2316
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1498,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 990,
+      "meanOutputTokens": 47,
+      "meanCostUSD": 0.00953
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "landmark",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1829.2409169999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1829.8941669999986,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1497,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1236,
+          "outputTokens": 54
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0071135999999999994,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85826,2.2945"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85826,\"longitude\":2.2945,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1666.9812500000007,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1667.732250000001,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1497,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1236,
+          "outputTokens": 54
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0071135999999999994,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2206.710082999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2207.2738329999993,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1497,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1236,
+          "outputTokens": 54
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0071135999999999994,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1948.0705420000013,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1948.6594170000026,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1497,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1236,
+          "outputTokens": 54
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0071135999999999994,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1670.1348339999968,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1670.9477919999918,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1497,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1236,
+          "outputTokens": 54
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0071135999999999994,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1811.3185420000082,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1811.8301670000073,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1498,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 42
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.020496,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1055.4489160000085,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1055.6748329999973,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1498,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1237,
+          "outputTokens": 42
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006394200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2315.7797500000015,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2316.3378749999974,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1498,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1237,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007594200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1813.0844169999764,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1813.5577919999778,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1498,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1237,
+          "outputTokens": 48
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006754200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1528.0675829999964,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1528.6227910000016,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1498,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1237,
+          "outputTokens": 42
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006394200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    }
+  ]
+}

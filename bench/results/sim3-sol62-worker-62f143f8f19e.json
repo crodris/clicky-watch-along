@@ -1,0 +1,316 @@
+{
+  "label": "sim3-sol62",
+  "benchKind": "worker",
+  "commitSHA": "62f143f8f19e",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T19:06:57.080Z",
+  "runCount": 1,
+  "port": 8796,
+  "interleavedWith": [
+    "sim3-app"
+  ],
+  "summary": [
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 28961,
+        "p95": 28961,
+        "min": 28961,
+        "max": 28961
+      },
+      "firstByteMs": {
+        "p50": 28955,
+        "p95": 28955,
+        "min": 28955,
+        "max": 28955
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1112,
+      "meanOutputTokens": 6807,
+      "meanCostUSD": 0.44618
+    },
+    {
+      "caseId": "simulation-lever",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a lever frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 39213,
+        "p95": 39213,
+        "min": 39213,
+        "max": 39213
+      },
+      "firstByteMs": {
+        "p50": 39211,
+        "p95": 39211,
+        "min": 39211,
+        "max": 39211
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1112,
+      "meanOutputTokens": 8385,
+      "meanCostUSD": 0.54086
+    },
+    {
+      "caseId": "simulation-pendulum",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a pendulum frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 38100,
+        "p95": 38100,
+        "min": 38100,
+        "max": 38100
+      },
+      "firstByteMs": {
+        "p50": 38098,
+        "p95": 38098,
+        "min": 38098,
+        "max": 38098
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 8947,
+      "meanCostUSD": 0.58726
+    },
+    {
+      "caseId": "simulation-dissolving",
+      "route": "/live-scene",
+      "description": "Builds a dissolving experiment over a hot and cold water frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 31998,
+        "p95": 31998,
+        "min": 31998,
+        "max": 31998
+      },
+      "firstByteMs": {
+        "p50": 31995,
+        "p95": 31995,
+        "min": 31995,
+        "max": 31995
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 7641,
+      "meanCostUSD": 0.5089
+    },
+    {
+      "caseId": "simulation-cooling",
+      "route": "/live-scene",
+      "description": "Builds a cooling experiment over a cocoa mug frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 35387,
+        "p95": 35387,
+        "min": 35387,
+        "max": 35387
+      },
+      "firstByteMs": {
+        "p50": 35375,
+        "p95": 35375,
+        "min": 35375,
+        "max": 35375
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 7891,
+      "meanCostUSD": 0.5239
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 28955.171791999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 28960.965167,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1112,
+          "outputTokens": 6807
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.44617919999999994,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: At the same launch speed, will the ball land farther at 45 degrees or at 60 degrees?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 39211.28220799999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 39212.898208,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1112,
+          "outputTokens": 8385
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.5408592,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: With both weights 2 meters from the pivot, will a 3 kg or a 4 kg weight on the right keep the beam level?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-pendulum",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 38098.454291999995,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 38100.42558299999,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 8947
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.587256,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If you keep the release angle the same, will a longer string make one full swing take more time or less time?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-dissolving",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 31994.951166999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 31997.974833999993,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 7641
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.508896,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: What happens to the left sugar cube’s dissolving time if you raise its water temperature from 40°C to 60°C?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-cooling",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 35375.022,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 35387.24895799998,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 7891
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.523896,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: What happens to the cocoa’s temperature if you let it cool for 20 minutes instead of 10?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

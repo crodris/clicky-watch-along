@@ -36,6 +36,23 @@ jobs:
       - run: pnpm test
       - run: pnpm run typecheck
 
+  harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: harness
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: harness/go.mod
+          cache-dependency-path: harness/go.sum
+      - run: go vet ./...
+      - run: go test -race ./...
+
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -56,6 +73,7 @@ jobs:
           cache-dependency-path: bench/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
+      - run: pnpm test
       # The committed results must still parse, since the charts are built from them.
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
@@ -70,6 +88,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The app's Build Agent Harness phase runs tools/build-agent-harness.sh, which needs Go. It looks on PATH first, so this
+      # one is used on both runners, and the Mac runner needs no Go of its own.
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: harness/go.mod
+          cache-dependency-path: harness/go.sum
       # Match the Xcode used for local builds, so a newer runner default cannot break the build unnoticed.
       - if: runner.environment == 'github-hosted'
         run: sudo xcode-select -s /Applications/Xcode_26.5.app

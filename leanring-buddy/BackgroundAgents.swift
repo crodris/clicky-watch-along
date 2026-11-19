@@ -113,7 +113,8 @@ enum BackgroundAgentKind {
         case .experiment:
             return [
                 BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
-                BackgroundAgentStep(name: "Build the experiment", inProgressText: "Building the experiment", expectedSeconds: 30),
+                // GPT-6.2 Sol builds an experiment in about 30 to 40 seconds at Ultrafast (bench, 2026-11-19).
+                BackgroundAgentStep(name: "Build the experiment", inProgressText: "Building the experiment", expectedSeconds: 40),
             ]
         // A task's steps come from the agent as it works (BackgroundAgent.reportedSteps), so its progress runs as one
         // step. A web search answer took about 11 seconds in a test, and one with a Notion page takes longer.

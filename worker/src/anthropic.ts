@@ -5,9 +5,16 @@
  */
 
 import { z } from "zod";
+import {
+  applyClaudeBenchOverride,
+  benchModelOverride,
+  type OpenAIBenchOverride,
+  requestBenchGeminiMessage,
+  requestBenchOpenAIMessage,
+} from "./benchModelOverride";
 
-// Passthrough keeps every field of each block and of the reply, because /background-agent sends the blocks back to
-// Anthropic unchanged and /voice-command reads tool_use inputs.
+// Passthrough keeps every field of each block and of the reply, because /voice-command reads tool_use inputs and a
+// caller may send the blocks back to Anthropic unchanged.
 const anthropicMessageSchema = z
   .object({
     content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()),
@@ -15,17 +22,18 @@ const anthropicMessageSchema = z
   })
   .passthrough();
 
-const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()) });
+// OpenAI names the tier it used at the top of the reply, and Anthropic names it inside usage.
+const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()), service_tier: z.string().nullish() });
 
 /**
  * Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends.
- * The line also names the model, because the benchmark prices each line by it.
+ * The line also names the model and, for an OpenAI reply, the service tier, because the benchmark prices each line by them.
  */
 export function logModelUsage(routeName: string, modelResponseJSON: unknown): void {
   const parsedResponse = modelUsageSchema.safeParse(modelResponseJSON);
   if (parsedResponse.success) {
-    const { model, usage } = parsedResponse.data;
-    console.log(`[${routeName}] usage ${JSON.stringify({ model, ...usage })}`);
+    const { model, usage, service_tier } = parsedResponse.data;
+    console.log(`[${routeName}] usage ${JSON.stringify({ model, ...usage, ...(service_tier == null ? {} : { service_tier }) })}`);
   }
 }
 
@@ -76,8 +84,9 @@ export async function requestAnthropicReplyJSON(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
+  routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; replyJSON: unknown } | { ok: false; response: Response }> {
-  const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, routeName, messagesRequestBody);
+  const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, routeName, messagesRequestBody, routeOpenAIModel);
   if (!anthropicReply.ok) {
     return anthropicReply;
   }
@@ -96,8 +105,9 @@ export async function requestAnthropicReplyText(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
+  routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; replyText: string | undefined } | { ok: false; response: Response }> {
-  const anthropicMessage = await requestAnthropicMessage(anthropicAPIKey, routeName, messagesRequestBody);
+  const anthropicMessage = await requestAnthropicMessage(anthropicAPIKey, routeName, messagesRequestBody, routeOpenAIModel);
   if (!anthropicMessage.ok) {
     return anthropicMessage;
   }
@@ -105,14 +115,58 @@ export async function requestAnthropicReplyText(
 }
 
 /**
+ * OpenAI cannot answer for its own reasons: a 401, 403, or 404 (a missing, revoked, or unentitled key, or a model the
+ * account cannot reach), a 429 (out of credit or rate limited), or a 5xx (down, or not reached). A 400 or 422 is about
+ * the request itself, so Claude would refuse it too.
+ */
+function openAICannotAnswerNow(status: number): boolean {
+  return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500;
+}
+
+/**
  * One non-streaming Anthropic Messages call. A successful result carries the reply with its content list checked,
  * so a caller that needs tool_use blocks or the stop reason can read them.
+ * A route that runs on a GPT model passes routeOpenAIModel, and its Anthropic-shaped request goes to OpenAI through the
+ * same mapping the benchmark uses, so the route reads the same reply shape on either vendor.
+ * A Worker started for a benchmark with BENCH_MODEL swaps the model here (see benchModelOverride.ts), ahead of the route's
+ * own model, and any other Worker never does.
  */
 export async function requestAnthropicMessage(
   anthropicAPIKey: string,
   routeName: string,
   messagesRequestBody: unknown,
+  routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; message: AnthropicMessage } | { ok: false; response: Response }> {
+  const benchOverride = benchModelOverride();
+  const vendorModel = benchOverride ?? routeOpenAIModel;
+  if (vendorModel?.provider === "openai" || vendorModel?.provider === "gemini") {
+    const vendorName = vendorModel.provider === "openai" ? "OpenAI" : "Gemini";
+    const vendorReply =
+      vendorModel.provider === "openai"
+        ? await requestBenchOpenAIMessage(vendorModel, routeName, messagesRequestBody)
+        : await requestBenchGeminiMessage(vendorModel, routeName, messagesRequestBody);
+    // A route's own GPT model falls back to the Claude model its body names when OpenAI refuses the key, is out of credit,
+    // is rate limited, or is down, so the learner still gets an answer. A benchmark override never falls back, since it measures one model.
+    const fallsBackToClaude = !vendorReply.ok && benchOverride === undefined && openAICannotAnswerNow(vendorReply.status);
+    if (!vendorReply.ok && !fallsBackToClaude) {
+      // The vendor's own error can name the key or the account, so only a benchmark Worker, which runs on this Mac, returns
+      // it. The Worker log keeps it either way.
+      const errorForCaller = benchOverride === undefined ? `${vendorName} request failed` : vendorReply.error;
+      return { ok: false, response: jsonResponse({ error: errorForCaller }, vendorReply.status) };
+    }
+    if (vendorReply.ok) {
+      logModelUsage(routeName, vendorReply.responseJSON);
+      const parsedVendorMessage = anthropicMessageSchema.safeParse(vendorReply.message);
+      if (!parsedVendorMessage.success) {
+        return { ok: false, response: jsonResponse({ error: `${vendorName} response had no content list` }, 502) };
+      }
+      return { ok: true, message: parsedVendorMessage.data };
+    }
+    console.error(`[${routeName}] ${vendorModel.model} could not answer (HTTP ${vendorReply.status}), so the route falls back to Claude`);
+  }
+  const sentRequestBody =
+    benchOverride === undefined || benchOverride.provider !== "anthropic" ? messagesRequestBody : applyClaudeBenchOverride(messagesRequestBody, benchOverride);
+
   let anthropicResponse: Response;
   try {
     anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
@@ -122,7 +176,7 @@ export async function requestAnthropicMessage(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      body: JSON.stringify(withCachedSystemPrompt(messagesRequestBody)),
+      body: JSON.stringify(withCachedSystemPrompt(sentRequestBody)),
     });
   } catch (error) {
     // Without this, a DNS or connection failure reaches the app as the outer catch's generic 500, which does not name Anthropic.

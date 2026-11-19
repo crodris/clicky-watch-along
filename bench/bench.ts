@@ -2,7 +2,7 @@
 // against a Worker started by the verify-clicky helper, and checks each reply on fixed fixtures.
 //
 //   .claude/skills/verify-clicky/verify-clicky.sh worker-up
-//   node bench/bench.ts worker --label baseline [--runs 5] [--only chat-first,tts]
+//   node bench/bench.ts worker --label baseline [--runs 5] [--only chat-first,tts] [--pages-dir bench/replies]
 //   node bench/bench.ts app --label baseline [--runs 3]
 //
 // Results go to bench/results/<label>-<kind>-<sha>.json. See bench/README.md.
@@ -11,6 +11,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requestFileName, savedReplyFileName, type SavedReply } from "./replyFiles.ts";
+import { costOfUsageLine, isRecord, usageAfterChatStreamEvent, usageLineFromUsageObject, usageLinesOfRouteInLog, type UsageLine } from "./usage.ts";
 
 const benchDirectory = dirname(fileURLToPath(import.meta.url));
 const checkoutRoot = dirname(benchDirectory);
@@ -18,16 +20,6 @@ const fixturesDirectory = join(benchDirectory, "fixtures");
 const verifyClickyScript = join(checkoutRoot, ".claude/skills/verify-clicky/verify-clicky.sh");
 const verifyClickyStateDirectory = join(checkoutRoot, ".verify-clicky");
 
-// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-11-13).
-const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
-  "claude-sonnet-4-6": { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
-  "claude-sonnet-5-5": { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 },
-  "claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 },
-  "claude-haiku-5-5": { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
-};
-// OpenAI's pricing page refuses automated fetches, so a GPT scene uses the repo's estimate per call: $0.23 measured at
-// low effort, scaled by the 1.6 times as many output tokens medium effort wrote on 2026-11-14.
-const gptLiveSceneCostPerCallUSD = 0.37;
 // https://elevenlabs.io/pricing/api (fetched 2026-11-13): multilingual v2 costs $0.08 per 1,000 characters, Flash and Turbo $0.04.
 const elevenLabsPricePerThousandCharacters: Record<string, number> = {
   eleven_v4: 0.08,
@@ -35,15 +27,6 @@ const elevenLabsPricePerThousandCharacters: Record<string, number> = {
   eleven_multilingual_v2: 0.08,
   eleven_flash_v2_5: 0.04,
   eleven_turbo_v2_5: 0.04,
-};
-
-type UsageLine = {
-  route: string;
-  model: string;
-  inputTokens: number;
-  cacheWriteTokens: number;
-  cacheReadTokens: number;
-  outputTokens: number;
 };
 
 type QualityCheck = { passed: boolean; detail: string };
@@ -66,7 +49,7 @@ type Sample = {
   replyPreview: string;
 };
 
-type BenchCase = {
+export type BenchCase = {
   id: string;
   route: string;
   description: string;
@@ -81,10 +64,6 @@ function numberField(record: Record<string, unknown>, key: string): number {
   return typeof value === "number" ? value : 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function parseJSONObject(text: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
@@ -92,38 +71,6 @@ function parseJSONObject(text: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
-}
-
-/** Reads an Anthropic or OpenAI usage object, which name the cache and output fields differently. */
-function usageLineFromUsageObject(route: string, usageObject: Record<string, unknown>): UsageLine {
-  const inputTokensDetails = isRecord(usageObject.input_tokens_details) ? usageObject.input_tokens_details : {};
-  return {
-    route,
-    model: typeof usageObject.model === "string" ? usageObject.model : "unknown",
-    inputTokens: numberField(usageObject, "input_tokens"),
-    cacheWriteTokens: numberField(usageObject, "cache_creation_input_tokens"),
-    cacheReadTokens: numberField(usageObject, "cache_read_input_tokens") || numberField(inputTokensDetails, "cached_tokens"),
-    outputTokens: numberField(usageObject, "output_tokens"),
-  };
-}
-
-/** Null when the model has no price, so one unpriced reply cannot end a run that has already spent money. */
-function costOfUsageLine(usageLine: UsageLine): number | null {
-  if (usageLine.model.startsWith("gpt-")) {
-    return gptLiveSceneCostPerCallUSD;
-  }
-  const prices = anthropicPricesPerMillionTokens[usageLine.model];
-  if (prices === undefined) {
-    console.warn(`No price for model ${usageLine.model}, so its cost is recorded as unknown. Add it to anthropicPricesPerMillionTokens.`);
-    return null;
-  }
-  return (
-    (usageLine.inputTokens * prices.input +
-      usageLine.cacheWriteTokens * prices.cacheWrite +
-      usageLine.cacheReadTokens * prices.cacheRead +
-      usageLine.outputTokens * prices.output) /
-    1_000_000
-  );
 }
 
 // ---------- Fixtures ----------
@@ -134,7 +81,7 @@ const fixtureBase64 = (fileName: string) => readFileSync(join(fixturesDirectory,
  * What one checkout's app sends to the Worker, read from its Swift source. Two sides of a comparison
  * can run different app versions, so each side's requests mirror its own app, not this file's guesses.
  */
-type AppProfile = {
+export type AppProfile = {
   chatModel: string;
   chatEffort: string | undefined;
   /** Newer apps mark the system prompt's cache breakpoint themselves. */
@@ -293,7 +240,7 @@ function judgeCase(judgeCaseSpec: {
 /** A field left out is not checked. */
 type FramePartsExpectation = { isArtwork: boolean; wholePictureIsSubject: boolean; pictureShowsDepth?: boolean };
 
-function framePartsCase(id: string, frameFileName: string, expected: FramePartsExpectation, description: string): BenchCase {
+function framePartsCase(id: string, frameFileName: string, expected: FramePartsExpectation | "noSubject", description: string): BenchCase {
   return {
     id,
     route: "/video-frame-parts",
@@ -308,6 +255,9 @@ function framePartsCase(id: string, frameFileName: string, expected: FramePartsE
     }),
     checkReply: (replyText) => {
       const reply = parseJSONObject(replyText);
+      if (expected === "noSubject") {
+        return { passed: reply?.subjectFound === false, detail: `subjectFound ${String(reply?.subjectFound)}` };
+      }
       if (reply?.subjectFound !== true) {
         return { passed: false, detail: "subjectFound is not true" };
       }
@@ -348,6 +298,48 @@ function simulationCase(id: string, frameFileName: string, description: string):
   };
 }
 
+type VoiceToolCall = { name: string; input: Record<string, unknown> };
+
+function voiceToolCallsIn(replyText: string): VoiceToolCall[] {
+  const content = parseJSONObject(replyText)?.content;
+  return (Array.isArray(content) ? content : [])
+    .filter(isRecord)
+    .filter((block) => block.type === "tool_use")
+    .map((block) => ({ name: String(block.name), input: isRecord(block.input) ? block.input : {} }));
+}
+
+/** The app's own /voice-command body in a fixture, with the learner's words swapped in, so the tools and scene state stay what the app sends. */
+function voiceCommandBody(fixtureFileName: string, learnerTranscript: string): unknown {
+  const body = JSON.parse(readFileSync(join(fixturesDirectory, fixtureFileName), "utf8"));
+  body.messages[0].content = String(body.messages[0].content).replace(/Learner said: ".*"$/s, `Learner said: "${learnerTranscript}"`);
+  return body;
+}
+
+/** Every case expects one tool call, with a confirmation Clicky speaks, unless it expects none. */
+function voiceCommandCase(voiceCommandSpec: {
+  id: string;
+  fixtureFileName: string;
+  learnerTranscript: string;
+  description: string;
+  /** A reason the one tool call is wrong, or undefined when it is right. */
+  problemWith: (toolCall: VoiceToolCall) => string | undefined;
+}): BenchCase {
+  const { id, fixtureFileName, learnerTranscript, description, problemWith } = voiceCommandSpec;
+  return {
+    id,
+    route: "/voice-command",
+    description,
+    requestBody: () => voiceCommandBody(fixtureFileName, learnerTranscript),
+    checkReply: (replyText) => {
+      const toolCalls = voiceToolCallsIn(replyText);
+      const toolCall = toolCalls[0];
+      const confirmation = String(toolCall?.input.confirmation ?? "");
+      const problem = toolCalls.length !== 1 ? `${toolCalls.length} tool calls` : (problemWith(toolCall) ?? (confirmation.length === 0 ? "no confirmation" : undefined));
+      return { passed: problem === undefined, detail: `${toolCalls.map((call) => `${call.name} ${JSON.stringify({ ...call.input, confirmation: undefined })}`).join(", ") || "no tool"}${problem === undefined ? "" : `: ${problem}`}` };
+    },
+  };
+}
+
 type PictureFlowsExpectation =
   | { kind: "nothingFlows" }
   | { kind: "flows"; colors: string[]; styles: string[] };
@@ -374,7 +366,7 @@ function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[
   };
 }
 
-const benchCases: BenchCase[] = [
+export const benchCases: BenchCase[] = [
   {
     id: "chat-first",
     route: "/chat",
@@ -470,6 +462,7 @@ const benchCases: BenchCase[] = [
   framePartsCase("frame-parts-print", "great-wave-frame.jpg", { isArtwork: true, wholePictureIsSubject: true }, "Marks The Great Wave, a woodblock print, as art"),
   framePartsCase("frame-parts-art-of-one-animal", "young-hare-frame.jpg", { isArtwork: true, wholePictureIsSubject: false }, "Marks Dürer's Young Hare as art, though it shows one animal"),
   framePartsCase("frame-parts-bicycle", "bicycle-diagram-frame.jpg", { isArtwork: false, wholePictureIsSubject: false }, "Keeps a labeled bicycle diagram as a diagram, not art"),
+  framePartsCase("frame-parts-chart", "chart-frame.jpg", "noSubject", "Finds no subject in a bar chart, which is not one drawn object"),
   pictureFlowsCase(
     "picture-flows-heart",
     "heart-diagram-frame.jpg",
@@ -513,6 +506,20 @@ const benchCases: BenchCase[] = [
     },
   },
   {
+    id: "landmark-not-a-place",
+    route: "/landmark",
+    description: "Says a heart diagram is not a famous place",
+    requestBody: () => ({
+      frameBase64: fixtureBase64("heart-diagram-frame.jpg"),
+      videoTitle: "How the heart works",
+      learnerRequest: "show me this in 3D",
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      return { passed: reply?.isFamousPlace === false, detail: `isFamousPlace ${String(reply?.isFamousPlace)}` };
+    },
+  },
+  {
     id: "live-scene",
     route: "/live-scene",
     description: "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
@@ -551,6 +558,44 @@ const benchCases: BenchCase[] = [
       };
     },
   },
+  voiceCommandCase({
+    id: "voice-command-seek",
+    fixtureFileName: "voice-command-video.json",
+    learnerTranscript: "go back 30 seconds",
+    description: 'Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34',
+    problemWith: ({ name, input }) => {
+      const seconds = numberField(input, "seconds");
+      const wentBack30 = (name === "seek_relative" && Math.abs(seconds + 30) <= 1) || (name === "seek_to_time" && Math.abs(seconds - 94) <= 1);
+      return wentBack30 ? undefined : `${name} ${seconds} does not go back 30 seconds from 124`;
+    },
+  }),
+  voiceCommandCase({
+    id: "voice-command-zoom",
+    fixtureFileName: "voice-command.json",
+    learnerTranscript: "zoom in a little",
+    description: "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
+    problemWith: ({ name, input }) => {
+      const factor = numberField(input, "factor");
+      return name === "zoom" && factor > 1 && factor <= 2 ? undefined : `${name} ${factor} is not a small zoom in`;
+    },
+  }),
+  voiceCommandCase({
+    id: "voice-command-explain",
+    fixtureFileName: "voice-command.json",
+    learnerTranscript: "what does the tail do?",
+    description: "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
+    problemWith: ({ name, input }) => (name === "explain_part" && String(input.label).toLowerCase() === "tail" ? undefined : `${name} ${String(input.label)} is not explain_part tail`),
+  }),
+  {
+    id: "voice-command-no-tool",
+    route: "/voice-command",
+    description: 'Calls no tool for "thanks, that looks great", which asks for nothing',
+    requestBody: () => voiceCommandBody("voice-command.json", "thanks, that looks great"),
+    checkReply: (replyText) => {
+      const toolCalls = voiceToolCallsIn(replyText);
+      return { passed: toolCalls.length === 0, detail: toolCalls.length === 0 ? "no tool" : toolCalls.map((toolCall) => toolCall.name).join(", ") };
+    },
+  },
   judgeCase({ caseSuffix: "correct", quiz: heartQuiz, learnerTranscript: "that's the left ventricle, it pumps blood out to the whole body", expectedVerdict: "correct" }),
   judgeCase({ caseSuffix: "named-only", quiz: heartQuiz, learnerTranscript: "the left ventricle", expectedVerdict: "named_only", wordsTheReplyMustNotSay: ["pump", "aorta"] }),
   judgeCase({ caseSuffix: "wrong", quiz: heartQuiz, learnerTranscript: "is it the lungs?", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["ventricle", "pump"] }),
@@ -558,6 +603,10 @@ const benchCases: BenchCase[] = [
   judgeCase({ caseSuffix: "function-only", quiz: heartQuiz, learnerTranscript: "it squeezes blood out to the rest of the body", expectedVerdict: "correct" }),
   judgeCase({ caseSuffix: "caption-supported", quiz: sharkVideoQuiz, learnerTranscript: "its fins give it lift like a plane wing while it swims", expectedVerdict: "correct" }),
   judgeCase({ caseSuffix: "caption-wrong", quiz: sharkVideoQuiz, learnerTranscript: "it has a swim bladder full of air", expectedVerdict: "wrong", wordsTheReplyMustNotSay: ["liver", "oil"] }),
+  judgeCase({ caseSuffix: "hint", quiz: heartQuiz, learnerTranscript: "can i get a hint?", expectedVerdict: "wants_hint", wordsTheReplyMustNotSay: ["ventricle"] }),
+  judgeCase({ caseSuffix: "skip", quiz: heartQuiz, learnerTranscript: "skip this one", expectedVerdict: "skip_question" }),
+  judgeCase({ caseSuffix: "repeat", quiz: heartQuiz, learnerTranscript: "can you say the question again?", expectedVerdict: "repeat_question" }),
+  judgeCase({ caseSuffix: "scene-command", quiz: heartQuiz, learnerTranscript: "turn it to the left", expectedVerdict: "scene_command" }),
 ];
 
 // ---------- Worker runs ----------
@@ -570,18 +619,8 @@ function workerLogPath(workerCheckout: string, port: number): string {
   return readFileSync(logPathRecord, "utf8").trim();
 }
 
-const ansiColorCode = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
-
-function usageLinesLoggedAfter(logPath: string, byteOffset: number): UsageLine[] {
-  const newLogText = readFileSync(logPath).subarray(byteOffset).toString("utf8").replace(ansiColorCode, "");
-  const usageLines: UsageLine[] = [];
-  for (const usageMatch of newLogText.matchAll(/\[(\/[a-z-]+)\] usage (\{.*\})/g)) {
-    const usageObject = parseJSONObject(usageMatch[2]);
-    if (usageObject !== undefined) {
-      usageLines.push(usageLineFromUsageObject(usageMatch[1], usageObject));
-    }
-  }
-  return usageLines;
+function usageLinesLoggedAfter(logPath: string, byteOffset: number, route: string): UsageLine[] {
+  return usageLinesOfRouteInLog(readFileSync(logPath).subarray(byteOffset).toString("utf8"), route);
 }
 
 /** /chat streams Server-Sent Events and logs no usage line, so its usage and first text token come from the stream. */
@@ -606,13 +645,7 @@ async function readChatStream(response: Response, requestStartMs: number) {
       if (streamEvent === undefined) {
         continue;
       }
-      if (streamEvent.type === "message_start" && isRecord(streamEvent.message)) {
-        const startUsage = isRecord(streamEvent.message.usage) ? streamEvent.message.usage : {};
-        usageObject = { ...startUsage, model: streamEvent.message.model };
-      }
-      if (streamEvent.type === "message_delta" && isRecord(streamEvent.usage)) {
-        usageObject = { ...usageObject, output_tokens: streamEvent.usage.output_tokens };
-      }
+      usageObject = usageAfterChatStreamEvent(usageObject, streamEvent);
       if (streamEvent.type === "content_block_delta" && isRecord(streamEvent.delta) && streamEvent.delta.type === "text_delta") {
         firstTokenMs ??= performance.now() - requestStartMs;
         replyText += String(streamEvent.delta.text);
@@ -624,17 +657,64 @@ async function readChatStream(response: Response, requestStartMs: number) {
 
 type BenchSide = { label: string; port: number; workerCheckout: string; logPath: string; appProfile: AppProfile; samples: Sample[] };
 
+/**
+ * Saves the whole reply, since the sample's preview stops at 600 characters, and the request once per case, so a judge can
+ * show what the model was asked. A live scene's page is also saved as an .html file, to be opened as it is.
+ */
+function saveFullReply(
+  pagesDirectory: string,
+  side: BenchSide,
+  benchCase: BenchCase,
+  runIndex: number,
+  requestBodyText: string,
+  reply: Pick<SavedReply, "httpStatus" | "qualityPassed" | "models" | "replyText">,
+) {
+  mkdirSync(join(pagesDirectory, "requests"), { recursive: true });
+  const savedReply: SavedReply = { side: side.label, caseId: benchCase.id, route: benchCase.route, runIndex, ...reply };
+  writeFileSync(join(pagesDirectory, savedReplyFileName(side.label, benchCase.id, runIndex)), `${JSON.stringify(savedReply)}\n`);
+  const requestPath = join(pagesDirectory, requestFileName(benchCase.id));
+  if (!existsSync(requestPath)) {
+    writeFileSync(requestPath, requestBodyText);
+  }
+  const scenePage = benchCase.route === "/live-scene" ? parseJSONObject(reply.replyText)?.html : undefined;
+  if (typeof scenePage === "string") {
+    writeFileSync(join(pagesDirectory, `${side.label}-${benchCase.id}-${runIndex + 1}.html`), scenePage);
+  }
+}
+
 async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchSide): Promise<Sample> {
   const { port, logPath, appProfile } = side;
   const requestBodyText = JSON.stringify(benchCase.requestBody(appProfile));
   const logOffsetBeforeRequest = statSync(logPath).size;
   const requestStartMs = performance.now();
   const requestQuery = benchCase.requestQuery?.(appProfile) ?? "";
-  const response = await fetch(`http://127.0.0.1:${port}${benchCase.route}${requestQuery}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: requestBodyText,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`http://127.0.0.1:${port}${benchCase.route}${requestQuery}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: requestBodyText,
+    });
+  } catch (fetchError) {
+    // No reply at all, such as a model still thinking past fetch's 5 minute header timeout, is a failed sample, so
+    // one slow call never ends the run and loses every other side's results. Its cost is unknown, not zero.
+    const totalMs = performance.now() - requestStartMs;
+    const reason = fetchError instanceof Error && fetchError.cause instanceof Error ? fetchError.cause.message : String(fetchError);
+    return {
+      caseId: benchCase.id,
+      runIndex,
+      httpStatus: 0,
+      firstByteMs: totalMs,
+      firstTokenMs: null,
+      firstAudioMs: null,
+      totalMs,
+      usageLines: [],
+      ttsCharacters: 0,
+      costUSD: null,
+      quality: { passed: false, detail: `no reply after ${Math.round(totalMs / 1000)} s: ${reason}` },
+      replyPreview: "",
+    };
+  }
   const firstByteMs = performance.now() - requestStartMs;
   const contentType = response.headers.get("content-type") ?? "";
 
@@ -669,7 +749,7 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
 
   // The Worker writes its usage line just before it answers, so give wrangler's log a moment to flush.
   await new Promise((resolve) => setTimeout(resolve, 400));
-  const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest);
+  const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest, benchCase.route);
 
   let ttsCharacters = 0;
   const usageLineCosts = usageLines.map(costOfUsageLine);
@@ -694,6 +774,16 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
   const quality = response.ok
     ? benchCase.checkReply(replyText, contentType, replyBytes)
     : { passed: false, detail: `HTTP ${response.status}: ${replyText.slice(0, 200)}` };
+
+  const pagesDirectory = commandLineOption("pages-dir");
+  if (pagesDirectory !== undefined && benchCase.route !== "/tts") {
+    saveFullReply(pagesDirectory, side, benchCase, runIndex, requestBodyText, {
+      httpStatus: response.status,
+      qualityPassed: quality.passed,
+      models: [...new Set(usageLines.map((usageLine) => usageLine.model))],
+      replyText,
+    });
+  }
   return {
     caseId: benchCase.id,
     runIndex,
@@ -797,6 +887,12 @@ function latencySummary(values: number[]) {
 
 const mean = (values: number[]) => (values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length);
 
+/** Names each model with the tier OpenAI reported, since a GPT cost means nothing without its tier. */
+function modelsAndTiersOf(usageLines: UsageLine[]): string {
+  const names = [...new Set(usageLines.map((usageLine) => (usageLine.serviceTier === undefined ? usageLine.model : `${usageLine.model} at ${usageLine.serviceTier}`)))];
+  return names.length === 0 ? "" : ` on ${names.join(", ")}`;
+}
+
 function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
   const sumOverLines = (sample: Sample, pickTokens: (usageLine: UsageLine) => number) =>
     sample.usageLines.reduce((runningSum, usageLine) => runningSum + pickTokens(usageLine), 0);
@@ -807,6 +903,8 @@ function summarizeCase(benchCase: BenchCase, samples: Sample[]) {
     route: benchCase.route,
     description: benchCase.description,
     models: [...new Set(samples.flatMap((sample) => sample.usageLines.map((usageLine) => usageLine.model)))],
+    /** The tiers OpenAI reported, so a cost is read with its tier. Empty for a Claude model. */
+    serviceTiers: [...new Set(samples.flatMap((sample) => sample.usageLines.flatMap((usageLine) => (usageLine.serviceTier === undefined ? [] : [usageLine.serviceTier]))))],
     runs: samples.length,
     qualityPassed: samples.filter((sample) => sample.quality.passed).length,
     totalMs: latencySummary(samples.map((sample) => sample.totalMs)),
@@ -848,7 +946,7 @@ async function main() {
   const benchKind = process.argv[2];
   const label = commandLineOption("label");
   if ((benchKind !== "worker" && benchKind !== "app") || label === undefined) {
-    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789] [--side label:port:checkout ...]");
+    console.error("Usage: node bench/bench.ts worker|app --label <name> [--runs N] [--only caseId,...] [--port 8789] [--side label:port:checkout ...] [--pages-dir <dir>]");
     process.exit(1);
   }
   const runCount = Number(commandLineOption("runs") ?? (benchKind === "worker" ? 5 : 3));
@@ -890,7 +988,7 @@ async function main() {
         console.log(
           `${side.label} ${benchCase.id} #${runIndex + 1}: HTTP ${sample.httpStatus}, ${Math.round(sample.totalMs)} ms` +
             `${sample.firstTokenMs === null ? "" : `, first token ${Math.round(sample.firstTokenMs)} ms`}, ` +
-            `${sample.usageLines.length} model call(s), ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(4)}`}, ` +
+            `${sample.usageLines.length} model call(s)${modelsAndTiersOf(sample.usageLines)}, ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(4)}`}, ` +
             `${sample.quality.passed ? "PASS" : "FAIL"} ${sample.quality.detail}`,
         );
       }
@@ -902,6 +1000,8 @@ async function main() {
     console.table(
       summary.map((caseSummary) => ({
         case: caseSummary.caseId,
+        model: caseSummary.models.join(", "),
+        tier: caseSummary.serviceTiers.join(", "),
         pass: `${caseSummary.qualityPassed}/${caseSummary.runs}`,
         p50: caseSummary.totalMs.p50,
         p95: caseSummary.totalMs.p95,
@@ -917,4 +1017,7 @@ async function main() {
   }
 }
 
-await main();
+// The cases are imported by cases.test.ts, which must not start a run.
+if (import.meta.main) {
+  await main();
+}

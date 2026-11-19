@@ -54,11 +54,16 @@ function requestWithBody(body: unknown): Request {
   });
 }
 
-function planReply(plan: unknown): Response {
+/** An OpenAI Responses reply, since the plan comes from GPT-6.2 Sol. */
+function openAIReplyText(text: string): Response {
   return new Response(
-    JSON.stringify({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: JSON.stringify(plan) }] }),
+    JSON.stringify({ model: "gpt-6.2-sol", output: [{ type: "reasoning" }, { type: "message", content: [{ type: "output_text", text }] }], usage: {} }),
     { status: 200 },
   );
+}
+
+function planReply(plan: unknown): Response {
+  return openAIReplyText(JSON.stringify(plan));
 }
 
 afterEach(() => {
@@ -317,7 +322,7 @@ describe("handleVideoQuizPlan", () => {
   const validRequest = { title: "How sharks stay afloat", transcriptLines };
 
   it("returns 400 for a body that is not JSON", async () => {
-    const response = await handleVideoQuizPlan(requestWithBody("not json"), "key");
+    const response = await handleVideoQuizPlan(requestWithBody("not json"), "anthropic-key", "openai-key");
 
     expect(response.status).toBe(400);
   });
@@ -325,36 +330,67 @@ describe("handleVideoQuizPlan", () => {
   it("returns 400 when the transcript is empty", async () => {
     const response = await handleVideoQuizPlan(
       requestWithBody({ title: "Empty", transcriptLines: [] }),
-      "key",
+      "anthropic-key",
+      "openai-key",
     );
 
     expect(response.status).toBe(400);
   });
 
-  it("asks Sonnet for the plan as JSON and returns the validated plan", async () => {
+  it("asks GPT-6.2 Sol at Ultrafast for the plan as strict JSON and returns the validated plan", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(validPlan);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.openai.com/v1/responses");
+    expect(new Headers(fetchMock.mock.calls[0]?.[1].headers).get("authorization")).toBe("Bearer openai-key");
     const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
     expect(sentBody).toMatchObject({
-      model: "claude-sonnet-5-5",
-      output_config: { format: { type: "json_schema" } },
+      model: "gpt-6.2-sol",
+      service_tier: "ultrafast",
+      text: { format: { type: "json_schema", strict: true } },
     });
-    expect(sentBody).not.toHaveProperty("tool_choice");
+  });
+
+  it.each([401, 403, 404, 429, 503])("falls back to Sonnet when OpenAI answers %i, since the key, the credit, or OpenAI is the problem", async (openAIStatus) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const anthropicPlanReply = () =>
+      new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(validPlan) }] }), { status: 200 });
+    const openAIFailure = () => new Response(JSON.stringify({ error: { code: "credit_balance_exhausted" } }), { status: openAIStatus });
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) => (url.includes("openai") ? openAIFailure() : anthropicPlanReply()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(validPlan);
+    expect(fetchMock.mock.calls.map((fetchCall) => fetchCall[0])).toEqual(["https://api.openai.com/v1/responses", "https://api.anthropic.com/v1/messages"]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1].body))).toMatchObject({ model: "claude-sonnet-5-5" });
+  });
+
+  it("returns a request OpenAI refuses as its status with a plain error, without OpenAI's own text or a fallback", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const refusedFetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: "bad schema for org-secret-team" } }), { status: 400 }));
+    vi.stubGlobal("fetch", refusedFetch);
+
+    const refusedResponse = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
+
+    expect(refusedResponse.status).toBe(400);
+    expect(await refusedResponse.json()).toEqual({ error: "OpenAI request failed" });
+    expect(refusedFetch).toHaveBeenCalledTimes(1);
   });
 
   it("retries when the reply text is not JSON", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ content: [{ type: "text", text: "Sure! Here is the plan" }] })))
+      .mockResolvedValueOnce(openAIReplyText("Sure! Here is the plan"))
       .mockResolvedValueOnce(planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -370,7 +406,7 @@ describe("handleVideoQuizPlan", () => {
       .mockResolvedValueOnce(planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(validPlan);
@@ -387,17 +423,18 @@ describe("handleVideoQuizPlan", () => {
       .mockResolvedValueOnce(planReply(validPlan));
     vi.stubGlobal("fetch", fetchMock);
 
-    await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+    await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
 
-    const sentRequestSchema = z.object({ messages: z.array(z.object({ content: z.array(z.unknown()) })).min(1) });
+    // OpenAI caches the shared start of a request, so the transcript must come first and match byte for byte.
+    const sentRequestSchema = z.object({ input: z.array(z.object({ content: z.array(z.unknown()) })).min(1) });
     const userContentOfCall = (callIndex: number): unknown[] => {
       const sentBody: unknown = JSON.parse(String(fetchMock.mock.calls[callIndex]?.[1].body));
-      return sentRequestSchema.parse(sentBody).messages[0]?.content ?? [];
+      return sentRequestSchema.parse(sentBody).input[0]?.content ?? [];
     };
     const firstContent = userContentOfCall(0);
     const retryContent = userContentOfCall(1);
     expect(firstContent).toHaveLength(1);
-    expect(firstContent[0]).toMatchObject({ cache_control: { type: "ephemeral" } });
+    expect(firstContent[0]).toMatchObject({ text: expect.stringContaining("Transcript:") });
     expect(retryContent[0]).toEqual(firstContent[0]);
     expect(retryContent[1]).toMatchObject({ text: expect.stringContaining("Your previous reply was rejected") });
   });
@@ -408,7 +445,7 @@ describe("handleVideoQuizPlan", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "key");
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
 
     expect(response.status).toBe(502);
     expect(fetchMock).toHaveBeenCalledTimes(3);

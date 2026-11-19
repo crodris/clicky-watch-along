@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestAnthropicMessage } from "./anthropic";
+import { logModelUsage, requestAnthropicMessage } from "./anthropic";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -37,7 +37,7 @@ describe("requestAnthropicMessage", () => {
     }
   });
 
-  it("keeps every field of each block and the stop reason, which /background-agent sends back unchanged", async () => {
+  it("keeps every field of each block and the stop reason, which a caller may send back to Anthropic unchanged", async () => {
     const toolUseBlock = { type: "tool_use", id: "t1", name: "finish", input: { spokenSummary: "Done." } };
     vi.stubGlobal(
       "fetch",
@@ -51,5 +51,23 @@ describe("requestAnthropicMessage", () => {
       expect(anthropicMessage.message.content).toEqual([toolUseBlock]);
       expect(anthropicMessage.message.stop_reason).toBe("tool_use");
     }
+  });
+});
+
+describe("logModelUsage", () => {
+  it("logs the model and the usage fields of an Anthropic reply as they are", () => {
+    const logMock = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    logModelUsage("/judge-answer", { model: "claude-sonnet-5-5", usage: { input_tokens: 10, output_tokens: 2, service_tier: "standard" } });
+
+    expect(logMock).toHaveBeenCalledWith('[/judge-answer] usage {"model":"claude-sonnet-5-5","input_tokens":10,"output_tokens":2,"service_tier":"standard"}');
+  });
+
+  it("adds the service tier OpenAI names at the top of its reply, which the benchmark prices by", () => {
+    const logMock = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    logModelUsage("/live-scene", { model: "gpt-6.1-sol", service_tier: "ultrafast", usage: { input_tokens: 10, output_tokens: 2 } });
+
+    expect(logMock).toHaveBeenCalledWith('[/live-scene] usage {"model":"gpt-6.1-sol","input_tokens":10,"output_tokens":2,"service_tier":"ultrafast"}');
   });
 });

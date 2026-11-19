@@ -1,0 +1,1787 @@
+{
+  "label": "njudge-neon",
+  "benchKind": "worker",
+  "commitSHA": "f8898abe4033",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:55:53.272Z",
+  "runCount": 5,
+  "port": 8798,
+  "interleavedWith": [
+    "njudge-base"
+  ],
+  "summary": [
+    {
+      "caseId": "judge-correct",
+      "route": "/judge-answer",
+      "description": "Grades \"that's the left ventricle, it pumps blood out to the whole body\" and expects correct",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 3506,
+        "p95": 4028,
+        "min": 3050,
+        "max": 4028
+      },
+      "firstByteMs": {
+        "p50": 3505,
+        "p95": 4028,
+        "min": 3049,
+        "max": 4028
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 989,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 222,
+      "meanCostUSD": 0.0063
+    },
+    {
+      "caseId": "judge-named-only",
+      "route": "/judge-answer",
+      "description": "Grades \"the left ventricle\" and expects named_only",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 4171,
+        "p95": 6457,
+        "min": 3656,
+        "max": 6457
+      },
+      "firstByteMs": {
+        "p50": 4170,
+        "p95": 6456,
+        "min": 3656,
+        "max": 6456
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 977,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 184,
+      "meanCostUSD": 0.00568
+    },
+    {
+      "caseId": "judge-wrong",
+      "route": "/judge-answer",
+      "description": "Grades \"is it the lungs?\" and expects wrong",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 5035,
+        "p95": 7301,
+        "min": 4816,
+        "max": 7301
+      },
+      "firstByteMs": {
+        "p50": 5034,
+        "p95": 7301,
+        "min": 4815,
+        "max": 7301
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 979,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 294,
+      "meanCostUSD": 0.00735
+    },
+    {
+      "caseId": "judge-help",
+      "route": "/judge-answer",
+      "description": "Grades \"i don't know, can you tell me?\" and expects asked_for_help",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 5773,
+        "p95": 6217,
+        "min": 4441,
+        "max": 6217
+      },
+      "firstByteMs": {
+        "p50": 5772,
+        "p95": 6216,
+        "min": 4439,
+        "max": 6216
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 985,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 362,
+      "meanCostUSD": 0.00839
+    },
+    {
+      "caseId": "judge-function-only",
+      "route": "/judge-answer",
+      "description": "Grades \"it squeezes blood out to the rest of the body\" and expects correct",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 4395,
+        "p95": 5170,
+        "min": 3356,
+        "max": 5170
+      },
+      "firstByteMs": {
+        "p50": 4395,
+        "p95": 5169,
+        "min": 3356,
+        "max": 5169
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 985,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 278,
+      "meanCostUSD": 0.00712
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "route": "/judge-answer",
+      "description": "Grades \"its fins give it lift like a plane wing while it swims\" and expects correct",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 5431,
+        "p95": 16131,
+        "min": 4723,
+        "max": 16131
+      },
+      "firstByteMs": {
+        "p50": 5430,
+        "p95": 16130,
+        "min": 4722,
+        "max": 16130
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1055,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 389,
+      "meanCostUSD": 0.009
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "route": "/judge-answer",
+      "description": "Grades \"it has a swim bladder full of air\" and expects wrong",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 4465,
+        "p95": 4897,
+        "min": 3924,
+        "max": 4897
+      },
+      "firstByteMs": {
+        "p50": 4465,
+        "p95": 4897,
+        "min": 3924,
+        "max": 4897
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1051,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 351,
+      "meanCostUSD": 0.00841
+    },
+    {
+      "caseId": "judge-hint",
+      "route": "/judge-answer",
+      "description": "Grades \"can i get a hint?\" and expects wants_hint",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 4109,
+        "p95": 4857,
+        "min": 3730,
+        "max": 4857
+      },
+      "firstByteMs": {
+        "p50": 4108,
+        "p95": 4856,
+        "min": 3730,
+        "max": 4856
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 980,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 222,
+      "meanCostUSD": 0.00626
+    },
+    {
+      "caseId": "judge-skip",
+      "route": "/judge-answer",
+      "description": "Grades \"skip this one\" and expects skip_question",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 4181,
+        "p95": 6107,
+        "min": 2435,
+        "max": 6107
+      },
+      "firstByteMs": {
+        "p50": 4180,
+        "p95": 6107,
+        "min": 2435,
+        "max": 6107
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 977,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 94,
+      "meanCostUSD": 0.00434
+    },
+    {
+      "caseId": "judge-repeat",
+      "route": "/judge-answer",
+      "description": "Grades \"can you say the question again?\" and expects repeat_question",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 3980,
+        "p95": 61879,
+        "min": 2125,
+        "max": 61879
+      },
+      "firstByteMs": {
+        "p50": 3979,
+        "p95": 61878,
+        "min": 2124,
+        "max": 61878
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 981,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 95,
+      "meanCostUSD": 0.00436
+    },
+    {
+      "caseId": "judge-scene-command",
+      "route": "/judge-answer",
+      "description": "Grades \"turn it to the left\" and expects scene_command",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 2934,
+        "p95": 4282,
+        "min": 2778,
+        "max": 4282
+      },
+      "firstByteMs": {
+        "p50": 2934,
+        "p95": 4281,
+        "min": 2778,
+        "max": 4281
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 979,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 123,
+      "meanCostUSD": 0.00479
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "judge-correct",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3048.6514580000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3049.550083,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 989,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 232
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006447,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"You got it, the left ventricle pumps oxygen-rich blood out to the body.\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4027.607665999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4028.396749999999,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 989,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 214
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006177,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the body.\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3505.277332999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3505.540874999999,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 989,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 240
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006567,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the body.\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 3078.233750000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3078.956000000002,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 989,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 229
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006402,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the body.\"}"
+    },
+    {
+      "caseId": "judge-correct",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 3900.1947919999984,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3901.4185419999994,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 989,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 196
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005907,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"You got it, the left ventricle pumps oxygen-rich blood out to the body.\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3869.324792000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3869.8353749999987,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 181
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005646,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"You got the name right, now can you tell me what it does?\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4674.206542,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4674.781625000003,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 169
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005466,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"You got the name right, now can you tell me what it does?\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 4170.141499999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4170.973334000002,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 193
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005826,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"That is right, it is the left ventricle, so what does it do?\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 3655.631791,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3656.1385410000003,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 163
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005376,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"Yes, that is the left ventricle, and what does it do?\"}"
+    },
+    {
+      "caseId": "judge-named-only",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 6455.533500000005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 6456.910667000004,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 212
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006111,
+      "quality": {
+        "passed": true,
+        "detail": "verdict named_only"
+      },
+      "replyPreview": "{\"verdict\":\"named_only\",\"spokenReply\":\"You got the name right, now can you tell me what it does?\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 7300.717667000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 7301.116209,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 260
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006837,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Not quite, the lungs are separate organs, and we are looking at a chamber inside the heart.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 5007.393792000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5008.700542000006,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 322
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007767,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"The lungs are separate organs for breathing, but we are looking at one of the chambers inside the heart.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 4815.3888330000045,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4815.812041000012,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 289
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007272,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"The lungs are separate organs outside the heart, so try thinking of a chamber inside the heart instead.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 6363.710208999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 6365.448583999998,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 344
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008097,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Not quite, the lungs are separate organs outside the heart, not a part inside it.\"}"
+    },
+    {
+      "caseId": "judge-wrong",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 5034.376917000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5034.877416999996,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 257
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006792,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Not quite, the lungs are separate organs next to the heart, while this is a chamber inside the heart.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 4439.330291999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4440.890291999996,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 378
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008625,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No problem, that is the left ventricle, and it pumps oxygen-rich blood out to your body through the aorta. This matters because it gives all your organs and muscles the oxygen they need to work.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 5772.122915999993,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5772.902332999991,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 383
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0087,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries, this part is the left ventricle, and it pumps oxygen-rich blood out to your body through the aorta. That matters because your whole body needs that oxygen to stay strong and keep working.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 5190.069625000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5190.967582999991,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 294
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007365,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No worries at all, this is the left ventricle and it pumps oxygen-rich blood out to your body through the aorta. That matters because every part of your body needs that oxygen to stay alive and strong.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 6211.758540999988,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 6212.066374999995,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 396
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008895,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"No problem, that is the left ventricle, which pumps oxygen-rich blood out to the rest of your body. That matters because every part of your body needs that oxygen to stay alive and keep working.\"}"
+    },
+    {
+      "caseId": "judge-help",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 6216.418875000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 6216.878333000001,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 361
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00837,
+      "quality": {
+        "passed": true,
+        "detail": "verdict asked_for_help"
+      },
+      "replyPreview": "{\"verdict\":\"asked_for_help\",\"spokenReply\":\"That is totally fine, this part is the left ventricle and it pumps oxygen-rich blood out to the body through the aorta. This matters because your whole body needs that fresh oxygen to stay healthy and keep moving.\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 5169.1020000000135,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5169.663250000012,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 286
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007245,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the rest of the body.\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3644.861082999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3646.1240410000028,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 241
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00657,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the rest of the body.\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3355.8850000000093,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3356.2038340000145,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 280
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007155,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the rest of the body.\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 4394.741333999991,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4395.128958999994,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 261
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00687,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the rest of the body.\"}"
+    },
+    {
+      "caseId": "judge-function-only",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 4736.814249999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4737.15400000001,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 985,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 321
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00777,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, the left ventricle pumps oxygen-rich blood out to the rest of the body.\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 16130.216042000015,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 16130.936333999998,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1055,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 333
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00816,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, a shark's fins act like plane wings to give it lift as it swims forward.\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4944.928291000018,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4945.459083000023,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1055,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 375
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00879,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, a shark's fins act like plane wings to give it lift as it swims forward.\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 4721.582541000011,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4722.699458000017,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1055,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 366
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008655,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, a shark's fins act like the wings of a plane to give it lift as it swims forward.\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 5430.2432499999995,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5430.663208000013,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1055,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 412
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.009345,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, a shark's fins act like plane wings to give it lift as it swims.\"}"
+    },
+    {
+      "caseId": "judge-caption-supported",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 5855.795708999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5856.221833999996,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1055,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 458
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.010035,
+      "quality": {
+        "passed": true,
+        "detail": "verdict correct"
+      },
+      "replyPreview": "{\"verdict\":\"correct\",\"spokenReply\":\"That is right, its fins act like plane wings to give it lift while it swims.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 4658.086917000008,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4658.572125000006,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1051,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 397
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.009108,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Sharks actually do not have a swim bladder like most other fish, so give it another try.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4275.016625000018,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4275.373416999995,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1051,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 364
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008613,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Most fish use a swim bladder to float, but sharks actually do not have one, so try thinking about what else helps them stay up.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3923.623333000025,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3924.0149580000143,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1051,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 256
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006993,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Sharks actually do not have a swim bladder like most other fish, so give it another try.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 4464.792291999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4465.143958000001,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1051,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 310
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007803,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Sharks actually do not have a swim bladder like most other fish, so try thinking about what else keeps them up.\"}"
+    },
+    {
+      "caseId": "judge-caption-wrong",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 4896.507082999975,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4897.063291999977,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 1051,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 426
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.009543,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wrong"
+      },
+      "replyPreview": "{\"verdict\":\"wrong\",\"spokenReply\":\"Sharks actually do not have a swim bladder like most other fish, so try thinking about what they use instead.\"}"
+    },
+    {
+      "caseId": "judge-hint",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 4108.368041999987,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4108.870333000028,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 980,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 193
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005835,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wants_hint"
+      },
+      "replyPreview": "{\"verdict\":\"wants_hint\",\"spokenReply\":\"This lower chamber on the left side has the big job of pushing fresh blood out to your whole body.\"}"
+    },
+    {
+      "caseId": "judge-hint",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4453.15408300003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4453.569583000033,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 980,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 219
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006225,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wants_hint"
+      },
+      "replyPreview": "{\"verdict\":\"wants_hint\",\"spokenReply\":\"Think about the strong lower chamber that sends fresh blood out to your whole body.\"}"
+    },
+    {
+      "caseId": "judge-hint",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3729.6160420000087,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3730.379500000039,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 980,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 163
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.005385,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wants_hint"
+      },
+      "replyPreview": "{\"verdict\":\"wants_hint\",\"spokenReply\":\"This strong lower chamber pushes fresh blood out to the rest of your body.\"}"
+    },
+    {
+      "caseId": "judge-hint",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 3956.833250000025,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3958.9003329999978,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 980,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 232
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00642,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wants_hint"
+      },
+      "replyPreview": "{\"verdict\":\"wants_hint\",\"spokenReply\":\"This strong lower chamber sends oxygen-rich blood out to the rest of your body.\"}"
+    },
+    {
+      "caseId": "judge-hint",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 4856.004166999948,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4856.851708000002,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 980,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 301
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007455,
+      "quality": {
+        "passed": true,
+        "detail": "verdict wants_hint"
+      },
+      "replyPreview": "{\"verdict\":\"wants_hint\",\"spokenReply\":\"Think about which lower chamber of the heart is strong enough to push blood out to the rest of your body.\"}"
+    },
+    {
+      "caseId": "judge-skip",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 4180.057625000016,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4181.41316700005,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 107
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004536,
+      "quality": {
+        "passed": true,
+        "detail": "verdict skip_question"
+      },
+      "replyPreview": "{\"verdict\":\"skip_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-skip",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2434.9922910000314,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2435.334333000006,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004236,
+      "quality": {
+        "passed": true,
+        "detail": "verdict skip_question"
+      },
+      "replyPreview": "{\"verdict\":\"skip_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-skip",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2752.899416,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2753.5036660000333,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 107
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004536,
+      "quality": {
+        "passed": true,
+        "detail": "verdict skip_question"
+      },
+      "replyPreview": "{\"verdict\":\"skip_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-skip",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 6106.717250000045,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 6107.260167,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004071,
+      "quality": {
+        "passed": true,
+        "detail": "verdict skip_question"
+      },
+      "replyPreview": "{\"verdict\":\"skip_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-skip",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 5107.978666999959,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5108.779875000007,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 977,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 91
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004296,
+      "quality": {
+        "passed": true,
+        "detail": "verdict skip_question"
+      },
+      "replyPreview": "{\"verdict\":\"skip_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-repeat",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2124.1534589999937,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2124.811250000028,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 981,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 79
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004128,
+      "quality": {
+        "passed": true,
+        "detail": "verdict repeat_question"
+      },
+      "replyPreview": "{\"verdict\":\"repeat_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-repeat",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 61877.89212500001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 61878.635583000025,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 981,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 79
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004128,
+      "quality": {
+        "passed": true,
+        "detail": "verdict repeat_question"
+      },
+      "replyPreview": "{\"verdict\":\"repeat_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-repeat",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2419.8718749999534,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2420.558915999951,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 981,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 108
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004563,
+      "quality": {
+        "passed": true,
+        "detail": "verdict repeat_question"
+      },
+      "replyPreview": "{\"verdict\":\"repeat_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-repeat",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 3978.6479999999865,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3979.5755000000354,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 981,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 108
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004563,
+      "quality": {
+        "passed": true,
+        "detail": "verdict repeat_question"
+      },
+      "replyPreview": "{\"verdict\":\"repeat_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-repeat",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 21861.091874999984,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21861.813749999972,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 981,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 100
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004443,
+      "quality": {
+        "passed": true,
+        "detail": "verdict repeat_question"
+      },
+      "replyPreview": "{\"verdict\":\"repeat_question\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-scene-command",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3883.030167000019,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3883.609541999991,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 214
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.006147,
+      "quality": {
+        "passed": true,
+        "detail": "verdict scene_command"
+      },
+      "replyPreview": "{\"verdict\":\"scene_command\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-scene-command",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2898.5680000000284,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2899.106334000011,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004167,
+      "quality": {
+        "passed": true,
+        "detail": "verdict scene_command"
+      },
+      "replyPreview": "{\"verdict\":\"scene_command\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-scene-command",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2777.811625000031,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2778.244791999983,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 110
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004587,
+      "quality": {
+        "passed": true,
+        "detail": "verdict scene_command"
+      },
+      "replyPreview": "{\"verdict\":\"scene_command\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-scene-command",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 2933.865374999994,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2934.257958000002,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 94
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004347,
+      "quality": {
+        "passed": true,
+        "detail": "verdict scene_command"
+      },
+      "replyPreview": "{\"verdict\":\"scene_command\",\"spokenReply\":\"\"}"
+    },
+    {
+      "caseId": "judge-scene-command",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 4281.253792000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4281.519250000012,
+      "usageLines": [
+        {
+          "route": "/judge-answer",
+          "model": "gemini-4-neon",
+          "inputTokens": 979,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 116
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.004677,
+      "quality": {
+        "passed": true,
+        "detail": "verdict scene_command"
+      },
+      "replyPreview": "{\"verdict\":\"scene_command\",\"spokenReply\":\"\"}"
+    }
+  ]
+}

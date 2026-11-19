@@ -47,7 +47,7 @@ HeyClicky's real-time graphics demo inspired this part.
 
 **Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, a cup of cocoa cooling, or the shape of a water molecule, end what you say with "let me try it" or "let me play with it", or say "simulate this".
 Clicky builds a hands-on experiment of that idea while the video keeps playing, then pauses the video and lifts the experiment out of it, with sliders for the things you can change and a Run button.
-GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
+GPT-6.2 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
 Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.
 It works like a real experiment, in four steps:
 1. Clicky asks a hypothesis to test, like "Will 30 or 60 degrees send the ball farther?", and waits for your guess.
@@ -98,6 +98,7 @@ I run this locally, with the Worker on `pnpm wrangler dev`, and Debug builds poi
 Follow the setup below, which includes the OpenAI and Google Maps keys this fork needs, then add these:
 
 - `brew install yt-dlp`, for the video transcripts
+- `brew install go`, since the app's build compiles the task agent's Go harness (`harness/`) into the app
 - In Chrome, turn on View, Developer, Allow JavaScript from Apple Events, so Clicky can pause and play the video
 
 To test for less money, run `pnpm wrangler dev --var LIVE_SCENE_MODEL:sonnet`.
@@ -105,7 +106,7 @@ Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 wi
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
-The Notion routes and the task agent's route need an app secret, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
+The Notion routes and the `/v1/messages` route need an app secret, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
 Everything below is the original Clicky README, with the setup, architecture, and project structure updated for this fork.
 
@@ -170,6 +171,7 @@ If you want to do it yourself, here's the deal.
 - macOS 14.2+ (for ScreenCaptureKit)
 - Xcode 26 (CI builds with Xcode 26.5)
 - Node.js 18+ and pnpm 12 (for the Cloudflare Worker)
+- Go 1.27+ (the app's build compiles the task agent's harness in `harness/`)
 - A [Cloudflare](https://cloudflare.com) account (free tier works)
 - API keys for: [Anthropic](https://console.anthropic.com), [ElevenLabs](https://elevenlabs.io), [OpenAI](https://platform.openai.com) for the 3D models, and [Google Maps Platform](https://console.cloud.google.com/google/maps-apis) for the famous places, with the Map Tiles API turned on and billing linked
 - Speech uses Apple's speech recognition, so you need an [AssemblyAI](https://www.assemblyai.com) key only if you switch back to it
@@ -193,7 +195,7 @@ pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 # Optional, for Notion study guides and task agent pages
 pnpm wrangler secret put NOTION_API_KEY
 # A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes and
-# /background-agent refuse requests without it. Set it in the app with:
+# /v1/messages refuse requests without it. Set it in the app with:
 # defaults write com.crodris.clicky-watch-along clickyAppSecret <the same string>
 pnpm wrangler secret put CLICKY_APP_SECRET
 ```
@@ -294,21 +296,23 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   SimulationLesson.swift    # The "let me try it" lesson: the guess, the trials, and what Clicky says
   StudyGuide.swift          # The Notion study guide request and the guide saved for each video
   BackgroundAgents.swift    # The record of running agents and the scene a finished one built
-  BackgroundTaskAgent.swift # The task agent that searches the web and writes a Notion page
+  BackgroundTaskAgent.swift # The task agent's app tools and its Notion page
+  AgentHarness.swift        # Launches the Go harness that runs the task agent's loop, and talks to it in JSON lines
   BackgroundAgentWingmen.swift   # The small triangles that follow the cursor while agents work
   BackgroundAgentListPanel.swift # The agent list that Shift + Option opens
+harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /background-agent, /notion-page, /v1/3dtiles
+  src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
-  src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
+  src/liveScene.ts          # Asks GPT-6.1 Sol for a 3D model or GPT-6.2 Sol for a simulation, and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
   src/voiceCommand.ts       # Asks Haiku which voice tools to call
   src/pictureFlows.ts       # Draws what flows through a popped-out picture
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
   src/studyGuide.ts         # Writes the study guide and checks a saved guide's page
-  src/backgroundAgent.ts    # One turn of the task agent, and its Notion page
-  src/appSecret.ts          # The app secret the Notion and agent routes require
+  src/notionPage.ts         # The task agent's Notion page
+  src/appSecret.ts          # The app secret the Notion routes and /v1/messages require
 demo/                    # The Remotion demo videos and the scripts that record them
 CLAUDE.md                # Full architecture doc (agents read this)
 ```

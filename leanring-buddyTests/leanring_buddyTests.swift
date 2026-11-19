@@ -1742,36 +1742,6 @@ struct leanring_buddyTests {
         #expect(!store.aStudyGuideAgentIsRunning(forVideoKey: "video-one"))
     }
 
-    private func taskAgentTurn(stopReason: String, blocks: [JSONValue]) throws -> TaskAgentTurn {
-        try TaskAgentTurn(responseData: JSONEncoder().encode(JSONValue.object(["content": .array(blocks), "stopReason": .string(stopReason)])))
-    }
-
-    private func toolUseBlock(id: String, name: String, input: [String: JSONValue]) -> JSONValue {
-        .object(["type": .string("tool_use"), "id": .string(id), "name": .string(name), "input": .object(input)])
-    }
-
-    @Test func aTaskAgentTurnLeadsToTheRightNextStep() async throws {
-        let pausedTurn = try taskAgentTurn(stopReason: "pause_turn", blocks: [.object(["type": .string("server_tool_use"), "id": .string("s1"), "name": .string("web_search"), "input": .object([:])])])
-        #expect(taskAgentNextStep(after: pausedTurn) == .continueThePausedTurn)
-
-        let stepCall = toolUseBlock(id: "t1", name: "report_step", input: ["step": .string("Searching")])
-        let toolTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [stepCall])
-        #expect(taskAgentNextStep(after: toolTurn) == .runTools(toolTurn.toolCalls))
-
-        // The agent often writes its page and finishes in one turn, so the page call still runs before the finish.
-        let pageCall = toolUseBlock(id: "t2", name: "write_notion_page", input: ["title": .string("Catches")])
-        let finishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [pageCall, toolUseBlock(id: "t3", name: "finish", input: ["spokenSummary": .string(" It was caught. ")])])
-        #expect(taskAgentNextStep(after: finishTurn) == .finish(spokenSummary: "It was caught.", afterRunning: [VoiceToolCall(id: "t2", name: "write_notion_page", input: ["title": .string("Catches")])]))
-
-        let emptyFinishTurn = try taskAgentTurn(stopReason: "tool_use", blocks: [.object(["type": .string("text"), "text": .string("It landed.")]), toolUseBlock(id: "t4", name: "finish", input: [:])])
-        #expect(taskAgentNextStep(after: emptyFinishTurn) == .finish(spokenSummary: "It landed.", afterRunning: []))
-
-        let textTurn = try taskAgentTurn(stopReason: "end_turn", blocks: [.object(["type": .string("text"), "text": .string("Done.")])])
-        #expect(taskAgentNextStep(after: textTurn) == .endedWithText("Done."))
-        // Every block goes back on the next turn, thinking and server results included.
-        #expect(pausedTurn.assistantContent.count == 1)
-    }
-
     @Test func aTaskAgentPageNeedsATitleAndASummaryBeforeItReachesTheWorker() async throws {
         let findingsSection: JSONValue = .array([.object(["heading": .string("Result"), "points": .array([.string("Karasuno won in 3 sets.")])])])
         #expect(taskAgentPageInputProblem([
@@ -1808,17 +1778,6 @@ struct leanring_buddyTests {
             .object(["heading": .string(""), "points": .array([.string("Hinata scored the last point.")])]),
         ])
         #expect(taskAgentPageInputProblem(pageWithAnEmptyHeading)?.contains("heading") == true)
-    }
-
-    @Test func aFinishInTheSameTurnAsARefusedPageWaitsForTheAgentToFixThePage() async throws {
-        let pageCall = VoiceToolCall(id: "t1", name: "write_notion_page", input: [:])
-        let stepCall = VoiceToolCall(id: "t2", name: "report_step", input: [:])
-        #expect(taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: false, isTheLastTurn: false))
-        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: true, isTheLastTurn: false))
-        // A finish with no page call is the agent's choice to answer without one.
-        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [stepCall], pageWasWritten: false, isTheLastTurn: false))
-        // The last turn has no turn after it, so the spoken answer stands without the page.
-        #expect(!taskAgentFinishWaitsForTheRefusedPage(otherCalls: [pageCall], pageWasWritten: false, isTheLastTurn: true))
     }
 
     @Test func aTaskAgentKeepsOnlyAnHTTPSNotionPageFromTheWorker() async throws {

@@ -1,0 +1,189 @@
+{
+  "label": "render1-fable",
+  "benchKind": "worker",
+  "commitSHA": "c829fc7b3e0c",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T18:21:45.948Z",
+  "runCount": 1,
+  "port": 8795,
+  "interleavedWith": [
+    "render1-base",
+    "render1-app",
+    "render1-haiku",
+    "render1-sonnet",
+    "render1-opus",
+    "render1-sol62",
+    "render1-astra",
+    "render1-neon"
+  ],
+  "summary": [
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [],
+      "serviceTiers": [],
+      "runs": 1,
+      "qualityPassed": 0,
+      "totalMs": {
+        "p50": 301640,
+        "p95": 301640,
+        "min": 301640,
+        "max": 301640
+      },
+      "firstByteMs": {
+        "p50": 301640,
+        "p95": 301640,
+        "min": 301640,
+        "max": 301640
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 0,
+      "meanInputTokens": 0,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 0,
+      "meanCostUSD": null
+    },
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 221491,
+        "p95": 221491,
+        "min": 221491,
+        "max": 221491
+      },
+      "firstByteMs": {
+        "p50": 221487,
+        "p95": 221487,
+        "min": 221487,
+        "max": 221487
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1209,
+      "meanCacheWriteTokens": 4375,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 22581,
+      "meanCostUSD": 0.95666
+    },
+    {
+      "caseId": "simulation-lever",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a lever frame for \"let me try it\"",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 160181,
+        "p95": 160181,
+        "min": 160181,
+        "max": 160181
+      },
+      "firstByteMs": {
+        "p50": 160180,
+        "p95": 160180,
+        "min": 160180,
+        "max": 160180
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1209,
+      "meanCacheWriteTokens": 4375,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 16213,
+      "meanCostUSD": 0.70194
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "firstByteMs": 301640.20554199995,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 301640.20554199995,
+      "usageLines": [],
+      "ttsCharacters": 0,
+      "costUSD": null,
+      "quality": {
+        "passed": false,
+        "detail": "no reply after 302 s: Headers Timeout Error"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 221487.1562920001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 221490.65100000007,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1209,
+          "cacheWriteTokens": 4375,
+          "cacheReadTokens": 0,
+          "outputTokens": 22581
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.956662,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: Will the ball land farther at 30 degrees or at 45 degrees?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 160179.68566700025,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 160180.72033399995,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1209,
+          "cacheWriteTokens": 4375,
+          "cacheReadTokens": 0,
+          "outputTokens": 16213
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.701942,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: The 4 kg weight sits 2 m from the pivot. If your weight on the other side is heavier, must it sit closer to the pivot or farther away to keep the beam level?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

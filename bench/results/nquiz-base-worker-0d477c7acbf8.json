@@ -1,0 +1,244 @@
+{
+  "label": "nquiz-base",
+  "benchKind": "worker",
+  "commitSHA": "0d477c7acbf8",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T15:22:33.153Z",
+  "runCount": 3,
+  "port": 8791,
+  "interleavedWith": [
+    "nquiz-neon"
+  ],
+  "summary": [
+    {
+      "caseId": "video-quiz-plan",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 13423,
+        "p95": 14884,
+        "min": 12384,
+        "max": 14884
+      },
+      "firstByteMs": {
+        "p50": 13422,
+        "p95": 14883,
+        "min": 12384,
+        "max": 14883
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 763,
+      "meanCacheReadTokens": 1527,
+      "meanOutputTokens": 1770,
+      "meanCostUSD": 0.01977
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 19394,
+        "p95": 23344,
+        "min": 19331,
+        "max": 23344
+      },
+      "firstByteMs": {
+        "p50": 19393,
+        "p95": 23344,
+        "min": 19330,
+        "max": 23344
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 2918,
+      "meanCacheReadTokens": 558,
+      "meanOutputTokens": 2627,
+      "meanCostUSD": 0.03363
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 14882.961584,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 14883.958375,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 2290,
+          "cacheReadTokens": 0,
+          "outputTokens": 1743
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.023163,
+      "quality": {
+        "passed": true,
+        "detail": "4 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"chambers\",\"top\"],\"explanation\":\"The two upper chambers of the heart are called the atria. They sit above the ventricles, which do most of the pumping.\",\"sourceLineSeconds\":24,\"subject\":\"human heart showing the two upper atria\"},{\"pauseAtSeconds\":84,\"question\":\"Which blood vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps\"],\"explanation\":\"The pulmonary artery carrie"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 13422.079166999989,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 13423.005374999979,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2290,
+          "outputTokens": 1773
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.017967,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"chambers\",\"top\"],\"explanation\":\"The two upper chambers of the heart are called the atria. The lower chambers, the ventricles, come next and do most of the pumping.\",\"sourceLineSeconds\":24,\"subject\":\"human heart atria upper chambers\"},{\"pauseAtSeconds\":84,\"question\":\"Which blood vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps\"],\"explanation\":\"The right ventricle p"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 12383.849083000037,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 12384.430082999985,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2290,
+          "outputTokens": 1794
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.018177,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"chambers\",\"receive\"],\"explanation\":\"The two upper chambers of the heart are called the atria. The ventricles below them do most of the pumping.\",\"sourceLineSeconds\":24,\"subject\":\"human heart with the two upper atria highlighted\"},{\"pauseAtSeconds\":84,\"question\":\"Which vessel carries blood from the right ventricle to the lungs?\",\"answerLabel\":\"Pulmonary artery\",\"functionWords\":[\"lungs\",\"carries\",\"pumps\"],\"explanation\":\"The right ventricle pumps blood"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 19392.769207999983,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 19394.001583000005,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 1802,
+          "cacheReadTokens": 1674,
+          "outputTokens": 2436
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0290404,
+      "quality": {
+        "passed": true,
+        "detail": "7 moments at 36, 96, 204, 276, 384, 444, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Sharks have been in the oceans for more than four hundred million years. Which famous group of animals came after them?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"older\",\"earlier\",\"ancient\",\"before\"],\"explanation\":\"Dinosaurs came after sharks. Sharks first appeared long before the dinosaurs did.\",\"sourceLineSeconds\":24,\"subject\":\"prehistoric shark swimming beside a dinosaur silhouette\"},{\"pauseAtSeconds\":96,\"question\":\"Most fish float with a gas-filled swim bladder. Which organ does a shark use instead?\",\"answerLabel\":\"Liver\",\"functionWords\":[\"flo"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 23343.780625000014,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 23344.46645800001,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 3476,
+          "cacheReadTokens": 0,
+          "outputTokens": 2961
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.038308,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 96, 216, 276, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Sharks first appeared in the oceans long before which famous group of prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"ancient\",\"older\",\"earlier\"],\"explanation\":\"Dinosaurs came after sharks. Sharks first appeared more than four hundred million years ago.\",\"sourceLineSeconds\":24,\"subject\":\"prehistoric shark swimming in an ancient ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Sharks have no swim bladder. What organ works as their built-in float instead?\",\"answerLabel\":\"Liver\",\"functionWords\":[\"floats\",\"oil\",\"lighter\",\"buoyancy\",\"f"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 19330.44537500001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 19331.085166999954,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 3476,
+          "cacheReadTokens": 0,
+          "outputTokens": 2483
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.033528,
+      "quality": {
+        "passed": true,
+        "detail": "6 moments at 36, 108, 204, 288, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Sharks first appeared in the oceans long before which famous prehistoric animals?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"before\",\"older\",\"ancient\",\"earlier\"],\"explanation\":\"Sharks showed up more than four hundred million years ago, long before the dinosaurs. That makes them one of the oldest animal groups still alive.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":108,\"question\":\"Which organ lets a shark float without a swim bladder?\",\"answerLabel\":\"Liver\",\"functionWords\":[\"oil\",\"float\",\"li"
+    }
+  ]
+}

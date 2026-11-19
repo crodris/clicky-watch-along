@@ -149,6 +149,8 @@ final class CompanionManager: ObservableObject {
     /// screen was busy as it finished, until the learner says "show the model" or "show the experiment".
     private var readyBackgroundScene: ReadyBackgroundScene?
     private lazy var taskAgentClient = TaskAgentClient(workerBaseURL: Self.workerBaseURL)
+    /// The Go helper process that runs every task agent's loop. The app answers the tools it asks for.
+    private lazy var agentHarness = AgentHarness(workerBaseURL: Self.workerBaseURL)
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
     /// the video, and it stays so they can ask again.
     private var readyTaskAnswer: String?
@@ -1325,7 +1327,7 @@ final class CompanionManager: ObservableObject {
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
         liveScenePageOnScreen = .framePopout(framePopout)
-        // Opus draws the flows while the tour plays, and the page starts them when the tour ends.
+        // Sonnet draws the flows while the tour plays, and the page starts them when the tour ends.
         // A tap that stops the narration keeps the pop-out, so the flows task runs on, and showPictureFlows
         // drops them only when a newer request or another page took over.
         let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows
@@ -2538,68 +2540,35 @@ final class CompanionManager: ObservableObject {
         return .changed(state: .object(["task": .string("started")]))
     }
 
-    /// The loop: one POST /background-agent turn at a time, running the app's tools between turns, until the agent
-    /// calls finish or stops, within mostTaskAgentTurns. Nothing is spoken while it runs.
+    /// Starts the task on the agent harness, which runs Claude's loop, and answers each tool it asks for until the task
+    /// finishes or fails. Nothing is spoken while it runs. Cancelling this task stops the task in the harness.
     private func runTheTaskAgent(goal: String, agentID: UUID) async {
         let startedAt = Date()
         let frontTab = videoQuizSession.frontTabTitleAndURLOfTheFrontWindow()
-        var messages: [JSONValue] = [.object([
-            "role": .string("user"),
-            "content": .string(taskAgentFirstMessage(goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url)),
-        ])]
         var writtenPageURL: URL?
         do {
-            for turnNumber in 1...mostTaskAgentTurns {
-                let turn = try await taskAgentClient.requestTurn(messages: messages)
+            let taskEvents = try agentHarness.startTask(taskID: agentID, goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url)
+            for await taskEvent in taskEvents {
                 try Task.checkCancellation()
-                messages.append(.object(["role": .string("assistant"), "content": .array(turn.assistantContent)]))
-                switch taskAgentNextStep(after: turn) {
-                case .continueThePausedTurn:
-                    continue
-                case .finish(let spokenSummary, let otherCalls):
-                    var toolResultBlocks: [JSONValue] = []
-                    for toolCall in otherCalls {
-                        let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
-                        writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
-                        toolResultBlocks.append(toolRun.toolResultBlock)
-                    }
+                switch taskEvent {
+                case .toolCall(let toolCall):
+                    let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
+                    writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
                     try Task.checkCancellation()
-                    // A page refused in the same turn as finish goes back to the agent with a finish that did not
-                    // count, so it writes the page again instead of the task ending without one.
-                    if taskAgentFinishWaitsForTheRefusedPage(otherCalls: otherCalls, pageWasWritten: writtenPageURL != nil, isTheLastTurn: turnNumber == mostTaskAgentTurns),
-                       let finishCall = turn.toolCalls.first(where: { $0.name == TaskAgentTool.finish.rawValue }) {
-                        toolResultBlocks.append(.object([
-                            "type": .string("tool_result"),
-                            "tool_use_id": .string(finishCall.id),
-                            "content": .string("Not finished: the page was not written. Fix it, write it, then call finish again."),
-                            "is_error": .bool(true),
-                        ]))
-                        messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
-                        continue
-                    }
-                    guard !spokenSummary.isEmpty else { throw TaskAgentError.endedWithNoAnswer }
-                    print("Task agent: finished in \(Int(Date().timeIntervalSince(startedAt))) s after \(turnNumber) turns")
+                    agentHarness.sendToolResult(taskID: agentID, toolUseID: toolCall.toolUseID, content: toolRun.content, isError: toolRun.isError)
+                case .finished(let spokenSummary):
                     finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
                     return
-                case .endedWithText(let finalText):
-                    guard !finalText.isEmpty else { throw TaskAgentError.endedWithNoAnswer }
-                    print("Task agent: ended without finish in \(Int(Date().timeIntervalSince(startedAt))) s, so its last words are the answer")
-                    finishTheTaskAgent(agentID, spokenSummary: finalText, pageURL: writtenPageURL)
-                    return
-                case .runTools(let toolCalls):
-                    var toolResultBlocks: [JSONValue] = []
-                    for toolCall in toolCalls {
-                        let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
-                        writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
-                        toolResultBlocks.append(toolRun.toolResultBlock)
-                    }
-                    try Task.checkCancellation()
-                    messages.append(.object(["role": .string("user"), "content": .array(toolResultBlocks)]))
+                case .failed(let reason):
+                    throw TaskAgentError.harnessReportedFailure(reason: reason)
                 }
             }
-            throw TaskAgentError.ranOutOfTurns
+            // The stream also ends when this task is cancelled, which is not a failure.
+            try Task.checkCancellation()
+            throw TaskAgentError.harnessEndedWithNoResult
         } catch {
             if Task.isCancelled || errorIsACancellation(error) {
+                agentHarness.cancelTask(taskID: agentID)
                 print("Task agent: cancelled after \(Int(Date().timeIntervalSince(startedAt))) s")
                 return
             }
@@ -2609,24 +2578,19 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Runs one app tool for the agent and returns its tool_result block. A tool that fails returns an error result,
+    /// Runs one app tool for the agent and returns its tool_result content. A tool that fails returns an error result,
     /// so the agent can work around it instead of the task failing.
-    private func runTaskAgentTool(_ toolCall: VoiceToolCall, agentID: UUID, pageAlreadyWritten: Bool) async -> (toolResultBlock: JSONValue, writtenPageURL: URL?) {
-        func toolResult(_ content: JSONValue, isError: Bool = false) -> JSONValue {
-            .object([
-                "type": .string("tool_result"),
-                "tool_use_id": .string(toolCall.id),
-                "content": content,
-                "is_error": .bool(isError),
-            ])
+    private func runTaskAgentTool(_ toolCall: HarnessToolCall, agentID: UUID, pageAlreadyWritten: Bool) async -> (content: JSONValue, isError: Bool, writtenPageURL: URL?) {
+        func errorResult(_ message: String) -> (content: JSONValue, isError: Bool, writtenPageURL: URL?) {
+            (.string(message), true, nil)
         }
-        switch TaskAgentTool(rawValue: toolCall.name) {
+        switch TaskAgentTool(rawValue: toolCall.toolName) {
         case .reportStep:
             let stepText = (toolCall.input["step"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !stepText.isEmpty {
                 backgroundAgentStore.reportStep(String(stepText.prefix(60)), for: agentID)
             }
-            return (toolResult(.string("shown")), nil)
+            return (.string("shown"), false, nil)
         case .readVideoCaptions:
             do {
                 let video = try await videoQuizSession.frontVideoForStudyGuide()
@@ -2634,40 +2598,40 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
-                return (toolResult(.string(String(captionsResult.prefix(longestTaskAgentCaptionText)))), nil)
+                return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil)
             } catch {
-                return (toolResult(.string((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab"), isError: true), nil)
+                return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
             }
         case .lookAtVideo:
             // The agent also reads web pages, which could ask it to look around the screen, so it sees only the video's
             // area, from Chrome's windows alone, and nothing when no video is found.
             guard let videoRect = VideoQuizSession.screenRectOfTheMediaToRiseFrom(),
                   let videoGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(videoRect) else {
-                return (toolResult(.string("No video is on screen to look at"), isError: true), nil)
+                return errorResult("No video is on screen to look at")
             }
-            return (toolResult(.array([.object([
+            return (.array([.object([
                 "type": .string("image"),
                 "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(videoGrab.jpeg)]),
-            ])])), nil)
+            ])]), false, nil)
         case .writeNotionPage:
             guard !pageAlreadyWritten else {
-                return (toolResult(.string("A page was already written for this task"), isError: true), nil)
+                return errorResult("A page was already written for this task")
             }
             if let pageInputProblem = taskAgentPageInputProblem(toolCall.input) {
-                return (toolResult(.string(pageInputProblem), isError: true), nil)
+                return errorResult(pageInputProblem)
             }
             backgroundAgentStore.reportStep("Writing the page in Notion", for: agentID)
             do {
                 let pageURL = try await taskAgentClient.writeNotionPage(toolCall.input)
                 print("Task agent: wrote \(pageURL)")
-                return (toolResult(.string("Written: \(pageURL.absoluteString)")), pageURL)
+                return (.string("Written: \(pageURL.absoluteString)"), false, pageURL)
             } catch {
                 print("Task agent: the Notion page failed: \(error)")
-                return (toolResult(.string("The page could not be written: \(error)"), isError: true), nil)
+                return errorResult("The page could not be written: \(error)")
             }
-        case .finish, nil:
-            // finish never reaches here, since the loop ends on it. Any other name was not offered.
-            return (toolResult(.string("\(toolCall.name) is not a tool"), isError: true), nil)
+        case nil:
+            // The harness asks only for the four tools, so this is a harness newer than the app.
+            return errorResult("\(toolCall.toolName) is not a tool")
         }
     }
 

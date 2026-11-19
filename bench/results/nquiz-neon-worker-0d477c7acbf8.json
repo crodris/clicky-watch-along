@@ -1,0 +1,205 @@
+{
+  "label": "nquiz-neon",
+  "benchKind": "worker",
+  "commitSHA": "0d477c7acbf8",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T15:22:33.177Z",
+  "runCount": 3,
+  "port": 8798,
+  "interleavedWith": [
+    "nquiz-base"
+  ],
+  "summary": [
+    {
+      "caseId": "video-quiz-plan",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 104056,
+        "p95": 119612,
+        "min": 53183,
+        "max": 119612
+      },
+      "firstByteMs": {
+        "p50": 104055,
+        "p95": 119611,
+        "min": 53183,
+        "max": 119611
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1726,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 11170,
+      "meanCostUSD": 0.17273
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [],
+      "serviceTiers": [],
+      "runs": 3,
+      "qualityPassed": 0,
+      "totalMs": {
+        "p50": 301073,
+        "p95": 301090,
+        "min": 301035,
+        "max": 301090
+      },
+      "firstByteMs": {
+        "p50": 301073,
+        "p95": 301090,
+        "min": 301035,
+        "max": 301090
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 0,
+      "meanInputTokens": 0,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 0,
+      "meanCostUSD": null
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 119611.07475,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 119611.762541,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gemini-4-neon",
+          "inputTokens": 1726,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 14493
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.222573,
+      "quality": {
+        "passed": true,
+        "detail": "3 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":24,\"question\":\"What protects the heart where it sits in the middle of your chest?\",\"answerLabel\":\"Rib cage\",\"functionWords\":[\"protects\",\"protected\",\"protect\",\"protection\"],\"explanation\":\"The rib cage protects your heart. Because your heart sits in the middle of your chest, tilted slightly to the left, the rib cage is there to protect it.\",\"sourceLineSeconds\":12,\"subject\":\"human heart inside rib cage\"},{\"pauseAtSeconds\":96,\"question\":\"Where does the right ventricle pump blood, and what happens to the blood once it gets there?\",\"answerLabel\":\"Lungs\",\"functionWords\":"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 104055.2585,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 104056.05516599998,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gemini-4-neon",
+          "inputTokens": 1726,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 12343
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.190323,
+      "quality": {
+        "passed": true,
+        "detail": "3 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":24,\"question\":\"What protects your heart as it sits in the middle of your chest?\",\"answerLabel\":\"Rib cage\",\"functionWords\":[\"protects\",\"heart\",\"chest\"],\"explanation\":\"The rib cage protects your heart. Your heart sits in the middle of your chest, tilted slightly to the left.\",\"sourceLineSeconds\":12,\"subject\":\"human rib cage and heart\"},{\"pauseAtSeconds\":132,\"question\":\"Which chamber of the heart has the thickest wall, and why does it need to be so thick?\",\"answerLabel\":\"Left ventricle\",\"functionWords\":[\"pumps\",\"blood\",\"entire\",\"body\"],\"explanation\":\"The left ventric"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 53182.638749999984,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 53183.02875,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gemini-4-neon",
+          "inputTokens": 1726,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 6675
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.105303,
+      "quality": {
+        "passed": true,
+        "detail": "3 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":24,\"question\":\"What protects the heart in the middle of your chest?\",\"answerLabel\":\"Rib cage\",\"functionWords\":[\"protects\",\"protection\"],\"explanation\":\"The rib cage protects your heart. Your heart sits in the middle of your chest, tilted slightly to the left.\",\"sourceLineSeconds\":12,\"subject\":\"human rib cage and heart\"},{\"pauseAtSeconds\":132,\"question\":\"Which heart chamber has the thickest wall, and why does it need to be so thick?\",\"answerLabel\":\"Left ventricle\",\"functionWords\":[\"pumps\",\"blood\",\"body\"],\"explanation\":\"The left ventricle has the thickest wall of any"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "firstByteMs": 301073.27945800003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 301073.27945800003,
+      "usageLines": [],
+      "ttsCharacters": 0,
+      "costUSD": null,
+      "quality": {
+        "passed": false,
+        "detail": "no reply after 301 s: Headers Timeout Error"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "firstByteMs": 301089.5889170001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 301089.5889170001,
+      "usageLines": [],
+      "ttsCharacters": 0,
+      "costUSD": null,
+      "quality": {
+        "passed": false,
+        "detail": "no reply after 301 s: Headers Timeout Error"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "firstByteMs": 301035.14650000015,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 301035.14650000015,
+      "usageLines": [],
+      "ttsCharacters": 0,
+      "costUSD": null,
+      "quality": {
+        "passed": false,
+        "detail": "no reply after 301 s: Headers Timeout Error"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

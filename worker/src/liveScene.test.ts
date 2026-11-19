@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { configureBenchModelOverride } from "./benchModelOverride";
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 
 const judgeRequest = {
@@ -17,6 +18,7 @@ function verdictReply(text: string): Response {
 }
 
 afterEach(() => {
+  configureBenchModelOverride({});
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -149,6 +151,38 @@ const simulationModelReply =
 
 const sceneKeys = { OPENAI_API_KEY: "openai-key", ANTHROPIC_API_KEY: "anthropic-key" };
 
+describe("handleLiveScene with a benchmark BENCH_MODEL", () => {
+  it("runs a gpt-* model on the GPT request, at the standard tier unless BENCH_SERVICE_TIER names one", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: sceneModelReply })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    configureBenchModelOverride({ BENCH_MODEL: "gpt-6.2-astra", BENCH_EFFORT: "minimal", OPENAI_API_KEY: "openai-key" });
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.openai.com/v1/responses");
+    const standardTierBody: unknown = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body));
+    expect(standardTierBody).toMatchObject({ model: "gpt-6.2-astra", reasoning: { effort: "minimal" }, instructions: expect.any(String) });
+    expect(standardTierBody).not.toHaveProperty("service_tier");
+
+    configureBenchModelOverride({ BENCH_MODEL: "gpt-6.1-sol", BENCH_SERVICE_TIER: "ultrafast", OPENAI_API_KEY: "openai-key" });
+    await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_MODEL: "sonnet" });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1].body))).toMatchObject({ model: "gpt-6.1-sol", service_tier: "ultrafast", reasoning: { effort: "medium" } });
+  });
+
+  it("runs any other model on the Claude request at the Claude scene effort, whatever LIVE_SCENE_MODEL says", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    configureBenchModelOverride({ BENCH_MODEL: "claude-haiku-5-5" });
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.anthropic.com/v1/messages");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toMatchObject({ model: "claude-haiku-5-5", output_config: { effort: "low" } });
+  });
+});
+
 describe("handleLiveScene model setting", () => {
   it("asks GPT when LIVE_SCENE_MODEL is not set and logs its token usage", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -232,6 +266,22 @@ describe("handleLiveScene model setting", () => {
     for (const marker of ["rotateBy(", "endTour()", "getState()", "isOuterShell", "renderer.localClippingEnabled = true"]) {
       expect(systemText).toContain(marker);
     }
+  });
+
+  it("builds a simulation on GPT-6.2 Sol and a 3D model, or an older app's request, on GPT-6.1 Sol, both at Ultrafast", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: simulationModelReply })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sceneKeys);
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "model" }), sceneKeys);
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+
+    const sentModels = fetchMock.mock.calls.map((call) => {
+      const sentBody = JSON.parse(String(call[1].body));
+      return `${sentBody.model} ${sentBody.service_tier}`;
+    });
+    expect(sentModels).toEqual(["gpt-6.2-sol ultrafast", "gpt-6.1-sol ultrafast", "gpt-6.1-sol ultrafast"]);
   });
 
   it("sends the simulation rules only when the request kind is simulation", async () => {

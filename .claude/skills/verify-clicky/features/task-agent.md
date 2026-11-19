@@ -6,7 +6,8 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 
 ## Sub-features
 
-- `task-route` is `/background-agent`, one turn with Sonnet 5.5, web search, web fetch, and the app's tools, which returns every content block and the stop reason.
+- `task-harness` is the Go helper `harness/`, bundled as `Contents/Helpers/clicky-agent-harness`, which runs the agent's loop with Sonnet 5.5, web search, web fetch, and the app's tools. It talks to the app in JSON lines on stdin and stdout.
+- `task-route` is the Worker's `/v1/messages` passthrough, which the harness's Anthropic SDK calls. It forwards the body and the stream unchanged and needs the app secret.
 - `task-page` is `/notion-page`, which writes a private page with a summary, sections, and linked sources, and returns `{ pageURL }`.
 - `task-router` sends "find out", "look up", "research", and "compare" requests to `start_background_task`, and "what did you find" to `hear_task_answer`, which the router takes until the answer is heard, even with no video in front.
 - `task-steps` shows each `report_step` on the wingman's line and as the list's checklist.
@@ -23,11 +24,13 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 
 Preconditions:
 
-- A Worker this run started on 8787 or 8789, and `worker/.dev.vars` with `NOTION_API_KEY` for the page and `CLICKY_APP_SECRET`, which `/background-agent` and `/notion-page` require.
-- **Cost ceiling.** One `[/background-agent]` usage line per turn, and a task ends within 14 turns. A take that compared two booster catches and wrote a page took 4 turns.
+- A Worker this run started on 8787 or 8789, and `worker/.dev.vars` with `NOTION_API_KEY` for the page and `CLICKY_APP_SECRET`, which `/v1/messages` and `/notion-page` require.
+- Go, for the app's "Build Agent Harness" build phase and for `cd harness && go test ./...`.
+- **Cost ceiling.** The Worker no longer logs usage for these turns, so the harness logs one `Task agent: turn N stopped for ..., tokens in ..., out ...` line per turn into the app log. A task ends within 14 turns. A take that compared two booster catches and wrote a page took 4 turns.
 
-- **Route loop.** Post a first turn to `/background-agent` with `{ messages: [{ role: "user", content: "Task from the learner: ..." }], tools: [...] }`, the tools being `TaskAgentTool`'s descriptors, and keep posting with the reply's `content` appended as the assistant turn and a `tool_result` for each `tool_use`.
-  The replies hold `server_tool_use` blocks for `web_search`, and the loop ends on a `finish` call within a few turns.
+- **Harness loop.** Build the harness with `cd harness && go build -o /tmp/clicky-agent-harness .`, then run it with `CLICKY_WORKER_BASE_URL=http://127.0.0.1:8787 CLICKY_APP_SECRET=<the secret> /tmp/clicky-agent-harness`, and write `{"type":"start_task","taskID":"t1","goal":"...","frontTabTitle":null,"frontTabURL":null}` to its stdin.
+  It answers with `tool_call` lines for `report_step`, `read_video_captions`, `look_at_video`, and `write_notion_page`, and you reply to each with `{"type":"tool_result","taskID":"t1","toolUseID":"...","content":"shown","isError":false}`.
+  The loop ends on a `task_finished` or `task_failed` line, within a few turns, and every line it writes is JSON.
   Post a `write_notion_page` input to `/notion-page` and the reply holds a `notion.com` `pageURL`.
 - **In the app.** Run `$V app-launch "play the video"` with a YouTube video in front, then post `tools/call` for `start_background_task` with `{"goal":"find out how this compares to the first booster catch, and make me a Notion page about it"}` to `http://127.0.0.1:8790/mcp`.
   The app log shows `Task agent: finished in N s after M turns`, `Task agent: wrote https://...`, and a teal wingman shows the reported steps meanwhile.

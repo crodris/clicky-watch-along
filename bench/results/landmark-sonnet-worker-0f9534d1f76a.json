@@ -1,0 +1,357 @@
+{
+  "label": "landmark-sonnet",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:21:12.696Z",
+  "runCount": 5,
+  "port": 8793,
+  "interleavedWith": [
+    "landmark-base",
+    "landmark-haiku",
+    "landmark-opus",
+    "landmark-fable",
+    "landmark-sol62",
+    "landmark-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "landmark",
+      "route": "/landmark",
+      "description": "Recognizes the Eiffel Tower in a 1280x720 frame",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1917,
+        "p95": 1947,
+        "min": 1829,
+        "max": 1947
+      },
+      "firstByteMs": {
+        "p50": 1917,
+        "p95": 1946,
+        "min": 1828,
+        "max": 1946
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1239,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 741,
+      "meanOutputTokens": 76,
+      "meanCostUSD": 0.00331
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "route": "/landmark",
+      "description": "Says a heart diagram is not a famous place",
+      "models": [
+        "claude-sonnet-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1118,
+        "p95": 1822,
+        "min": 1070,
+        "max": 1822
+      },
+      "firstByteMs": {
+        "p50": 1117,
+        "p95": 1821,
+        "min": 1070,
+        "max": 1821
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1238,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 741,
+      "meanOutputTokens": 62,
+      "meanCostUSD": 0.00317
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "landmark",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1945.9365830000006,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1946.518083,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0033121,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1945.6372499999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1946.1087920000027,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0033121,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1917.0087920000005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1917.4782919999998,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0033121,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1882.228584000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1882.7583339999983,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0033121,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1828.234666999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1829.2225829999952,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 76
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0033121,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1821.3561659999978,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1821.7525000000023,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0031701,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1097.3792499999981,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1098.353415999998,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0031701,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1069.8027090000105,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1070.47054200001,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0031701,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1140.389750000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1140.8732920000039,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0031701,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1117.1722909999953,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1117.6185410000035,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "claude-sonnet-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 1238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 741,
+          "outputTokens": 62
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0031701,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    }
+  ]
+}

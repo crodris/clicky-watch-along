@@ -67,6 +67,78 @@ describe("system prompt caching on the Anthropic calls", () => {
   });
 });
 
+describe("POST /v1/messages", () => {
+  const messagesEnv = { ...testEnv, CLICKY_APP_SECRET: "app-secret" };
+  const streamedReply = 'event: message_start\ndata: {"type":"message_start"}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n';
+
+  function messagesRequest(headers: Record<string, string>, body: string): Request {
+    return new Request("http://127.0.0.1:8787/v1/messages", { method: "POST", body, headers });
+  }
+
+  it("refuses a caller without the app secret before calling Anthropic", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await worker.fetch(messagesRequest({ "x-api-key": "caller-key" }, "{}"), messagesEnv);
+
+    expect(response.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the body to Anthropic unchanged with the Worker's key, and streams the reply back", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      new Response(streamedReply, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const requestBodyText = JSON.stringify({ model: "claude-sonnet-5-5", stream: true, messages: [{ role: "user", content: "hi" }] });
+
+    const response = await worker.fetch(
+      messagesRequest(
+        { "x-clicky-app-secret": "app-secret", "x-api-key": "caller-key", "anthropic-version": "2000-01-01", "anthropic-beta": "some-beta-2026-01-01" },
+        requestBodyText,
+      ),
+      messagesEnv,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(await response.text()).toBe(streamedReply);
+    const [forwardedURL, forwardedInit] = fetchMock.mock.calls[0] ?? [];
+    expect(forwardedURL).toBe("https://api.anthropic.com/v1/messages");
+    expect(forwardedInit?.body).toBe(requestBodyText);
+    expect(forwardedInit?.headers).toEqual({
+      "x-api-key": "anthropic-key",
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "anthropic-beta": "some-beta-2026-01-01",
+    });
+  });
+
+  it("forwards the anthropic-beta header on /v1/messages but never on /chat, which has no secret gate", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const betaHeaders = { "x-clicky-app-secret": "app-secret", "anthropic-beta": "some-beta-2026-01-01" };
+
+    await worker.fetch(new Request("http://127.0.0.1:8787/chat", { method: "POST", body: "{}", headers: betaHeaders }), messagesEnv);
+    await worker.fetch(messagesRequest(betaHeaders, "{}"), messagesEnv);
+
+    const [chatInit, messagesInit] = fetchMock.mock.calls.map((fetchCall) => fetchCall[1]);
+    expect(chatInit?.headers).toEqual({ "x-api-key": "anthropic-key", "anthropic-version": "2023-06-01", "content-type": "application/json" });
+    expect(messagesInit?.headers).toMatchObject({ "anthropic-beta": "some-beta-2026-01-01" });
+  });
+
+  it("passes an Anthropic error back with its status and body, so the SDK reports the real cause", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"type":"error","error":{"type":"overloaded_error"}}', { status: 529 })));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await worker.fetch(messagesRequest({ "x-clicky-app-secret": "app-secret" }, "{}"), messagesEnv);
+
+    expect(response.status).toBe(529);
+    expect(await response.json()).toEqual({ type: "error", error: { type: "overloaded_error" } });
+  });
+});
+
 describe("an error no route handles", () => {
   it("answers 500 with a fixed message, never the raw error text", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
@@ -131,7 +203,7 @@ describe("the app secret on the gated routes", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/background-agent"]) {
+    for (const path of ["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages"]) {
       expect((await worker.fetch(postTo(path, {}), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secreT" }), notionEnv)).status).toBe(401);
       expect((await worker.fetch(postTo(path, { "x-clicky-app-secret": "app-secret" }), { ...notionEnv, CLICKY_APP_SECRET: undefined })).status).toBe(401);

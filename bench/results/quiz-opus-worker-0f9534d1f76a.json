@@ -1,0 +1,285 @@
+{
+  "label": "quiz-opus",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:16:14.561Z",
+  "runCount": 3,
+  "port": 8794,
+  "interleavedWith": [
+    "quiz-base",
+    "quiz-haiku",
+    "quiz-sonnet",
+    "quiz-fable",
+    "quiz-sol62",
+    "quiz-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "video-quiz-plan",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 9996,
+        "p95": 10259,
+        "min": 9570,
+        "max": 10259
+      },
+      "firstByteMs": {
+        "p50": 9995,
+        "p95": 10259,
+        "min": 9569,
+        "max": 10259
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 3,
+      "meanInputTokens": 4,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 2290,
+      "meanOutputTokens": 1031,
+      "meanCostUSD": 0.02109
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [
+        "claude-opus-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 56533,
+        "p95": 59144,
+        "min": 26774,
+        "max": 59144
+      },
+      "firstByteMs": {
+        "p50": 56533,
+        "p95": 59143,
+        "min": 26773,
+        "max": 59143
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 6.666666666666667,
+      "meanInputTokens": 71,
+      "meanCacheWriteTokens": 601,
+      "meanCacheReadTokens": 7510,
+      "meanOutputTokens": 5015,
+      "meanCostUSD": 0.10509
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 9994.720874999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 9995.698000000004,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2290,
+          "outputTokens": 1051
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.021494,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":48,\"question\":\"Which two lower chambers of the heart do most of the pumping?\",\"answerLabel\":\"Ventricles\",\"functionWords\":[\"pumping\",\"lower\",\"chambers\"],\"explanation\":\"The ventricles are the two lower chambers of the heart. They do most of the pumping.\",\"sourceLineSeconds\":36,\"subject\":\"human heart ventricles\"},{\"pauseAtSeconds\":96,\"question\":\"Where does blood go to drop off carbon dioxide and pick up fresh oxygen?\",\"answerLabel\":\"Lungs\",\"functionWords\":[\"oxygen\",\"exchange\",\"breathing\"],\"explanation\":\"The blood travels to the lungs. There it drops off carbon dioxid"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 10258.928541000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 10259.275915999999,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2290,
+          "outputTokens": 1034
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.021154,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"What are the two upper chambers of the heart called?\",\"answerLabel\":\"Atria\",\"functionWords\":[\"upper\",\"chambers\",\"receive\"],\"explanation\":\"The two upper chambers of the heart are called the atria. They are two of the heart's four chambers.\",\"sourceLineSeconds\":24,\"subject\":\"human heart atria\"},{\"pauseAtSeconds\":96,\"question\":\"Where does blood go to drop off carbon dioxide and pick up fresh oxygen?\",\"answerLabel\":\"Lungs\",\"functionWords\":[\"oxygen\",\"exchange\",\"breathing\"],\"explanation\":\"The blood goes to the lungs. There it drops off carbon dioxide and "
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 9569.018791999988,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 9569.840792000003,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2290,
+          "outputTokens": 1008
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.020634,
+      "quality": {
+        "passed": true,
+        "detail": "5 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":48,\"question\":\"Which two lower chambers of the heart do most of the pumping?\",\"answerLabel\":\"Ventricles\",\"functionWords\":[\"pumping\",\"chambers\",\"lower\"],\"explanation\":\"The ventricles are the two lower chambers of the heart. They do most of the pumping work.\",\"sourceLineSeconds\":36,\"subject\":\"human heart ventricles\"},{\"pauseAtSeconds\":96,\"question\":\"Where does blood drop off carbon dioxide and pick up fresh oxygen?\",\"answerLabel\":\"Lungs\",\"functionWords\":[\"oxygen\",\"exchange\",\"breathing\"],\"explanation\":\"The blood goes to the lungs to get fresh oxygen. There it also dr"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 502,
+      "firstByteMs": 59143.479333000025,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 59143.99516699999,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 1802,
+          "cacheReadTokens": 1674,
+          "outputTokens": 1916
+        },
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 50,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3476,
+          "outputTokens": 1780
+        },
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 50,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3476,
+          "outputTokens": 2586
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.1367912,
+      "quality": {
+        "passed": false,
+        "detail": "HTTP 502: {\"error\":\"moments at 168 and 216 are too close together, spread them across the video\"}"
+      },
+      "replyPreview": "{\"error\":\"moments at 168 and 216 are too close together, spread them across the video\"}"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 26772.84945800004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 26773.522792000032,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3476,
+          "outputTokens": 2727
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0552512,
+      "quality": {
+        "passed": true,
+        "detail": "7 moments at 36, 96, 204, 276, 336, 420, 540"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Sharks first appeared more than four hundred million years ago. Which famous ancient animals did they come long before?\",\"answerLabel\":\"Dinosaurs\",\"functionWords\":[\"ancient\",\"older\",\"survivors\"],\"explanation\":\"Sharks showed up long before the dinosaurs did. That makes them one of the oldest kinds of animals in the ocean.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in a prehistoric ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Sharks have no swim bladder. What body part helps them stay up in the water instead?\",\"answerLabel\":\"Liver\",\"functio"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 502,
+      "firstByteMs": 56532.69641600002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 56533.24875000003,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 4,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3476,
+          "outputTokens": 2415
+        },
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 50,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3476,
+          "outputTokens": 1854
+        },
+        {
+          "route": "/video-quiz-plan",
+          "model": "claude-opus-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 50,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3476,
+          "outputTokens": 1768
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.12324159999999998,
+      "quality": {
+        "passed": false,
+        "detail": "HTTP 502: {\"error\":\"moments at 156 and 204 are too close together, spread them across the video\"}"
+      },
+      "replyPreview": "{\"error\":\"moments at 156 and 204 are too close together, spread them across the video\"}"
+    }
+  ]
+}

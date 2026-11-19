@@ -19,11 +19,13 @@ const caseLabels: Record<string, string> = {
   "frame-parts-print": "Pop-out parts, woodblock print",
   "frame-parts-art-of-one-animal": "Pop-out parts, art of one animal",
   "frame-parts-bicycle": "Pop-out parts, bicycle diagram",
+  "frame-parts-chart": "Pop-out parts, bar chart",
   "picture-flows-heart": "Picture flows, diagram",
   "picture-flows-water-cycle": "Picture flows, water cycle",
   "picture-flows-cutaway": "Picture flows, cutaway",
   "picture-flows-bicycle": "Picture flows, moving parts only",
   landmark: "Landmark lookup",
+  "landmark-not-a-place": "Landmark lookup, not a place",
   "live-scene": "3D live scene",
   "simulation-projectile": "Simulation, projectile",
   "simulation-lever": "Simulation, lever",
@@ -31,6 +33,10 @@ const caseLabels: Record<string, string> = {
   "simulation-dissolving": "Simulation, dissolving",
   "simulation-cooling": "Simulation, cooling",
   "voice-command": "Voice command, turn the model",
+  "voice-command-seek": "Voice command, seek the video",
+  "voice-command-zoom": "Voice command, zoom in",
+  "voice-command-explain": "Voice command, explain a part",
+  "voice-command-no-tool": "Voice command, no tool",
   "judge-correct": "Grade: correct answer",
   "judge-named-only": "Grade: name only",
   "judge-wrong": "Grade: wrong answer",
@@ -38,6 +44,10 @@ const caseLabels: Record<string, string> = {
   "judge-function-only": "Grade: function only",
   "judge-caption-supported": "Grade: caption answer",
   "judge-caption-wrong": "Grade: caption, wrong",
+  "judge-hint": "Grade: asks for a hint",
+  "judge-skip": "Grade: asks to skip",
+  "judge-repeat": "Grade: asks to repeat",
+  "judge-scene-command": "Grade: asks to turn the model",
 };
 
 type LatencySummary = { p50: number; p95: number; min: number; max: number };
@@ -46,6 +56,8 @@ type CaseSummary = {
   caseId: string;
   route: string;
   models: string[];
+  /** The service tiers OpenAI reported. Missing in results recorded before the benchmark kept them. */
+  serviceTiers?: string[];
   runs: number;
   qualityPassed: number;
   totalMs: LatencySummary;
@@ -134,6 +146,7 @@ function main() {
       side: workerResult.label,
       commit: workerResult.commitSHA,
       models: caseSummary.models.join(" "),
+      service_tiers: (caseSummary.serviceTiers ?? []).join(" "),
       runs: caseSummary.runs,
       passed: caseSummary.qualityPassed,
       p50_ms: caseSummary.totalMs.p50,
