@@ -283,22 +283,10 @@ export type AnthropicShapedMessage = {
   usage: { input_tokens: number; output_tokens: number };
 };
 
-export type OpenAIReplyMapping =
-  | {
-      ok: true;
-      message: AnthropicShapedMessage;
-      /** What logModelUsage reads: OpenAI's own usage fields, which the benchmark prices, plus the tier OpenAI used. */
-      usageForLog: { model: string | undefined; usage: Record<string, unknown> };
-    }
-  | { ok: false; error: string };
+export type OpenAIReplyMapping = { ok: true; message: AnthropicShapedMessage } | { ok: false; error: string };
 
 function numberOrZero(value: unknown): number {
   return typeof value === "number" ? value : 0;
-}
-
-/** The usage object that goes in the log line and in the stream's last event, with the tier OpenAI used. */
-function usageWithTier(usage: Record<string, unknown> | null | undefined, serviceTier: string | null | undefined): Record<string, unknown> {
-  return { ...usage, ...(serviceTier == null ? {} : { service_tier: serviceTier }) };
 }
 
 export function openAIResponseToAnthropicMessage(responseJSON: unknown): OpenAIReplyMapping {
@@ -359,7 +347,6 @@ export function openAIResponseToAnthropicMessage(responseJSON: unknown): OpenAIR
       stop_reason: stopReason,
       usage: { input_tokens: numberOrZero(response.usage?.input_tokens), output_tokens: numberOrZero(response.usage?.output_tokens) },
     },
-    usageForLog: { model: response.model, usage: usageWithTier(response.usage, response.service_tier ?? undefined) },
   };
 }
 
@@ -392,7 +379,12 @@ function thinkingIsOff(anthropicBody: unknown): boolean {
 }
 
 export type BenchOpenAIMessageResult =
-  | { ok: true; message: AnthropicShapedMessage; usageForLog: { model: string | undefined; usage: Record<string, unknown> } }
+  | {
+      ok: true;
+      message: AnthropicShapedMessage;
+      /** OpenAI's own reply, which logModelUsage reads: its usage fields, which the benchmark prices, and the tier it used. */
+      responseJSON: unknown;
+    }
   | { ok: false; status: number; error: string };
 
 /** One non-streaming call for requestAnthropicMessage: the Anthropic request in, an Anthropic-shaped message out. */
@@ -447,7 +439,7 @@ export async function requestBenchOpenAIMessage(
   if (!reply.ok) {
     return { ok: false, status: 502, error: reply.error };
   }
-  return reply;
+  return { ok: true, message: reply.message, responseJSON };
 }
 
 // ---------- /chat ----------
@@ -506,7 +498,8 @@ export function openAIStreamToAnthropicStream(): TransformStream<Uint8Array, Uin
         controller.enqueue(
           serverSentEvent("message_delta", {
             delta: { stop_reason: incompleteDetails.reason === "max_output_tokens" ? "max_tokens" : "end_turn", stop_sequence: null },
-            usage: usageWithTier(usage, typeof response.service_tier === "string" ? response.service_tier : undefined),
+            // OpenAI reports usage and the tier it used only here, so the benchmark reads both from this event.
+            usage: { ...usage, ...(typeof response.service_tier === "string" ? { service_tier: response.service_tier } : {}) },
           }),
         );
         controller.enqueue(serverSentEvent("message_stop", {}));

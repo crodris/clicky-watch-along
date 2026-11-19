@@ -16,17 +16,18 @@ const anthropicMessageSchema = z
   })
   .passthrough();
 
-const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()) });
+// OpenAI names the tier it used at the top of the reply, and Anthropic names it inside usage.
+const modelUsageSchema = z.object({ model: z.string().optional(), usage: z.record(z.unknown()), service_tier: z.string().nullish() });
 
 /**
  * Logs the token counts a model reply reports, so `wrangler tail` shows what each route spends.
- * The line also names the model, because the benchmark prices each line by it.
+ * The line also names the model and, for an OpenAI reply, the service tier, because the benchmark prices each line by them.
  */
 export function logModelUsage(routeName: string, modelResponseJSON: unknown): void {
   const parsedResponse = modelUsageSchema.safeParse(modelResponseJSON);
   if (parsedResponse.success) {
-    const { model, usage } = parsedResponse.data;
-    console.log(`[${routeName}] usage ${JSON.stringify({ model, ...usage })}`);
+    const { model, usage, service_tier } = parsedResponse.data;
+    console.log(`[${routeName}] usage ${JSON.stringify({ model, ...usage, ...(service_tier == null ? {} : { service_tier }) })}`);
   }
 }
 
@@ -121,7 +122,7 @@ export async function requestAnthropicMessage(
     if (!openAIReply.ok) {
       return { ok: false, response: jsonResponse({ error: openAIReply.error }, openAIReply.status) };
     }
-    logModelUsage(routeName, openAIReply.usageForLog);
+    logModelUsage(routeName, openAIReply.responseJSON);
     const parsedOpenAIMessage = anthropicMessageSchema.safeParse(openAIReply.message);
     if (!parsedOpenAIMessage.success) {
       return { ok: false, response: jsonResponse({ error: "OpenAI response had no content list" }, 502) };

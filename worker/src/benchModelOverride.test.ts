@@ -242,7 +242,7 @@ describe("anthropicBodyToOpenAIResponsesBody", () => {
 describe("openAIResponseToAnthropicMessage", () => {
   const usage = { input_tokens: 120, input_tokens_details: { cached_tokens: 100 }, output_tokens: 30, output_tokens_details: { reasoning_tokens: 10 } };
 
-  it("maps output text to a text block, drops reasoning items, and reports the usage and the tier OpenAI used", () => {
+  it("maps output text to a text block, drops reasoning items, and reports the token counts", () => {
     const reply = openAIResponseToAnthropicMessage({
       id: "resp_1",
       model: "gpt-6-luna-2026-11-12",
@@ -266,7 +266,6 @@ describe("openAIResponseToAnthropicMessage", () => {
         stop_reason: "end_turn",
         usage: { input_tokens: 120, output_tokens: 30 },
       },
-      usageForLog: { model: "gpt-6-luna-2026-11-12", usage: { ...usage, service_tier: "ultrafast" } },
     });
   });
 
