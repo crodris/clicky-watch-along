@@ -23,6 +23,13 @@ const openAIStandardPricesPerMillionTokens: Record<string, { input: number; cach
   "gpt-6-luna": { input: 0.5, cachedInput: 0.025, output: 2 },
 };
 
+// USD per million tokens, from Google's Gemini 4 Neon pricing as given on 2026-11-19. There are no service tiers in this bench.
+// The Worker maps Gemini's usage to the OpenAI field names, so cached tokens are counted inside input_tokens, and thinking
+// tokens are inside output_tokens, which Gemini bills as output.
+const geminiPricesPerMillionTokens: Record<string, { input: number; cachedInput: number; output: number }> = {
+  "gemini-4-neon": { input: 3, cachedInput: 0.15, output: 15 },
+};
+
 // What each service tier costs as a multiple of standard. Ultrafast is the multiple reported for GPT-6.1 Sol.
 // A tier missing here has no known price, so its cost is unknown.
 const openAIServiceTierPriceMultiples: Record<string, number> = { default: 1, auto: 1, standard: 1, ultrafast: 6 };
@@ -63,6 +70,21 @@ export function usageLineFromUsageObject(route: string, usageObject: Record<stri
 
 /** Null when the model or its tier has no price, so one unpriced reply cannot end a run that has already spent money. */
 export function costOfUsageLine(usageLine: UsageLine): number | null {
+  // Gemini may name a reply's model with a "models/" prefix or a dated snapshot, so match the model it belongs to.
+  const geminiModelName = usageLine.model.replace(/^models\//, "");
+  const geminiModel = Object.keys(geminiPricesPerMillionTokens).find(
+    (modelID) => geminiModelName === modelID || geminiModelName.startsWith(`${modelID}-`),
+  );
+  if (geminiModel !== undefined) {
+    const geminiPrices = geminiPricesPerMillionTokens[geminiModel];
+    return (
+      ((usageLine.inputTokens - usageLine.cacheReadTokens) * geminiPrices.input +
+        usageLine.cacheReadTokens * geminiPrices.cachedInput +
+        usageLine.outputTokens * geminiPrices.output) /
+      1_000_000
+    );
+  }
+
   // A reply can name a dated snapshot, such as gpt-6.2-sol-2026-11-17, so match the model the snapshot belongs to.
   const openAIModel = Object.keys(openAIStandardPricesPerMillionTokens).find(
     (modelID) => usageLine.model === modelID || usageLine.model.startsWith(`${modelID}-`),

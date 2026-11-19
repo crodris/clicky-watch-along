@@ -54,6 +54,15 @@ describe("costOfUsageLine", () => {
     assertCost(costOfUsageLine(usageLine({ route: "/live-scene", model: "gpt-6.1-sol", inputTokens: 1000, outputTokens: 100 })), (standardCost ?? 0) * 6);
   });
 
+  it("prices a Gemini 4 Neon call with cached tokens counted inside the input, under a models/ prefix or a snapshot name too", () => {
+    const expectedCost = (600 * 3 + 400 * 0.15 + 100 * 15) / 1_000_000;
+    const geminiUsage = { inputTokens: 1000, cacheReadTokens: 400, outputTokens: 100 };
+
+    assertCost(costOfUsageLine(usageLine({ model: "gemini-4-neon", ...geminiUsage })), expectedCost);
+    assertCost(costOfUsageLine(usageLine({ model: "models/gemini-4-neon", ...geminiUsage })), expectedCost);
+    assertCost(costOfUsageLine(usageLine({ model: "gemini-4-neon-2026-11-19", ...geminiUsage })), expectedCost);
+  });
+
   it("records a model or a tier with no price as unknown instead of guessing", () => {
     const warn = mock.method(console, "warn", () => undefined);
 
