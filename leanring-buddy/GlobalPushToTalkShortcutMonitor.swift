@@ -16,8 +16,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
     let pinchMagnificationPublisher = PassthroughSubject<Double, Never>()
     let escapeKeyPressPublisher = PassthroughSubject<Void, Never>()
-    /// Sends once each time shift + option is held for 0.3 seconds with nothing else pressed.
-    let agentListShortcutPublisher = PassthroughSubject<Void, Never>()
+    /// Sends the settings dial's shift + option chord: opened after a 0.3 second hold with nothing else pressed,
+    /// then released or cancelled. See SettingsDialShortcutRecognizer for when each one fires.
+    let settingsDialEventPublisher = PassthroughSubject<SettingsDialShortcutRecognizer.Event, Never>()
     private static let escapeKeyCode: UInt16 = 53
 
     // CoreGraphics has no public names for gesture events. These are the values
@@ -35,9 +36,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     /// waiting for the async dictation state pipeline to catch up.
     @Published private(set) var isShortcutCurrentlyPressed = false
 
-    private var agentListShortcutRecognizer = AgentListShortcutRecognizer()
+    private var settingsDialShortcutRecognizer = SettingsDialShortcutRecognizer()
     /// Wakes the recognizer when a shift + option hold reaches its time, since no event arrives while the keys stay down.
-    private var agentListHoldTimer: Timer?
+    private var settingsDialHoldTimer: Timer?
 
     deinit {
         stop()
@@ -50,7 +51,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         // refreshAllPermissions → start() every few seconds.
         guard globalEventTap == nil else { return }
 
-        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp] + AgentListShortcutRecognizer.pressEventTypesThatBreakAHold
+        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp] + SettingsDialShortcutRecognizer.pressEventTypesThatBreakAHold
         let eventMask = monitoredEventTypes.reduce(CGEventMask(1) << Self.gestureEventTypeRawValue) { currentMask, eventType in
             currentMask | (CGEventMask(1) << eventType.rawValue)
         }
@@ -101,9 +102,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
     func stop() {
         isShortcutCurrentlyPressed = false
-        agentListHoldTimer?.invalidate()
-        agentListHoldTimer = nil
-        agentListShortcutRecognizer = AgentListShortcutRecognizer()
+        settingsDialHoldTimer?.invalidate()
+        settingsDialHoldTimer = nil
+        settingsDialShortcutRecognizer = SettingsDialShortcutRecognizer()
 
         if let globalEventTapRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
@@ -138,7 +139,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         if eventType == .keyDown && eventKeyCode == Self.escapeKeyCode {
             escapeKeyPressPublisher.send()
         }
-        feedTheAgentListShortcutRecognizer(eventType: eventType, event: event)
+        feedTheSettingsDialShortcutRecognizer(eventType: eventType, event: event)
         let shortcutTransition = BuddyPushToTalkShortcut.shortcutTransition(
             for: eventType,
             keyCode: eventKeyCode,
@@ -160,27 +161,31 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         return Unmanaged.passUnretained(event)
     }
 
-    private func feedTheAgentListShortcutRecognizer(eventType: CGEventType, event: CGEvent) {
+    private func feedTheSettingsDialShortcutRecognizer(eventType: CGEventType, event: CGEvent) {
+        let recognizerEvent: SettingsDialShortcutRecognizer.Event?
         switch eventType {
         case .flagsChanged:
-            agentListShortcutRecognizer.modifiersChanged(
+            recognizerEvent = settingsDialShortcutRecognizer.modifiersChanged(
                 NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)),
                 at: ProcessInfo.processInfo.systemUptime,
                 aMouseButtonIsDown: NSEvent.pressedMouseButtons != 0
             )
-        case let pressEventType where AgentListShortcutRecognizer.pressEventTypesThatBreakAHold.contains(pressEventType):
-            agentListShortcutRecognizer.pressArrived(ofType: pressEventType)
+        case let pressEventType where SettingsDialShortcutRecognizer.pressEventTypesThatBreakAHold.contains(pressEventType):
+            recognizerEvent = settingsDialShortcutRecognizer.pressArrived(ofType: pressEventType)
         default:
             return
         }
-        agentListHoldTimer?.invalidate()
-        agentListHoldTimer = nil
-        guard let holdCompletesAt = agentListShortcutRecognizer.holdCompletesAt else { return }
+        if let recognizerEvent {
+            settingsDialEventPublisher.send(recognizerEvent)
+        }
+        settingsDialHoldTimer?.invalidate()
+        settingsDialHoldTimer = nil
+        guard let holdCompletesAt = settingsDialShortcutRecognizer.holdCompletesAt else { return }
         let secondsUntilTheHoldCompletes = max(0, holdCompletesAt - ProcessInfo.processInfo.systemUptime)
-        agentListHoldTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilTheHoldCompletes, repeats: false) { [weak self] _ in
-            guard let self, let holdCompletesAt = self.agentListShortcutRecognizer.holdCompletesAt else { return }
-            if self.agentListShortcutRecognizer.timeAdvanced(to: holdCompletesAt) {
-                self.agentListShortcutPublisher.send()
+        settingsDialHoldTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilTheHoldCompletes, repeats: false) { [weak self] _ in
+            guard let self, let holdCompletesAt = self.settingsDialShortcutRecognizer.holdCompletesAt else { return }
+            if let openedEvent = self.settingsDialShortcutRecognizer.timeAdvanced(to: holdCompletesAt) {
+                self.settingsDialEventPublisher.send(openedEvent)
             }
         }
     }
