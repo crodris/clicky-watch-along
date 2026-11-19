@@ -134,3 +134,27 @@ export function usageAfterChatStreamEvent(usageObject: Record<string, unknown>, 
   }
   return usageObject;
 }
+
+const ansiColorCode = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
+
+/**
+ * The usage lines a Worker logged for one route. Another bench run can share the Worker and log lines for its own
+ * routes in the same window, so only this route's lines belong to the call being measured.
+ */
+export function usageLinesOfRouteInLog(logText: string, route: string): UsageLine[] {
+  const usageLines: UsageLine[] = [];
+  for (const usageMatch of logText.replace(ansiColorCode, "").matchAll(/\[(\/[a-z-]+)\] usage (\{.*\})/g)) {
+    if (usageMatch[1] !== route) {
+      continue;
+    }
+    try {
+      const usageObject: unknown = JSON.parse(usageMatch[2]);
+      if (isRecord(usageObject)) {
+        usageLines.push(usageLineFromUsageObject(route, usageObject));
+      }
+    } catch {
+      // A usage line cut off mid-write is not a usage line.
+    }
+  }
+  return usageLines;
+}

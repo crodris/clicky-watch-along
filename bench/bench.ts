@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requestFileName, savedReplyFileName, type SavedReply } from "./replyFiles.ts";
-import { costOfUsageLine, isRecord, usageAfterChatStreamEvent, usageLineFromUsageObject, type UsageLine } from "./usage.ts";
+import { costOfUsageLine, isRecord, usageAfterChatStreamEvent, usageLineFromUsageObject, usageLinesOfRouteInLog, type UsageLine } from "./usage.ts";
 
 const benchDirectory = dirname(fileURLToPath(import.meta.url));
 const checkoutRoot = dirname(benchDirectory);
@@ -619,18 +619,8 @@ function workerLogPath(workerCheckout: string, port: number): string {
   return readFileSync(logPathRecord, "utf8").trim();
 }
 
-const ansiColorCode = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g");
-
-function usageLinesLoggedAfter(logPath: string, byteOffset: number): UsageLine[] {
-  const newLogText = readFileSync(logPath).subarray(byteOffset).toString("utf8").replace(ansiColorCode, "");
-  const usageLines: UsageLine[] = [];
-  for (const usageMatch of newLogText.matchAll(/\[(\/[a-z-]+)\] usage (\{.*\})/g)) {
-    const usageObject = parseJSONObject(usageMatch[2]);
-    if (usageObject !== undefined) {
-      usageLines.push(usageLineFromUsageObject(usageMatch[1], usageObject));
-    }
-  }
-  return usageLines;
+function usageLinesLoggedAfter(logPath: string, byteOffset: number, route: string): UsageLine[] {
+  return usageLinesOfRouteInLog(readFileSync(logPath).subarray(byteOffset).toString("utf8"), route);
 }
 
 /** /chat streams Server-Sent Events and logs no usage line, so its usage and first text token come from the stream. */
@@ -737,7 +727,7 @@ async function runOneSample(benchCase: BenchCase, runIndex: number, side: BenchS
 
   // The Worker writes its usage line just before it answers, so give wrangler's log a moment to flush.
   await new Promise((resolve) => setTimeout(resolve, 400));
-  const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest);
+  const usageLines = benchCase.route === "/chat" ? streamedUsageLines : usageLinesLoggedAfter(logPath, logOffsetBeforeRequest, benchCase.route);
 
   let ttsCharacters = 0;
   const usageLineCosts = usageLines.map(costOfUsageLine);

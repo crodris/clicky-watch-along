@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { costOfUsageLine, usageAfterChatStreamEvent, usageLineFromUsageObject, type UsageLine } from "./usage.ts";
+import { costOfUsageLine, usageAfterChatStreamEvent, usageLineFromUsageObject, usageLinesOfRouteInLog, type UsageLine } from "./usage.ts";
 
 function usageLine(overrides: Partial<UsageLine>): UsageLine {
   return {
@@ -145,5 +145,19 @@ describe("usageAfterChatStreamEvent", () => {
       cacheReadTokens: 800,
       outputTokens: 60,
     });
+  });
+});
+
+describe("usageLinesOfRouteInLog", () => {
+  it("keeps only the measured route's lines when another run shares the Worker log", () => {
+    const logText = [
+      '\u001b[32m[/judge-answer] usage {"model":"claude-sonnet-5-5","input_tokens":93,"output_tokens":57}\u001b[0m',
+      '[/live-scene] usage {"model":"gpt-6.1-sol","input_tokens":4000,"output_tokens":8000}',
+      "[/judge-answer] usage {not json",
+    ].join("\n");
+
+    const usageLines = usageLinesOfRouteInLog(logText, "/judge-answer");
+
+    assert.deepEqual(usageLines.map((line) => [line.route, line.model, line.inputTokens]), [["/judge-answer", "claude-sonnet-5-5", 93]]);
   });
 });
