@@ -1327,7 +1327,7 @@ final class CompanionManager: ObservableObject {
         print("Frame pop-out: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
         liveScenePhase = .touring(quizToAskAfterTour: nil)
         liveScenePageOnScreen = .framePopout(framePopout)
-        // Opus draws the flows while the tour plays, and the page starts them when the tour ends.
+        // Sonnet draws the flows while the tour plays, and the page starts them when the tour ends.
         // A tap that stops the narration keeps the pop-out, so the flows task runs on, and showPictureFlows
         // drops them only when a newer request or another page took over.
         let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows

@@ -1,7 +1,7 @@
 /**
  * POST /picture-flows.
  *
- * When the learner asks Clicky to animate a picture that has popped out, Opus draws what flows
+ * When the learner asks Clicky to animate a picture that has popped out, Sonnet draws what flows
  * through the subject (air through an engine, blood through a heart) as paths in frame pixels,
  * and says how each stream looks. The pop-out page draws each stream on top of the picture
  * without changing it. The app never asks for an artwork's flows, since /video-frame-parts already marks art.
@@ -86,10 +86,11 @@ export function checkPictureFlows(modelReply: ModelReply, frameWidth: number, fr
 
 function pictureFlowsRequestBody(flowsRequest: FlowsRequest): unknown {
   return {
-    // Opus places the paths on busy diagrams better than Sonnet, and picks the right style more often.
-    model: "claude-opus-5-5",
+    // Sonnet beat Opus here on 2026-11-19: it passed every case, ran 16 to 32% faster at half the price, and the blind
+    // judge scored it level with Opus (63%, where Opus against itself scored 60%). bench/README.md has the bakeoff.
+    model: "claude-sonnet-5-5",
     max_tokens: 4096,
-    // Low effort keeps the call near 5 seconds, inside the pop-out tour and its narration.
+    // Low effort keeps the call near 4 seconds, inside the pop-out tour and its narration.
     output_config: {
       effort: "low",
       format: {
