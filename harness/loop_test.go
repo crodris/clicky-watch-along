@@ -169,6 +169,8 @@ func TestAFinishWithARefusedPageGoesBackToTheAgentToWriteItAgain(t *testing.T) {
 		writeStreamedMessage(writer, "tool_use",
 			toolUseBlock(fmt.Sprintf("toolu_page_%d", requestNumber), "write_notion_page", `{"title":"Catches"}`),
 			toolUseBlock(fmt.Sprintf("toolu_finish_%d", requestNumber), "finish", `{"spokenSummary":"It was caught."}`),
+			// A second finish in the same turn needs its own result too, or Anthropic refuses the next request.
+			toolUseBlock(fmt.Sprintf("toolu_second_finish_%d", requestNumber), "finish", `{"spokenSummary":"Caught."}`),
 		)
 	})
 	driver := startHarness(t, worker.server.URL)
@@ -191,8 +193,8 @@ func TestAFinishWithARefusedPageGoesBackToTheAgentToWriteItAgain(t *testing.T) {
 		t.Fatalf("the Worker got %d requests, want 2", len(requests))
 	}
 	refusalResults := jsonValueAt(t, requests[1].body, "messages", 2, "content").([]any)
-	if len(refusalResults) != 2 {
-		t.Fatalf("the refusal turn carried %d tool results, want 2", len(refusalResults))
+	if len(refusalResults) != 3 {
+		t.Fatalf("the refusal turn carried %d tool results, want 3", len(refusalResults))
 	}
 	if jsonValueAt(t, refusalResults[0], "tool_use_id") != "toolu_page_1" || jsonValueAt(t, refusalResults[0], "is_error") != true {
 		t.Errorf("the page's refusal was %v", refusalResults[0])
@@ -200,6 +202,9 @@ func TestAFinishWithARefusedPageGoesBackToTheAgentToWriteItAgain(t *testing.T) {
 	if jsonValueAt(t, refusalResults[1], "tool_use_id") != "toolu_finish_1" || jsonValueAt(t, refusalResults[1], "is_error") != true ||
 		!strings.Contains(jsonValueAt(t, refusalResults[1], "content", 0, "text").(string), "Not finished") {
 		t.Errorf("the finish that did not count was %v", refusalResults[1])
+	}
+	if jsonValueAt(t, refusalResults[2], "tool_use_id") != "toolu_second_finish_1" || jsonValueAt(t, refusalResults[2], "is_error") != true {
+		t.Errorf("the second finish that did not count was %v", refusalResults[2])
 	}
 }
 

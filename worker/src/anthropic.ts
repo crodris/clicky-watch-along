@@ -145,8 +145,8 @@ export async function requestAnthropicMessage(
       vendorModel.provider === "openai"
         ? await requestBenchOpenAIMessage(vendorModel, routeName, messagesRequestBody)
         : await requestBenchGeminiMessage(vendorModel, routeName, messagesRequestBody);
-    // A route's own GPT model falls back to the Claude model its body names when OpenAI is out of credit, rate limited,
-    // or down, so the learner still gets an answer. A benchmark override never falls back, since it measures one model.
+    // A route's own GPT model falls back to the Claude model its body names when OpenAI refuses the key, is out of credit,
+    // is rate limited, or is down, so the learner still gets an answer. A benchmark override never falls back, since it measures one model.
     const fallsBackToClaude = !vendorReply.ok && benchOverride === undefined && openAICannotAnswerNow(vendorReply.status);
     if (!vendorReply.ok && !fallsBackToClaude) {
       // The vendor's own error can name the key or the account, so only a benchmark Worker, which runs on this Mac, returns

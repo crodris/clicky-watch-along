@@ -24,6 +24,7 @@ describe("scenePageContentSecurityPolicy", () => {
 
     assert.deepEqual(directives.get("default-src"), ["'none'"]);
     assert.deepEqual(directives.get("connect-src"), ["'self'"]);
+    assert.deepEqual(directives.get("webrtc"), ["'block'"]);
     assert.ok(!scenePageContentSecurityPolicy.includes("http"), "names no other host");
   });
 });

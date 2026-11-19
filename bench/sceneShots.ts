@@ -14,11 +14,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 /**
  * The policy the app serves a generated page with (LiveSceneOverlay.livePageContentSecurityPolicy), with this server's
- * own origin in place of clicky-asset:, so a page can load three.js and the screenshots but reach no other host, such as a
- * local Worker that holds API keys.
+ * own origin in place of clicky-asset:, so a page can load three.js and the screenshots but cannot fetch, post to, or open
+ * a WebRTC connection to any other host, such as a local Worker that holds API keys. Unlike the app, the bench does not
+ * block a page that navigates itself away, which can only send a GET.
  */
 export const scenePageContentSecurityPolicy =
-  "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; webrtc 'block'";
 
 /** The app serves three.js at clicky-asset://three/, and the scene prompt's import map points there. */
 const appThreeURLPrefix = "clicky-asset://three/";

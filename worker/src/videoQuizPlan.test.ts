@@ -355,7 +355,7 @@ describe("handleVideoQuizPlan", () => {
     });
   });
 
-  it.each([401, 429, 503])("falls back to Sonnet when OpenAI answers %i, since the key, the credit, or OpenAI is the problem", async (openAIStatus) => {
+  it.each([401, 403, 404, 429, 503])("falls back to Sonnet when OpenAI answers %i, since the key, the credit, or OpenAI is the problem", async (openAIStatus) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const anthropicPlanReply = () =>
       new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(validPlan) }] }), { status: 200 });
