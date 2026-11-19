@@ -184,8 +184,10 @@ debug_app_workspace() {
   plutil -extract WorkspacePath raw "${app_path%/Build/Products/Debug/Clicky.app}/info.plist" 2>/dev/null || echo unknown
 }
 
+# The pattern starts at the command's first character, so a shell whose script text merely mentions the app's path
+# (another agent's wait loop, for example) is not counted as a running Clicky.
 running_clicky_pids() {
-  pgrep -f 'Clicky.app/Contents/MacOS/Clicky' || true
+  pgrep -f '^/[^ ]*Clicky\.app/Contents/MacOS/Clicky( |$)' || true
 }
 
 descendant_pids() {

@@ -32,4 +32,15 @@ check "a Swift file checked out after the build makes the app stale" \
 mkdir "$test_directory/unreadable" && chmod 000 "$test_directory/unreadable"
 stale_source="$(first_source_newer_than "$dylib_path" "$test_directory/unreadable")"
 check "a find error counts as fresh" "$stale_source" ""
-echo "ok: verify-clicky build freshness"
+# A shell whose script text only mentions the app's path is not a running Clicky, and a process started from the binary is.
+# The fake app is sleep run under the binary's path as its argv[0], so its command line starts with that path, as the real app's does.
+fake_app_path="$test_directory/Clicky.app/Contents/MacOS/Clicky"
+bash -c "sleep 30 # $fake_app_path" &
+mentioning_shell_id=$!
+check "a shell that only mentions the app's path is not a running Clicky" "$(running_clicky_pids)" ""
+bash -c "exec -a '$fake_app_path' sleep 30" &
+fake_app_id=$!
+sleep 0.5
+check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids)" "$fake_app_id"
+kill "$mentioning_shell_id" "$fake_app_id" 2>/dev/null || true
+echo "ok: verify-clicky build freshness and running-app detection"
