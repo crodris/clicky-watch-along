@@ -9,9 +9,9 @@
  *   POST /v1/messages  → Anthropic Messages API (the body and stream pass through unchanged, for the agent harness's SDK)
  *   POST /tts          → ElevenLabs TTS API
  *   POST /transcribe-token → AssemblyAI streaming token API (a short-lived websocket token, only when Info.plist selects the assemblyai provider)
- *   POST /live-scene   → OpenAI Responses API, or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
+ *   POST /live-scene   → OpenAI Responses API (GPT-6.1 Sol for a model, GPT-6.2 Sol for a simulation), or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
- *   POST /video-quiz-plan → Anthropic Messages API (quiz pause moments for a video transcript)
+ *   POST /video-quiz-plan → OpenAI Responses API (GPT-6.2 Sol), or Anthropic Messages API when OpenAI cannot answer (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)

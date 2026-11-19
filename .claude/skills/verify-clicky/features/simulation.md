@@ -21,7 +21,7 @@ The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, 
 ## How to get to it (user POV)
 
 - With a science video or picture in front, hold ctrl+option and say "let me try it".
-  Clicky says "Sure, I'll build that while you watch." and the video keeps playing for about 30 seconds.
+  Clicky says "Sure, I'll build that while you watch." and the video keeps playing for about 30 to 40 seconds.
   When the experiment rises, answer the question out loud, drag a slider or say a setting, and press Run.
 
 ## Driving it with verify-clicky.sh

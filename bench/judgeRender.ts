@@ -146,9 +146,12 @@ function framePartsShapes(replyJSON: unknown, frameWidth: number): string {
     rectangle +
     parts
       .map((part, partIndex) => {
-        const x = numberOr(part.x, 0);
-        const y = numberOr(part.y, 0);
-        return dot(x, y, "#ef4444") + labelAt(x, y, `${partIndex + 1} ${String(part.label)}`, frameWidth);
+        const partXInFramePixels = numberOr(part.x, 0);
+        const partYInFramePixels = numberOr(part.y, 0);
+        return (
+          dot(partXInFramePixels, partYInFramePixels, "#ef4444") +
+          labelAt(partXInFramePixels, partYInFramePixels, `${partIndex + 1} ${String(part.label)}`, frameWidth)
+        );
       })
       .join("")
   );

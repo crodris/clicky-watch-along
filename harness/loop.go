@@ -90,7 +90,9 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 			// A page refused in the same turn as finish goes back to the agent with a finish that did not count, so it
 			// writes the page again instead of the task ending without one.
 			if finishWaitsForTheRefusedPage(step.afterRunning, pageWasWritten, turnNumber == mostTaskAgentTurns) {
-				toolResults = append(toolResults, anthropic.NewToolResultBlock(step.finishCallID, "Not finished: the page was not written. Fix it, write it, then call finish again.", true))
+				for _, finishCallID := range step.finishCallIDs {
+					toolResults = append(toolResults, anthropic.NewToolResultBlock(finishCallID, "Not finished: the page was not written. Fix it, write it, then call finish again.", true))
+				}
 				messages = append(messages, anthropic.NewUserMessage(toolResults...))
 				continue
 			}

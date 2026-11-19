@@ -231,7 +231,9 @@ type runTools struct {
 // finishTask: the agent called finish. The other calls of the same turn run first, since it often writes its page and
 // finishes in one turn.
 type finishTask struct {
-	finishCallID  string
+	// finishCallIDs holds every finish call of the turn, in order. The first one's summary is the answer, and each one
+	// needs a tool_result when the turn goes back to the agent, or Anthropic refuses the next request.
+	finishCallIDs []string
 	spokenSummary string
 	afterRunning  []toolCall
 }
@@ -255,13 +257,17 @@ func nextStepAfter(finishedTurn turn) nextStep {
 	}
 
 	var finishCall *toolCall
+	var finishCallIDs []string
 	var otherCalls []toolCall
 	for callIndex := range finishedTurn.toolCalls {
 		call := finishedTurn.toolCalls[callIndex]
-		if call.Name == finishTool && finishCall == nil {
-			finishCall = &call
-		} else if call.Name != finishTool {
+		if call.Name != finishTool {
 			otherCalls = append(otherCalls, call)
+			continue
+		}
+		finishCallIDs = append(finishCallIDs, call.ID)
+		if finishCall == nil {
+			finishCall = &call
 		}
 	}
 	if finishCall != nil {
@@ -274,7 +280,7 @@ func nextStepAfter(finishedTurn turn) nextStep {
 		if spokenSummary == "" {
 			spokenSummary = finishedTurn.text
 		}
-		return finishTask{finishCallID: finishCall.ID, spokenSummary: spokenSummary, afterRunning: otherCalls}
+		return finishTask{finishCallIDs: finishCallIDs, spokenSummary: spokenSummary, afterRunning: otherCalls}
 	}
 
 	if len(finishedTurn.toolCalls) > 0 {

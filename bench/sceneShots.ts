@@ -12,6 +12,14 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+/**
+ * The policy the app serves a generated page with (LiveSceneOverlay.livePageContentSecurityPolicy), with this server's
+ * own origin in place of clicky-asset:, so a page can load three.js and the screenshots but reach no other host, such as a
+ * local Worker that holds API keys.
+ */
+export const scenePageContentSecurityPolicy =
+  "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'";
+
 /** The app serves three.js at clicky-asset://three/, and the scene prompt's import map points there. */
 const appThreeURLPrefix = "clicky-asset://three/";
 
@@ -152,9 +160,11 @@ export class SceneCamera {
       } else if (path.startsWith("/shots/") && existsSync(join(scratchDirectory, basename(path)))) {
         response.writeHead(200, { "content-type": "image/jpeg" }).end(readFileSync(join(scratchDirectory, basename(path))));
       } else if (pagesByPath.has(path)) {
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(pagesByPath.get(path));
+        response
+          .writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": scenePageContentSecurityPolicy })
+          .end(pagesByPath.get(path));
       } else {
-        // Anything else a page asks for, such as a texture on the web, fails as it does in the app's blocked overlay.
+        // Any other path on this server, such as a texture the page names, gets a 404. Other hosts are blocked by the policy.
         response.writeHead(404).end();
       }
     });

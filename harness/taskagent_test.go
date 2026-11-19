@@ -49,7 +49,7 @@ func TestNextStepAfterATurn(t *testing.T) {
 			stopReason: "tool_use",
 			content:    `[` + pageCall + `,{"type":"tool_use","id":"t3","name":"finish","input":{"spokenSummary":" It was caught. "}}]`,
 			want: finishTask{
-				finishCallID:  "t3",
+				finishCallIDs: []string{"t3"},
 				spokenSummary: "It was caught.",
 				afterRunning:  []toolCall{{ID: "t2", Name: writeNotionPageTool, Input: json.RawMessage(`{"title":"Catches"}`)}},
 			},
@@ -58,7 +58,13 @@ func TestNextStepAfterATurn(t *testing.T) {
 			name:       "a finish with an empty summary falls back to the turn's text",
 			stopReason: "tool_use",
 			content:    `[{"type":"text","text":"It landed."},{"type":"tool_use","id":"t4","name":"finish","input":{}}]`,
-			want:       finishTask{finishCallID: "t4", spokenSummary: "It landed."},
+			want:       finishTask{finishCallIDs: []string{"t4"}, spokenSummary: "It landed."},
+		},
+		{
+			name:       "a turn with two finish calls keeps the first summary and names both calls, so each gets a result",
+			stopReason: "tool_use",
+			content:    `[{"type":"tool_use","id":"t5","name":"finish","input":{"spokenSummary":"First."}},{"type":"tool_use","id":"t6","name":"finish","input":{"spokenSummary":"Second."}}]`,
+			want:       finishTask{finishCallIDs: []string{"t5", "t6"}, spokenSummary: "First."},
 		},
 		{
 			name:       "a stop with text and no finish leaves the text as the answer",

@@ -114,9 +114,13 @@ export async function requestAnthropicReplyText(
   return { ok: true, replyText: firstTextBlock(anthropicMessage.message) };
 }
 
-/** A 429 (out of credit or rate limited) or a 5xx (down, or not reached). A 4xx about the request would fail on Claude too. */
+/**
+ * OpenAI cannot answer for its own reasons: a 401, 403, or 404 (a missing, revoked, or unentitled key, or a model the
+ * account cannot reach), a 429 (out of credit or rate limited), or a 5xx (down, or not reached). A 400 or 422 is about
+ * the request itself, so Claude would refuse it too.
+ */
 function openAICannotAnswerNow(status: number): boolean {
-  return status === 429 || status >= 500;
+  return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500;
 }
 
 /**
@@ -145,7 +149,10 @@ export async function requestAnthropicMessage(
     // or down, so the learner still gets an answer. A benchmark override never falls back, since it measures one model.
     const fallsBackToClaude = !vendorReply.ok && benchOverride === undefined && openAICannotAnswerNow(vendorReply.status);
     if (!vendorReply.ok && !fallsBackToClaude) {
-      return { ok: false, response: jsonResponse({ error: vendorReply.error }, vendorReply.status) };
+      // The vendor's own error can name the key or the account, so only a benchmark Worker, which runs on this Mac, returns
+      // it. The Worker log keeps it either way.
+      const errorForCaller = benchOverride === undefined ? `${vendorName} request failed` : vendorReply.error;
+      return { ok: false, response: jsonResponse({ error: errorForCaller }, vendorReply.status) };
     }
     if (vendorReply.ok) {
       logModelUsage(routeName, vendorReply.responseJSON);
