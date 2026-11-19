@@ -7,10 +7,18 @@ export type JudgeContext =
   | { kind: "frameParts"; frameBase64: string; width: number; height: number }
   | { kind: "pictureFlows"; frameBase64: string; width: number; height: number; partLabels: string[] }
   | { kind: "quizPlan"; title: string; transcript: string }
-  | { kind: "chat"; frameBase64: string; width: number; height: number; systemPrompt: string; history: string; question: string };
+  | { kind: "chat"; frameBase64: string; width: number; height: number; systemPrompt: string; history: string; question: string }
+  | {
+      kind: "liveScene";
+      /** A 3D model of the subject, or a simulation the learner can run, as the request's kind says. */
+      sceneKind: "model" | "simulation";
+      question: string;
+      screenshotBase64: string;
+      screenshotMediaType: "image/jpeg" | "image/png";
+    };
 
 /** The routes the judge can compare, which are the ones whose quality a pass or fail check cannot see. */
-export const judgedRoutes = ["/video-frame-parts", "/picture-flows", "/video-quiz-plan", "/chat"];
+export const judgedRoutes = ["/video-frame-parts", "/picture-flows", "/video-quiz-plan", "/chat", "/live-scene"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -81,6 +89,15 @@ export function contextFromRequest(route: string, requestBody: unknown): JudgeCo
       history,
       // The last text block is the transcript, after the screen's caption.
       question: textBlocks[textBlocks.length - 1] ?? "",
+    };
+  }
+  if (route === "/live-scene" && typeof requestBody.question === "string" && typeof requestBody.screenshotBase64 === "string") {
+    return {
+      kind: "liveScene",
+      sceneKind: requestBody.kind === "simulation" ? "simulation" : "model",
+      question: requestBody.question,
+      screenshotBase64: requestBody.screenshotBase64,
+      screenshotMediaType: requestBody.screenshotMediaType === "image/png" ? "image/png" : "image/jpeg",
     };
   }
   return undefined;
@@ -191,9 +208,12 @@ function chatShapes(replyText: string, frameWidth: number): string {
   );
 }
 
-/** A page of exactly the frame's size, with the reply drawn over the frame. Undefined for a reply with no picture. */
+/**
+ * A page of exactly the frame's size, with the reply drawn over the frame. Undefined for a reply with no picture, and for a
+ * live scene, whose own page judge.ts screenshots with sceneShots.ts.
+ */
 export function overlayPage(context: JudgeContext, replyText: string): { html: string; width: number; height: number } | undefined {
-  if (context.kind === "quizPlan") {
+  if (context.kind === "quizPlan" || context.kind === "liveScene") {
     return undefined;
   }
   const replyJSON = context.kind === "chat" ? undefined : parseJSON(replyText);
@@ -259,6 +279,20 @@ function describeQuizPlan(replyText: string): string {
     .join("\n");
 }
 
+/** The page itself is judged from its screenshots, so the words give only the quiz the page came with. */
+function describeLiveScene(replyText: string): string {
+  const replyJSON = parseJSON(replyText);
+  if (!isRecord(replyJSON) || typeof replyJSON.html !== "string") {
+    return `The reply had no page: ${replyText.slice(0, 300)}`;
+  }
+  const quiz = isRecord(replyJSON.quiz) ? replyJSON.quiz : {};
+  return [
+    `Quiz question: ${String(quiz.question)}`,
+    `Answer label: ${String(quiz.answerLabel)}`,
+    `Explanation: ${String(quiz.explanation)}`,
+  ].join("\n");
+}
+
 function describeChat(replyText: string): string {
   const point = pointInChatReply(replyText);
   const spokenText = replyText.replace(/\[POINT:[^\]]*\]/g, "").trim();
@@ -275,6 +309,8 @@ export function describeReply(context: JudgeContext, replyText: string): string 
       return describeQuizPlan(replyText);
     case "chat":
       return describeChat(replyText);
+    case "liveScene":
+      return describeLiveScene(replyText);
   }
 }
 
@@ -287,7 +323,7 @@ export const judgeSystemPrompt = [
   "Answer with a reason of at most two sentences, then the winner: A, B, or tie. Use tie only when you cannot tell the two apart in quality.",
 ].join("\n");
 
-const criteriaByKind: Record<JudgeContext["kind"], string> = {
+const criteriaByKind: Record<Exclude<JudgeContext["kind"], "liveScene">, string> = {
   frameParts: [
     "Purpose: a learning app lifts the main subject out of a video frame in 3D and labels its parts for a 10-year-old.",
     "In each picture, the dashed cyan rectangle is the subject's box, and each numbered red dot is where a part label's line touches the picture. The text under each picture gives the flags and the part names.",
@@ -329,6 +365,33 @@ const criteriaByKind: Record<JudgeContext["kind"], string> = {
   ].join("\n"),
 };
 
+const liveSceneCriteria: Record<"model" | "simulation", string> = {
+  model: [
+    "Purpose: a learning app builds an interactive 3D model of what the learner asked about, from the screenshot of what they were watching, and tours it with labels for a 10-year-old.",
+    "Each reply is the page a model wrote, shown in two screenshots: when the camera tour ends, and after the camera turns half way around.",
+    "A better page:",
+    "- Shows the subject the learner asked about, recognizable at a glance, with the right shape, proportions, and parts, true to the screenshot.",
+    "- Looks finished: solid lighting and materials, the subject large and framed in view, and no blank, black, broken, or cut-off view.",
+    "- Places each label on the part it names, in plain words, without labels piled on top of each other.",
+    "- Holds up from the other side, with no missing faces or parts floating apart.",
+    "- Has a quiz question a learner can answer from the model, whose answer label is a part the page shows.",
+  ].join("\n"),
+  simulation: [
+    "Purpose: a learning app builds a science experiment the learner can run, from the screenshot of what they were watching. The app adds its own sliders and buttons, so the page shows only the experiment.",
+    "Each reply is the page a model wrote, shown in two screenshots: when the camera tour ends, and after one run of the experiment at its starting settings.",
+    "A better page:",
+    "- Builds equipment that fits the topic in the screenshot, recognizable, at a sensible size, with the equipment large and in view.",
+    "- Draws a setting that fits, such as a lab bench for a tabletop experiment or a field for one that covers many meters.",
+    "- Shows the run happening: what moves has moved, a traced path or a changed reading is visible, and the result is plausible for the physics.",
+    "- Looks finished, with no blank, black, broken, or cut-off view.",
+    "- Has a hypothesis question that the experiment can answer by changing one setting.",
+  ].join("\n"),
+};
+
+function criteriaFor(context: JudgeContext): string {
+  return context.kind === "liveScene" ? liveSceneCriteria[context.sceneKind] : criteriaByKind[context.kind];
+}
+
 export type JudgePromptPart =
   | { kind: "text"; text: string }
   | { kind: "image"; base64: string; mediaType: "image/jpeg" | "image/png" };
@@ -337,8 +400,11 @@ export type JudgedReply = { description: string; overlayPNGBase64: string | unde
 
 /** The whole user turn of one judging call: the request, the criteria, the clean frame, then reply A and reply B. */
 export function judgePromptParts(context: JudgeContext, replyA: JudgedReply, replyB: JudgedReply): JudgePromptPart[] {
-  const parts: JudgePromptPart[] = [{ kind: "text", text: criteriaByKind[context.kind] }];
-  if (context.kind === "quizPlan") {
+  const parts: JudgePromptPart[] = [{ kind: "text", text: criteriaFor(context) }];
+  if (context.kind === "liveScene") {
+    parts.push({ kind: "text", text: `The learner said: "${context.question}". This is the screen they were watching:` });
+    parts.push({ kind: "image", base64: context.screenshotBase64, mediaType: context.screenshotMediaType });
+  } else if (context.kind === "quizPlan") {
     parts.push({ kind: "text", text: `Video title: ${context.title}\nTranscript:\n${context.transcript}` });
   } else if (context.kind === "pictureFlows") {
     parts.push({ kind: "text", text: `The picture's parts are: ${context.partLabels.join(", ")}. The frame below is ${context.width} by ${context.height} pixels.` });
@@ -354,7 +420,8 @@ export function judgePromptParts(context: JudgeContext, replyA: JudgedReply, rep
     parts.push({ kind: "image", base64: context.frameBase64, mediaType: "image/jpeg" });
   }
   for (const [replyName, reply] of [["A", replyA], ["B", replyB]] as const) {
-    parts.push({ kind: "text", text: `Reply ${replyName}${reply.overlayPNGBase64 === undefined ? "" : ", drawn over the frame"}:\n${reply.description}` });
+    const pictureNote = reply.overlayPNGBase64 === undefined ? "" : context.kind === "liveScene" ? ", two screenshots of its page" : ", drawn over the frame";
+    parts.push({ kind: "text", text: `Reply ${replyName}${pictureNote}:\n${reply.description}` });
     if (reply.overlayPNGBase64 !== undefined) {
       parts.push({ kind: "image", base64: reply.overlayPNGBase64, mediaType: "image/png" });
     }

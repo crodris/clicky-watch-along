@@ -1,0 +1,259 @@
+// Screenshots of a generated /live-scene page for judge.ts. The page loads in headless Chrome as the app shows it, with
+// three.js served from the app's bundle, and two moments go side by side into one PNG: the view when the camera tour
+// ends, and the view after the page does something, a run for a simulation and a half turn for a 3D model.
+//
+// Chrome is driven over the DevTools protocol, since the command line can take one screenshot only and cannot wait for
+// the tour to end. A small local server serves the page and three.js, because Chrome refuses a module script from file://.
+
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+
+/** The app serves three.js at clicky-asset://three/, and the scene prompt's import map points there. */
+const appThreeURLPrefix = "clicky-asset://three/";
+
+/** The page with its three.js imports pointed at the local server's /three/ path. */
+export function pageWithLocalThree(html: string): string {
+  return html.replaceAll(appThreeURLPrefix, "/three/");
+}
+
+export type SceneKind = "model" | "simulation";
+
+export type SceneShotOutcome = {
+  /** False when the page never set __tourFinished, so the first shot was taken after endTour or the wait ran out. */
+  tourFinished: boolean;
+  /** What the second shot shows, for the description the judge reads. */
+  secondShot: "after a run" | "the run did not finish in 20 seconds" | "the page has no run()" | "after a half turn" | "the page has no rotateBy()";
+  /** Errors the page threw, which the judge reads as a broken page. */
+  pageErrors: string[];
+};
+
+const viewport = { width: 1280, height: 800 };
+const tourWaitMs = 20_000;
+const runWaitMs = 20_000;
+
+type ProtocolReply = { id?: number; result?: Record<string, unknown>; error?: { message: string }; method?: string; params?: Record<string, unknown> };
+
+/** One DevTools protocol connection to one page target. */
+class PageConnection {
+  private nextMessageId = 1;
+  private readonly pending = new Map<number, (reply: ProtocolReply) => void>();
+  readonly pageErrors: string[] = [];
+  private readonly socket: WebSocket;
+
+  private constructor(socket: WebSocket) {
+    this.socket = socket;
+    socket.addEventListener("message", (event) => {
+      const reply = JSON.parse(String(event.data)) as ProtocolReply;
+      if (reply.id !== undefined) {
+        this.pending.get(reply.id)?.(reply);
+        this.pending.delete(reply.id);
+      } else if (reply.method === "Runtime.exceptionThrown") {
+        const details = reply.params?.exceptionDetails as { exception?: { description?: string }; text?: string } | undefined;
+        this.pageErrors.push((details?.exception?.description ?? details?.text ?? "an error").split("\n")[0]);
+      }
+    });
+  }
+
+  static async open(webSocketURL: string): Promise<PageConnection> {
+    const socket = new WebSocket(webSocketURL);
+    await new Promise((resolve, reject) => {
+      socket.addEventListener("open", resolve, { once: true });
+      socket.addEventListener("error", reject, { once: true });
+    });
+    return new PageConnection(socket);
+  }
+
+  send(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    const messageId = this.nextMessageId;
+    this.nextMessageId += 1;
+    return new Promise((resolve, reject) => {
+      this.pending.set(messageId, (reply) => (reply.error === undefined ? resolve(reply.result ?? {}) : reject(new Error(`${method}: ${reply.error.message}`))));
+      this.socket.send(JSON.stringify({ id: messageId, method, params }));
+    });
+  }
+
+  /** The value of an expression in the page, or undefined when it threw. A promise is awaited. */
+  async evaluate(expression: string): Promise<unknown> {
+    const result = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+    return (result.result as { value?: unknown } | undefined)?.value;
+  }
+
+  async screenshot(format: "jpeg" | "png"): Promise<Buffer> {
+    const result = await this.send("Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 85 } : {}) });
+    return Buffer.from(String(result.data), "base64");
+  }
+
+  close() {
+    this.socket.close();
+  }
+}
+
+async function waitFor(check: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) {
+      return true;
+    }
+    await sleep(250);
+  }
+  return false;
+}
+
+function compositePage(firstShotPath: string, secondShotPath: string, firstCaption: string, secondCaption: string): string {
+  const figure = (path: string, caption: string) =>
+    `<figure><img src="/shots/${basename(path)}"><figcaption>${caption}</figcaption></figure>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html, body { margin: 0; background: #111; color: #eee; font: 600 18px/1.2 -apple-system, Helvetica, Arial, sans-serif; }
+    body { display: flex; gap: 8px; padding: 8px; }
+    figure { margin: 0; width: 788px; } img { width: 788px; height: 492px; display: block; border-radius: 4px; }
+    figcaption { padding: 8px 2px 0; }
+  </style></head><body>${figure(firstShotPath, firstCaption)}${figure(secondShotPath, secondCaption)}</body></html>`;
+}
+
+/** Headless Chrome and the local server, opened once for every page a judge run draws. */
+type SceneCameraParts = {
+  chrome: ChildProcess;
+  server: Server;
+  serverOrigin: string;
+  devToolsOrigin: string;
+  scratchDirectory: string;
+  pagesByPath: Map<string, string>;
+};
+
+export class SceneCamera {
+  private readonly chrome: ChildProcess;
+  private readonly server: Server;
+  private readonly serverOrigin: string;
+  private readonly devToolsOrigin: string;
+  private readonly scratchDirectory: string;
+  private readonly pagesByPath: Map<string, string>;
+
+  private constructor(parts: SceneCameraParts) {
+    this.chrome = parts.chrome;
+    this.server = parts.server;
+    this.serverOrigin = parts.serverOrigin;
+    this.devToolsOrigin = parts.devToolsOrigin;
+    this.scratchDirectory = parts.scratchDirectory;
+    this.pagesByPath = parts.pagesByPath;
+  }
+
+  static async open(threeAssetsDirectory: string): Promise<SceneCamera> {
+    const scratchDirectory = mkdtempSync(join(tmpdir(), "scene-shots-"));
+    const pagesByPath = new Map<string, string>();
+    const server = createServer((request, response) => {
+      const path = new URL(request.url ?? "/", "http://localhost").pathname;
+      const threeFile = path.startsWith("/three/") ? basename(path) : undefined;
+      if (threeFile !== undefined && threeFile.endsWith(".js") && existsSync(join(threeAssetsDirectory, threeFile))) {
+        response.writeHead(200, { "content-type": "text/javascript" }).end(readFileSync(join(threeAssetsDirectory, threeFile)));
+      } else if (path.startsWith("/shots/") && existsSync(join(scratchDirectory, basename(path)))) {
+        response.writeHead(200, { "content-type": "image/jpeg" }).end(readFileSync(join(scratchDirectory, basename(path))));
+      } else if (pagesByPath.has(path)) {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(pagesByPath.get(path));
+      } else {
+        // Anything else a page asks for, such as a texture on the web, fails as it does in the app's blocked overlay.
+        response.writeHead(404).end();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("The scene shot server has no port");
+    }
+
+    const chromePath = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    const profileDirectory = join(scratchDirectory, "chrome-profile");
+    const chrome = spawn(
+      chromePath,
+      [
+        "--headless=new",
+        "--remote-debugging-port=0",
+        `--user-data-dir=${profileDirectory}`,
+        `--window-size=${viewport.width},${viewport.height}`,
+        "--hide-scrollbars",
+        // WebGL in headless Chrome runs on the SwiftShader software renderer.
+        "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader",
+        "about:blank",
+      ],
+      { stdio: "ignore" },
+    );
+    const portFilePath = join(profileDirectory, "DevToolsActivePort");
+    if (!(await waitFor(async () => existsSync(portFilePath) && readFileSync(portFilePath, "utf8").includes("\n"), 15_000))) {
+      chrome.kill();
+      throw new Error("Chrome never opened its DevTools port");
+    }
+    const devToolsPort = readFileSync(portFilePath, "utf8").split("\n")[0];
+    return new SceneCamera({
+      chrome,
+      server,
+      serverOrigin: `http://127.0.0.1:${address.port}`,
+      devToolsOrigin: `http://127.0.0.1:${devToolsPort}`,
+      scratchDirectory,
+      pagesByPath,
+    });
+  }
+
+  /** Draws one page and writes the side-by-side PNG to pngPath. */
+  async shoot(html: string, sceneKind: SceneKind, pngPath: string): Promise<SceneShotOutcome> {
+    const pageID = `page-${this.pagesByPath.size + 1}`;
+    this.pagesByPath.set(`/${pageID}.html`, pageWithLocalThree(html));
+    const target = (await (await fetch(`${this.devToolsOrigin}/json/new?about:blank`, { method: "PUT" })).json()) as { id: string; webSocketDebuggerUrl: string };
+    const page = await PageConnection.open(target.webSocketDebuggerUrl);
+    try {
+      await page.send("Runtime.enable");
+      await page.send("Page.enable");
+      await page.send("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false });
+      await page.send("Page.navigate", { url: `${this.serverOrigin}/${pageID}.html` });
+
+      const tourFinished = await waitFor(async () => (await page.evaluate("window.__tourFinished === true")) === true, tourWaitMs);
+      if (!tourFinished) {
+        await page.evaluate("window.liveScene?.endTour?.()");
+      }
+      await sleep(800);
+      const firstShotPath = join(this.scratchDirectory, `${pageID}-1.jpg`);
+      writeFileSync(firstShotPath, await page.screenshot("jpeg"));
+
+      let secondShot: SceneShotOutcome["secondShot"];
+      if (sceneKind === "simulation") {
+        const runOutcome = await page.evaluate(`(async () => {
+          if (typeof window.liveScene?.run !== "function") return "missing";
+          const finished = await Promise.race([Promise.resolve(window.liveScene.run()).then(() => "done", () => "done"),
+            new Promise((resolve) => setTimeout(() => resolve("timeout"), ${runWaitMs}))]);
+          return finished;
+        })()`);
+        secondShot = runOutcome === "missing" ? "the page has no run()" : runOutcome === "timeout" ? "the run did not finish in 20 seconds" : "after a run";
+        await sleep(500);
+      } else {
+        const turned = await page.evaluate("typeof window.liveScene?.rotateBy === 'function' ? (window.liveScene.rotateBy(180, 10), true) : false");
+        secondShot = turned === true ? "after a half turn" : "the page has no rotateBy()";
+        await sleep(1_200);
+      }
+      const secondShotPath = join(this.scratchDirectory, `${pageID}-2.jpg`);
+      writeFileSync(secondShotPath, await page.screenshot("jpeg"));
+
+      const firstCaption = tourFinished ? "When the camera tour ends" : "The tour never ended, so this is after endTour or 20 seconds";
+      this.pagesByPath.set(`/${pageID}-shots.html`, compositePage(firstShotPath, secondShotPath, firstCaption, secondShot[0].toUpperCase() + secondShot.slice(1)));
+      await page.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 540, deviceScaleFactor: 1, mobile: false });
+      await page.send("Page.navigate", { url: `${this.serverOrigin}/${pageID}-shots.html` });
+      await waitFor(async () => (await page.evaluate("[...document.images].every((image) => image.complete && image.naturalWidth > 0)")) === true, 5_000);
+      writeFileSync(pngPath, await page.screenshot("png"));
+      return { tourFinished, secondShot, pageErrors: [...new Set(page.pageErrors)].slice(0, 3) };
+    } finally {
+      page.close();
+      await fetch(`${this.devToolsOrigin}/json/close/${target.id}`).catch(() => undefined);
+    }
+  }
+
+  async close() {
+    // Chrome writes to its profile until it exits, so the folder is removed only after that.
+    const chromeExited = new Promise((resolve) => this.chrome.once("exit", resolve));
+    this.chrome.kill();
+    await chromeExited;
+    await new Promise((resolve) => this.server.close(resolve));
+    rmSync(this.scratchDirectory, { recursive: true, force: true });
+  }
+}

@@ -1,9 +1,10 @@
 // Blind pairwise judge for the bakeoff routes a pass or fail check cannot score: frame parts, picture flows, the quiz
-// plan, and chat. It reads the replies `bench.ts worker --pages-dir <dir>` saved, pairs the baseline's reply with each
-// challenger's, draws each reply over its frame in headless Chrome, and asks two judging models, one per vendor, which
-// reply is better, with the replies in both A/B orders. A pair counts for a side only when a judge picks it both ways.
+// plan, chat, and live scenes. It reads the replies `bench.ts worker --pages-dir <dir>` saved, pairs the baseline's reply
+// with each challenger's, draws each reply over its frame in headless Chrome (or, for a live scene, screenshots its page
+// with sceneShots.ts), and asks two judging models, one per vendor, which reply is better, with the replies in both A/B
+// orders. A pair counts for a side only when a judge picks it both ways.
 //
-//   node bench/judge.ts --replies bench/replies [--routes /video-frame-parts,/picture-flows,/video-quiz-plan,/chat]
+//   node bench/judge.ts --replies bench/replies [--routes /video-frame-parts,/picture-flows,/video-quiz-plan,/chat,/live-scene]
 //     [--judges opus,sol] [--baseline base] [--pairs-per-case 1] [--effort medium] [--spot-checks 10] [--dry-run]
 //
 // --dry-run draws the replies and writes the spot-check page without calling a model, so it costs nothing.
@@ -37,6 +38,7 @@ import {
   type SpotCheckCard,
 } from "./judgeRender.ts";
 import { requestFileName, parseSavedReply, type SavedReply } from "./replyFiles.ts";
+import { SceneCamera, type SceneShotOutcome } from "./sceneShots.ts";
 import { costOfUsageLine } from "./usage.ts";
 
 const benchDirectory = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +112,20 @@ function requestSummary(context: JudgeContext): string {
       return `Plan quiz moments for the video "${context.title}".`;
     case "chat":
       return `The user said: ${context.question}`;
+    case "liveScene":
+      return `The learner said "${context.question}" and asked for a ${context.sceneKind === "simulation" ? "simulation" : "3D model"}.`;
   }
+}
+
+/** What the screenshots could not show by themselves, added under a live scene's description. */
+function sceneShotNotes(outcome: SceneShotOutcome): string {
+  return [
+    outcome.tourFinished ? "" : "The page never ended its camera tour.",
+    outcome.secondShot === "after a run" || outcome.secondShot === "after a half turn" ? "" : `Second screenshot: ${outcome.secondShot}.`,
+    outcome.pageErrors.length === 0 ? "" : `The page threw: ${outcome.pageErrors.join("; ")}`,
+  ]
+    .filter((note) => note !== "")
+    .join("\n");
 }
 
 async function main() {
@@ -164,7 +179,35 @@ async function main() {
       repliesToDraw.set(replyImageId(reply), { reply, context: contextByCaseId.get(pair.caseId) as JudgeContext });
     }
   }
+  // A live scene's notes are saved beside its PNG, so a rerun that reuses the PNG still has them.
+  const sceneNotesByImageId = new Map<string, string>();
+  let sceneCamera: SceneCamera | undefined;
   for (const [imageId, { reply, context }] of repliesToDraw) {
+    if (context.kind === "liveScene") {
+      const pngPath = join(outDirectory, "images", `${imageId}.png`);
+      const notesPath = `${pngPath}.notes.json`;
+      const sceneHTML = (() => {
+        try {
+          const replyJSON: unknown = JSON.parse(reply.replyText);
+          return typeof replyJSON === "object" && replyJSON !== null && "html" in replyJSON && typeof replyJSON.html === "string" ? replyJSON.html : undefined;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (sceneHTML === undefined) {
+        overlayImages.set(imageId, undefined);
+        continue;
+      }
+      if (!existsSync(pngPath) || !existsSync(notesPath)) {
+        sceneCamera ??= await SceneCamera.open(join(checkoutRoot, "leanring-buddy", "LiveSceneAssets"));
+        const outcome = await sceneCamera.shoot(sceneHTML, context.sceneKind, pngPath);
+        writeFileSync(notesPath, `${JSON.stringify(outcome)}\n`);
+        console.log(`screenshot ${reply.side} ${reply.caseId} run ${reply.runIndex + 1}: ${outcome.secondShot}${outcome.pageErrors.length > 0 ? `, ${outcome.pageErrors.length} page errors` : ""}`);
+      }
+      sceneNotesByImageId.set(imageId, sceneShotNotes(JSON.parse(readFileSync(notesPath, "utf8"))));
+      overlayImages.set(imageId, imageId);
+      continue;
+    }
     const page = overlayPage(context, reply.replyText);
     if (page === undefined) {
       overlayImages.set(imageId, undefined);
@@ -176,7 +219,14 @@ async function main() {
     }
     overlayImages.set(imageId, imageId);
   }
+  await sceneCamera?.close();
   console.log(`drew ${[...overlayImages.values()].filter((imageId) => imageId !== undefined).length} replies over their frames in ${join(outDirectory, "images")}`);
+
+  /** The words the judge reads for a reply, with a live scene's screenshot notes after them. */
+  const descriptionOf = (context: JudgeContext, reply: SavedReply) => {
+    const sceneNotes = sceneNotesByImageId.get(replyImageId(reply)) ?? "";
+    return [describeReply(context, reply.replyText), sceneNotes].filter((text) => text !== "").join("\n");
+  };
 
   const judgmentsPath = join(outDirectory, "judgments.json");
   const judgments: Judgment[] = existsSync(judgmentsPath) ? JSON.parse(readFileSync(judgmentsPath, "utf8")) : [];
@@ -205,7 +255,7 @@ async function main() {
       const judgedReply = (reply: SavedReply) => {
         const imageId = replyImageId(reply);
         const pngPath = overlayImages.get(imageId) === undefined ? undefined : join(outDirectory, "images", `${imageId}.png`);
-        return { description: describeReply(context, reply.replyText), overlayPNGBase64: pngPath === undefined ? undefined : readFileSync(pngPath).toString("base64") };
+        return { description: descriptionOf(context, reply), overlayPNGBase64: pngPath === undefined ? undefined : readFileSync(pngPath).toString("base64") };
       };
       const result = await requestJudgeVerdict(judgeModels[judgeName], judgePromptParts(context, judgedReply(presentation.a), judgedReply(presentation.b)), { keys, effort });
       if (!result.ok) {
@@ -252,8 +302,8 @@ async function main() {
       title: `${pair.route}, case ${pair.caseId}, run ${pair.runIndex + 1}`,
       request: requestSummary(context),
       replies: [
-        { description: describeReply(context, shown[0].replyText), imageFileName: imageFor(shown[0]) },
-        { description: describeReply(context, shown[1].replyText), imageFileName: imageFor(shown[1]) },
+        { description: descriptionOf(context, shown[0]), imageFileName: imageFor(shown[0]) },
+        { description: descriptionOf(context, shown[1]), imageFileName: imageFor(shown[1]) },
       ],
       reveal: [`A is ${shown[0].side} (${shown[0].models.join(", ")})`, `B is ${shown[1].side} (${shown[1].models.join(", ")})`, ...verdictLines].join("\n"),
     };

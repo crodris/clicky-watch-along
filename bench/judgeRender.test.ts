@@ -57,6 +57,21 @@ describe("contextFromRequest", () => {
     });
   });
 
+  it("reads a live scene's words, screenshot, and kind, with an older request's missing kind read as a 3D model", () => {
+    const body = { question: "let me try it", screenshotBase64: "QUJD", screenshotMediaType: "image/jpeg", kind: "simulation" };
+
+    assert.deepEqual(contextFromRequest("/live-scene", body), {
+      kind: "liveScene",
+      sceneKind: "simulation",
+      question: "let me try it",
+      screenshotBase64: "QUJD",
+      screenshotMediaType: "image/jpeg",
+    });
+    assert.equal(contextFromRequest("/live-scene", { question: "show me", screenshotBase64: "QUJD" })?.kind, "liveScene");
+    const modelContext = contextFromRequest("/live-scene", { question: "show me", screenshotBase64: "QUJD" });
+    assert.equal(modelContext?.kind === "liveScene" ? modelContext.sceneKind : undefined, "model");
+  });
+
   it("gives nothing for a route it does not judge or a body without what it needs", () => {
     assert.equal(contextFromRequest("/landmark", { frameBase64: "QUJD" }), undefined);
     assert.equal(contextFromRequest("/video-frame-parts", {}), undefined);
@@ -182,6 +197,14 @@ describe("describeReply", () => {
     assert.ok(text.includes("(10, 20)"));
   });
 
+  it("gives a live scene's quiz in words, and says when the reply had no page", () => {
+    const sceneContext: JudgeContext = { kind: "liveScene", sceneKind: "model", question: "show me", screenshotBase64: "", screenshotMediaType: "image/jpeg" };
+    const reply = JSON.stringify({ html: "<html></html>", quiz: { question: "What pumps blood?", answerLabel: "Left ventricle", explanation: "It squeezes." } });
+
+    assert.equal(describeReply(sceneContext, reply), "Quiz question: What pumps blood?\nAnswer label: Left ventricle\nExplanation: It squeezes.");
+    assert.ok(describeReply(sceneContext, '{"error":"no"}').startsWith("The reply had no page"));
+  });
+
   it("quotes a reply that is not the shape it should be, so the judge sees the failure", () => {
     assert.ok(describeReply(frameContext, "garbage").includes("garbage"));
   });
@@ -205,6 +228,23 @@ describe("judgePromptParts", () => {
 
     assert.ok(parts.every((part) => part.kind === "text"));
     assert.ok(textOf(parts).some((text) => text.includes("Sharks") && text.includes("[0] Hi.")));
+  });
+
+  it("shows a live scene's learner words and screen, picks the criteria by scene kind, and calls each picture two screenshots", () => {
+    const sceneContext = (sceneKind: "model" | "simulation"): JudgeContext => ({
+      kind: "liveScene",
+      sceneKind,
+      question: "let me try it",
+      screenshotBase64: "U0NSRUVO",
+      screenshotMediaType: "image/png",
+    });
+    const modelParts = judgePromptParts(sceneContext("model"), { description: "a", overlayPNGBase64: "QQ==" }, { description: "b", overlayPNGBase64: "Qg==" });
+    const simulationParts = judgePromptParts(sceneContext("simulation"), { description: "a", overlayPNGBase64: "QQ==" }, { description: "b", overlayPNGBase64: "Qg==" });
+
+    assert.ok(textOf(modelParts)[0].includes("3D model") && textOf(simulationParts)[0].includes("experiment"));
+    assert.ok(modelParts.some((part) => part.kind === "image" && part.mediaType === "image/png" && part.base64 === "U0NSRUVO"));
+    assert.ok(textOf(modelParts).some((text) => text.includes('"let me try it"')));
+    assert.ok(textOf(modelParts).some((text) => text.startsWith("Reply A, two screenshots of its page")));
   });
 
   it("holds the system prompt and the user's words for chat", () => {

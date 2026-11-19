@@ -192,14 +192,40 @@ The Worker finds it from the first 400 and remembers it, so only the first call 
 A `/chat` reply with no `[POINT]` tag and a short, cut-off text means the reasoning used the limit, not that the model failed to point.
 `/chat` streams, so its table's `ttft` column is the time to the first text token. Every other route answers in one JSON reply, so its first byte is its whole answer.
 
-The render baseline records what GPT-6.1 Sol does today, so a later challenger run has numbers to beat.
+### Render bakeoff
+
+A render costs about $0.40 on GPT-6.1 Sol Ultrafast, so renders run in two rounds, with quality judged at the standard tier.
+Ultrafast changes how fast OpenAI answers, not what the model writes, and costs 6 times as much.
+Round one runs every model once on each of 3 cases, and round two runs only the best two or three again at the app's own tier.
+
+On `/live-scene`, `BENCH_MODEL` picks the request: a `gpt-*` model runs the app's own GPT request, with no tier unless `BENCH_SERVICE_TIER` names one, and any other model runs the Claude request.
+So `base` here is GPT-6.1 Sol at the standard tier, and a Worker with no vars is the app exactly as it ships, at Ultrafast.
+The app side doubles as the tier check and as a same-model control: it should land level with `base` in the blind judge.
 
 ```bash
-node bench/bench.ts worker --pages-dir bench/replies --label render --runs 3 --only live-scene,simulation-projectile,simulation-lever --side render-base:8791:$C
+$V worker-up 8791 -- --inspector-port 9301 --var BENCH_MODEL:gpt-6.1-sol
+$V worker-up 8799 -- --inspector-port 9309
+# 8792 to 8795 and 8798 as in "Start the Workers". GPT-6.2 runs without --var BENCH_SERVICE_TIER:ultrafast here.
+$V worker-up 8796 -- --inspector-port 9306 --var BENCH_MODEL:gpt-6.2-sol
+$V worker-up 8797 -- --inspector-port 9307 --var BENCH_MODEL:gpt-6.2-astra
+
+g=render1
+node bench/bench.ts worker --pages-dir bench/replies/render --label $g --runs 1 --only live-scene,simulation-projectile,simulation-lever \
+  --side $g-base:8791:$C --side $g-app:8799:$C --side $g-haiku:8792:$C --side $g-sonnet:8793:$C --side $g-opus:8794:$C \
+  --side $g-fable:8795:$C --side $g-sol62:8796:$C --side $g-astra:8797:$C --side $g-neon:8798:$C
+node bench/judge.ts --replies bench/replies/render --routes /live-scene --dry-run
+node bench/judge.ts --replies bench/replies/render --routes /live-scene
 ```
 
-To run a challenger on renders later, add its side, such as `--side render-sol62:8796:$C`, to that command.
-Each render call costs about $0.40 on GPT-6.1 Sol Ultrafast.
+The judge loads each saved page in headless Chrome with three.js from `leanring-buddy/LiveSceneAssets/` (`sceneShots.ts`), and screenshots it twice.
+The first shot is when the camera tour ends, and the second is after a half turn for a 3D model, or after one run for a simulation.
+Both go side by side into one picture, which the judges see next to the learner's screen.
+A page that never ends its tour, has no `run()`, or throws is said so in the words under its picture.
+Each page takes about 40 seconds on Chrome's software renderer, so 27 pages take about 18 minutes before the first judging call.
+
+Round one costs about $6 for the 27 renders and $3 for the judge's 96 calls, by the per-token prices in `usage.ts` (an estimate before the run).
+Round two runs the survivors with `--runs 2` at the app's tier, adding `--var BENCH_SERVICE_TIER:ultrafast` to a GPT Worker, for about $5.
+Its replies go to `bench/replies/render/`, apart from the other routes' replies, so the judge pairs only this run.
 
 ### Task agent
 
@@ -227,8 +253,8 @@ The Worker logs the model each call used, so `wrangler tail` on a side confirms 
 
 ### The blind judge
 
-The pass counts cannot see whether a frame's parts sit on the right places, whether a flow follows the picture, or whether a quiz plan asks good questions.
-`judge.ts` scores those four routes.
+The pass counts cannot see whether a frame's parts sit on the right places, whether a flow follows the picture, whether a quiz plan asks good questions, whether a voice reply helps, or whether a scene looks right.
+`judge.ts` scores those five routes, and the render bakeoff above says how it screenshots a scene.
 It pairs the baseline's saved reply with each challenger's reply to the same case and run, and draws each reply over its frame in headless Chrome, with the model names left out.
 It asks Opus 5.5 and GPT-6.1 Sol which reply is better, with the replies in both A/B orders.
 A win counts only when a judge picks the same reply in both orders.
