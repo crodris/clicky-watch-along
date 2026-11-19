@@ -1,7 +1,7 @@
 # Let me try it simulation
 
 When the learner ends what they say with "let me try it", "let me play with it", or "can I try it", or says "simulate this", an experiment agent builds a hands-on science experiment of what the screen shows, with sliders and a Run button drawn by `scene-tools.js`.
-The video keeps playing while a lime wingman builds it, and the experiment rises out of the video when it is ready, like a 3D model (see [3D model agent](./three-d-model-agent.md)).
+The video keeps playing while a lime-ringed token floats beside the notch, and the experiment rises out of the video when it is ready, like a 3D model (see [3D model agent](./three-d-model-agent.md)).
 `/live-scene` takes `kind: "simulation"`, and the page adds `controls`, `setControl`, `run`, readouts, a hidden dashed path, faded past paths, and a challenge.
 The lesson runs in four stages: Clicky asks a hypothesis and waits for a guess, the learner explores with the dashed path, Clicky says whether the guess was right and why once the trials answer it, and a challenge ends with a hit.
 

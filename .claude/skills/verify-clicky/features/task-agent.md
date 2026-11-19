@@ -1,7 +1,7 @@
 # Task agent
 
 While a video plays, the learner hands Clicky any task that needs more than a quick answer, and a general background agent works on it while the video keeps playing.
-It searches the web, reads the video's captions and looks at the video, can write a Notion page, and reports each step beside a teal wingman.
+It searches the web, reads the video's captions and looks at the video, can write a Notion page, and reports each step in the agent list, with a teal-ringed token beside the notch.
 When it finishes, its page opens in a background tab, and the chip says "Task done · say what did you find". Clicky speaks the answer only when asked.
 
 ## Sub-features
@@ -10,7 +10,7 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 - `task-route` is the Worker's `/v1/messages` passthrough, which the harness's Anthropic SDK calls. It forwards the body and the stream unchanged and needs the app secret.
 - `task-page` is `/notion-page`, which writes a private page with a summary, sections, and linked sources, and returns `{ pageURL }`.
 - `task-router` sends "find out", "look up", "research", and "compare" requests to `start_background_task`, and "what did you find" to `hear_task_answer`, which the router takes until the answer is heard, even with no video in front.
-- `task-steps` shows each `report_step` on the wingman's line and as the list's checklist.
+- `task-steps` shows each `report_step` as the list's checklist.
 - `task-page-check` keeps a `/notion-page` reply only when its `pageURL` is an https page on Notion (`taskAgentNotionPageURL`), since "Open page" in the agent list hands it to NSWorkspace, which opens any URL scheme.
 - `task-ending` plays "Tink", opens the page behind the video tab, and shows the teal chip, and `hear_task_answer` speaks the answer.
 
@@ -33,7 +33,7 @@ Preconditions:
   The loop ends on a `task_finished` or `task_failed` line, within a few turns, and every line it writes is JSON.
   Post a `write_notion_page` input to `/notion-page` and the reply holds a `notion.com` `pageURL`.
 - **In the app.** Run `$V app-launch "play the video"` with a YouTube video in front, then post `tools/call` for `start_background_task` with `{"goal":"find out how this compares to the first booster catch, and make me a Notion page about it"}` to `http://127.0.0.1:8790/mcp`.
-  The app log shows `Task agent: finished in N s after M turns`, `Task agent: wrote https://...`, and a teal wingman shows the reported steps meanwhile.
+  The app log shows `Task agent: finished in N s after M turns`, `Task agent: wrote https://...`, and a teal-ringed token floats beside the notch meanwhile, with the reported steps in the agent list.
   Post `tools/call` for `hear_task_answer`, and Clicky speaks the answer.
 
 ## Gotchas

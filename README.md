@@ -298,7 +298,7 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   BackgroundAgents.swift    # The record of running agents and the scene a finished one built
   BackgroundTaskAgent.swift # The task agent's app tools and its Notion page
   AgentHarness.swift        # Launches the Go harness that runs the task agent's loop, and talks to it in JSON lines
-  BackgroundAgentWingmen.swift   # The small triangles that follow the cursor while agents work
+  AgentTokenDock.swift           # The discs beside the notch that show running agents
   BackgroundAgentListPanel.swift # The agent list that Shift + Option opens
 harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy
