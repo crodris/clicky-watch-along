@@ -13,6 +13,7 @@ worker/.wrangler/
 .verify-clicky/
 .playwright-mcp/
 bench/node_modules/
+bench/replies/
 demo-refs/
 demo/node_modules/
 demo/public/
