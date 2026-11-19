@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -479,5 +481,40 @@ func TestACancelledTaskIsNeverWrittenFor(t *testing.T) {
 	runner.send(context.Background(), newLogMessage("a live task"))
 	if got, want := output.String(), `{"type":"log","message":"a live task"}`+"\n"; got != want {
 		t.Errorf("a live task wrote %q, want %q", got, want)
+	}
+}
+
+func TestAToolResultIsSentToClaudeAsContentBlocks(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"a string", `"shown"`, `{"tool_use_id":"toolu_1","is_error":false,"content":[{"text":"shown","type":"text"}],"type":"tool_result"}`},
+		{"an empty string has no content block", `""`, `{"tool_use_id":"toolu_1","is_error":false,"type":"tool_result"}`},
+		{
+			"text and image blocks",
+			`[{"type":"text","text":"a"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}}]`,
+			`{"tool_use_id":"toolu_1","is_error":false,"content":[{"text":"a","type":"text"},{"source":{"data":"QUJD","media_type":"image/png","type":"base64"},"type":"image"}],"type":"tool_result"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			block := toolResultBlock(toolResultMessage{TaskID: "task-1", ToolUseID: "toolu_1", Content: json.RawMessage(test.content)})
+			encoded, err := json.Marshal(block)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got, want map[string]any
+			if err := json.Unmarshal(encoded, &got); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(test.want), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("tool result block:\n got %s\nwant %s", encoded, test.want)
+			}
+		})
 	}
 }

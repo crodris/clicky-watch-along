@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -86,7 +87,7 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 	lineReader := bufio.NewReader(input)
 	for {
 		line, readErr := lineReader.ReadBytes('\n')
-		if len(line) > 0 {
+		if len(bytes.TrimSpace(line)) > 0 {
 			serving.handle(line)
 		}
 		if readErr != nil {

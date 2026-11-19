@@ -248,7 +248,7 @@ func toolResultBlock(result toolResultMessage) anthropic.ContentBlockParamUnion 
 func parseToolResultContent(rawContent json.RawMessage) ([]anthropic.ToolResultBlockParamContentUnion, error) {
 	var text string
 	if err := json.Unmarshal(rawContent, &text); err == nil {
-		return []anthropic.ToolResultBlockParamContentUnion{{OfText: &anthropic.TextBlockParam{Text: text}}}, nil
+		return textContent(text), nil
 	}
 
 	var blocks []struct {
@@ -268,7 +268,7 @@ func parseToolResultContent(rawContent json.RawMessage) ([]anthropic.ToolResultB
 	for _, block := range blocks {
 		switch {
 		case block.Type == "text":
-			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{Text: block.Text}})
+			content = append(content, textContent(block.Text)...)
 		case block.Type == "image" && block.Source.Type == "base64":
 			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfImage: &anthropic.ImageBlockParam{
 				Source: anthropic.ImageBlockParamSourceUnion{OfBase64: &anthropic.Base64ImageSourceParam{
@@ -281,4 +281,13 @@ func parseToolResultContent(rawContent json.RawMessage) ([]anthropic.ToolResultB
 		}
 	}
 	return content, nil
+}
+
+// textContent is one text block, or none for empty text, since the API refuses an empty text block and a tool result
+// with no content is valid.
+func textContent(text string) []anthropic.ToolResultBlockParamContentUnion {
+	if text == "" {
+		return nil
+	}
+	return []anthropic.ToolResultBlockParamContentUnion{{OfText: &anthropic.TextBlockParam{Text: text}}}
 }
