@@ -1,15 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import wranglerConfigText from "../wrangler.toml?raw";
 import {
+  anthropicBodyToGeminiChatBody,
   anthropicBodyToOpenAIResponsesBody,
   applyClaudeBenchOverride,
   benchModelOverride,
   claudeChatBodyText,
   configureBenchModelOverride,
+  forwardChatToGemini,
   forwardChatToOpenAI,
+  geminiChatCompletionToAnthropicMessage,
+  geminiStreamToAnthropicStream,
+  geminiUsageForLog,
   openAIResponseToAnthropicMessage,
   openAIStreamToAnthropicStream,
+  requestBenchGeminiMessage,
   requestBenchOpenAIMessage,
+  type GeminiBenchOverride,
   type OpenAIBenchOverride,
 } from "./benchModelOverride";
 
@@ -574,6 +581,499 @@ describe("forwardChatToOpenAI", () => {
     expect((await forwardChatToOpenAI(gptOverride(), "not json")).status).toBe(400);
     const unsupportedBody = { messages: [{ role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "x" }] }] };
     expect((await forwardChatToOpenAI(gptOverride(), JSON.stringify(unsupportedBody))).status).toBe(501);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------- Gemini ----------
+
+function geminiOverride(overrides: Partial<GeminiBenchOverride> = {}): GeminiBenchOverride {
+  return { provider: "gemini", model: "gemini-test", apiKey: "gemini-key", ...overrides };
+}
+
+function geminiMappedBody(anthropicBody: unknown, override: GeminiBenchOverride = geminiOverride()): Record<string, unknown> {
+  const mapping = anthropicBodyToGeminiChatBody(anthropicBody, override);
+  if (!mapping.ok) {
+    throw new Error(`unsupported: ${mapping.unsupported}`);
+  }
+  return mapping.body;
+}
+
+const geminiChatCompletionsURL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+
+describe("configureBenchModelOverride for Gemini", () => {
+  it("keeps a Gemini model with the key and effort", () => {
+    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-4-neon", BENCH_EFFORT: "xhigh", GEMINI_API_KEY: " gemini-key " })).toBeUndefined();
+    expect(benchModelOverride()).toEqual({ provider: "gemini", model: "gemini-4-neon", apiKey: "gemini-key", effort: "xhigh" });
+  });
+
+  it("names GEMINI_API_KEY when it is missing or empty, and never reads OPENAI_API_KEY instead", () => {
+    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-4-neon", OPENAI_API_KEY: "openai-key" })).toBe("A gemini-* BENCH_MODEL needs GEMINI_API_KEY");
+    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-4-neon", GEMINI_API_KEY: "  " })).toBe("A gemini-* BENCH_MODEL needs GEMINI_API_KEY");
+    expect(benchModelOverride()).toBeUndefined();
+  });
+
+  it("refuses a service tier, which Gemini has none of here, and an effort it does not know", () => {
+    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-4-neon", GEMINI_API_KEY: "k", BENCH_SERVICE_TIER: "ultrafast" })).toContain("BENCH_SERVICE_TIER");
+    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-4-neon", GEMINI_API_KEY: "k", BENCH_EFFORT: "none" })).toContain("BENCH_EFFORT");
+    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-4-neon", GEMINI_API_KEY: "k", BENCH_EFFORT: "max" })).toContain("BENCH_EFFORT");
+    expect(benchModelOverride()).toBeUndefined();
+  });
+});
+
+describe("anthropicBodyToGeminiChatBody", () => {
+  it("puts the system prompt first as a system message, joins system blocks, and drops the cache breakpoint", () => {
+    const body = geminiMappedBody({
+      system: [
+        { type: "text", text: "you're clicky", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "be brief" },
+      ],
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(body.messages).toEqual([
+      { role: "system", content: "you're clicky\n\nbe brief" },
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+  });
+
+  it("maps a base64 image to an image_url data URL and keeps the text beside it, with max_tokens and the model", () => {
+    const body = geminiMappedBody({
+      max_tokens: 1500,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } },
+            { type: "text", text: "find the subject" },
+          ],
+        },
+      ],
+    });
+
+    expect(body).toEqual({
+      model: "gemini-test",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUJD" } },
+            { type: "text", text: "find the subject" },
+          ],
+        },
+      ],
+      max_tokens: 1500,
+    });
+  });
+
+  it("maps a json_schema format to a strict response_format, and sends no OpenAI-only fields", () => {
+    const schema = { type: "object", properties: { verdict: { type: "string" } }, required: ["verdict"], additionalProperties: false };
+
+    const body = geminiMappedBody({ output_config: { format: { type: "json_schema", schema } }, messages: [{ role: "user", content: "x" }] });
+
+    expect(body.response_format).toEqual({ type: "json_schema", json_schema: { name: "reply", schema, strict: true } });
+    expect(body).not.toHaveProperty("text");
+    expect(body).not.toHaveProperty("service_tier");
+  });
+
+  it("maps the route's effort to reasoning_effort, with max as xhigh and minimal as low", () => {
+    const requestWithEffort = (effort: string) => ({ output_config: { effort }, messages: [{ role: "user", content: "x" }] });
+
+    expect(geminiMappedBody(requestWithEffort("medium")).reasoning_effort).toBe("medium");
+    expect(geminiMappedBody(requestWithEffort("max")).reasoning_effort).toBe("xhigh");
+    expect(geminiMappedBody(requestWithEffort("medium"), geminiOverride({ effort: "minimal" })).reasoning_effort).toBe("low");
+    expect(geminiMappedBody({ messages: [{ role: "user", content: "x" }] })).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("gives low for thinking off, since Gemini cannot turn thinking off, ahead of the route's effort but behind BENCH_EFFORT", () => {
+    const thinkingOffRequest = { thinking: { type: "disabled" }, output_config: { effort: "high" }, messages: [{ role: "user", content: "x" }] };
+
+    expect(geminiMappedBody(thinkingOffRequest).reasoning_effort).toBe("low");
+    expect(geminiMappedBody(thinkingOffRequest, geminiOverride({ effort: "high" })).reasoning_effort).toBe("high");
+  });
+
+  it("maps tools to function tools with automatic choice, and the tool_use and tool_result turn of /voice-command", () => {
+    const toolSchema = { type: "object", properties: { yawDegrees: { type: "number" }, confirmation: { type: "string" } }, required: ["confirmation"] };
+
+    const body = geminiMappedBody({
+      system: "you are clicky's hands",
+      tool_choice: { type: "auto" },
+      tools: [{ name: "rotate_model", description: "Orbit the camera.", input_schema: toolSchema, cache_control: { type: "ephemeral" } }],
+      messages: [
+        { role: "user", content: 'Learner said: "turn it left"' },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "On it." },
+            { type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } },
+          ],
+        },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "ok: yaw is now -45" }] },
+      ],
+    });
+
+    expect(body.tools).toEqual([{ type: "function", function: { name: "rotate_model", description: "Orbit the camera.", parameters: toolSchema } }]);
+    expect(body.tool_choice).toBe("auto");
+    expect(body.messages).toEqual([
+      { role: "system", content: "you are clicky's hands" },
+      { role: "user", content: [{ type: "text", text: 'Learner said: "turn it left"' }] },
+      {
+        role: "assistant",
+        content: "On it.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", name: "rotate_model", content: "ok: yaw is now -45" },
+    ]);
+  });
+
+  it("leaves content out of an assistant message that only calls tools, and puts tool messages before the user's own text", () => {
+    const body = geminiMappedBody({
+      messages: [
+        { role: "user", content: "go" },
+        { role: "assistant", content: [{ type: "tool_use", id: "call_a", name: "pause_video", input: {} }] },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "and then?" },
+            { type: "tool_result", tool_use_id: "call_a", content: [{ type: "text", text: "paused" }], is_error: false },
+          ],
+        },
+      ],
+    });
+
+    expect(body.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      { role: "assistant", tool_calls: [{ id: "call_a", type: "function", function: { name: "pause_video", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "call_a", name: "pause_video", content: "paused" },
+      { role: "user", content: [{ type: "text", text: "and then?" }] },
+    ]);
+  });
+
+  it("reports a forced tool, an image that is not base64, a tool_result with an image, and other blocks as unsupported", () => {
+    const userRequest = (content: unknown) => ({ messages: [{ role: "user", content }] });
+
+    expect(anthropicBodyToGeminiChatBody({ tool_choice: { type: "any" }, messages: [] }, geminiOverride())).toEqual({ ok: false, unsupported: "tool_choice any" });
+    expect(anthropicBodyToGeminiChatBody(userRequest([{ type: "image", source: { type: "url", url: "https://x" } }]), geminiOverride())).toEqual({
+      ok: false,
+      unsupported: "an image that is not base64",
+    });
+    expect(
+      anthropicBodyToGeminiChatBody(userRequest([{ type: "tool_result", tool_use_id: "t", content: [{ type: "image", source: {} }] }]), geminiOverride()),
+    ).toEqual({ ok: false, unsupported: "a tool_result with a block that is not text" });
+    expect(anthropicBodyToGeminiChatBody(userRequest([{ type: "document" }]), geminiOverride())).toEqual({ ok: false, unsupported: "a document block" });
+    expect(
+      anthropicBodyToGeminiChatBody({ messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "" }] }] }, geminiOverride()),
+    ).toEqual({ ok: false, unsupported: "a thinking block" });
+  });
+});
+
+describe("geminiChatCompletionToAnthropicMessage", () => {
+  const usage = { prompt_tokens: 900, completion_tokens: 40, total_tokens: 940, prompt_tokens_details: { cached_tokens: 512 } };
+
+  function reply(message: Record<string, unknown>, finishReason: string | null = "stop", replyUsage: unknown = usage) {
+    return { id: "chatcmpl-1", model: "gemini-4-neon", choices: [{ index: 0, message: { role: "assistant", ...message }, finish_reason: finishReason }], usage: replyUsage };
+  }
+
+  it("maps the answer text to a text block, and the usage to the field names the benchmark reads", () => {
+    const mapping = geminiChatCompletionToAnthropicMessage(reply({ content: '{"verdict":"correct"}' }));
+
+    expect(mapping).toEqual({
+      ok: true,
+      usageForLog: { input_tokens: 900, input_tokens_details: { cached_tokens: 512 }, output_tokens: 40 },
+      message: {
+        id: "chatcmpl-1",
+        type: "message",
+        role: "assistant",
+        model: "gemini-4-neon",
+        content: [{ type: "text", text: '{"verdict":"correct"}' }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 900, output_tokens: 40 },
+      },
+    });
+  });
+
+  it("maps a tool call to a tool_use block with parsed arguments, and stops for tool use even when Gemini says stop", () => {
+    const mapping = geminiChatCompletionToAnthropicMessage(
+      reply({
+        content: null,
+        tool_calls: [{ id: "call_9", type: "function", function: { name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' } }],
+      }),
+    );
+
+    expect(mapping.ok && mapping.message.content).toEqual([
+      { type: "tool_use", id: "call_9", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } },
+    ]);
+    expect(mapping.ok && mapping.message.stop_reason).toBe("tool_use");
+  });
+
+  it("gives a tool call with no id a fresh one, and an argument string that is not an object an empty input", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const toolCall = (callArguments: string) => ({ type: "function", function: { name: "pause_video", arguments: callArguments } });
+
+    const mapping = geminiChatCompletionToAnthropicMessage(reply({ tool_calls: [toolCall("not json"), toolCall("{}")] }));
+
+    const toolUseIds = mapping.ok ? mapping.message.content.flatMap((block) => (block.type === "tool_use" ? [block.id] : [])) : [];
+    expect(toolUseIds).toHaveLength(2);
+    expect(new Set(toolUseIds).size).toBe(2);
+    expect(toolUseIds.every((toolUseId) => toolUseId.startsWith("gemini_call_"))).toBe(true);
+    expect(mapping.ok && mapping.message.content[0]).toMatchObject({ input: {} });
+  });
+
+  it("maps length to max_tokens and a content filter or a refusal to refusal", () => {
+    const stopReasonOf = (message: Record<string, unknown>, finishReason: string) => {
+      const mapping = geminiChatCompletionToAnthropicMessage(reply(message, finishReason));
+      return mapping.ok ? mapping.message.stop_reason : mapping.error;
+    };
+
+    expect(stopReasonOf({ content: "{" }, "length")).toBe("max_tokens");
+    expect(stopReasonOf({ content: null }, "content_filter")).toBe("refusal");
+    expect(stopReasonOf({ content: null, refusal: "I cannot help with that." }, "stop")).toBe("refusal");
+  });
+
+  it("reports a reply with no choices as an error", () => {
+    expect(geminiChatCompletionToAnthropicMessage({ choices: [] })).toEqual({ ok: false, error: "Gemini response had no choices" });
+    expect(geminiChatCompletionToAnthropicMessage({ error: { message: "bad" } })).toEqual({ ok: false, error: "Gemini response had no choices list" });
+  });
+});
+
+describe("geminiUsageForLog", () => {
+  it("reads cached tokens from prompt_tokens_details, and counts none when there are no details", () => {
+    expect(geminiUsageForLog({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 })).toEqual({
+      input_tokens: 10,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 5,
+    });
+  });
+
+  it("bills thinking as output when completion_tokens leaves it out, and trusts completion_tokens when it already counts it", () => {
+    expect(geminiUsageForLog({ prompt_tokens: 100, completion_tokens: 20, total_tokens: 420 }).output_tokens).toBe(320);
+    expect(geminiUsageForLog({ prompt_tokens: 100, completion_tokens: 320, total_tokens: 420 }).output_tokens).toBe(320);
+    expect(geminiUsageForLog(undefined)).toEqual({ input_tokens: 0, input_tokens_details: { cached_tokens: 0 }, output_tokens: 0 });
+  });
+});
+
+describe("requestBenchGeminiMessage", () => {
+  const completedReply = {
+    id: "c1",
+    model: "gemini-test",
+    choices: [{ message: { role: "assistant", content: "{}" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10, prompt_tokens_details: { cached_tokens: 2 } },
+  };
+
+  it("posts the mapped body to the Chat Completions endpoint with the key, and returns the message with a usage-shaped reply for the log", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(completedReply)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const reply = await requestBenchGeminiMessage(geminiOverride(), "/test-route", { max_tokens: 5, messages: [{ role: "user", content: "hi" }] });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(geminiChatCompletionsURL);
+    expect(init?.headers).toEqual({ authorization: "Bearer gemini-key", "content-type": "application/json" });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: "gemini-test",
+      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      max_tokens: 5,
+    });
+    expect(reply.ok && reply.message.content).toEqual([{ type: "text", text: "{}" }]);
+    expect(reply.ok && reply.responseJSON).toEqual({
+      model: "gemini-test",
+      usage: { input_tokens: 7, input_tokens_details: { cached_tokens: 2 }, output_tokens: 3 },
+    });
+  });
+
+  it("puts the thought signature of a tool call back on that call when the app sends it in the next turn", async () => {
+    const signature = { google: { thought_signature: "sig-abc" } };
+    const toolCallReply = {
+      model: "gemini-test",
+      choices: [
+        { message: { role: "assistant", tool_calls: [{ id: "call_sig", type: "function", function: { name: "zoom", arguments: "{}" }, extra_content: signature }] }, finish_reason: "tool_calls" },
+      ],
+    };
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify(toolCallReply)));
+    vi.stubGlobal("fetch", fetchMock);
+    const firstTurn = await requestBenchGeminiMessage(geminiOverride(), "/voice-command", { messages: [{ role: "user", content: "zoom" }] });
+    const toolUse = firstTurn.ok ? firstTurn.message.content[0] : undefined;
+
+    const mapping = anthropicBodyToGeminiChatBody(
+      {
+        messages: [
+          { role: "user", content: "zoom" },
+          { role: "assistant", content: [toolUse] },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: "call_sig", content: "done" }] },
+        ],
+      },
+      geminiOverride(),
+    );
+
+    expect(mapping.ok && (mapping.body.messages as Array<Record<string, unknown>>)[1]).toMatchObject({ tool_calls: [{ id: "call_sig", extra_content: signature }] });
+  });
+
+  it("answers 501 without calling Gemini for a request it cannot port", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const reply = await requestBenchGeminiMessage(geminiOverride(), "/test-route", { tool_choice: { type: "tool", name: "x" }, messages: [] });
+
+    expect(reply).toEqual({ ok: false, status: 501, error: "BENCH_MODEL gemini-test cannot take tool_choice tool" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("passes a Gemini error back with its status and text, and answers 502 when the fetch fails or the body is not JSON", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const body = { messages: [{ role: "user", content: "hi" }] };
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('[{"error":{"message":"quota"}}]', { status: 429 })));
+    expect(await requestBenchGeminiMessage(geminiOverride(), "/test-route", body)).toEqual({ ok: false, status: 429, error: '[{"error":{"message":"quota"}}]' });
+
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("offline"))));
+    expect(await requestBenchGeminiMessage(geminiOverride(), "/test-route", body)).toEqual({ ok: false, status: 502, error: "Gemini could not be reached" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>")));
+    expect(await requestBenchGeminiMessage(geminiOverride(), "/test-route", body)).toEqual({ ok: false, status: 502, error: "Gemini returned a body that was not JSON" });
+  });
+});
+
+describe("geminiStreamToAnthropicStream", () => {
+  const encoder = new TextEncoder();
+
+  function geminiChunk(chunkPayload: Record<string, unknown>): string {
+    return `data: ${JSON.stringify(chunkPayload)}\n\n`;
+  }
+
+  async function translate(geminiStreamText: string, chunkSize: number): Promise<Array<Record<string, unknown>>> {
+    const bytes = encoder.encode(geminiStreamText);
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+          controller.enqueue(bytes.slice(offset, offset + chunkSize));
+        }
+        controller.close();
+      },
+    });
+    const translatedText = await new Response(upstream.pipeThrough(geminiStreamToAnthropicStream())).text();
+    return translatedText
+      .split("\n\n")
+      .filter((eventBlock) => eventBlock.length > 0)
+      .map((eventBlock) => {
+        const [eventLine, dataLine] = eventBlock.split("\n");
+        const payload = JSON.parse(dataLine.replace("data: ", ""));
+        expect(eventLine).toBe(`event: ${payload.type}`);
+        return payload;
+      });
+  }
+
+  const usage = { prompt_tokens: 900, completion_tokens: 30, total_tokens: 970, prompt_tokens_details: { cached_tokens: 512 } };
+  // The finish chunk comes before the usage chunk, which has no choices, and [DONE] ends the stream.
+  const completedStream =
+    geminiChunk({ id: "c1", model: "gemini-4-neon", choices: [{ index: 0, delta: { role: "assistant", content: "see that " } }] }) +
+    geminiChunk({ id: "c1", model: "gemini-4-neon", choices: [{ index: 0, delta: { content: "button [POINT:1200,60:download pdf]" } }] }) +
+    geminiChunk({ id: "c1", model: "gemini-4-neon", choices: [{ index: 0, delta: { content: null }, finish_reason: "stop" }] }) +
+    geminiChunk({ id: "c1", model: "gemini-4-neon", choices: [], usage }) +
+    "data: [DONE]\n\n";
+
+  it.each([1, 7, 4096])("turns text deltas, the finish reason, and the usage chunk into Anthropic events, in chunks of %i bytes", async (chunkSize) => {
+    const events = await translate(completedStream, chunkSize);
+
+    expect(events.map((streamEvent) => streamEvent.type)).toEqual([
+      "message_start",
+      "content_block_start",
+      "content_block_delta",
+      "content_block_delta",
+      "content_block_stop",
+      "message_delta",
+      "message_stop",
+    ]);
+    expect(events[0]).toMatchObject({ message: { id: "c1", model: "gemini-4-neon", role: "assistant" } });
+    expect(events.filter((streamEvent) => streamEvent.type === "content_block_delta").map((streamEvent) => streamEvent.delta)).toEqual([
+      { type: "text_delta", text: "see that " },
+      { type: "text_delta", text: "button [POINT:1200,60:download pdf]" },
+    ]);
+    expect(events[5]).toEqual({
+      type: "message_delta",
+      delta: { stop_reason: "end_turn", stop_sequence: null },
+      usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 512 }, output_tokens: 70 },
+    });
+  });
+
+  it("ends the message once when the stream closes with no [DONE] marker, with whatever usage it saw", async () => {
+    const events = await translate(geminiChunk({ id: "c1", model: "m", choices: [{ delta: { content: "hi" } }] }), 4096);
+
+    expect(events.map((streamEvent) => streamEvent.type)).toEqual(["message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"]);
+    expect(events[4]).toMatchObject({ usage: {} });
+  });
+
+  it("reports a length finish as max_tokens", async () => {
+    const events = await translate(geminiChunk({ choices: [{ delta: { content: "x" }, finish_reason: "length" }] }) + "data: [DONE]\n\n", 4096);
+
+    expect(events.find((streamEvent) => streamEvent.type === "message_delta")).toMatchObject({ delta: { stop_reason: "max_tokens" } });
+  });
+
+  it("answers an error chunk with one error event and ignores what follows", async () => {
+    const events = await translate(
+      geminiChunk({ error: { code: 429, message: "quota exceeded" } }) + geminiChunk({ choices: [{ delta: { content: "late" } }] }) + "data: [DONE]\n\n",
+      4096,
+    );
+
+    expect(events).toEqual([{ type: "error", error: { type: "api_error", message: "quota exceeded" } }]);
+  });
+});
+
+describe("forwardChatToGemini", () => {
+  const chatBody = {
+    model: "claude-sonnet-5-5",
+    max_tokens: 1024,
+    stream: true,
+    output_config: { effort: "low" },
+    system: [{ type: "text", text: "you're clicky", cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  };
+
+  it("streams the answer back as Anthropic events from a body sent with stream and include_usage on", async () => {
+    const upstreamStream =
+      'data: {"id":"c1","model":"gemini-4-neon","choices":[{"delta":{"content":"hello"}}]}\n\n' +
+      'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n' +
+      "data: [DONE]\n\n";
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(upstreamStream, { headers: { "content-type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardChatToGemini(geminiOverride({ model: "gemini-4-neon" }), JSON.stringify(chatBody));
+
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    const streamText = await response.text();
+    expect(streamText).toContain('"text_delta","text":"hello"');
+    expect(streamText).toContain('"output_tokens":2');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(geminiChatCompletionsURL);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toEqual({
+      model: "gemini-4-neon",
+      messages: [
+        { role: "system", content: "you're clicky" },
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ],
+      max_tokens: 1024,
+      reasoning_effort: "low",
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+  });
+
+  it("passes a Gemini error back with its status", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":"rate limited"}', { status: 429 })));
+
+    const response = await forwardChatToGemini(geminiOverride(), JSON.stringify(chatBody));
+
+    expect(response.status).toBe(429);
+    expect(await response.text()).toBe('{"error":"rate limited"}');
+  });
+
+  it("answers 400 for a body that is not JSON and 501 for one it cannot port, without calling Gemini", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await forwardChatToGemini(geminiOverride(), "not json")).status).toBe(400);
+    expect((await forwardChatToGemini(geminiOverride(), JSON.stringify({ tool_choice: { type: "any" }, messages: [] }))).status).toBe(501);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

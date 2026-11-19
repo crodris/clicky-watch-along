@@ -1,6 +1,6 @@
 /**
  * The benchmark override seen from the routes: with no BENCH_MODEL every route sends what it sent before the
- * override existed, and with one each route's real request is ported to the other vendor.
+ * override existed, and with one each route's real request is ported to the other vendor (OpenAI or Gemini).
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,7 @@ const baseEnv = {
 };
 const gptEnv = { ...baseEnv, BENCH_MODEL: "gpt-6-luna", BENCH_SERVICE_TIER: "ultrafast" };
 const claudeEnv = { ...baseEnv, BENCH_MODEL: "claude-haiku-5-5", BENCH_EFFORT: "medium" };
+const geminiEnv = { ...baseEnv, GEMINI_API_KEY: "gemini-key", BENCH_MODEL: "gemini-4-neon" };
 
 afterEach(() => {
   configureBenchModelOverride({});
@@ -26,6 +27,7 @@ afterEach(() => {
 
 const anthropicURL = "https://api.anthropic.com/v1/messages";
 const openAIURL = "https://api.openai.com/v1/responses";
+const geminiURL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 /** One valid request per route that calls requestAnthropicMessage, as the app sends it. */
 const routeRequests: Array<{ route: string; body: unknown; defaultModel: string }> = [
@@ -77,6 +79,8 @@ function post(route: string, body: unknown, env: Parameters<typeof worker.fetch>
 /** A reply every route can fail on, since these tests read the request and not the reply. */
 const emptyAnthropicReply = () => new Response(JSON.stringify({ content: [{ type: "text", text: "{}" }], usage: {} }));
 const emptyOpenAIReply = () => new Response(JSON.stringify({ model: "gpt-6-luna", output: [{ type: "message", content: [{ type: "output_text", text: "{}" }] }], usage: {} }));
+const emptyGeminiReply = () =>
+  new Response(JSON.stringify({ model: "gemini-4-neon", choices: [{ message: { role: "assistant", content: "{}" }, finish_reason: "stop" }], usage: {} }));
 
 function stubFetch(makeReply: () => Response) {
   const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => makeReply());
@@ -324,6 +328,156 @@ describe("with a GPT BENCH_MODEL", () => {
     await worker.fetch(
       new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: messagesBodyText, headers: { "x-clicky-app-secret": "app-secret" } }),
       { ...gptEnv, CLICKY_APP_SECRET: "app-secret" },
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(anthropicURL);
+    expect(fetchMock.mock.calls[0]?.[1].body).toBe(messagesBodyText);
+  });
+});
+
+describe("with a Gemini BENCH_MODEL", () => {
+  it.each(routeRequests)("sends $route to Gemini's Chat Completions endpoint with the key, and never to Anthropic or OpenAI", async ({ route, body }) => {
+    const fetchMock = stubFetch(emptyGeminiReply);
+
+    await post(route, body, geminiEnv);
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(geminiURL);
+    expect(init?.headers).toEqual({ authorization: "Bearer gemini-key", "content-type": "application/json" });
+    expect(fetchMock.mock.calls.every((fetchCall) => fetchCall[0] === geminiURL)).toBe(true);
+    expect(sentBody(fetchMock)).toMatchObject({ model: "gemini-4-neon" });
+    expect(sentBody(fetchMock).messages.length).toBeGreaterThan(0);
+  });
+
+  it.each(routeRequests.filter(({ route }) => route !== "/voice-command"))("gives $route's schema to response_format as strict json_schema", async ({ route, body }) => {
+    const fetchMock = stubFetch(emptyGeminiReply);
+
+    await post(route, body, geminiEnv);
+
+    const { response_format } = sentBody(fetchMock);
+    expect(response_format).toMatchObject({ type: "json_schema", json_schema: { name: "reply", strict: true } });
+    expect(response_format.json_schema.schema.type).toBe("object");
+  });
+
+  it("sends /video-frame-parts' frame as an image_url part the model can read", async () => {
+    const fetchMock = stubFetch(emptyGeminiReply);
+    const frameRoute = routeRequests.find(({ route }) => route === "/video-frame-parts");
+
+    await post("/video-frame-parts", frameRoute?.body, geminiEnv);
+
+    const userMessage = sentBody(fetchMock).messages.find((message: { role: string }) => message.role === "user");
+    expect(userMessage.content[0]).toEqual({ type: "image_url", image_url: { url: "data:image/jpeg;base64,QUJD" } });
+  });
+
+  it("answers /judge-answer from a Chat Completions reply, and logs usage in the field names the benchmark prices", async () => {
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            model: "gemini-4-neon",
+            choices: [{ message: { role: "assistant", content: '{"verdict":"correct","spokenReply":"Yes, it pumps blood."}' }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 300, completion_tokens: 20, total_tokens: 320, prompt_tokens_details: { cached_tokens: 128 } },
+          }),
+        ),
+    );
+    const [judgeRoute] = routeRequests;
+
+    const response = await post(judgeRoute.route, judgeRoute.body, geminiEnv);
+
+    expect(await response.json()).toEqual({ verdict: "correct", spokenReply: "Yes, it pumps blood." });
+    expect(console.log).toHaveBeenCalledWith(
+      `[/judge-answer] usage ${JSON.stringify({ model: "gemini-4-neon", input_tokens: 300, input_tokens_details: { cached_tokens: 128 }, output_tokens: 20 })}`,
+    );
+  });
+
+  it("answers /voice-command with the tool call as a tool_use block", async () => {
+    stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            model: "gemini-4-neon",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [{ id: "call_1", type: "function", function: { name: "rotate_model", arguments: '{"yawDegrees":-45,"confirmation":"turned it left"}' } }],
+                },
+                finish_reason: "tool_calls",
+              },
+            ],
+            usage: {},
+          }),
+        ),
+    );
+    const voiceRoute = routeRequests.find(({ route }) => route === "/voice-command");
+
+    const response = await post("/voice-command", voiceRoute?.body, geminiEnv);
+
+    expect(await response.json()).toEqual({
+      content: [{ type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it left" } }],
+      stopReason: "tool_use",
+    });
+  });
+
+  it("sends /voice-command's second turn, with the tool call and its result, and the tools as functions", async () => {
+    const fetchMock = stubFetch(emptyGeminiReply);
+    const voiceRoute = routeRequests.find(({ route }) => route === "/voice-command");
+    const secondTurnBody = {
+      tools: (voiceRoute?.body as { tools: unknown }).tools,
+      messages: [
+        { role: "user", content: 'Learner said: "turn it left"' },
+        { role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "rotate_model", input: { yawDegrees: -45 } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: "that failed" }] },
+      ],
+    };
+
+    const response = await post("/voice-command", secondTurnBody, geminiEnv);
+
+    expect(response.status).toBe(200);
+    const { messages, tools, tool_choice, reasoning_effort } = sentBody(fetchMock);
+    expect(messages.map((message: { role: string }) => message.role)).toEqual(["system", "user", "assistant", "tool"]);
+    expect(messages[3]).toEqual({ role: "tool", tool_call_id: "call_1", name: "rotate_model", content: "that failed" });
+    expect(tools[0]).toMatchObject({ type: "function", function: { name: "rotate_model" } });
+    expect(tool_choice).toBe("auto");
+    // /voice-command turns thinking off on Haiku, and Gemini cannot, so it gets the lowest effort.
+    expect(reasoning_effort).toBe("low");
+  });
+
+  it("streams /chat back as Anthropic events, and sends the app's own request to Gemini with stream on", async () => {
+    const fetchMock = stubFetch(
+      () =>
+        new Response(
+          'data: {"id":"c1","model":"gemini-4-neon","choices":[{"delta":{"content":"hi"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\ndata: [DONE]\n\n',
+        ),
+    );
+    const chatBody = { model: "claude-sonnet-5-5", max_tokens: 1024, stream: true, system: "you're clicky", messages: [{ role: "user", content: "hi" }] };
+
+    const response = await worker.fetch(new Request("http://127.0.0.1:8791/chat", { method: "POST", body: JSON.stringify(chatBody) }), geminiEnv);
+
+    expect(await response.text()).toContain('"text_delta","text":"hi"');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(geminiURL);
+    expect(sentBody(fetchMock)).toMatchObject({ model: "gemini-4-neon", stream: true, stream_options: { include_usage: true }, max_tokens: 1024 });
+  });
+
+  it("answers 500 with the problem before any model call when the key is missing", async () => {
+    const fetchMock = stubFetch(emptyGeminiReply);
+    const [judgeRoute] = routeRequests;
+
+    const response = await post(judgeRoute.route, judgeRoute.body, { ...baseEnv, BENCH_MODEL: "gemini-4-neon" });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "A gemini-* BENCH_MODEL needs GEMINI_API_KEY" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never changes /v1/messages, which serves the agent harness", async () => {
+    const fetchMock = stubFetch(emptyAnthropicReply);
+    const messagesBodyText = JSON.stringify({ model: "claude-sonnet-5-5", messages: [] });
+
+    await worker.fetch(
+      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: messagesBodyText, headers: { "x-clicky-app-secret": "app-secret" } }),
+      { ...geminiEnv, CLICKY_APP_SECRET: "app-secret" },
     );
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(anthropicURL);
