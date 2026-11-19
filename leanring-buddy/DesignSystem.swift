@@ -202,34 +202,34 @@ enum DS {
 
         // ── Background Agents ────────────────────────────────────────
 
-        /// The wingman of a study guide agent. Each new agent kind gets its own color here.
+        /// The color of a study guide agent. Each new agent kind gets its own color here.
         static let backgroundAgentStudyGuideAmber = Color(hex: "#FFB020")
 
         /// The study guide agent's chip letters. Tailwind Amber 700, the status lines' 700 for text.
         static let backgroundAgentStudyGuideAmberText = Color(hex: "#b45309")
 
-        /// The wingman of a 3D model agent. Tailwind Violet 400, apart from the cursor's blue and the guide's amber.
+        /// The color of a 3D model agent. Tailwind Violet 400, apart from the cursor's blue and the guide's amber.
         static let backgroundAgentThreeDModelViolet = Color(hex: "#a78bfa")
 
         /// The 3D model agent's chip letters. Tailwind Violet 700.
         static let backgroundAgentThreeDModelVioletText = Color(hex: "#6d28d9")
 
-        /// The wingman of a general task agent. Tailwind Teal 400, apart from the cursor's blue, the guide's amber, and the model's violet.
+        /// The color of a general task agent. Tailwind Teal 400, apart from the cursor's blue, the guide's amber, and the model's violet.
         static let backgroundAgentTaskTeal = Color(hex: "#2dd4bf")
 
         /// The task agent's chip letters. Tailwind Teal 700.
         static let backgroundAgentTaskTealText = Color(hex: "#0f766e")
 
-        /// The dark gap between a team player's portrait and its progress ring, so the ring reads on any video.
-        static let backgroundAgentPortraitGap = Color(hex: "#0d0f12")
+        /// The opaque dark track of an agent token's progress ring, so the ring reads on a light menu bar and a bright wallpaper.
+        static let agentTokenTrack = Color(hex: "#2b303b")
 
-        /// A team player's name on the white step pill and the ending chip. Tailwind Gray 900, since a pale team color fails as text.
+        /// The dark face of a token that shows a kind's triangle, and of the "+N" disc.
+        static let agentTokenFace = Color(hex: "#171b24")
+
+        /// A team player's name on the ending chip. Tailwind Gray 900, since a pale team color fails as text.
         static let backgroundAgentPlayerNameText = Color(hex: "#111827")
 
-        /// The step after the player's name on the white step pill. Tailwind Gray 700, a step quieter than the name.
-        static let backgroundAgentPlayerStepText = Color(hex: "#374151")
-
-        /// The wingman of an experiment agent. Lime reads apart from the model's violet and the task's teal.
+        /// The color of an experiment agent. Lime reads apart from the model's violet and the task's teal.
         static let backgroundAgentExperimentLime = lime500
 
         /// The experiment agent's chip letters. Tailwind Lime 700.

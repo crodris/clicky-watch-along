@@ -2,7 +2,8 @@
 //  BackgroundAgentListPanel.swift
 //  leanring-buddy
 //
-//  The clickable list of background agents that shift + option opens next to the mouse. It is a borderless,
+//  The clickable list of background agents. Shift + option opens it next to the mouse, and a click on an agent token
+//  beside the notch opens it under that token with the agent's row expanded. It is a borderless,
 //  nonactivating panel that never becomes key, so Chrome keeps the keyboard while the learner clicks a row.
 //  It closes on Escape, on a click outside, or on the shortcut again.
 //
@@ -32,43 +33,96 @@ private final class AgentListHostingView<Content: View>: NSHostingView<Content> 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// Whether the agent list may show a waiting 3D model or experiment, or speak a waiting task answer. A question's scene and
+/// speech belong to the question, so, like the voice tools for the same actions (`AppVoiceTool.showReadyModel` and
+/// `.hearTaskAnswer`), the list waits until the learner answers or skips an open video quiz question.
+func agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: Bool) -> Bool {
+    !aVideoQuizQuestionIsOpen
+}
+
+/// What a row's buttons do besides cancelling a running agent.
+struct AgentListActions {
+    let cancelAgent: (UUID) -> Void
+    /// Rises the 3D model or experiment that is waiting to be shown.
+    let showReadyScene: () -> Void
+    /// Speaks the task answer that is waiting to be heard.
+    let hearTaskAnswer: () -> Void
+}
+
 @MainActor
 final class AgentListPanelController {
     static let panelWidth: CGFloat = 300
     static let maximumPanelHeight: CGFloat = 360
     private static let gapFromTheMouse: CGFloat = 12
-    /// One level above the cursor overlay windows, so the list is never under the wingmen.
+    /// One level above the cursor overlay windows, so the list is never under the cursor.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
 
     private let store: BackgroundAgentStore
     private let themeSettings: CompanionThemeSettings
-    private let cancelAgent: (UUID) -> Void
+    private let actions: AgentListActions
     private var panel: AgentListPanel?
     private var clickOutsideMonitor: Any?
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
+    /// The disc the list was opened from, nil when the shortcut opened it, so a second click on the same disc closes it.
+    private var discTheListWasOpenedFrom: AgentTokenDiscID?
 
-    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, cancelAgent: @escaping (UUID) -> Void) {
+    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, actions: AgentListActions) {
         self.store = store
         self.themeSettings = themeSettings
-        self.cancelAgent = cancelAgent
+        self.actions = actions
     }
 
     var isOpen: Bool { panel != nil }
 
+    /// The shift + option shortcut: open next to the mouse with no row expanded, or close.
     func toggle() {
-        if isOpen { close() } else { open() }
+        if isOpen {
+            close()
+        } else {
+            let mouseLocation = NSEvent.mouseLocation
+            open(
+                anchorTopLeft: CGPoint(x: mouseLocation.x + Self.gapFromTheMouse, y: mouseLocation.y - Self.gapFromTheMouse),
+                visibleFrame: screenUnderTheMouseCursor()?.visibleFrame ?? .zero,
+                initiallyExpandedAgentID: nil
+            )
+        }
     }
 
-    func open() {
-        guard panel == nil else { return }
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = screenUnderTheMouseCursor()
-        visibleFrame = screen?.visibleFrame ?? .zero
-        anchorTopLeft = CGPoint(x: mouseLocation.x + Self.gapFromTheMouse, y: mouseLocation.y - Self.gapFromTheMouse)
+    /// A click on an agent token: open the list under that disc with the agent's row expanded, and "+N" with none.
+    /// A click on the disc the list is already open from closes it, and a click on another disc, including the same
+    /// agent's disc on another display, moves it there.
+    func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen) {
+        let discWasAlreadyOpen = discTheListWasOpenedFrom == discID
+        let listWasOpen = isOpen
+        close()
+        if listWasOpen && discWasAlreadyOpen { return }
+        let agentIDToExpand: UUID?
+        switch discID.tokenSlot {
+        case .agent(let agentID): agentIDToExpand = agentID
+        case .overflow: agentIDToExpand = nil
+        }
+        open(
+            anchorTopLeft: CGPoint(x: discPanelFrame.minX, y: discPanelFrame.minY - Self.gapFromTheMouse / 4),
+            visibleFrame: screen.visibleFrame,
+            initiallyExpandedAgentID: agentIDToExpand
+        )
+        discTheListWasOpenedFrom = discID
+    }
 
-        let agentListView = AgentListView(store: store, themeSettings: themeSettings, cancelAgent: cancelAgent) { [weak self] contentSize in
+    private func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?) {
+        guard panel == nil else { return }
+        self.visibleFrame = visibleFrame
+        self.anchorTopLeft = anchorTopLeft
+        discTheListWasOpenedFrom = nil
+
+        let agentListView = AgentListView(
+            store: store,
+            themeSettings: themeSettings,
+            actions: actions,
+            initiallyExpandedAgentID: initiallyExpandedAgentID
+        ) { [weak self] contentSize in
             self?.resizePanel(to: contentSize)
         }
         let hostingView = AgentListHostingView(rootView: agentListView)
@@ -99,6 +153,7 @@ final class AgentListPanelController {
     }
 
     func close() {
+        discTheListWasOpenedFrom = nil
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
@@ -199,12 +254,26 @@ private struct AgentListSizePreferenceKey: PreferenceKey {
 private struct AgentListView: View {
     @ObservedObject var store: BackgroundAgentStore
     @ObservedObject var themeSettings: CompanionThemeSettings
-    let cancelAgent: (UUID) -> Void
+    let actions: AgentListActions
     let onContentSizeChange: (CGSize) -> Void
 
     @State private var expandedAgentID: UUID?
 
     private static let headerHeight: CGFloat = 40
+
+    init(
+        store: BackgroundAgentStore,
+        themeSettings: CompanionThemeSettings,
+        actions: AgentListActions,
+        initiallyExpandedAgentID: UUID?,
+        onContentSizeChange: @escaping (CGSize) -> Void
+    ) {
+        self.store = store
+        self.themeSettings = themeSettings
+        self.actions = actions
+        self.onContentSizeChange = onContentSizeChange
+        _expandedAgentID = State(initialValue: initiallyExpandedAgentID)
+    }
 
     /// A school theme borders the panel in the team's color. Every other theme keeps today's thin gray border.
     private var panelBorderColor: Color {
@@ -267,9 +336,10 @@ private struct AgentListView: View {
                         ForEach(store.agents) { agent in
                             AgentRowView(
                                 agent: agent,
+                                resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
                                 isExpanded: expandedAgentID == agent.id,
                                 onToggle: { expandedAgentID = expandedAgentID == agent.id ? nil : agent.id },
-                                onCancel: { cancelAgent(agent.id) }
+                                actions: actions
                             )
                         }
                     }
@@ -297,17 +367,19 @@ private struct AgentListView: View {
 
 private struct AgentRowView: View {
     let agent: BackgroundAgent
+    /// False while a video quiz question is open, when the Show and Hear buttons wait (`agentListMayDeliverAWaitingResult`).
+    let resultsMayBeDeliveredNow: Bool
     let isExpanded: Bool
     let onToggle: () -> Void
-    let onCancel: () -> Void
+    let actions: AgentListActions
 
     @State private var isHovered = false
 
-    /// The meter's filled segments and the wingman share one color for each phase.
+    /// The meter's filled segments and the token's ring share one color for each phase.
     private var meterColor: Color {
         switch agent.phase {
         // The team's color only shows while the agent runs, so it never stands for a state.
-        case .running: return agent.player?.school.accentColor ?? agent.kind.color
+        case .running: return agent.player?.school.accentColor ?? agent.displayColor.color
         case .finished: return DS.Colors.success
         case .failed: return DS.Colors.destructive
         case .cancelled: return DS.Colors.textTertiary
@@ -355,7 +427,7 @@ private struct AgentRowView: View {
                 // A finished agent's portrait steps back, as its meter turns green.
                 .opacity(agent.finishedResult == nil ? 1 : 0.5)
         } else {
-            WingmanTriangleView(agent: agent, size: 11)
+            AgentTriangleView(agent: agent, size: 11)
                 .frame(width: 16, height: 16)
         }
     }
@@ -394,7 +466,7 @@ private struct AgentRowView: View {
         }
     }
 
-    /// One segment per step, filled by the same progress the wingman shows, so the list and the cursor agree.
+    /// One segment per step, filled by the same progress the token's ring shows, so the list and the notch agree.
     private var stepMeter: some View {
         ZStack {
             HStack(spacing: Self.stepMeterGap) {
@@ -437,12 +509,9 @@ private struct AgentRowView: View {
                     .foregroundColor(DS.Colors.textSecondary)
             }
             if agent.isRunning {
-                AgentActionButton(title: "Cancel", titleColor: DS.Colors.destructiveText, action: onCancel)
-            } else if let pageURL = agent.finishedResult?.pageURL {
-                // Brings the page forward, unlike the background tab the finished guide opened in.
-                AgentActionButton(title: "Open page", titleColor: DS.Colors.textPrimary) {
-                    NSWorkspace.shared.open(pageURL)
-                }
+                AgentActionButton(title: "Cancel", titleColor: DS.Colors.destructiveText) { actions.cancelAgent(agent.id) }
+            } else if agent.finishedResult != nil {
+                resultButtons
             }
         }
         // Lines up under the title, which starts after the icon.
@@ -450,6 +519,31 @@ private struct AgentRowView: View {
         .padding(.trailing, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension AgentRowView {
+    /// What a finished agent's result allows: show a waiting 3D model or experiment, hear a waiting task answer, and open
+    /// its Notion page. A result that was already delivered offers only the page.
+    @ViewBuilder fileprivate var resultButtons: some View {
+        HStack(spacing: 6) {
+            if agent.resultIsWaitingToBeDelivered && resultsMayBeDeliveredNow {
+                switch agent.finishedResult {
+                case .readyScene:
+                    AgentActionButton(title: agent.kind == .experiment ? "Show experiment" : "Show model", titleColor: DS.Colors.textPrimary, action: actions.showReadyScene)
+                case .answer:
+                    AgentActionButton(title: "Hear answer", titleColor: DS.Colors.textPrimary, action: actions.hearTaskAnswer)
+                case .notionPage, nil:
+                    EmptyView()
+                }
+            }
+            if let pageURL = agent.finishedResult?.pageURL {
+                // Brings the page forward, unlike the background tab the finished agent opened it in.
+                AgentActionButton(title: "Open page", titleColor: DS.Colors.textPrimary) {
+                    NSWorkspace.shared.open(pageURL)
+                }
+            }
+        }
     }
 }
 
@@ -477,7 +571,7 @@ private struct AgentActionButton: View {
 }
 
 /// The filled part of the list's step meter: each step's segment fills by its share of the progress.
-/// Animatable, so it moves in step with the wingman's fill.
+/// Animatable, so it moves in step with the token's ring.
 private struct StepMeterFill: Shape {
     var progress: Double
     let stepCount: Int

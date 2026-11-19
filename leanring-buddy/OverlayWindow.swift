@@ -430,14 +430,6 @@ struct BlueCursorView: View {
                 .position(cursorPosition)
                 .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                 .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
-
-            // Background agents fly in formation behind the blue triangle.
-            WingmenView(
-                store: companionManager.backgroundAgentStore,
-                cursorPosition: cursorPosition,
-                buddyIsVisibleOnThisScreen: buddyIsVisibleOnThisScreen,
-                cursorOpacity: cursorOpacity
-            )
         }
         .frame(width: screenFrame.width, height: screenFrame.height)
         .ignoresSafeArea()

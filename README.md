@@ -81,8 +81,8 @@ Say "build a 3D model of this", and the model rises out of the video once it's r
 "Let me try it" builds its experiment the same way.
 For something bigger, like "find out how this catch compares to the first booster catch", a task agent searches the web and can write what it found to a Notion page.
 It tells you what it found when you say "what did you find".
-Up to three running agents follow Clicky's blue triangle as small colored triangles that fill up as they work, and the nearest one says what it's doing.
-Hold Shift + Option to see every agent and its steps, cancel one, or open its page.
+Each running agent floats as a small disc beside the notch, with a ring that fills as it works, and a finished result that is still waiting for you keeps its disc.
+Click a disc to open the agent list under it, or hold Shift + Option to see every agent and its steps, cancel one, or open its page.
 
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
 That covers popping out an image, reading your screen, building a 3D scene or an experiment, reading a video's transcript, and picking quiz spots.
@@ -298,7 +298,7 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   BackgroundAgents.swift    # The record of running agents and the scene a finished one built
   BackgroundTaskAgent.swift # The task agent's app tools and its Notion page
   AgentHarness.swift        # Launches the Go harness that runs the task agent's loop, and talks to it in JSON lines
-  BackgroundAgentWingmen.swift   # The small triangles that follow the cursor while agents work
+  AgentTokenDock.swift           # The discs beside the notch that show running agents
   BackgroundAgentListPanel.swift # The agent list that Shift + Option opens
 harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy

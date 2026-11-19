@@ -2,7 +2,7 @@
 
 While a YouTube video plays in Chrome's front tab, the learner asks for a study guide, and Clicky writes a Notion page about the video in the background while the video keeps playing.
 `POST /study-guide` has Sonnet draft the guide from the captions and writes it as its own page in the Private section of the Notion user who made the token, with a timestamp link on every point and the quiz questions the learner missed or skipped listed first.
-Clicky does not speak when the guide ends. A wingman triangle flies behind the blue cursor while it runs, and a finished guide opens in a Chrome tab behind the video tab, with a quiet chip under the cursor.
+Clicky does not speak when the guide ends. An agent token floats beside the notch while it runs, and a finished guide opens in a Chrome tab behind the video tab, with a quiet chip under the cursor.
 The learner can revise or open the guide by voice, and hold shift + option to see every agent and cancel one.
 
 ## Sub-features
@@ -11,23 +11,22 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-revise` sends `revision` with the previous page handle and guide, creates the new page, and trashes the old one.
   A handle the Worker did not sign gets a 400 before any model or Notion call.
 - `guide-review-first` builds the "Review these first" section from the quiz results marked `missed` or `skipped`.
-- `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a red outline wingman and no sound.
+- `guide-not-connected` answers 503 when `NOTION_API_KEY` is missing, and the chip under the cursor says "Notion isn't connected yet" with a gray token in a red ring and no sound.
 - `guide-voice-tools` offers `make_study_guide` with a YouTube video in front, no quiz question open, and no guide saved for that video, and `revise_study_guide` and `open_study_guide` once a guide is saved for it. The guide is saved under `savedStudyGuide.<video id>` in the app's defaults, so it outlives a relaunch, and `defaults delete com.crodris.clicky-watch-along savedStudyGuide.<video id>` makes the video writable again. Trashing the page in Notion does the same at the next voice command, since `POST /study-guide-status` then answers `{ "pageExists": false }` and the app logs `is no longer in Notion, so the saved guide is forgotten`.
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
-- `guide-wingman` shows an amber outline triangle behind the blue cursor triangle while the guide runs, filling by area through each step in step with the agent list's meter, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists.
+- `guide-token` shows an amber-ringed token right of the notch while the guide runs, its ring filling through each step in step with the agent list's meter, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists. The token leaves when the chip ends, since the page opened at once.
 - `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
   A key or a left, right, or middle mouse press during the hold breaks it, and so does a mouse button already down from a drag, so shift + option + drag in another app never opens the list.
 - `guide-cancel-revision` keeps a cancelled revise or refresh whose reply already arrived, since the Worker already trashed the old page, and loads the new page in the old page's tab. A cancelled new guide keeps nothing.
 - `guide-forgotten` forgets a saved guide whose page was trashed or deleted in Notion at its next status check, so `open_study_guide` fails with "This video's study guide was deleted in Notion" and `make_study_guide` is offered again. A guide being rewritten by a running guide agent is never forgotten.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
-- `guide-quiz-update` spawns a "Study guide update" wingman when a video quiz question on a video with a saved guide is missed or skipped, logs `Study guide: updating the guide with the quiz miss`, makes no Anthropic call for it, and the page's "Review these first" then lists the question. A miss while a guide is being written runs the refresh once that guide is written, only while that video is still in front, and never after a failure or a cancel; the app cuts quiz text to 2,000 UTF-16 units first. Earlier misses stay on the page after a relaunch, since each saved guide keeps the quiz results it was written with.
-- `guide-team-theme` shows the agent as a team player when a school is picked: a round portrait (or the school's color with the player's initials when no portrait is bundled) in a ring in the school's color that fills clockwise, the player's name before the step line, the portrait as the ending chip's icon, and a themed row in the agent list with the school's name in its header. Clicky blue keeps the amber triangle.
-- `guide-step-line` shows the running step beside the wingman closest to the blue triangle, such as "Reading the captions" and then "Writing the guide in Notion".
+- `guide-quiz-update` spawns a "Study guide update" agent when a video quiz question on a video with a saved guide is missed or skipped, logs `Study guide: updating the guide with the quiz miss`, makes no Anthropic call for it, and the page's "Review these first" then lists the question. A miss while a guide is being written runs the refresh once that guide is written, only while that video is still in front, and never after a failure or a cancel; the app cuts quiz text to 2,000 UTF-16 units first. Earlier misses stay on the page after a relaunch, since each saved guide keeps the quiz results it was written with.
+- `guide-team-theme` shows the agent as a team player when a school is picked: a round portrait (or the school's color with the player's initials when no portrait is bundled) in a ring in the school's color that fills clockwise, the portrait as the ending chip's icon, and a themed row in the agent list with the school's name in its header. Clicky blue keeps the amber triangle.
 - `guide-open-tab` switches to that tab when the learner says "open my study guide", so Chrome holds one tab with the guide, and opens the page again only when that tab was closed. A revision's page loads in that same tab, and the chip says "· updated in its tab".
 
 ## How to get to it (user POV)
 
-- Hold shift + option for a moment to open the agent list, click a row to see its steps, and press Cancel to stop a running guide.
+- Click the guide's token beside the notch to open the agent list under it with that row expanded, or hold shift + option for a moment to open the list next to the mouse, click a row to see its steps, and press Cancel to stop a running guide.
 
 - With a YouTube video in Chrome's front tab, hold ctrl+option and say "make me a Notion study guide for this".
 - After the guide is ready, say "make the study guide shorter" or "open my study guide".
@@ -53,10 +52,10 @@ Preconditions:
 - **Voice tools in the app.** With a YouTube video in front, run `$V app-launch "play the video"`, since `app-launch` refuses empty steps, then post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"make_study_guide","arguments":{}}}` to `http://127.0.0.1:8790/mcp`.
   The app log shows `Study guide: wrote https://www.notion.so/... in N s`, and `tools/list` then includes `revise_study_guide` and `open_study_guide`.
 
-- **Wingman.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
-  The screenshot shows an amber outline triangle down and to the right of the blue cursor triangle.
-  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the amber triangle with a green check mark ahead of the tip and the "Study guide ready" chip.
-- **Team theme.** [`team-theme.md`](./team-theme.md) drives every themed wingman and list state with seeded agents and no model call.
+- **Token.** With a YouTube video in front, post `make_study_guide` as above, then right away run `$V shot guide-running`.
+  The screenshot shows an amber-ringed token right of the notch, with the amber triangle on its dark face.
+  After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the token with a full ring and a green check mark and the "Study guide ready" chip under the cursor.
+- **Team theme.** [`team-theme.md`](./team-theme.md) drives every themed token and list state with seeded agents and no model call.
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
   The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
   Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.

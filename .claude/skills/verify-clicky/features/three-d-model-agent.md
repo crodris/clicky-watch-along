@@ -1,20 +1,21 @@
 # 3D model agent
 
 While a video plays in Chrome's front tab, the learner asks Clicky to build a 3D model, and a background agent builds it while the video keeps playing.
-A violet wingman flies behind the blue cursor while `POST /live-scene` builds the page, next to any study guide agent's amber one.
+A violet-ringed token floats right of the notch while `POST /live-scene` builds the page, next to any study guide agent's amber one.
 When the model is ready and the screen is free, Clicky pauses the video, the model rises out of it, and Clicky says what it shows.
-When something else is on screen, the model waits, and the chip says "3D model ready · say show the model".
+When something else is on screen, the model waits, its checked token stays beside the notch until it is shown or 10 minutes pass, and the chip says "3D model ready · say show the model".
 
-The experiment agent behind "let me try it" (see [Let me try it simulation](./simulation.md)) runs the same code with a lime wingman, the steps "Grabbing the frame" and "Building the experiment", and the chip "Experiment ready · say show the experiment".
+The experiment agent behind "let me try it" (see [Let me try it simulation](./simulation.md)) runs the same code with a lime-ringed token, the steps "Grab the frame" and "Build the experiment", and the chip "Experiment ready · say show the experiment".
 Its log lines start with `Experiment:` instead of `3D model:`.
 
 ## Sub-features
 
 - `model-router-split` sends "build me a 3D model of this engine" to `build_model_in_background`, and "show me this in 3D" or a famous place to `build_new_scene`.
 - `model-background` builds without pausing the video and without a status line, and logs `3D model: built "<what>" in N s`.
-- `model-wingman` shows a violet outline wingman with the step line "Grabbing the frame" and then "Building the 3D model".
+- `model-token` shows a violet-ringed token, and the agent list's row shows the steps "Grab the frame" and then "Build the 3D model".
 - `model-rises` pauses the video and lifts the model out of it when Clicky is idle, done speaking, and nothing is on screen, and logs `3D model: showing "<what>", rising out of the video true`.
 - `model-waits` logs `3D model: the screen is busy, so the model waits for "show the model"` when a scene or pop-out is up, and `show_ready_model` then clears it and shows the model.
+  The finished agent's token stays beside the notch, with a green check, until the model is shown or 10 minutes pass, and its list row offers "Show model" ("Show experiment" for an experiment) while no video quiz question is open. Click the token, then the button, to show it.
 - `several-agents` runs guide and model agents at once, so the agent list says "2 running" or more, and a second `make_study_guide` on the same video fails with "This video's study guide is still being written".
 
 ## How to get to it (user POV)
@@ -35,7 +36,7 @@ Preconditions:
 - **Several agents.** Run `$V app-launch "play the video"`, then post `tools/call` for `make_study_guide` to `http://127.0.0.1:8790/mcp`, twice.
   The first returns `{"studyGuide":"started"}`, and the second fails with "This video's study guide is still being written".
   Post `tools/call` for `build_model_in_background` with `{"whatToBuild":"this jet engine"}`, then run `$V key agents-list` and `$V shot agents-two`.
-  The screenshot shows an amber and a violet wingman behind the blue triangle and a "2 running" header.
+  The screenshot shows an amber-ringed and a violet-ringed token right of the notch and a "2 running" header.
 - **Rise.** Leave the mouse on a display other than Chrome's and the screen alone until the app log shows `3D model: showing`, then run `$V shot model-risen`.
   The video is paused and the model rises on Chrome's display, not the mouse's.
 - **Wait.** Press Escape to clear the model, post `build_model_in_background` again, then post `pop_out` at once.
