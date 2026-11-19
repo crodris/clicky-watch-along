@@ -40,3 +40,7 @@ Preconditions:
 - A video that fills the whole screen gets no loop, so shoot with Chrome in a normal window.
 - The loop polls the front tab once a second, so a tab left in the background still clears it within that second.
 - Take screenshots with `$V shot`, and look at every display before one goes into a pull request.
+  For a burst, `screencapture -x -D 2 <file>` captures one chosen display, and a plain `screencapture -x <file>` captures only the main display.
+  The loop draws on the display that holds the video, and the ring and status label draw on the display under the mouse, so put the mouse on the video's display to see all three together.
+- Another session's automation can bring a different app to the front, which clears the loop as an app switch. The log says `Cursor loop: the front app became <bundle id>`.
+- `verify-clicky.sh app-launch` finds a running Clicky with `pgrep -f`, so any shell command whose text contains the app's path makes it refuse to launch.
