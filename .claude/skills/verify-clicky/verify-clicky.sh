@@ -26,9 +26,12 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
-  key <escape|push-to-talk-tap|agents-list>
+  key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>
                             Press that key through System Events, as the learner would, while the app runs.
-                            agents-list holds shift and option for 0.5 s, which opens or closes the agent list.
+                            dial-hold presses shift and option and leaves them down, which opens the settings dial under the mouse after 0.3 s.
+                            dial-release lets them go, which commits the highlighted item.
+                            agents-list holds shift and option, glides the mouse onto the dial's Agents token, and releases, which opens the agent list.
+                            Keep the mouse 250 points from every screen edge, since an edge shifts the dial.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
 }
@@ -600,17 +603,36 @@ command_key() {
         key up control
       end tell'
       ;;
-    agents-list)
+    dial-hold)
       osascript -e 'tell application "System Events"
         key down shift
         key down option
-        delay 0.5
+      end tell'
+      ;;
+    dial-release)
+      osascript -e 'tell application "System Events"
+        key up option
+        key up shift
+      end tell'
+      ;;
+    agents-list)
+      # The Agents token sits 78 points from the dial's center at 54 degrees, which is 46 right and 63 down.
+      local mouse_x mouse_y
+      read -r mouse_x mouse_y < <(swift "$checkout_root/demo/scripts/mouse/mouse.swift" where)
+      osascript -e 'tell application "System Events"
+        key down shift
+        key down option
+      end tell'
+      sleep 0.6
+      swift "$checkout_root/demo/scripts/mouse/mouse.swift" move "$(awk -v x="$mouse_x" 'BEGIN { print x + 46 }')" "$(awk -v y="$mouse_y" 'BEGIN { print y + 63 }')" 0.3
+      sleep 0.2
+      osascript -e 'tell application "System Events"
         key up option
         key up shift
       end tell'
       ;;
     *)
-      echo "key takes escape, push-to-talk-tap, or agents-list" >&2
+      echo "key takes escape, push-to-talk-tap, dial-hold, dial-release, or agents-list" >&2
       exit 1
       ;;
   esac
