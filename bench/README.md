@@ -280,7 +280,7 @@ Measured on 2026-11-19 with base and the six challengers other than Neon.
 | The task agent, four Claude sides | 6 | about $3 | about 15 minutes |
 | The blind judge | 356 calls | about $8 | about 20 minutes |
 
-Neon adds about $3 to the four groups, by its token counts at $3 in and $15 out.
+Neon, run on its own beside base on 2026-11-19, cost about $3.50 and took about 50 minutes, since its long quiz plans each waited out the 5 minute timeout.
 
 ### When it ends
 
