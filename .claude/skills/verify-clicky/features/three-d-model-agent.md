@@ -15,6 +15,7 @@ Its log lines start with `Experiment:` instead of `3D model:`.
 - `model-token` shows a violet-ringed token, and the agent list's row shows the steps "Grabbing the frame" and then "Building the 3D model".
 - `model-rises` pauses the video and lifts the model out of it when Clicky is idle, done speaking, and nothing is on screen, and logs `3D model: showing "<what>", rising out of the video true`.
 - `model-waits` logs `3D model: the screen is busy, so the model waits for "show the model"` when a scene or pop-out is up, and `show_ready_model` then clears it and shows the model.
+  The finished agent's token stays beside the notch, with a green check, until the model is shown or 10 minutes pass, and its list row offers "Show model" ("Show experiment" for an experiment) while no video quiz question is open. Click the token, then the button, to show it.
 - `several-agents` runs guide and model agents at once, so the agent list says "2 running" or more, and a second `make_study_guide` on the same video fails with "This video's study guide is still being written".
 
 ## How to get to it (user POV)

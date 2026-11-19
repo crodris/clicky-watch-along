@@ -26,7 +26,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 
 ## How to get to it (user POV)
 
-- Hold shift + option for a moment to open the agent list, click a row to see its steps, and press Cancel to stop a running guide.
+- Click the guide's token beside the notch to open the agent list under it with that row expanded, or hold shift + option for a moment to open the list next to the mouse, click a row to see its steps, and press Cancel to stop a running guide.
 
 - With a YouTube video in Chrome's front tab, hold ctrl+option and say "make me a Notion study guide for this".
 - After the guide is ready, say "make the study guide shorter" or "open my study guide".

@@ -23,7 +23,7 @@ A school turns the cursor into a volleyball in the team's colors, and turns ever
 
 - Click the menu bar icon, then a school, Random, or Clicky blue under "Team theme".
 - Start any background agent by voice, such as "make me a study guide" while a YouTube video plays.
-- Hold shift + option to open the agent list.
+- Click an agent's token beside the notch, or the "+N" disc, to open the agent list under it, or hold shift + option to open the list next to the mouse.
 
 ## Driving it with verify-clicky.sh
 

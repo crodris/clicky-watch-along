@@ -13,6 +13,7 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 - `task-steps` shows each `report_step` as the list's checklist.
 - `task-page-check` keeps a `/notion-page` reply only when its `pageURL` is an https page on Notion (`taskAgentNotionPageURL`), since "Open page" in the agent list hands it to NSWorkspace, which opens any URL scheme.
 - `task-ending` plays "Tink", opens the page behind the video tab, and shows the teal chip, and `hear_task_answer` speaks the answer.
+  The finished agent's token stays beside the notch, with a green check, until the answer is heard or 10 minutes pass. Opening its page keeps the token. Its list row offers "Hear answer" and "Open page", and "Hear answer" waits while a video quiz question is open.
 
 ## How to get to it (user POV)
 
