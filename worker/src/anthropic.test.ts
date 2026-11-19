@@ -37,7 +37,7 @@ describe("requestAnthropicMessage", () => {
     }
   });
 
-  it("keeps every field of each block and the stop reason, which /background-agent sends back unchanged", async () => {
+  it("keeps every field of each block and the stop reason, which a caller may send back to Anthropic unchanged", async () => {
     const toolUseBlock = { type: "tool_use", id: "t1", name: "finish", input: { spokenSummary: "Done." } };
     vi.stubGlobal(
       "fetch",

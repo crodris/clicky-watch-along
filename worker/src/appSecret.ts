@@ -1,13 +1,13 @@
 /**
  * The shared secret between the Clicky app and this Worker. The Worker answers any caller that can reach it, so the
- * routes that spend the Notion token, or a task agent's web search, check that the request carries the app's secret
+ * routes that spend the Notion token, or the agent harness's Anthropic calls, check that the request carries the app's secret
  * before they do anything else.
  */
 
 export const appSecretHeaderName = "x-clicky-app-secret";
 
 /** Every route that uses the Notion token, and the Messages passthrough, which spends the owner's Anthropic key for the agent harness. */
-export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/background-agent", "/v1/messages"]);
+export const routesThatNeedTheAppSecret = new Set(["/notion-page", "/study-guide", "/study-guide-status", "/v1/messages"]);
 
 async function sha256Digest(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));

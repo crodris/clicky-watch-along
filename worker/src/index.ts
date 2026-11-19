@@ -18,13 +18,12 @@
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
  *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
  *   POST /study-guide-status → Notion API (whether a saved guide's page is still out of the trash)
- *   POST /background-agent → Anthropic Messages API (one turn of a general background agent, with web search and web fetch)
  *   POST /notion-page  → Notion API (a background agent's findings as a private page)
  *   GET  /v1/3dtiles/...  → Google Photorealistic 3D Tiles, with the key added
  */
 
 import { appSecretHeaderName, requestCarriesTheAppSecret, routesThatNeedTheAppSecret } from "./appSecret";
-import { handleBackgroundAgent, handleNotionPage } from "./backgroundAgent";
+import { handleNotionPage } from "./notionPage";
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
 import { handleVideoFrameParts } from "./videoFrameParts";
@@ -51,7 +50,7 @@ interface Env {
    * private pages with no parent. Without it, /study-guide, /study-guide-status, and /notion-page answer 503.
    */
   NOTION_API_KEY?: string;
-  /** The secret the app sends in x-clicky-app-secret. The Notion routes and /background-agent refuse a request without it. */
+  /** The secret the app sends in x-clicky-app-secret. The Notion routes and /v1/messages refuse a request without it. */
   CLICKY_APP_SECRET?: string;
 }
 
@@ -122,10 +121,6 @@ export default {
 
       if (url.pathname === "/study-guide-status") {
         return await handleStudyGuideStatus(request, env);
-      }
-
-      if (url.pathname === "/background-agent") {
-        return await handleBackgroundAgent(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/notion-page") {

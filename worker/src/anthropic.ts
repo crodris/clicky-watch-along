@@ -6,8 +6,8 @@
 
 import { z } from "zod";
 
-// Passthrough keeps every field of each block and of the reply, because /background-agent sends the blocks back to
-// Anthropic unchanged and /voice-command reads tool_use inputs.
+// Passthrough keeps every field of each block and of the reply, because /voice-command reads tool_use inputs and a
+// caller may send the blocks back to Anthropic unchanged.
 const anthropicMessageSchema = z
   .object({
     content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()),
