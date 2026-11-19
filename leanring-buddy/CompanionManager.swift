@@ -699,13 +699,7 @@ final class CompanionManager: ObservableObject {
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] voiceState, aStatusLabelIsShowing in
-            guard let self else { return }
-            if aStatusLabelIsShowing {
-                self.cursorLoopController.aStatusLabelStartedShowing()
-            }
-            if let endReason = cursorLoopEndReason(forVoiceState: voiceState, aStatusLabelIsShowing: aStatusLabelIsShowing) {
-                self.cursorLoopController.end(because: endReason)
-            }
+            self?.cursorLoopController.voiceStateChanged(to: voiceState, aStatusLabelIsShowing: aStatusLabelIsShowing)
         }
         scrollWheelCancellable = globalPushToTalkShortcutMonitor
             .scrollWheelPublisher

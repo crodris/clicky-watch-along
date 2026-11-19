@@ -19,11 +19,19 @@ final class CursorLoopController: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var fadeOutTask: Task<Void, Never>?
     private var appActivationObserver: NSObjectProtocol?
+    private var idleMustHoldTask: Task<Void, Never>?
+    private var latestVoiceState = CompanionVoiceState.idle
+    /// Reads Chrome's front tab. Tests pass their own, since the real one drives Chrome.
+    private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
 
     private static let secondsBetweenFrontTabPolls: TimeInterval = 1
+    /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
+    /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
+    static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
     private static let chromeBundleIdentifier = "com.google.Chrome"
 
-    init() {
+    init(readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab) {
+        self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         // The front app changing is a system event, so a notification is the only way to hear it.
         appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -32,7 +40,11 @@ final class CursorLoopController: ObservableObject {
         ) { [weak self] notification in
             let activatedApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             guard activatedApplication?.bundleIdentifier != Self.chromeBundleIdentifier else { return }
-            MainActor.assumeIsolated { self?.end(because: .appSwitched) }
+            MainActor.assumeIsolated {
+                guard let self, self.state.loopIsShowing || self.state.turn != .notWaitingForALoop else { return }
+                print("Cursor loop: the front app became \(activatedApplication?.bundleIdentifier ?? "unknown")")
+                self.end(because: .appSwitched)
+            }
         }
     }
 
@@ -56,7 +68,9 @@ final class CursorLoopController: ObservableObject {
         change { $0.pushToTalkWasReleased() }
         mediaRectReadTask?.cancel()
         mediaRectReadTask = Task {
-            let media = Self.readTheMediaInTheFrontTab()
+            let readStartedAt = Self.now
+            let media = readTheMediaInTheFrontTab()
+            print("Cursor loop: read the front tab's media in \(Int((Self.now - readStartedAt) * 1000)) ms, \(media == nil ? "none to frame" : "found")")
             guard !Task.isCancelled else { return }
             change { $0.mediaRectArrived(media, at: Self.now) }
         }
@@ -64,6 +78,7 @@ final class CursorLoopController: ObservableObject {
 
     /// The request became a look at the media on screen. The caller skips this while a scene already covers it.
     func requestBecameALookAtTheMedia() {
+        print("Cursor loop: the request became a look at the media, turn is \(state.turn == .notWaitingForALoop ? "not waiting for a loop" : "waiting")")
         change { $0.requestBecameALookAtTheMedia(at: Self.now) }
     }
 
@@ -71,11 +86,29 @@ final class CursorLoopController: ObservableObject {
         change { $0.aStatusLabelStartedShowing(at: Self.now) }
     }
 
+    /// Clicky's voice state or its status label changed, which can end the loop. Going idle covers a cancel and a
+    /// failure, but only an idle that holds counts.
+    func voiceStateChanged(to voiceState: CompanionVoiceState, aStatusLabelIsShowing: Bool) {
+        latestVoiceState = voiceState
+        if aStatusLabelIsShowing {
+            aStatusLabelStartedShowing()
+        }
+        guard let endReason = cursorLoopEndReason(forVoiceState: voiceState, aStatusLabelIsShowing: aStatusLabelIsShowing) else { return }
+        guard endReason == .thinkingStopped else {
+            end(because: endReason)
+            return
+        }
+        idleMustHoldTask?.cancel()
+        idleMustHoldTask = Task {
+            try? await Task.sleep(for: .seconds(Self.secondsAnIdleMustHoldToEndTheLoop))
+            guard !Task.isCancelled, latestVoiceState == .idle else { return }
+            end(because: .thinkingStopped)
+        }
+    }
+
     func end(because reason: CursorLoopEndReason) {
         guard state.loopIsShowing || state.turn != .notWaitingForALoop else { return }
-        if state.loopIsShowing {
-            print("Cursor loop: ended because \(reason)")
-        }
+        print("Cursor loop: ended because \(reason), \(state.loopIsShowing ? "with the loop showing" : "before any loop drew")")
         change { $0.end(because: reason) }
     }
 
@@ -109,8 +142,10 @@ final class CursorLoopController: ObservableObject {
     /// Every change goes through here, so the poll and the fade-out follow the state and nothing else.
     private func change(_ stateChange: (inout CursorLoopState) -> Void) {
         let loopWasFadingOut = if case .fadingOut = state.loop { true } else { false }
+        let loopWasShowing = state.loopIsShowing
         stateChange(&state)
         if state.loopIsShowing {
+            if !loopWasShowing { print("Cursor loop: drawing around the media in the front tab") }
             if pollTask == nil { startPollingTheFrontTab() }
         } else {
             pollTask?.cancel()
@@ -133,7 +168,7 @@ final class CursorLoopController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.secondsBetweenFrontTabPolls))
                 guard !Task.isCancelled, let mediaTheLoopIsAround = state.mediaTheLoopIsAround else { return }
-                let mediaNow = Self.readTheMediaInTheFrontTab()
+                let mediaNow = readTheMediaInTheFrontTab()
                 guard !Task.isCancelled else { return }
                 if mediaNow?.isTheSameMediaInTheSameTab(as: mediaTheLoopIsAround) != true {
                     end(because: .tabOrMediaChanged)
@@ -150,7 +185,7 @@ final class CursorLoopController: ObservableObject {
     /// The largest visible video or image in Chrome's front tab, with the tab it is in. Nil when Chrome is not the
     /// front app, shows no media worth framing, or refuses the read, and nil for media that fills a whole screen,
     /// which a loop would frame at the screen's edge for no reason.
-    private static func readTheMediaInTheFrontTab() -> MediaOnTheFrontTab? {
+    static func readTheMediaInTheFrontTab() -> MediaOnTheFrontTab? {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == chromeBundleIdentifier,
               let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
               let largestMedia = try? ChromeVideoTab.largestVisibleMediaInFrontTabOrNone() else {

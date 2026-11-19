@@ -116,6 +116,36 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
     #expect(cursorLoopEndReason(forVoiceState: .responding, aStatusLabelIsShowing: true) == nil)
 }
 
+/// A controller that reads `media` from the front tab instead of Chrome, with a turn waiting for a loop.
+@MainActor
+private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTab?) async -> CursorLoopController {
+    let controller = CursorLoopController(readTheMediaInTheFrontTab: { media })
+    controller.pushToTalkWasReleased()
+    // The rect read runs as a task, so it has arrived once the task has had a turn.
+    try? await Task.sleep(for: .milliseconds(50))
+    return controller
+}
+
+@Test func anIdleThatLastsOnlyAMomentDoesNotEndATurnWaitingForALoop() async {
+    // The dictation session finishes and sets idle right after a request is submitted, before the request
+    // sets processing, so a loop that is about to draw must survive that blip.
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
+    controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
+    try? await Task.sleep(for: .seconds(CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2))
+    controller.requestBecameALookAtTheMedia()
+    #expect(controller.isShowingTheLoop)
+}
+
+@Test func anIdleThatHoldsEndsALoopThatIsShowing() async {
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.requestBecameALookAtTheMedia()
+    #expect(controller.isShowingTheLoop)
+    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
+    try? await Task.sleep(for: .seconds(CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2))
+    #expect(!controller.isShowingTheLoop)
+}
+
 // MARK: - The spark under a build
 
 @Test func theSparkSlowsThreeSecondsIntoTheLoopWhenABuildStarts() {
