@@ -88,7 +88,7 @@ Each Worker holds one model, so the run starts one Worker per model and gives ea
 ### Before you start
 
 - This checkout needs `worker/.dev.vars` with `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`. Run the `worktree-setup` skill first in a fresh worktree.
-- Ports 8791 to 8798 must be free. Port 8787 belongs to the app's Worker, and port 8790 to the app's debug tool server. Run `$V doctor` to check.
+- Ports 8791 to 8798 must be free, and `worker-up` refuses a busy one. Port 8787 belongs to the app's Worker, and port 8790 to the app's debug tool server, so no Worker here uses either.
 - Chrome must be at `/Applications/Google Chrome.app`, or set `CHROME_PATH`, since the judge draws each reply in headless Chrome.
 - Nobody needs to use the Mac, but the Workers spend the API keys for any local caller until `$V cleanup` stops them.
 - OpenAI's GPT-6 model IDs were checked against its free model list on 2026-11-19: `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.2-astra`, `gpt-6.2-sol`, and `gpt-6.1-terra` exist.
@@ -98,7 +98,7 @@ Each Worker holds one model, so the run starts one Worker per model and gives ea
 V=.claude/skills/verify-clicky/verify-clicky.sh
 C="$PWD"
 b() { node bench/bench.ts worker --pages-dir bench/replies "$@"; }
-(cd bench && pnpm install) && $V new-run bench && $V doctor
+(cd bench && pnpm install) && $V new-run bench
 ```
 
 ### Start the Workers
