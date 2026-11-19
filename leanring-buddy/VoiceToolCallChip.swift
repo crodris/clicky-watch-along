@@ -5,7 +5,7 @@
 //  A small chip under the cursor that names each voice tool call, such as
 //  rotate_model(yawDegrees: -45), then fades out. It uses the status label's look:
 //  an icon on a white tile and colored letters with a white outline.
-//  A background agent that ends shows its line here too, in the agent's color with its triangle as the icon,
+//  A background agent that ends shows its line here too, in the agent's own color with its triangle as the icon,
 //  so the learner sees which agent it speaks for. It has a quieter second part and a longer stay.
 //
 
@@ -16,8 +16,9 @@ import SwiftUI
 /// Who the chip speaks for, which sets its icon and letter color.
 enum VoiceToolCallChipSender: Equatable {
     case voiceToolCall
-    /// `player` is the Haikyu!! player the agent was, so the chip shows the portrait instead of the triangle.
-    case backgroundAgent(BackgroundAgentKind, player: HaikyuPlayer?)
+    /// `color` is the agent's own color, which tints the triangle and the letters. `player` is the Haikyu!! player the
+    /// agent was, so the chip shows the portrait instead of the triangle.
+    case backgroundAgent(color: AgentPaletteColor, player: HaikyuPlayer?)
 }
 
 @MainActor
@@ -68,10 +69,10 @@ private struct VoiceToolCallChipView: View {
         case .backgroundAgent(_, let player?):
             HaikyuPortraitView(player: player, size: 22)
                 .overlay(Circle().stroke(player.school.accentColor, lineWidth: 2))
-        case .backgroundAgent(let agentKind, nil):
+        case .backgroundAgent(let agentColor, nil):
             // The cursor triangle's tilt, so the icon reads as the agent's triangle.
             Triangle()
-                .fill(agentKind.color)
+                .fill(agentColor.color)
                 .frame(width: 11, height: 11)
                 .rotationEffect(.degrees(-35))
         }
@@ -82,7 +83,7 @@ private struct VoiceToolCallChipView: View {
         case .voiceToolCall: return DS.Colors.blue700
         // Dark gray, readable inside the white outline whatever the team's color is.
         case .backgroundAgent(_, player: .some): return DS.Colors.backgroundAgentPlayerNameText
-        case .backgroundAgent(let agentKind, nil): return agentKind.chipTextColor
+        case .backgroundAgent(let agentColor, nil): return agentColor.chipTextColor
         }
     }
 }

@@ -233,12 +233,90 @@ struct AgentTokenTests {
         #expect(!menuBarIsShowing(screenFrame: screenFrame, visibleFrame: screenFrame))
     }
 
+    // MARK: - Each agent's own color
+
+    @Test func theKindColorsAndTheSpareColorsAreTheSixPaletteColorsInOrder() async throws {
+        #expect(AgentPaletteColor.allCases == [.teal, .amber, .violet, .lime, .sky, .pink])
+        #expect(AgentPaletteColor.teal.color == Color(hex: "#2dd4bf"))
+        #expect(AgentPaletteColor.amber.color == Color(hex: "#FFB020"))
+        #expect(AgentPaletteColor.violet.color == Color(hex: "#a78bfa"))
+        #expect(AgentPaletteColor.lime.color == Color(hex: "#84cc16"))
+        #expect(AgentPaletteColor.sky.color == Color(hex: "#38bdf8"))
+        #expect(AgentPaletteColor.pink.color == Color(hex: "#f472b6"))
+        #expect(BackgroundAgentKind.studyGuide.preferredPaletteColor == .amber)
+        #expect(BackgroundAgentKind.studyGuideUpdate.preferredPaletteColor == .amber)
+        #expect(BackgroundAgentKind.threeDModel.preferredPaletteColor == .violet)
+        #expect(BackgroundAgentKind.experiment.preferredPaletteColor == .lime)
+        #expect(BackgroundAgentKind.task.preferredPaletteColor == .teal)
+    }
+
+    @Test func anAgentTakesItsKindColorWhenNoOneElseHasIt() async throws {
+        #expect(agentPaletteColorToAssign(forKind: .task, colorsInUse: []) == .teal)
+        #expect(agentPaletteColorToAssign(forKind: .threeDModel, colorsInUse: [.teal, .amber]) == .violet)
+    }
+
+    @Test func anAgentWhoseKindColorIsTakenGetsTheFirstPaletteColorNoOneHas() async throws {
+        #expect(agentPaletteColorToAssign(forKind: .task, colorsInUse: [.teal]) == .amber)
+        #expect(agentPaletteColorToAssign(forKind: .task, colorsInUse: [.teal, .amber]) == .violet)
+        // The first free color skips one that a different kind already holds.
+        #expect(agentPaletteColorToAssign(forKind: .studyGuide, colorsInUse: [.amber, .teal, .violet]) == .lime)
+    }
+
+    @Test func theColorsNeverRepeatUntilAllSixAreInUseAndThenTheyCycleThroughThePalette() async throws {
+        var colorsInUse: [AgentPaletteColor] = []
+        for _ in 0..<6 {
+            colorsInUse.append(agentPaletteColorToAssign(forKind: .task, colorsInUse: colorsInUse))
+        }
+        #expect(colorsInUse == [.teal, .amber, .violet, .lime, .sky, .pink])
+        #expect(agentPaletteColorToAssign(forKind: .task, colorsInUse: colorsInUse) == .teal)
+        colorsInUse.append(.teal)
+        #expect(agentPaletteColorToAssign(forKind: .task, colorsInUse: colorsInUse) == .amber)
+        colorsInUse.append(.amber)
+        #expect(agentPaletteColorToAssign(forKind: .task, colorsInUse: colorsInUse) == .violet)
+    }
+
+    @Test func threeTaskAgentsGetThreeDifferentColorsAndKeepThemForTheirWholeLife() async throws {
+        let store = makeBackgroundAgentStore()
+        let firstTaskID = store.start(kind: .task)
+        let secondTaskID = store.start(kind: .task)
+        let thirdTaskID = store.start(kind: .task)
+        func color(of agentID: UUID) -> AgentPaletteColor? { store.agents.first { $0.id == agentID }?.tokenColor }
+        #expect([firstTaskID, secondTaskID, thirdTaskID].map(color(of:)) == [.teal, .amber, .violet])
+        // A later agent starting, finishing, or failing never recolors an agent that already has its color.
+        store.start(kind: .studyGuide)
+        store.fail(secondTaskID, reason: "x")
+        #expect([firstTaskID, secondTaskID, thirdTaskID].map(color(of:)) == [.teal, .amber, .violet])
+        #expect(store.displayColor(for: secondTaskID) == .amber)
+    }
+
+    @Test func aKindColorIsReusedOnceTheAgentThatHeldItLeavesButNotWhileItsResultWaits() async throws {
+        let store = makeBackgroundAgentStore()
+        let firstModelID = store.start(kind: .threeDModel)
+        #expect(store.agents.first { $0.id == firstModelID }?.tokenColor == .violet)
+        // Its result waits to be shown, so the agent still holds violet and the next model gets a spare color.
+        store.finish(firstModelID, with: .readyScene)
+        let secondModelID = store.start(kind: .threeDModel)
+        #expect(store.agents.first { $0.id == secondModelID }?.tokenColor == .teal)
+        // Once the first model's result is shown, and a cancelled agent too, violet is free again.
+        store.setResultIsWaiting(false, for: firstModelID)
+        store.cancel(secondModelID)
+        let thirdModelID = store.start(kind: .threeDModel)
+        #expect(store.agents.first { $0.id == thirdModelID }?.tokenColor == .violet)
+    }
+
+    @Test func anAgentThatIsATeamPlayerHasNoAssignedColorAndNeverTakesOneAwayFromOthers() async throws {
+        let store = makeBackgroundAgentStore(theme: .school(.karasuno))
+        let playerAgentID = store.start(kind: .task)
+        #expect(store.agents.first { $0.id == playerAgentID }?.tokenColor == nil)
+        #expect(store.agents.first { $0.id == playerAgentID }?.player != nil)
+    }
+
     // MARK: - Ring color
 
     @Test func theRingTakesTheTeamColorForAPlayerAndTheKindColorUnderClickyBlue() async throws {
         let player = HaikyuSchool.karasuno.roster[0]
         #expect(agentTokenRingColorChoice(for: agent(.running(completedStepCount: 0), player: player)) == .school(.karasuno))
-        #expect(agentTokenRingColorChoice(for: agent(.running(completedStepCount: 0), kind: .experiment)) == .agentKind(.experiment))
+        #expect(agentTokenRingColorChoice(for: agent(.running(completedStepCount: 0), kind: .experiment)) == .assigned(.lime))
         #expect(agentTokenRingColorChoice(for: agent(.finished(.readyScene), kind: .threeDModel, endedAfter: 5, player: player)) == .school(.karasuno))
     }
 
@@ -250,6 +328,6 @@ struct AgentTokenTests {
         // Inarizaki's near-black team color would vanish on the dark ring track, so its accent is already the light color.
         #expect(HaikyuSchool.inarizaki.accentHex == "#F4F4F5")
         #expect(AgentTokenRingColorChoice.school(.inarizaki).color == HaikyuSchool.inarizaki.accentColor)
-        #expect(AgentTokenRingColorChoice.agentKind(.task).color == BackgroundAgentKind.task.color)
+        #expect(AgentTokenRingColorChoice.assigned(.teal).color == DS.Colors.backgroundAgentTaskTeal)
     }
 }

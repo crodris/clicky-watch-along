@@ -47,24 +47,14 @@ enum BackgroundAgentKind {
         }
     }
 
-    /// Both guide kinds work on the same guide, so they share its amber.
-    var color: Color {
+    /// The color a new agent of this kind takes when no other running or waiting agent has it. Both guide kinds work on
+    /// the same guide, so they share its amber.
+    var preferredPaletteColor: AgentPaletteColor {
         switch self {
-        case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmber
-        case .threeDModel: return DS.Colors.backgroundAgentThreeDModelViolet
-        case .experiment: return DS.Colors.backgroundAgentExperimentLime
-        case .task: return DS.Colors.backgroundAgentTaskTeal
-        }
-    }
-
-    /// A darker shade of the same hue for the chip's letters, since the agent's color is too light to read
-    /// inside a white outline.
-    var chipTextColor: Color {
-        switch self {
-        case .studyGuide, .studyGuideUpdate: return DS.Colors.backgroundAgentStudyGuideAmberText
-        case .threeDModel: return DS.Colors.backgroundAgentThreeDModelVioletText
-        case .experiment: return DS.Colors.backgroundAgentExperimentLimeText
-        case .task: return DS.Colors.backgroundAgentTaskTealText
+        case .studyGuide, .studyGuideUpdate: return .amber
+        case .threeDModel: return .violet
+        case .experiment: return .lime
+        case .task: return .teal
         }
     }
 
@@ -122,6 +112,20 @@ enum BackgroundAgentKind {
             return [BackgroundAgentStep(name: "Work on the task", inProgressText: "Getting started", expectedSeconds: 45)]
         }
     }
+
+    #if DEBUG
+    /// The kind a name from `debug_seed_agents` stands for, such as "task" or "threeDModel".
+    static func kindNamedForSeeding(_ kindName: String) -> BackgroundAgentKind? {
+        switch kindName {
+        case "studyGuide": return .studyGuide
+        case "studyGuideUpdate": return .studyGuideUpdate
+        case "threeDModel": return .threeDModel
+        case "experiment": return .experiment
+        case "task": return .task
+        default: return nil
+        }
+    }
+    #endif
 
     /// The page `POST /live-scene` builds for a scene agent, and nil for an agent that builds no scene.
     var liveSceneKindToBuild: LiveSceneKind? {
@@ -188,6 +192,12 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// not yet heard. Its token stays beside the notch until the result is delivered or `secondsAWaitingResultKeepsItsToken`
     /// pass. A result delivered at once, such as a study guide page, never waits.
     var resultIsWaitingToBeDelivered = false
+    /// The color this agent has under Clicky blue, picked when it started and kept for its whole life, so two agents of
+    /// one kind never look alike. Nil for an agent that is a team player, whose color is its team's.
+    var tokenColor: AgentPaletteColor? = nil
+
+    /// The color the agent shows: its token ring and triangle, its ending chip, and its row in the agent list.
+    var displayColor: AgentPaletteColor { tokenColor ?? kind.preferredPaletteColor }
 
     /// The steps the agent list shows: a task agent's reported steps, or the kind's fixed steps.
     var stepNames: [String] {
@@ -401,9 +411,26 @@ final class BackgroundAgentStore: ObservableObject {
     }
     #endif
 
+    #if DEBUG
+    /// For a take that needs several running agents of one kind, such as three task agents with three colors
+    /// (`debug_seed_agents` with `kinds`): one running agent for each kind named, in order.
+    func seedRunningAgentsForScreenshots(kinds: [BackgroundAgentKind]) {
+        for kind in kinds {
+            let agentID = start(kind: kind)
+            setSubject("A seeded \(kind.displayName.lowercased()) agent", for: agentID)
+        }
+    }
+    #endif
+
     private func startAgent(kind: BackgroundAgentKind, studyGuideVideoKey: String?, player: HaikyuPlayer?) -> UUID {
         let startedAt = Date()
-        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0), player: player)
+        // Only running agents and agents with a waiting result hold a color. An agent in its 4 second ending has given its color up.
+        let colorsInUse = agents.compactMap { existingAgent -> AgentPaletteColor? in
+            guard let tokenRank = existingAgent.tokenRank(at: startedAt), tokenRank != .ending else { return nil }
+            return existingAgent.tokenColor
+        }
+        let tokenColor = player == nil ? agentPaletteColorToAssign(forKind: kind, colorsInUse: colorsInUse) : nil
+        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0), player: player, tokenColor: tokenColor)
         agents.insert(agent, at: 0)
         var endedAgentsKept = 0
         agents = agents.filter { existingAgent in
@@ -417,6 +444,11 @@ final class BackgroundAgentStore: ObservableObject {
     /// The player of an agent, for the ending chip.
     func player(for agentID: UUID) -> HaikyuPlayer? {
         agents.first { $0.id == agentID }?.player
+    }
+
+    /// The color of an agent, for the ending chip.
+    func displayColor(for agentID: UUID) -> AgentPaletteColor? {
+        agents.first { $0.id == agentID }?.displayColor
     }
 
     func anAgentIsRunning(ofKind agentKind: BackgroundAgentKind) -> Bool {

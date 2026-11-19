@@ -3158,7 +3158,7 @@ final class CompanionManager: ObservableObject {
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
     private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
-        .backgroundAgent(kind, player: backgroundAgentStore.player(for: agentID))
+        .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, player: backgroundAgentStore.player(for: agentID))
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
@@ -3196,7 +3196,14 @@ final class CompanionManager: ObservableObject {
 
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         if toolName == Self.debugSeedAgentsToolName {
-            seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
+            if let kindNames = toolInput["kinds"]?.arrayValue {
+                // Running agents of the kinds named, in order, with no finished or failed ones.
+                backgroundAgentStore.seedRunningAgentsForScreenshots(kinds: kindNames.compactMap { kindName in
+                    kindName.stringValue.flatMap(BackgroundAgentKind.kindNamedForSeeding)
+                })
+            } else {
+                seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
+            }
             return .changed(state: nil)
         }
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)

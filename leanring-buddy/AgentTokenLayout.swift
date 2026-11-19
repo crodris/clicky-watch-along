@@ -148,22 +148,66 @@ func menuBarIsShowing(screenFrame: CGRect, visibleFrame: CGRect) -> Bool {
     screenFrame.maxY - visibleFrame.maxY > 0
 }
 
-// MARK: - Ring color
+// MARK: - Colors
+
+/// The colors an agent can have under Clicky blue, in the order a new agent looks for a free one. Red is left out because
+/// it means failed, and so is green, which is the done check.
+enum AgentPaletteColor: CaseIterable, Equatable {
+    case teal
+    case amber
+    case violet
+    case lime
+    case sky
+    case pink
+
+    var color: Color {
+        switch self {
+        case .teal: return DS.Colors.backgroundAgentTaskTeal
+        case .amber: return DS.Colors.backgroundAgentStudyGuideAmber
+        case .violet: return DS.Colors.backgroundAgentThreeDModelViolet
+        case .lime: return DS.Colors.backgroundAgentExperimentLime
+        case .sky: return DS.Colors.sky400
+        case .pink: return DS.Colors.pink400
+        }
+    }
+
+    /// A darker shade of the same hue for the chip's letters, since the color itself is too light to read inside a white outline.
+    var chipTextColor: Color {
+        switch self {
+        case .teal: return DS.Colors.backgroundAgentTaskTealText
+        case .amber: return DS.Colors.backgroundAgentStudyGuideAmberText
+        case .violet: return DS.Colors.backgroundAgentThreeDModelVioletText
+        case .lime: return DS.Colors.backgroundAgentExperimentLimeText
+        case .sky: return DS.Colors.sky700
+        case .pink: return DS.Colors.pink700
+        }
+    }
+}
+
+/// The color a new agent takes, kept for its whole life. `colorsInUse` is one entry for each other running agent, and each
+/// agent whose result waits, that has a color. The agent takes its kind's color when no one else has it, and otherwise the
+/// first palette color no one has. When every color is in use, it cycles through the palette.
+func agentPaletteColorToAssign(forKind agentKind: BackgroundAgentKind, colorsInUse: [AgentPaletteColor]) -> AgentPaletteColor {
+    let preferredColor = agentKind.preferredPaletteColor
+    if !colorsInUse.contains(preferredColor) { return preferredColor }
+    if let freeColor = AgentPaletteColor.allCases.first(where: { !colorsInUse.contains($0) }) { return freeColor }
+    return AgentPaletteColor.allCases[colorsInUse.count % AgentPaletteColor.allCases.count]
+}
 
 /// What colors a token's ring, before it becomes a SwiftUI color, so the choice is testable.
 enum AgentTokenRingColorChoice: Equatable {
     /// An agent that is a team's player takes the team's accent color. Inarizaki's accent is already the light
     /// `#F4F4F5`, since its near-black team color would vanish on the dark track.
     case school(HaikyuSchool)
-    /// With Clicky blue, the ring takes the agent kind's color.
-    case agentKind(BackgroundAgentKind)
+    /// With Clicky blue, the ring takes the color the agent was given when it started.
+    case assigned(AgentPaletteColor)
     /// A failed agent's ring is red, whatever the team.
     case failed
 
     var color: Color {
         switch self {
         case .school(let school): return school.accentColor
-        case .agentKind(let agentKind): return agentKind.color
+        case .assigned(let paletteColor): return paletteColor.color
         case .failed: return DS.Colors.destructive
         }
     }
@@ -172,5 +216,5 @@ enum AgentTokenRingColorChoice: Equatable {
 func agentTokenRingColorChoice(for agent: BackgroundAgent) -> AgentTokenRingColorChoice {
     if agent.phase.isFailed { return .failed }
     if let player = agent.player { return .school(player.school) }
-    return .agentKind(agent.kind)
+    return .assigned(agent.displayColor)
 }

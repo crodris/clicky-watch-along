@@ -368,7 +368,7 @@ private struct AgentRowView: View {
     private var meterColor: Color {
         switch agent.phase {
         // The team's color only shows while the agent runs, so it never stands for a state.
-        case .running: return agent.player?.school.accentColor ?? agent.kind.color
+        case .running: return agent.player?.school.accentColor ?? agent.displayColor.color
         case .finished: return DS.Colors.success
         case .failed: return DS.Colors.destructive
         case .cancelled: return DS.Colors.textTertiary

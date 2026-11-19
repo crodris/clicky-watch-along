@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  What an agent token looks like. Each background agent that runs, or whose result waits, is a 22 point disc beside
-//  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent kind's color) around a face,
-//  which is the team player's portrait or the kind's triangle. A finished agent gets a green check mark, and a failed one
+//  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
+//  which is the team player's portrait or a triangle in the agent's color. A finished agent gets a green check mark, and a failed one
 //  a gray face in a red ring. The "+N" disc counts the agents with no position of their own.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on high-refresh displays.
 //  The same triangle and progress view also draw the agent list's rows.
@@ -46,7 +46,7 @@ struct AgentTokenDiscView: View {
                 .frame(width: faceDiameter, height: faceDiameter)
                 .overlay(
                     Triangle()
-                        .fill(agent.kind.color)
+                        .fill(agent.displayColor.color)
                         .frame(width: 11, height: 11)
                         .rotationEffect(.degrees(-35))
                 )
@@ -135,7 +135,7 @@ struct AgentTriangleView: View {
     /// A failed one is a red outline, and a cancelled one is a gray outline.
     private var color: Color {
         switch agent.phase {
-        case .running, .finished: return agent.kind.color
+        case .running, .finished: return agent.displayColor.color
         case .failed: return DS.Colors.destructive
         case .cancelled: return DS.Colors.textTertiary
         }
