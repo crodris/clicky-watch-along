@@ -13,7 +13,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeModels, parseDevVars, requestJudgeVerdict, type JudgeKeys } from "./judgeModels.ts";
 import {
@@ -61,8 +61,10 @@ function readSavedReplies(repliesDirectory: string): SavedReply[] {
     });
 }
 
-function renderOverlayToPNG(html: string, width: number, height: number, pngPath: string, scratchDirectory: string) {
+function renderOverlayToPNG(html: string, width: number, height: number, relativePNGPath: string, scratchDirectory: string) {
   const chromePath = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  // Chrome needs absolute paths: a relative file:// URL loads nothing, and with --replies bench/replies Chrome wrote no PNG.
+  const pngPath = resolve(relativePNGPath);
   const htmlPath = `${pngPath}.html`;
   writeFileSync(htmlPath, html);
   // A profile of its own, so a running Chrome never takes the launch over.
@@ -72,7 +74,7 @@ function renderOverlayToPNG(html: string, width: number, height: number, pngPath
       "--headless=new",
       "--disable-gpu",
       "--hide-scrollbars",
-      `--user-data-dir=${join(scratchDirectory, "chrome-profile")}`,
+      `--user-data-dir=${resolve(scratchDirectory, "chrome-profile")}`,
       `--window-size=${width},${height}`,
       `--screenshot=${pngPath}`,
       `file://${htmlPath}`,
@@ -80,6 +82,9 @@ function renderOverlayToPNG(html: string, width: number, height: number, pngPath
     { stdio: "ignore", timeout: 60_000 },
   );
   rmSync(htmlPath);
+  if (!existsSync(pngPath)) {
+    throw new Error(`Chrome wrote no screenshot to ${pngPath}`);
+  }
 }
 
 async function runWithConcurrency<Item>(items: Item[], concurrency: number, work: (item: Item) => Promise<void>) {
