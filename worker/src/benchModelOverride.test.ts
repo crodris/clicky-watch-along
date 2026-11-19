@@ -104,6 +104,17 @@ describe("applyClaudeBenchOverride", () => {
     });
   });
 
+  it("drops thinking off for a model that cannot turn it off, and keeps it for Haiku", () => {
+    const requestBody = { model: "claude-haiku-5-5", thinking: { type: "disabled" }, output_config: { effort: "low" }, messages: [] };
+
+    expect(applyClaudeBenchOverride(requestBody, { provider: "anthropic", model: "claude-opus-5-5" })).toEqual({
+      model: "claude-opus-5-5",
+      output_config: { effort: "low" },
+      messages: [],
+    });
+    expect(applyClaudeBenchOverride(requestBody, claudeOverride)).toEqual(requestBody);
+  });
+
   it("adds output_config when the route had none and an effort is set", () => {
     expect(applyClaudeBenchOverride({ model: "m", messages: [] }, { ...claudeOverride, effort: "low" })).toEqual({
       model: "claude-haiku-5-5",

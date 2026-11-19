@@ -1,11 +1,12 @@
 // Token usage of one model call, and what it cost. Pure functions, so usage.test.ts runs them without a Worker.
 
-// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-11-13).
+// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing (fetched 2026-11-13, Fable 5.2 added 2026-11-19).
 const anthropicPricesPerMillionTokens: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
   "claude-sonnet-4-6": { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
   "claude-sonnet-5-5": { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 },
   "claude-opus-5-5": { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 },
   "claude-haiku-5-5": { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
+  "claude-fable-5-2": { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 },
 };
 
 // USD per million tokens at the standard tier. OpenAI's pricing page refuses automated fetches, so these are

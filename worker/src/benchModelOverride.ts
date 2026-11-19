@@ -91,14 +91,24 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The Claude override: the same request with its model replaced, and its effort when BENCH_EFFORT is set. */
+/** Only Haiku 5.5 takes thinking off. Sonnet 5.5, Opus 5.5, and Fable 5.2 answer a 400 to `thinking: disabled`. */
+const claudeModelsThatTurnThinkingOff = ["claude-haiku-5-5"];
+
+/**
+ * The Claude override: the same request with its model replaced, and its effort when BENCH_EFFORT is set.
+ * A route that turns thinking off (/voice-command) keeps its low effort and loses the `thinking` field on a model
+ * that cannot turn thinking off, which is as close to thinking off as that model goes.
+ */
 export function applyClaudeBenchOverride(messagesRequestBody: unknown, override: ClaudeBenchOverride): unknown {
   if (!isPlainRecord(messagesRequestBody)) {
     return messagesRequestBody;
   }
   const outputConfig = isPlainRecord(messagesRequestBody.output_config) ? messagesRequestBody.output_config : {};
+  const { thinking, ...requestWithoutThinking } = messagesRequestBody;
+  const thinkingIsDisabled = isPlainRecord(thinking) && thinking.type === "disabled";
+  const keepsThinkingField = !thinkingIsDisabled || claudeModelsThatTurnThinkingOff.includes(override.model);
   return {
-    ...messagesRequestBody,
+    ...(keepsThinkingField ? messagesRequestBody : requestWithoutThinking),
     model: override.model,
     ...(override.effort === undefined ? {} : { output_config: { ...outputConfig, effort: override.effort } }),
   };
