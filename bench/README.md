@@ -93,6 +93,7 @@ Each Worker holds one model, so the run starts one Worker per model and gives ea
 - Nobody needs to use the Mac, but the Workers spend the API keys for any local caller until `$V cleanup` stops them.
 - OpenAI's GPT-6 model IDs were checked against its free model list on 2026-11-19: `gpt-6-luna`, `gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.2-astra`, `gpt-6.2-sol`, and `gpt-6.1-terra` exist.
 - The prices for `gpt-6-luna`, `gpt-6-sol`, and `gpt-6-astra` in `bench/usage.ts` are assumptions. Check them before you trust a cost comparison that includes them.
+- Gemini 4 Neon (`gemini-4-neon`) needs `GEMINI_API_KEY` in `worker/.dev.vars`. Create it at https://aistudio.google.com/apikey with billing on, since Neon has no free tier. Its Worker line is `$V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gemini-4-neon`, and it takes no `BENCH_SERVICE_TIER`. The Worker calls Google's OpenAI-compatible endpoint, which cannot turn thinking off, so `/voice-command` gets `low` effort. Priced at $3 input, $0.15 cached input, and $15 output per million tokens.
 
 ```bash
 V=.claude/skills/verify-clicky/verify-clicky.sh
