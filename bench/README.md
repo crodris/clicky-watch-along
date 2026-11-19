@@ -301,7 +301,7 @@ OpenAI caches prompts over 1,024 tokens on its own, and the first run is cold on
 
 ### Graphics
 
-`bench/graphics/` holds five 1600 by 900 cards of the 2026-11-19 results, for posting.
+`bench/graphics/` holds six 1600 by 900 cards of the 2026-11-19 results, for posting.
 `node bench/bakeoffGraphics.ts` reads the committed results into `bench/graphics/bakeoff-data.js`, and `bench/graphics/render.sh` draws each card to a PNG with headless Chrome.
 The blind judge's tallies are copied into `bakeoffGraphics.ts`, since `bench/replies/` is gitignored.
 

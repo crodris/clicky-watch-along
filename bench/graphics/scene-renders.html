@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Scene renders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&display=swap">
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* Three small panels on one row per model: median time, cost per render, and the blind judge's wins against 6.1 Sol. */
+  .panels { margin-top: 40px; display: grid; grid-template-columns: 280px 1fr 1fr 1.3fr; column-gap: 40px; row-gap: 26px; align-items: center; }
+  .head { font-size: 20px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--rule); padding-bottom: 10px; }
+  .label { font-size: 26px; font-weight: 600; line-height: 1.1; }
+  .label small { display: block; font-size: 17px; font-weight: 400; color: var(--text-muted); margin-top: 3px; }
+  .track { position: relative; height: 40px; }
+  .bar { position: absolute; left: 0; top: 4px; height: 32px; border-radius: 0 4px 4px 0; background: var(--today); }
+  .bar.winner { background: var(--faster); }
+  .value { position: absolute; top: 5px; font-size: 22px; font-weight: 600; white-space: nowrap; }
+  .value small { font-size: 16px; color: var(--text-muted); font-weight: 400; }
+  .round-one { margin-top: 44px; font-size: 20px; color: var(--text-muted); line-height: 1.5; }
+  .round-one b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><svg viewBox="0 0 30 30" aria-label="Clicky"><path d="M5 3 L26 15 L15 17 L10 27 Z" fill="#4d86ff"/></svg><span>My fork of open-source Clicky · model bakeoff, Nov 19</span></div>
+  <h1>3D scene builds by model</h1>
+  <div class="subhead">Heart model, cannon, and lever experiments, 2 runs each at Ultrafast, judged blind from screenshots</div>
+  <div class="panels" id="panels">
+    <div></div>
+    <div class="head">Median time</div>
+    <div class="head">Cost per scene</div>
+    <div class="head">Blind judge picks it over GPT-6.1 Sol</div>
+  </div>
+  <div class="round-one" id="roundOne"></div>
+  <div class="foot">
+    <div><b>Clicky keeps GPT-6.1 Sol.</b> I pay for every scene myself, and Astra's better scenes cost $1.09 each instead of $0.43.</div>
+  </div>
+</div>
+<script src="bakeoff-data.js"></script>
+<script>
+  const { renderRound2, blindJudge } = window.bakeoff;
+  const models = [
+    { name: 'GPT-6.1 Sol', lab: 'kept, the cheaper one', stats: renderRound2.app },
+    { name: 'GPT-6.2 Astra', lab: 'won every decided pair', stats: renderRound2.astra, wins: blindJudge.renderRound2.astra, winner: true },
+    { name: 'GPT-6.2 Sol', lab: 'better, but slower', stats: renderRound2.sol62, wins: blindJudge.renderRound2.sol62 },
+  ];
+  const panels = document.getElementById('panels');
+  const maxMs = 40000;
+  const maxUSD = 1.2;
+  for (const model of models) {
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.innerHTML = `${model.name}<small>${model.lab}</small>`;
+    const bar = (share, text) => `<div class="bar${model.winner ? ' winner' : ''}" style="width:${share * 100}%"></div><div class="value num" style="left:calc(${share * 100}% + 10px)">${text}</div>`;
+    const time = document.createElement('div');
+    time.className = 'track';
+    time.innerHTML = bar(Math.min(1, model.stats.p50Ms / maxMs) * 0.78, `${(model.stats.p50Ms / 1000).toFixed(1)} s`);
+    const cost = document.createElement('div');
+    cost.className = 'track';
+    cost.innerHTML = bar(Math.min(1, model.stats.costPerCallUSD / maxUSD) * 0.78, `$${model.stats.costPerCallUSD.toFixed(2)}`);
+    const judge = document.createElement('div');
+    judge.className = 'track';
+    if (model.wins === undefined) {
+      judge.innerHTML = '<div class="value" style="left:0;color:var(--text-muted);font-weight:400;font-size:19px">what Clicky uses</div>';
+    } else {
+      const [wins, losses] = model.wins;
+      const share = wins / (wins + losses);
+      judge.innerHTML = bar(share * 0.78, `${Math.round(share * 100)}% <small>${wins}-${losses}</small>`);
+    }
+    panels.append(label, time, cost, judge);
+  }
+  // Round one ran every lab's model once on each case; the ones that did not win are listed in words.
+  const roundOne = blindJudge.renderRound1;
+  document.getElementById('roundOne').innerHTML =
+    `<b>Round one, every model once on each scene:</b> Opus 5.5 ${roundOne.opus.join('-')}, Sonnet 5.5 ${roundOne.sonnet.join('-')}, Haiku 5.5 ${roundOne.haiku.join('-')}, ` +
+    `Gemini 4 Neon ${roundOne.neon.join('-')} against GPT-6.1 Sol. Fable 5.2 won 2-0 but took 3 to 5 minutes a scene.`;
+</script>
+</body>
+</html>

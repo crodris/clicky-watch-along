@@ -14,6 +14,6 @@ render() {
 }
 render "by-model-grid.html?metric=time" time-by-model.png
 render "by-model-grid.html?metric=cost" cost-by-model.png
-for page in models-after-bakeoff quiz-plan-by-model picture-flows-rerun; do
+for page in models-after-bakeoff quiz-plan-by-model picture-flows-rerun scene-renders; do
   render $page.html $page.png
 done

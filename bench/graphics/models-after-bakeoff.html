@@ -27,7 +27,7 @@
   <div class="subhead">7 models from 3 labs, 139 calls each, against the model each call used</div>
   <div class="rows" id="rows"></div>
   <div class="foot">
-    <div>A call switched only when the new model passed every check, cost at most 3× as much,<br>and was 25% faster or won the blind judge.</div>
+    <div>A call could switch only when the new model passed every check, cost at most 3× as much,<br>and was 25% faster or won the blind judge. The 3D scene build met that bar and stayed on the cheaper model.</div>
   </div>
 </div>
 <script>
@@ -40,7 +40,7 @@
     { name: 'Pop-out parts', before: 'Sonnet 5.5', why: 'Haiku failed 3 of 21 and lost 0-12 in the blind judge' },
     { name: 'Voice reply', before: 'Sonnet 5.5', why: 'Haiku reached the first word 20% sooner, short of the 25% bar' },
     { name: 'Task agent', before: 'Sonnet 5.5', why: 'Sonnet takes 11 s, Opus took 25 s, and Fable 38 s' },
-    { name: '3D scene build', before: 'GPT-6.1 Sol', why: 'Not retested. It already beat GPT-6.2 Sol and Astra on Nov 17' },
+    { name: '3D scene build', before: 'GPT-6.1 Sol', why: 'GPT-6.2 Astra won 11-0, at 2.5× the cost. I kept the cheaper one' },
   ];
   const rows = document.getElementById('rows');
   for (const call of calls) {

@@ -653,6 +653,32 @@ window.bakeoff = {
    "costPerCallUSD": 0.03126516
   }
  },
+ "renderRound2": {
+  "app": {
+   "passed": 6,
+   "runs": 6,
+   "p50Ms": 20334.22779199999,
+   "p95Ms": 26156.510791,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.4287254
+  },
+  "sol62": {
+   "passed": 6,
+   "runs": 6,
+   "p50Ms": 35902.87012499996,
+   "p95Ms": 42542.438624999995,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.4944195
+  },
+  "astra": {
+   "passed": 6,
+   "runs": 6,
+   "p50Ms": 18455.930209000013,
+   "p95Ms": 21604.693375000003,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 1.0859179999999997
+  }
+ },
  "blindJudge": {
   "/video-quiz-plan": {
    "haiku": [
@@ -786,6 +812,46 @@ window.bakeoff = {
    "sol62": [
     21,
     6
+   ]
+  },
+  "renderRound2": {
+   "astra": [
+    11,
+    0
+   ],
+   "sol62": [
+    7,
+    4
+   ]
+  },
+  "renderRound1": {
+   "astra": [
+    6,
+    0
+   ],
+   "sol62": [
+    5,
+    0
+   ],
+   "fable": [
+    2,
+    0
+   ],
+   "neon": [
+    2,
+    2
+   ],
+   "opus": [
+    2,
+    4
+   ],
+   "sonnet": [
+    2,
+    4
+   ],
+   "haiku": [
+    1,
+    5
    ]
   }
  }

@@ -121,6 +121,9 @@ const taskAgent = Object.fromEntries(["base", "haiku", "sonnet", "opus", "fable"
 
 const flowsRerun = Object.fromEntries(["base", "sonnet", "opus", "sol62"].map((side) => [side, workerStats(`flows2-${side}-worker-`)]));
 
+/** Render round two: the app's GPT-6.1 Sol and the two GPT-6.2 models, all at Ultrafast, 2 runs of 3 cases. */
+const renderRound2 = Object.fromEntries(["app", "sol62", "astra"].map((side) => [side, workerStats(`render2-${side}-worker-`)]));
+
 /**
  * Blind judge tallies: wins and losses count one per judge per pair, and a pair a judge split across the A/B orders is
  * undecided. From bench/replies/judged/summary.json of the six-challenger and Neon runs, and the 5-run flows rerun.
@@ -131,9 +134,12 @@ const blindJudge = {
   "/picture-flows": { haiku: [1, 4], sonnet: [3, 2], opus: [1, 3], fable: [4, 0], sol62: [4, 1], astra: [3, 2], neon: [4, 1] },
   "/chat": { haiku: [3, 0], sonnet: [0, 3], opus: [3, 1], fable: [3, 0], sol62: [3, 0], astra: [4, 0], neon: [4, 0] },
   flowsRerun: { opus: [12, 8], sonnet: [17, 10], sol62: [21, 6] },
+  // Against the app's GPT-6.1 Sol at Ultrafast, from bench/replies/render2/judged and render/judged-vs-app.
+  renderRound2: { astra: [11, 0], sol62: [7, 4] },
+  renderRound1: { astra: [6, 0], sol62: [5, 0], fable: [2, 0], neon: [2, 2], opus: [2, 4], sonnet: [2, 4], haiku: [1, 5] },
 };
 
-const bakeoff = { recordedOn: "2026-11-19", routes: routeStats, taskAgent, flowsRerun, blindJudge };
+const bakeoff = { recordedOn: "2026-11-19", routes: routeStats, taskAgent, flowsRerun, renderRound2, blindJudge };
 const outputPath = join(import.meta.dirname, "graphics", "bakeoff-data.js");
 writeFileSync(outputPath, `// Written by bench/bakeoffGraphics.ts. Do not edit by hand.\nwindow.bakeoff = ${JSON.stringify(bakeoff, null, 1)};\n`);
 console.log(`wrote ${outputPath}`);
