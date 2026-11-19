@@ -15,7 +15,8 @@ A school turns the cursor into a volleyball in the team's colors, and turns ever
 - `theme-player-pick` gives each new agent the team's best-known player that the agent list does not already show, so one list never shows a player twice while the roster has others.
 - `theme-chip` shows an ending agent's portrait as the chip's icon, in the plain spot under the cursor.
 - `theme-agent-list` titles each row "<name> #<jersey> · <kind>", heads the list with the school's name and "N on court", borders it in the school's color, and marks a failed row's portrait with a red border.
-- `theme-off` keeps today's look under Clicky blue: tokens ringed in each agent kind's color around its triangle, the "Agents" header, and "N running".
+- `theme-off` keeps today's look under Clicky blue: tokens ringed in each agent's own color around a triangle in that color, the "Agents" header, and "N running".
+- `theme-agent-colors` gives each agent its own color under Clicky blue when it starts, so three task agents are teal, amber, and violet, not three teal tokens. The color shows on its ring, its triangle, its ending chip, and its list row, and the agent keeps it for its whole life.
 - `theme-portraits` loads `HaikyuPortraits/<slug>.jpg` from the app bundle and draws the school's color with the player's initials when the file is missing.
 
 ## How to get to it (user POV)
@@ -49,6 +50,7 @@ Preconditions:
   For the follow motion, run `$V app-quit`, launch with `+40 thanks`, record the mouse's display, and run `swift demo/scripts/mouse/mouse.swift move <x> <y> 0.5` across it: the ball turns toward the movement with streaks behind it, and they fade once the mouse stops.
 - **Other teams.** `$V app-quit`, write another value such as `school:inarizaki`, and repeat.
   Inarizaki's white accent is the hardest case for contrast.
+- **Agent colors.** Under `clickyBlue`, post `debug_seed_agents` with `{"kinds":["task","task","task"]}`: three tokens right of the notch ringed in teal, amber, and violet, with a triangle in the same color on each face. Add `{"kinds":["threeDModel"]}` for a fourth token in lime, since violet is taken.
 - **Theme off.** Write `clickyBlue` and repeat.
   The tokens are ringed in each agent kind's color around a triangle, and the list says "Agents" and "3 running".
 - **Picker.** The panel's buttons have no accessibility names, so press one with the real mouse: `swift demo/scripts/mouse/mouse.swift click <x> <y>` at a button's center in global points, read from a `$V shot` of the open panel.
