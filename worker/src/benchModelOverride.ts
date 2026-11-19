@@ -13,8 +13,9 @@
  *                       Gemini: minimal (sent as low), low, medium, high, or xhigh.
  *   BENCH_SERVICE_TIER  GPT only, such as ultrafast. The tier OpenAI reports back goes in the usage log line.
  *
- * /v1/messages (the agent harness) takes only a claude-* model and answers a 501 to any other. /live-scene's GPT path never
- * uses it. /video-quiz-plan runs on GPT-6.2 Sol in every Worker through the same OpenAI mapping, and BENCH_MODEL replaces it.
+ * /v1/messages (the agent harness) takes only a claude-* model and answers a 501 to any other. On /live-scene a gpt-* model
+ * runs the app's own GPT request with its model and tier swapped, and any other model runs the Claude request (liveScene.ts).
+ * /video-quiz-plan runs on GPT-6.2 Sol in every Worker through the same OpenAI mapping, and BENCH_MODEL replaces it.
  * Every prompt here was tuned for Claude, so a GPT or Gemini model that loses may only have lost to the prompt.
  */
 

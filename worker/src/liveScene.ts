@@ -5,7 +5,9 @@
  * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet at low effort instead,
  * which test runs use because a GPT scene costs about $0.37 and a Sonnet one about $0.04.
  * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT overrides the
- * effort, for comparing scene quality. A reply that fails the check is retried once, then returned as 422,
+ * effort, for comparing scene quality. A benchmark Worker's BENCH_MODEL picks the path by its vendor: a gpt-* model runs the
+ * GPT request with that model and BENCH_SERVICE_TIER (none means the standard tier), and any other model runs the Claude
+ * request, where requestAnthropicMessage applies it. A reply that fails the check is retried once, then returned as 422,
  * and the app tells the learner it couldn't build the scene.
  * /judge-answer asks Sonnet whether the learner's spoken answer is right, or whether they asked to skip, repeat,
  * get a hint, or change the view instead of answering.
@@ -19,6 +21,7 @@ import {
   requestAnthropicReplyJSON,
   requestAnthropicReplyText,
 } from "./anthropic";
+import { benchModelOverride } from "./benchModelOverride";
 import { checkLiveSceneModelReply, liveSceneRequestKindSchema, type LiveSceneRequestKind } from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
@@ -278,9 +281,14 @@ async function requestClaudeLiveSceneReply(
   return { ok: true, modelReply: anthropicReply.replyText };
 }
 
+/** The GPT model and tier the app uses, which a gpt-* BENCH_MODEL replaces. */
+type GPTSceneModel = { model: string; serviceTier: string | undefined };
+const appGPTSceneModel: GPTSceneModel = { model: "gpt-6.1-sol", serviceTier: "ultrafast" };
+
 async function requestGPTLiveSceneReply(
   openAIAPIKey: string,
-  effort: LiveSceneEffort,
+  gptSceneModel: GPTSceneModel,
+  effort: string,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -290,8 +298,8 @@ async function requestGPTLiveSceneReply(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-6.1-sol",
-      service_tier: "ultrafast",
+      model: gptSceneModel.model,
+      ...(gptSceneModel.serviceTier === undefined ? {} : { service_tier: gptSceneModel.serviceTier }),
       reasoning: { effort },
       max_output_tokens: 14000,
       instructions: liveSceneInstructionsFor(sceneRequest.kind),
@@ -346,12 +354,20 @@ export async function handleLiveScene(
   if (!parsedModelSetting.success) {
     return jsonResponse({ error: `LIVE_SCENE_MODEL must be gpt, sonnet, opus, or fable, not ${env.LIVE_SCENE_MODEL}` }, 500);
   }
-  const liveSceneModel: LiveSceneModel = parsedModelSetting.data;
+  // A benchmark Worker's BENCH_MODEL decides the path, so one Worker per model needs no LIVE_SCENE_MODEL of its own.
+  const benchOverride = benchModelOverride();
+  const liveSceneModel: LiveSceneModel =
+    benchOverride === undefined ? parsedModelSetting.data : benchOverride.provider === "openai" ? "gpt" : "sonnet";
+  const gptSceneModel: GPTSceneModel =
+    benchOverride?.provider === "openai" ? { model: benchOverride.model, serviceTier: benchOverride.serviceTier } : appGPTSceneModel;
   const parsedEffortSetting = liveSceneEffortSettingSchema.safeParse(env.LIVE_SCENE_EFFORT || undefined);
   if (!parsedEffortSetting.success) {
     return jsonResponse({ error: `LIVE_SCENE_EFFORT must be low, medium, high, xhigh, or max, not ${env.LIVE_SCENE_EFFORT}` }, 500);
   }
   const liveSceneEffort = parsedEffortSetting.data ?? defaultLiveSceneEffortByModel[liveSceneModel];
+  // BENCH_EFFORT takes a GPT effort the Claude list lacks, such as minimal, so it goes straight to the GPT request.
+  // On the Claude path, requestAnthropicMessage applies it.
+  const gptSceneEffort = benchOverride?.provider === "openai" && benchOverride.effort !== undefined ? benchOverride.effort : liveSceneEffort;
 
   const parsedRequest = await parseJSONRequest(request, sceneRequestSchema);
   if (!parsedRequest.ok) {
@@ -364,7 +380,7 @@ export async function handleLiveScene(
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
     const modelResult =
       liveSceneModel === "gpt"
-        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, liveSceneEffort, sceneRequest)
+        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, gptSceneModel, gptSceneEffort, sceneRequest)
         : await requestClaudeLiveSceneReply(env.ANTHROPIC_API_KEY, claudeModelIDBySetting[liveSceneModel], liveSceneEffort, sceneRequest);
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {
