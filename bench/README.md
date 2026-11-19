@@ -268,6 +268,12 @@ A GPT model that comes close at one effort also gets a rerun at the next effort,
 OpenAI resizes images differently, so a coordinate that is off for a GPT model may be the port and not the model.
 OpenAI caches prompts over 1,024 tokens on its own, and the first run is cold on every side.
 
+### Graphics
+
+`bench/graphics/` holds five 1600 by 900 cards of the 2026-11-19 results, for posting.
+`node bench/bakeoffGraphics.ts` reads the committed results into `bench/graphics/bakeoff-data.js`, and `bench/graphics/render.sh` draws each card to a PNG with headless Chrome.
+The blind judge's tallies are copied into `bakeoffGraphics.ts`, since `bench/replies/` is gitignored.
+
 ### Cost and time
 
 Measured on 2026-11-19 with base and the six challengers other than Neon.
