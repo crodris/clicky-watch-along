@@ -42,7 +42,13 @@ struct CursorLoopView: View {
                 Canvas { context, _ in drawTheLine(outline, share: 1, in: &context) }
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { _ in
-                    Canvas { context, _ in drawTheLineAndTheSpark(outline, in: &context) }
+                    // The frame is worked out here, outside the Canvas, because SwiftUI redraws a Canvas only when
+                    // a value its closure captured changes, and the clock is not one.
+                    let frame = CursorLoopTimeline.frame(
+                        secondsSinceTheLoopBegan: ProcessInfo.processInfo.systemUptime - loop.beganAt,
+                        secondsWhenTheSparkSlows: loop.sparkSlowsAt.map { sparkSlowsAt in sparkSlowsAt - loop.beganAt }
+                    )
+                    Canvas { context, _ in drawTheLineAndTheSpark(outline, frame: frame, in: &context) }
                 }
             }
         }
@@ -53,12 +59,7 @@ struct CursorLoopView: View {
         .onAppear { hasAppeared = true }
     }
 
-    private func drawTheLineAndTheSpark(_ outline: Path, in context: inout GraphicsContext) {
-        let secondsSinceBegan = ProcessInfo.processInfo.systemUptime - loop.beganAt
-        let frame = CursorLoopTimeline.frame(
-            secondsSinceTheLoopBegan: secondsSinceBegan,
-            secondsWhenTheSparkSlows: loop.sparkSlowsAt.map { sparkSlowsAt in sparkSlowsAt - loop.beganAt }
-        )
+    private func drawTheLineAndTheSpark(_ outline: Path, frame: CursorLoopTimeline.Frame, in context: inout GraphicsContext) {
         drawTheLine(outline, share: frame.drawnShare, in: &context)
 
         let outlineStart = outline.trimmedPath(from: 0, to: 0.0005).currentPoint ?? loop.lineRect.origin
