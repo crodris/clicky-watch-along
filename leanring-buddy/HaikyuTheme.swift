@@ -256,6 +256,19 @@ enum CompanionTheme: Equatable {
     /// cursor stays Clicky blue.
     case random
 
+    /// Every choice in the order the menu bar panel's picker and the settings dial's Team fan show them: Clicky blue,
+    /// the ten schools, then Random.
+    static let allChoices: [CompanionTheme] =
+        [.clickyBlue] + HaikyuSchool.allCases.map(CompanionTheme.school) + [.random]
+
+    var displayName: String {
+        switch self {
+        case .clickyBlue: return "Clicky blue"
+        case .school(let school): return school.displayName
+        case .random: return "Random"
+        }
+    }
+
     /// The saved form in UserDefaults. A string nothing here produces reads back as Clicky blue.
     var rawValue: String {
         switch self {
