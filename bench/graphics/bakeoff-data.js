@@ -653,6 +653,80 @@ window.bakeoff = {
    "costPerCallUSD": 0.03126516
   }
  },
+ "renderRound1": {
+  "app": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 19446.728915999876,
+   "p95Ms": 23392.583625000087,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.4106654
+  },
+  "base": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 83883.01245799998,
+   "p95Ms": 122512.216125,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.06685756666666667
+  },
+  "haiku": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 83890.24825,
+   "p95Ms": 100787.79575000005,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.010386250000000001
+  },
+  "sonnet": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 35800.3026670001,
+   "p95Ms": 36093.89862500015,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.067125
+  },
+  "opus": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 77845.54541600007,
+   "p95Ms": 89558.43804199994,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.18219
+  },
+  "fable": {
+   "passed": 2,
+   "runs": 3,
+   "p50Ms": 160180.72033399995,
+   "p95Ms": 221490.65100000007,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.829302
+  },
+  "sol62": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 113269.359834,
+   "p95Ms": 153571.52754100005,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.09537266666666666
+  },
+  "astra": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 68523.18170800013,
+   "p95Ms": 85977.02187499998,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.19298400000000002
+  },
+  "neon": {
+   "passed": 3,
+   "runs": 3,
+   "p50Ms": 105891.51020799996,
+   "p95Ms": 112759.38854099996,
+   "firstTokenP50Ms": null,
+   "costPerCallUSD": 0.232885
+  }
+ },
  "renderRound2": {
   "app": {
    "passed": 6,
@@ -677,6 +751,50 @@ window.bakeoff = {
    "p95Ms": 21604.693375000003,
    "firstTokenP50Ms": null,
    "costPerCallUSD": 1.0859179999999997
+  }
+ },
+ "experiments": {
+  "app": {
+   "simulation-projectile": [
+    16384.476375,
+    20442.053375000018,
+    23210.77325
+   ],
+   "simulation-lever": [
+    18424.97975,
+    20334.22779199999,
+    17342.442207999993
+   ],
+   "simulation-pendulum": [
+    15960.626124999995
+   ],
+   "simulation-dissolving": [
+    17290.93758299999
+   ],
+   "simulation-cooling": [
+    18616.082792
+   ]
+  },
+  "sol62": {
+   "simulation-projectile": [
+    26751.315917,
+    22121.404249999992,
+    28960.965167
+   ],
+   "simulation-lever": [
+    40997.79562499997,
+    35902.87012499996,
+    39212.898208
+   ],
+   "simulation-pendulum": [
+    38100.42558299999
+   ],
+   "simulation-dissolving": [
+    31997.974833999993
+   ],
+   "simulation-cooling": [
+    35387.24895799998
+   ]
   }
  },
  "blindJudge": {
@@ -852,6 +970,32 @@ window.bakeoff = {
    "haiku": [
     1,
     5
+   ],
+   "base": [
+    1,
+    5
+   ]
+  },
+  "experiments": {
+   "simulation-projectile": [
+    4,
+    2
+   ],
+   "simulation-lever": [
+    5,
+    0
+   ],
+   "simulation-pendulum": [
+    2,
+    0
+   ],
+   "simulation-dissolving": [
+    2,
+    0
+   ],
+   "simulation-cooling": [
+    1,
+    0
    ]
   }
  }

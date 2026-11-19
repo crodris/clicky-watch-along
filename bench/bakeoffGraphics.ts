@@ -124,6 +124,27 @@ const flowsRerun = Object.fromEntries(["base", "sonnet", "opus", "sol62"].map((s
 /** Render round two: the app's GPT-6.1 Sol and the two GPT-6.2 models, all at Ultrafast, 2 runs of 3 cases. */
 const renderRound2 = Object.fromEntries(["app", "sol62", "astra"].map((side) => [side, workerStats(`render2-${side}-worker-`)]));
 
+/** Render round one: every model once on 3 cases. GPT sides other than app ran at the standard tier. */
+const renderRound1 = Object.fromEntries(
+  ["app", "base", "haiku", "sonnet", "opus", "fable", "sol62", "astra", "neon"].map((side) => [side, workerStats(`render1-${side}-worker-`)]),
+);
+
+type CaseSample = Sample & { caseId: string };
+
+/** Each experiment's build times on GPT-6.1 Sol (the app) and GPT-6.2 Sol, from round two and the five-experiment run. */
+function experimentTimes(side: "app" | "sol62"): Record<string, number[]> {
+  const timesByExperiment: Record<string, number[]> = {};
+  for (const label of ["render2", "sim3"]) {
+    for (const sample of readResultFile<{ samples: CaseSample[] }>(`${label}-${side}-worker-`).samples) {
+      if (sample.caseId.startsWith("simulation-") && sample.httpStatus === 200) {
+        (timesByExperiment[sample.caseId] ??= []).push(sample.totalMs);
+      }
+    }
+  }
+  return timesByExperiment;
+}
+const experiments = { app: experimentTimes("app"), sol62: experimentTimes("sol62") };
+
 /**
  * Blind judge tallies: wins and losses count one per judge per pair, and a pair a judge split across the A/B orders is
  * undecided. From bench/replies/judged/summary.json of the six-challenger and Neon runs, and the 5-run flows rerun.
@@ -136,10 +157,18 @@ const blindJudge = {
   flowsRerun: { opus: [12, 8], sonnet: [17, 10], sol62: [21, 6] },
   // Against the app's GPT-6.1 Sol at Ultrafast, from bench/replies/render2/judged and render/judged-vs-app.
   renderRound2: { astra: [11, 0], sol62: [7, 4] },
-  renderRound1: { astra: [6, 0], sol62: [5, 0], fable: [2, 0], neon: [2, 2], opus: [2, 4], sonnet: [2, 4], haiku: [1, 5] },
+  renderRound1: { astra: [6, 0], sol62: [5, 0], fable: [2, 0], neon: [2, 2], opus: [2, 4], sonnet: [2, 4], haiku: [1, 5], base: [1, 5] },
+  // GPT-6.2 Sol against the app's GPT-6.1 Sol per experiment, from render2/judged and sim3/judged, as [6.2 Sol, 6.1 Sol].
+  experiments: {
+    "simulation-projectile": [4, 2],
+    "simulation-lever": [5, 0],
+    "simulation-pendulum": [2, 0],
+    "simulation-dissolving": [2, 0],
+    "simulation-cooling": [1, 0],
+  },
 };
 
-const bakeoff = { recordedOn: "2026-11-19", routes: routeStats, taskAgent, flowsRerun, renderRound2, blindJudge };
+const bakeoff = { recordedOn: "2026-11-19", routes: routeStats, taskAgent, flowsRerun, renderRound1, renderRound2, experiments, blindJudge };
 const outputPath = join(import.meta.dirname, "graphics", "bakeoff-data.js");
 writeFileSync(outputPath, `// Written by bench/bakeoffGraphics.ts. Do not edit by hand.\nwindow.bakeoff = ${JSON.stringify(bakeoff, null, 1)};\n`);
 console.log(`wrote ${outputPath}`);

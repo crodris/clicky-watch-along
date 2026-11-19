@@ -17,3 +17,8 @@ render "by-model-grid.html?metric=cost" cost-by-model.png
 for page in models-after-bakeoff quiz-plan-by-model picture-flows-rerun scene-renders; do
   render $page.html $page.png
 done
+render render-round-one.html render-round-one.png
+render experiments-by-model.html experiments-by-model.png
+for pair in heart cannon lever pendulum; do
+  render "same-request.html?pair=$pair" same-request-$pair.png
+done
