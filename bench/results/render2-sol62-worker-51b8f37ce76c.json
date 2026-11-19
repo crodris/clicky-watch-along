@@ -1,0 +1,278 @@
+{
+  "label": "render2-sol62",
+  "benchKind": "worker",
+  "commitSHA": "51b8f37ce76c",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T18:45:33.063Z",
+  "runCount": 2,
+  "port": 8796,
+  "interleavedWith": [
+    "render2-app",
+    "render2-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 2,
+      "qualityPassed": 2,
+      "totalMs": {
+        "p50": 36330,
+        "p95": 42542,
+        "min": 36330,
+        "max": 42542
+      },
+      "firstByteMs": {
+        "p50": 36327,
+        "p95": 42542,
+        "min": 36327,
+        "max": 42542
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2303,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 606,
+      "meanOutputTokens": 9182,
+      "meanCostUSD": 0.57165
+    },
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 2,
+      "qualityPassed": 2,
+      "totalMs": {
+        "p50": 22121,
+        "p95": 26751,
+        "min": 22121,
+        "max": 26751
+      },
+      "firstByteMs": {
+        "p50": 22121,
+        "p95": 26751,
+        "min": 22121,
+        "max": 26751
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 556,
+      "meanOutputTokens": 5830,
+      "meanCostUSD": 0.39387
+    },
+    {
+      "caseId": "simulation-lever",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a lever frame for \"let me try it\"",
+      "models": [
+        "gpt-6.2-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 2,
+      "qualityPassed": 2,
+      "totalMs": {
+        "p50": 35903,
+        "p95": 40998,
+        "min": 35903,
+        "max": 40998
+      },
+      "firstByteMs": {
+        "p50": 35902,
+        "p95": 40996,
+        "min": 35902,
+        "max": 40996
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 556,
+      "meanOutputTokens": 7894,
+      "meanCostUSD": 0.51774
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 36326.585959000004,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 36330.38575,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 8466
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.535596,
+      "quality": {
+        "passed": true,
+        "detail": "answer Left ventricle"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 42541.527917000014,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 42542.438624999995,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1211,
+          "outputTokens": 9898
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.6077106000000001,
+      "quality": {
+        "passed": true,
+        "detail": "answer Left ventricle"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 26750.94745800001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 26751.315917,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 6079
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.415176,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If you keep the launch speed the same, will the ball land farther at 30 degrees or at 45 degrees?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 22120.907541000022,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 22121.404249999992,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1112,
+          "outputTokens": 5580
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.3725592,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: Keep the launch speed the same. Will the ball land farther at 45 degrees or at 60 degrees?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 40996.255917,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 40997.79562499997,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 8046
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.533196,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: At 2 meters from the pivot, which right weight will balance the beam: 3 kg or 4 kg?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 35902.022375,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 35902.87012499996,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.2-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1112,
+          "outputTokens": 7742
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.5022791999999999,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: If you move the right weight farther from the pivot without changing its mass, will the right end finish higher or lower?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}

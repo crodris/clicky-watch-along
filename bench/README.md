@@ -228,7 +228,8 @@ Each page takes about 40 seconds on Chrome's software renderer, so 27 pages take
 Round one on 2026-11-19 cost $5.43 for 26 renders and $1.42 for the judge's 92 calls, and took 52 minutes.
 Fable's heart page passed the bench's 5 minute limit, so it has no reply and its cost is unknown.
 Round two runs the survivors with `--runs 2` at the app's tier, adding `--var BENCH_SERVICE_TIER:ultrafast` to a GPT Worker.
-A GPT-6.2 Astra render costs about $1.15 at Ultrafast, so round two with Astra and GPT-6.2 Sol costs about $13.
+Round two on 2026-11-19 ran Astra and GPT-6.2 Sol at Ultrafast against `app`, 2 runs of each case, for $12.06 in renders and $0.77 for the judge, in 14 minutes.
+Astra won 11-0 with a p50 of 18.5 s against 20.3 s, at $1.09 a render against $0.43. GPT-6.2 Sol won 7-4 but took 35.9 s.
 Its replies go to `bench/replies/render/`, apart from the other routes' replies, so the judge pairs only this run.
 
 ### Task agent
