@@ -73,8 +73,9 @@ CI runs it on every committed result, so a result file that no longer parses fai
 
 ## Model bakeoff runbook
 
-This runs each Worker route on Claude models and GPT-6 models, and picks the best model per route on the fixed fixtures.
-`/live-scene` is not part of it.
+This runs every Worker route that calls a model on each lab's flagship models, and compares each with `base`, the model the route uses today, on the fixed fixtures.
+The challengers are Claude Haiku 5.5, Sonnet 5.5, Opus 5.5, and Fable 5.2, GPT-6.2 Sol and GPT-6.2 Astra, and Gemini 4 Neon.
+A `/live-scene` render costs about $0.40, so the runbook records only its baseline on GPT-6.1 Sol, and runs challengers on it only when asked.
 Every command here runs from the checkout root, in zsh.
 
 A Worker started with `--var BENCH_MODEL:<model>` runs its model routes and `/chat` on that model (see `worker/src/benchModelOverride.ts`).
@@ -107,16 +108,17 @@ b() { node bench/bench.ts worker --pages-dir bench/replies "$@"; }
 A Worker that never becomes ready usually has a wrong `BENCH_` var.
 Run `curl -s -X POST http://127.0.0.1:<port>/judge-answer -d '{}'` to read its message.
 Each Worker gets its own inspector port, since wrangler fails when two share one.
+Start the Neon Worker only when `worker/.dev.vars` has `GEMINI_API_KEY`.
 
 ```bash
 $V worker-up 8791 -- --inspector-port 9301
 $V worker-up 8792 -- --inspector-port 9302 --var BENCH_MODEL:claude-haiku-5-5
 $V worker-up 8793 -- --inspector-port 9303 --var BENCH_MODEL:claude-sonnet-5-5
 $V worker-up 8794 -- --inspector-port 9304 --var BENCH_MODEL:claude-opus-5-5
-$V worker-up 8795 -- --inspector-port 9305 --var BENCH_MODEL:gpt-6-luna --var BENCH_SERVICE_TIER:ultrafast
-$V worker-up 8796 -- --inspector-port 9306 --var BENCH_MODEL:gpt-6-sol --var BENCH_SERVICE_TIER:ultrafast
-$V worker-up 8797 -- --inspector-port 9307 --var BENCH_MODEL:gpt-6.1-sol --var BENCH_SERVICE_TIER:ultrafast
-$V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gpt-6.2-astra
+$V worker-up 8795 -- --inspector-port 9305 --var BENCH_MODEL:claude-fable-5-2
+$V worker-up 8796 -- --inspector-port 9306 --var BENCH_MODEL:gpt-6.2-sol --var BENCH_SERVICE_TIER:ultrafast
+$V worker-up 8797 -- --inspector-port 9307 --var BENCH_MODEL:gpt-6.2-astra --var BENCH_SERVICE_TIER:ultrafast
+$V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gemini-4-neon
 ```
 
 | Port | Side name | Model | Tier |
@@ -125,71 +127,79 @@ $V worker-up 8798 -- --inspector-port 9308 --var BENCH_MODEL:gpt-6.2-astra
 | 8792 | `haiku` | `claude-haiku-5-5` | |
 | 8793 | `sonnet` | `claude-sonnet-5-5` | |
 | 8794 | `opus` | `claude-opus-5-5` | |
-| 8795 | `luna` | `gpt-6-luna` | Ultrafast |
-| 8796 | `sol` | `gpt-6-sol` | Ultrafast |
-| 8797 | `sol61` | `gpt-6.1-sol` | Ultrafast |
-| 8798 | `astra` | `gpt-6.2-astra` | standard |
+| 8795 | `fable` | `claude-fable-5-2` | |
+| 8796 | `sol62` | `gpt-6.2-sol` | Ultrafast |
+| 8797 | `astra` | `gpt-6.2-astra` | Ultrafast |
+| 8798 | `neon` | `gemini-4-neon` | |
 
-The plan named `gpt-6-astra`.
-Both IDs exist, so the table uses the newer one.
-Swap the var to `gpt-6-astra` to run the older one.
-Ultrafast costs 6 times standard, so every printed model carries its tier.
-If a model refuses the tier, the smoke test shows an HTTP 400.
-Drop `BENCH_SERVICE_TIER` for that Worker and say so next to its numbers.
+The app sends GPT-6.1 Sol renders at Ultrafast, so the GPT challengers run at Ultrafast too, which costs 6 times standard.
+Both GPT-6.2 models accepted it on 2026-11-19.
+Sonnet 5.5, Opus 5.5, and Fable 5.2 cannot turn thinking off, so on `/voice-command`, which turns it off for Haiku, they run at the route's low effort with thinking on.
+
+```bash
+sides() { local g=$1; print -- --side $g-base:8791:$C --side $g-haiku:8792:$C --side $g-sonnet:8793:$C --side $g-opus:8794:$C \
+  --side $g-fable:8795:$C --side $g-sol62:8796:$C --side $g-astra:8797:$C; }
+# With the Neon Worker up, add: --side $g-neon:8798:$C
+```
 
 ### Smoke test
 
-This sends one run of five cheap cases to every side, for about $0.60.
-It shows a refused tier or effort, a strict schema error, a missing price, and a broken stream before any real money goes out.
-It saves no replies.
+This sends one run of one case per route to every side, for about $2.
+It shows a refused tier or effort, a strict schema error, a missing price, and a broken stream before the real runs.
 Every side should print PASS, or a FAIL whose detail is the model's own wrong answer.
 An `HTTP 400` or `HTTP 501` line names what the port could not do.
 `cost unknown` means the model has no price in `usage.ts`.
 
 ```bash
-node bench/bench.ts worker --label smoke --runs 1 --only judge-correct,voice-command,chat-first,landmark,frame-parts-heart \
-  --side smoke-base:8791:$C --side smoke-haiku:8792:$C --side smoke-sonnet:8793:$C --side smoke-opus:8794:$C \
-  --side smoke-luna:8795:$C --side smoke-sol:8796:$C --side smoke-sol61:8797:$C --side smoke-astra:8798:$C
+node bench/bench.ts worker --runs 1 --only judge-correct,voice-command,chat-first,landmark,frame-parts-heart,video-quiz-plan,picture-flows-heart ${=$(sides smoke)}
 rm bench/results/smoke-*
 ```
 
 ### The runs
 
 Each command interleaves its sides request by request, so drift in upstream latency hits every side equally.
-Run them in this order, which is the order of user impact, with `/chat` last because its GPT port translates a stream.
 The side names must be `<group>-<name>`, with `base` as the baseline, since `judge.ts` pairs on them.
+The four groups below can run at the same time, which takes about 45 minutes instead of about 2 hours.
+They share each Worker's log, and `bench.ts` keeps only the usage lines of the route a call measured, so the costs stay apart.
 
 ```bash
-b --label judge --runs 5 --only judge-correct,judge-named-only,judge-wrong,judge-help,judge-function-only,judge-caption-supported,judge-caption-wrong,judge-hint,judge-skip,judge-repeat,judge-scene-command \
-  --side judge-base:8791:$C --side judge-haiku:8792:$C --side judge-luna:8795:$C --side judge-sol:8796:$C
-b --label voice --runs 5 --only voice-command,voice-command-seek,voice-command-zoom,voice-command-explain,voice-command-no-tool \
-  --side voice-base:8791:$C --side voice-sonnet:8793:$C --side voice-luna:8795:$C
-b --label quiz --runs 3 --only video-quiz-plan,video-quiz-plan-long \
-  --side quiz-base:8791:$C --side quiz-opus:8794:$C --side quiz-luna:8795:$C --side quiz-sol61:8797:$C
-b --label parts --runs 3 --only frame-parts-heart,frame-parts-painting,frame-parts-cutaway,frame-parts-print,frame-parts-art-of-one-animal,frame-parts-bicycle,frame-parts-chart \
-  --side parts-base:8791:$C --side parts-opus:8794:$C --side parts-sol:8796:$C --side parts-sol61:8797:$C
-b --label chat --runs 5 --only chat-first,chat-followup \
-  --side chat-base:8791:$C --side chat-haiku:8792:$C --side chat-luna:8795:$C --side chat-sol:8796:$C
-b --label flows --runs 3 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle \
-  --side flows-base:8791:$C --side flows-sonnet:8793:$C --side flows-sol61:8797:$C --side flows-astra:8798:$C
-b --label landmark --runs 5 --only landmark,landmark-not-a-place \
-  --side landmark-base:8791:$C --side landmark-haiku:8792:$C --side landmark-luna:8795:$C
+b() { local label=$1; shift; node bench/bench.ts worker --pages-dir bench/replies --label $label "$@" ${=$(sides $label)}; }
+{ b judge --runs 5 --only judge-correct,judge-named-only,judge-wrong,judge-help,judge-function-only,judge-caption-supported,judge-caption-wrong,judge-hint,judge-skip,judge-repeat,judge-scene-command
+  b landmark --runs 5 --only landmark,landmark-not-a-place } > /tmp/bench-a.txt 2>&1 &
+{ b voice --runs 5 --only voice-command,voice-command-seek,voice-command-zoom,voice-command-explain,voice-command-no-tool
+  b chat --runs 5 --only chat-first,chat-followup } > /tmp/bench-b.txt 2>&1 &
+{ b parts --runs 3 --only frame-parts-heart,frame-parts-painting,frame-parts-cutaway,frame-parts-print,frame-parts-art-of-one-animal,frame-parts-bicycle,frame-parts-chart
+  b flows --runs 3 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle } > /tmp/bench-c.txt 2>&1 &
+b quiz --runs 3 --only video-quiz-plan,video-quiz-plan-long > /tmp/bench-d.txt 2>&1 &
+wait
 ```
 
-| Route | Baseline today | Challengers | Quality check |
-|---|---|---|---|
-| `/judge-answer` | Sonnet 5.5, low effort | Haiku 5.5, Luna, Sol | pass counts |
-| `/voice-command` | Haiku 5.5, low effort, thinking off | Sonnet 5.5, Luna | pass counts |
-| `/video-quiz-plan` | Sonnet 5.5 | Opus 5.5, Luna, 6.1 Sol | blind judge |
-| `/video-frame-parts` | Sonnet 5.5, low effort | Opus 5.5, Sol, 6.1 Sol | blind judge |
-| `/chat` | Sonnet 5.5, low effort | Haiku 5.5, Luna, Sol | blind judge |
-| `/picture-flows` | Opus 5.5, low effort | Sonnet 5.5, 6.1 Sol, Astra | blind judge |
-| `/landmark` | Sonnet 5.5, low effort | Haiku 5.5, Luna | pass counts |
+| Route | Baseline today | Quality check |
+|---|---|---|
+| `/judge-answer` | Sonnet 5.5, low effort | pass counts |
+| `/voice-command` | Haiku 5.5, low effort, thinking off | pass counts |
+| `/video-quiz-plan` | Sonnet 5.5 | pass counts and the blind judge |
+| `/video-frame-parts` | Sonnet 5.5, low effort | pass counts and the blind judge |
+| `/chat` | Sonnet 5.5, low effort | pass counts and the blind judge |
+| `/picture-flows` | Opus 5.5, low effort | pass counts and the blind judge |
+| `/landmark` | Sonnet 5.5, low effort | pass counts |
+| `/live-scene` | GPT-6.1 Sol Ultrafast, medium effort | baseline only, below |
+| task agent (`/v1/messages`) | Sonnet 5.5, medium effort | `taskAgent.ts`, below |
 
 `/voice-command` sends thinking off, so a GPT model gets the lowest reasoning effort it accepts: `none`, else `minimal`, else `low`.
 The Worker finds it from the first 400 and remembers it, so only the first call of a run is slower.
 `/chat` gives a GPT model the same 1,024 output tokens, and a GPT model counts its reasoning inside them.
 A `/chat` reply with no `[POINT]` tag and a short, cut-off text means the reasoning used the limit, not that the model failed to point.
+`/chat` streams, so its table's `ttft` column is the time to the first text token. Every other route answers in one JSON reply, so its first byte is its whole answer.
+
+The render baseline records what GPT-6.1 Sol does today, so a later challenger run has numbers to beat.
+
+```bash
+node bench/bench.ts worker --pages-dir bench/replies --label render --runs 3 --only live-scene,simulation-projectile,simulation-lever --side render-base:8791:$C
+```
+
+To run a challenger on renders later, add its side, such as `--side render-sol62:8796:$C`, to that command.
+Each render call costs about $0.40 on GPT-6.1 Sol Ultrafast.
 
 ### Task agent
 
@@ -197,12 +207,10 @@ The task agent is the one model call `bench.ts` does not cover, because its loop
 `taskAgent.ts` runs the built harness against Workers that each run the agent on one Claude model.
 GPT and Gemini cannot run it, since it uses Anthropic's server-side web search and the harness speaks the Anthropic API.
 
-Build the harness once, and start a Fable Worker beside the ones above.
-Luna cannot run the task agent, so it can give up port 8795 to Fable.
+Build the harness once. It runs against the Claude Workers above.
 
 ```bash
 (cd harness && go build -o ../bench/.harness/clicky-agent-harness .)
-$V worker-up 8795 -- --inspector-port 9305 --var BENCH_MODEL:claude-fable-5-2
 node bench/taskAgent.ts --harness bench/.harness/clicky-agent-harness --label agent --runs 2 \
   --side base:8791 --side haiku:8792 --side sonnet:8793 --side opus:8794 --side fable:8795
 ```
@@ -235,7 +243,7 @@ open bench/replies/judged/spotcheck.html
 ```
 
 The dry run draws the replies and writes the spot-check page for $0, and prints the pair count.
-It pairs the first run of each case by default, which is about 45 pairs and 180 judging calls for the runs above.
+It pairs the first run of each case by default, which is 89 pairs and 356 judging calls for the runs above with six challengers.
 `--pairs-per-case 3` judges every run, for three times the calls.
 `--judges opus` or `--judges sol` uses one judge, `--routes /chat` limits the routes, and `--effort high` raises the judges' effort.
 The page shows 10 pairs across the routes with the sides hidden.
@@ -262,21 +270,17 @@ OpenAI caches prompts over 1,024 tokens on its own, and the first run is cold on
 
 ### Cost and time
 
-These are estimates from committed token counts, with Sol at $2 in and $10 out, Astra at $8 and $40, and Luna at a guessed $0.5 and $2, all times 6 for Ultrafast.
+Measured on 2026-11-19 with base and the six challengers other than Neon.
 
-| Step | Calls per side | Challenger cost | Time |
+| Step | Calls per side | Cost, all seven sides | Time |
 |---|---|---|---|
-| Setup, eight Workers, and the smoke test | 5 | about $0.60 | about 10 minutes |
-| `/judge-answer` | 11 cases x 5 = 55 | about $1.40 | about 15 minutes |
-| `/voice-command` | 5 x 5 = 25 | about $0.60 | about 5 minutes |
-| `/video-quiz-plan` | 2 x 3 = 6 | about $2.20 | about 15 minutes |
-| `/video-frame-parts` | 7 x 3 = 21 | about $2.40 | about 8 minutes |
-| `/chat` | 2 x 5 = 10 | about $0.60 | about 3 minutes |
-| `/picture-flows` | 4 x 3 = 12 | about $1.80 | about 6 minutes |
-| `/landmark` | 2 x 5 = 10 | under $0.30 | about 2 minutes |
-| The blind judge | about 180 calls | about $4 | about 15 minutes |
+| Setup, seven Workers, and the smoke test | 7 | about $2 | about 10 minutes |
+| The four groups, run at once | 139 | about $15, of which Astra is $9 | about 45 minutes |
+| The render baseline | 9 | about $3.70 | about 4 minutes |
+| The task agent, four Claude sides | 6 | about $3 | about 15 minutes |
+| The blind judge | 356 calls | about $8 | about 20 minutes |
 
-The total is about $14 and 80 minutes, plus the baseline side of every run, which costs what the app costs today.
+Neon adds about $3 to the four groups, by its token counts at $3 in and $15 out.
 
 ### When it ends
 
