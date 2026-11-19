@@ -53,6 +53,13 @@ enum AgentTokenSlot: Hashable {
     case overflow
 }
 
+/// One disc on one display. The same agent has a disc on every display whose menu bar shows, so a display belongs to the
+/// identity: a click on one display's disc is never "the same disc" as the other display's.
+struct AgentTokenDiscID: Hashable {
+    let displayID: CGDirectDisplayID
+    let tokenSlot: AgentTokenSlot
+}
+
 /// What shows beside the notch on one display: the agents whose tokens show, left to right, and how many more agents
 /// the "+N" disc after them stands for. An overflow count of 0 means there is no "+N" disc.
 struct AgentTokenLayout: Equatable {

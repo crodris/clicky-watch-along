@@ -176,13 +176,22 @@ final class CompanionManager: ObservableObject {
         themeSettings: themeSettings,
         actions: AgentListActions(
             cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
-            showReadyScene: { [weak self] in self?.startShowingTheReadyBackgroundScene() },
-            hearTaskAnswer: { [weak self] in self?.startSpeakingTheTaskAnswer() }
+            resultsMayBeDeliveredNow: { [weak self] in
+                self.map { agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: $0.videoQuizQuestionIsActive) } ?? false
+            },
+            showReadyScene: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startShowingTheReadyBackgroundScene()
+            },
+            hearTaskAnswer: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startSpeakingTheTaskAnswer()
+            }
         )
     )
     /// The discs floating beside the notch, one per running agent or waiting result. A click opens the agent list under it.
     private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore) { [weak self] click in
-        self?.agentListPanelController.toggle(from: click.tokenSlot, belowTokenFrame: click.panelFrame, on: click.screen)
+        self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
     }
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
@@ -3219,6 +3228,10 @@ final class CompanionManager: ObservableObject {
     /// until cancelled from the list. `runningAgentCount` below 3 leaves room beside the notch for the finished and failed tokens.
     private func seedBackgroundAgentsForScreenshots(runningAgentCount: Int) {
         let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots(runningAgentCount: runningAgentCount)
+        // The seeded task's answer waits to be heard like a real one, so its list row's Hear answer button speaks it.
+        readyTaskAnswerAgentID = finishedAgentID
+        readyTaskAnswer = taskAgentSpokenAnswer("Karasuno won 2 sets to 1.")
+        taskAnswerWaitsToBeHeard = true
         VoiceToolCallChip.shared.show(
             BackgroundAgentKind.task.finishedChipText,
             sender: chipSender(forAgent: finishedAgentID, kind: .task),

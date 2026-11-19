@@ -1801,12 +1801,10 @@ struct leanring_buddyTests {
     @Test func aTaskAgentShowsTheStepsItReports() async throws {
         let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .task)
-        #expect(store.agents.first?.inProgressText == "Getting started")
         #expect(store.agents.first?.stepStatuses == [.current])
 
         store.reportStep("Searching the web", for: agentID)
         store.reportStep("Writing the page in Notion", for: agentID)
-        #expect(store.agents.first?.inProgressText == "Writing the page in Notion")
         #expect(store.agents.first?.stepNames == ["Searching the web", "Writing the page in Notion"])
         #expect(store.agents.first?.stepStatuses == [.done, .current])
 
@@ -1922,13 +1920,7 @@ struct leanring_buddyTests {
         let refreshJSON = String(decoding: try JSONEncoder().encode(refreshRevision), as: UTF8.self)
         #expect(!refreshJSON.contains("instruction"))
 
-        let startedAt = Date(timeIntervalSince1970: 1_000)
-        let updateAgent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, studyGuideVideoKey: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
-        }
-        #expect(updateAgent(.running(completedStepCount: 0)).inProgressText == "Reading your quiz results")
-        #expect(updateAgent(.running(completedStepCount: 1)).inProgressText == "Adding your miss to the guide")
-        #expect(updateAgent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).inProgressText == nil)
+        #expect(BackgroundAgentKind.studyGuideUpdate.stepNames == ["Read the quiz results", "Add the miss to the guide"])
         #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
     }
 

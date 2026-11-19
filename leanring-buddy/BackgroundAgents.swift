@@ -244,15 +244,6 @@ struct BackgroundAgent: Identifiable, Equatable {
         )
     }
 
-    /// What the agent is doing now, or nil once the agent has ended.
-    var inProgressText: String? {
-        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
-        if kind == .task, let latestReportedStep = reportedSteps.last {
-            return latestReportedStep
-        }
-        return kind.steps[completedStepCount].inProgressText
-    }
-
     var isRunning: Bool {
         if case .running = phase { return true }
         return false

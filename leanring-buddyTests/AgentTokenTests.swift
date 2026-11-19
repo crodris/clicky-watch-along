@@ -311,6 +311,30 @@ struct AgentTokenTests {
         #expect(store.agents.first { $0.id == playerAgentID }?.player != nil)
     }
 
+    // MARK: - Clicks and the list's buttons
+
+    @Test func theSameAgentOnTwoDisplaysIsTwoDiscsSoAClickOnTheOtherOneMovesTheList() async throws {
+        let agentID = UUID()
+        let onTheLaptop = AgentTokenDiscID(displayID: 1, tokenSlot: .agent(agentID))
+        #expect(onTheLaptop == AgentTokenDiscID(displayID: 1, tokenSlot: .agent(agentID)))
+        #expect(onTheLaptop != AgentTokenDiscID(displayID: 2, tokenSlot: .agent(agentID)))
+        #expect(onTheLaptop != AgentTokenDiscID(displayID: 1, tokenSlot: .agent(UUID())))
+        #expect(AgentTokenDiscID(displayID: 1, tokenSlot: .overflow) != AgentTokenDiscID(displayID: 2, tokenSlot: .overflow))
+    }
+
+    @Test func theAgentListDeliversAWaitingResultUnderTheSameRuleAsTheVoiceTools() async throws {
+        var voiceToolContext = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: true, videoIsOnYouTube: true, videoQuizIsRunning: true, quizQuestionIsOpen: false)
+        voiceToolContext.backgroundSceneIsReady = true
+        voiceToolContext.taskAnswerIsReady = true
+        for aVideoQuizQuestionIsOpen in [false, true] {
+            voiceToolContext.quizQuestionIsOpen = aVideoQuizQuestionIsOpen
+            let availableVoiceTools = AppVoiceTool.available(in: voiceToolContext)
+            let listMayDeliver = agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: aVideoQuizQuestionIsOpen)
+            #expect(availableVoiceTools.contains(.showReadyModel) == listMayDeliver)
+            #expect(availableVoiceTools.contains(.hearTaskAnswer) == listMayDeliver)
+        }
+    }
+
     // MARK: - Ring color
 
     @Test func theRingTakesTheTeamColorForAPlayerAndTheKindColorUnderClickyBlue() async throws {

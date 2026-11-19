@@ -33,9 +33,18 @@ private final class AgentListHostingView<Content: View>: NSHostingView<Content> 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// Whether the agent list may show a waiting 3D model or experiment, or speak a waiting task answer. A question's scene and
+/// speech belong to the question, so, like the voice tools for the same actions (`AppVoiceTool.showReadyModel` and
+/// `.hearTaskAnswer`), the list waits until the learner answers or skips an open video quiz question.
+func agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: Bool) -> Bool {
+    !aVideoQuizQuestionIsOpen
+}
+
 /// What a row's buttons do besides cancelling a running agent.
 struct AgentListActions {
     let cancelAgent: (UUID) -> Void
+    /// Asked each time the list draws and again when a button is pressed, since a question can open while the list is up.
+    let resultsMayBeDeliveredNow: () -> Bool
     /// Rises the 3D model or experiment that is waiting to be shown.
     let showReadyScene: () -> Void
     /// Speaks the task answer that is waiting to be heard.
@@ -58,8 +67,8 @@ final class AgentListPanelController {
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
-    /// The token the list was opened from, nil when the shortcut opened it, so a second click on the same token closes it.
-    private var tokenSlotTheListWasOpenedFrom: AgentTokenSlot?
+    /// The disc the list was opened from, nil when the shortcut opened it, so a second click on the same disc closes it.
+    private var discTheListWasOpenedFrom: AgentTokenDiscID?
 
     init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, actions: AgentListActions) {
         self.store = store
@@ -83,31 +92,32 @@ final class AgentListPanelController {
         }
     }
 
-    /// A click on an agent token: open the list under that token with the agent's row expanded, and "+N" with none.
-    /// A click on the token the list is already open from closes it, and a click on another token moves it there.
-    func toggle(from tokenSlot: AgentTokenSlot, belowTokenFrame tokenFrame: CGRect, on screen: NSScreen) {
-        let tokenSlotWasAlreadyOpen = tokenSlotTheListWasOpenedFrom == tokenSlot
+    /// A click on an agent token: open the list under that disc with the agent's row expanded, and "+N" with none.
+    /// A click on the disc the list is already open from closes it, and a click on another disc, including the same
+    /// agent's disc on another display, moves it there.
+    func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen) {
+        let discWasAlreadyOpen = discTheListWasOpenedFrom == discID
         let listWasOpen = isOpen
         close()
-        if listWasOpen && tokenSlotWasAlreadyOpen { return }
+        if listWasOpen && discWasAlreadyOpen { return }
         let agentIDToExpand: UUID?
-        switch tokenSlot {
+        switch discID.tokenSlot {
         case .agent(let agentID): agentIDToExpand = agentID
         case .overflow: agentIDToExpand = nil
         }
         open(
-            anchorTopLeft: CGPoint(x: tokenFrame.minX, y: tokenFrame.minY - Self.gapFromTheMouse / 4),
+            anchorTopLeft: CGPoint(x: discPanelFrame.minX, y: discPanelFrame.minY - Self.gapFromTheMouse / 4),
             visibleFrame: screen.visibleFrame,
             initiallyExpandedAgentID: agentIDToExpand
         )
-        tokenSlotTheListWasOpenedFrom = tokenSlot
+        discTheListWasOpenedFrom = discID
     }
 
     private func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?) {
         guard panel == nil else { return }
         self.visibleFrame = visibleFrame
         self.anchorTopLeft = anchorTopLeft
-        tokenSlotTheListWasOpenedFrom = nil
+        discTheListWasOpenedFrom = nil
 
         let agentListView = AgentListView(
             store: store,
@@ -145,7 +155,7 @@ final class AgentListPanelController {
     }
 
     func close() {
-        tokenSlotTheListWasOpenedFrom = nil
+        discTheListWasOpenedFrom = nil
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
@@ -516,7 +526,7 @@ extension AgentRowView {
     /// its Notion page. A result that was already delivered offers only the page.
     @ViewBuilder fileprivate var resultButtons: some View {
         HStack(spacing: 6) {
-            if agent.resultIsWaitingToBeDelivered {
+            if agent.resultIsWaitingToBeDelivered && actions.resultsMayBeDeliveredNow() {
                 switch agent.finishedResult {
                 case .readyScene:
                     AgentActionButton(title: agent.kind == .experiment ? "Show experiment" : "Show model", titleColor: DS.Colors.textPrimary, action: actions.showReadyScene)

@@ -191,11 +191,12 @@ private final class AgentTokenDisc {
 
 // MARK: - Dock
 
-/// Where one disc sits, and what a click on it opens.
+/// What a click on one disc reports, so the agent list opens under it.
 struct AgentTokenClick {
-    let tokenSlot: AgentTokenSlot
-    /// The disc's panel, in global AppKit coordinates, so the list opens under it.
-    let panelFrame: CGRect
+    let discID: AgentTokenDiscID
+    /// The disc's panel, in global AppKit coordinates.
+    let discPanelFrame: CGRect
+    /// Read when the disc is clicked, since AppKit replaces its screen objects when the screen parameters change.
     let screen: NSScreen
 }
 
@@ -203,14 +204,9 @@ struct AgentTokenClick {
 /// the window list once a second then, so discs return when the status icons leave room again.
 @MainActor
 final class AgentTokenDockController {
-    private struct DiscKey: Hashable {
-        let displayID: CGDirectDisplayID
-        let tokenSlot: AgentTokenSlot
-    }
-
     private let store: BackgroundAgentStore
     private let onDiscClicked: (AgentTokenClick) -> Void
-    private var discsByKey: [DiscKey: AgentTokenDisc] = [:]
+    private var discsByID: [AgentTokenDiscID: AgentTokenDisc] = [:]
     /// The agents each display's discs showed at the last refresh, which is what keeps a shown token in its position.
     private var shownAgentIDsByDisplayID: [CGDirectDisplayID: [UUID]] = [:]
     /// The front app's menu titles, read when it became the front app, and the app they belong to.
@@ -267,7 +263,7 @@ final class AgentTokenDockController {
         let rankedAgentIDs = rankedAgents.map(\.id)
         let statusWindowFrames = onScreenStatusWindowFramesInQuartzCoordinates()
         let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
-        var discKeysOnScreen: Set<DiscKey> = []
+        var discIDsOnScreen: Set<AgentTokenDiscID> = []
 
         for screen in NSScreen.screens {
             let displayID = screen.displayID
@@ -309,18 +305,18 @@ final class AgentTokenDockController {
                     width: AgentTokenMetrics.panelWidth,
                     height: menuBarHeight
                 )
-                let discKey = DiscKey(displayID: displayID, tokenSlot: tokenSlot)
-                discKeysOnScreen.insert(discKey)
-                place(discKey: discKey, overflowCount: layout.overflowCount, panelFrame: panelFrame, on: screen)
+                let discID = AgentTokenDiscID(displayID: displayID, tokenSlot: tokenSlot)
+                discIDsOnScreen.insert(discID)
+                place(discID: discID, overflowCount: layout.overflowCount, panelFrame: panelFrame)
             }
         }
 
-        for (discKey, disc) in discsByKey where !discKeysOnScreen.contains(discKey) {
+        for (discID, disc) in discsByID where !discIDsOnScreen.contains(discID) {
             remove(disc)
-            discsByKey[discKey] = nil
+            discsByID[discID] = nil
         }
         // A display that is gone or shows no disc forgets its positions, so the next tokens start from the left again.
-        for displayID in shownAgentIDsByDisplayID.keys where !discKeysOnScreen.contains(where: { $0.displayID == displayID }) {
+        for displayID in shownAgentIDsByDisplayID.keys where !discIDsOnScreen.contains(where: { $0.displayID == displayID }) {
             shownAgentIDsByDisplayID[displayID] = nil
         }
     }
@@ -331,9 +327,9 @@ final class AgentTokenDockController {
 
     /// Moves a disc's panel to its position, or creates it there. A new disc fades in at its position, and the others slide
     /// to close a gap. With Reduce Motion on, a disc just appears in its position.
-    private func place(discKey: DiscKey, overflowCount: Int, panelFrame: CGRect, on screen: NSScreen) {
-        if let existingDisc = discsByKey[discKey] {
-            if case .overflow = discKey.tokenSlot {
+    private func place(discID: AgentTokenDiscID, overflowCount: Int, panelFrame: CGRect) {
+        if let existingDisc = discsByID[discID] {
+            if case .overflow = discID.tokenSlot {
                 existingDisc.hostingView.rootView = AgentTokenDiscContent(store: store, hoverModel: existingDisc.hoverModel, tokenSlot: .overflow, overflowCount: overflowCount)
             }
             guard existingDisc.panel.frame != panelFrame else { return }
@@ -348,12 +344,14 @@ final class AgentTokenDockController {
             return
         }
 
-        let displayedDisc = AgentTokenDisc(tokenSlot: discKey.tokenSlot, overflowCount: overflowCount, store: store) { [weak self] in
-            guard let self, let clickedDisc = self.discsByKey[discKey] else { return }
-            self.onDiscClicked(AgentTokenClick(tokenSlot: discKey.tokenSlot, panelFrame: clickedDisc.panel.frame, screen: screen))
+        let displayedDisc = AgentTokenDisc(tokenSlot: discID.tokenSlot, overflowCount: overflowCount, store: store) { [weak self] in
+            guard let self,
+                  let clickedDisc = self.discsByID[discID],
+                  let screen = NSScreen.screens.first(where: { $0.displayID == discID.displayID }) else { return }
+            self.onDiscClicked(AgentTokenClick(discID: discID, discPanelFrame: clickedDisc.panel.frame, screen: screen))
         }
         displayedDisc.panel.setFrame(panelFrame, display: false)
-        discsByKey[discKey] = displayedDisc
+        discsByID[discID] = displayedDisc
         if reduceMotionIsOn {
             displayedDisc.panel.orderFrontRegardless()
         } else {
@@ -383,8 +381,8 @@ final class AgentTokenDockController {
     }
 
     private func removeEveryDisc() {
-        for disc in discsByKey.values { remove(disc) }
-        discsByKey = [:]
+        for disc in discsByID.values { remove(disc) }
+        discsByID = [:]
         shownAgentIDsByDisplayID = [:]
     }
 
