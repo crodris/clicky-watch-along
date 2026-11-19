@@ -1,0 +1,477 @@
+{
+  "label": "flows-astra",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:16:57.947Z",
+  "runCount": 3,
+  "port": 8797,
+  "interleavedWith": [
+    "flows-base",
+    "flows-haiku",
+    "flows-sonnet",
+    "flows-opus",
+    "flows-fable",
+    "flows-sol62"
+  ],
+  "summary": [
+    {
+      "caseId": "picture-flows-heart",
+      "route": "/picture-flows",
+      "description": "Draws blood rich and low in oxygen through a heart diagram",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3951,
+        "p95": 5224,
+        "min": 3350,
+        "max": 5224
+      },
+      "firstByteMs": {
+        "p50": 3951,
+        "p95": 5224,
+        "min": 3350,
+        "max": 5224
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1743,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1297,
+      "meanOutputTokens": 615,
+      "meanCostUSD": 0.1722
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "route": "/picture-flows",
+      "description": "Draws rain and runoff as droplets through the USGS water cycle diagram",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3464,
+        "p95": 3705,
+        "min": 2726,
+        "max": 3705
+      },
+      "firstByteMs": {
+        "p50": 3464,
+        "p95": 3704,
+        "min": 2725,
+        "max": 3704
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1742,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 864,
+      "meanOutputTokens": 431,
+      "meanCostUSD": 0.14758
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "route": "/picture-flows",
+      "description": "Draws air and hot gas through a turbofan cutaway",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3676,
+        "p95": 10611,
+        "min": 3370,
+        "max": 10611
+      },
+      "firstByteMs": {
+        "p50": 3676,
+        "p95": 10611,
+        "min": 3369,
+        "max": 10611
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.6666666666666667,
+      "meanInputTokens": 1739,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 862,
+      "meanOutputTokens": 577,
+      "meanCostUSD": 0.18256
+    },
+    {
+      "caseId": "picture-flows-bicycle",
+      "route": "/picture-flows",
+      "description": "Draws no flow for a bicycle, whose chain is a moving part",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2510,
+        "p95": 3755,
+        "min": 1310,
+        "max": 3755
+      },
+      "firstByteMs": {
+        "p50": 2510,
+        "p95": 3755,
+        "min": 1310,
+        "max": 3755
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1738,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 861,
+      "meanOutputTokens": 11,
+      "meanCostUSD": 0.04679
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 5224.018541999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5224.434916999999,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1743,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1297,
+          "outputTokens": 610
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.17092079999999998,
+      "quality": {
+        "passed": true,
+        "detail": "5 flows: droplets/blue, droplets/blue, droplets/blue, droplets/red, droplets/red"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[438,69],[480,96],[502,146],[502,231],[505,307],[506,364],[524,419],[549,466],[576,489],[628,530]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[492,625],[492,571],[489,526],[486,490],[500,461],[526,452],[549,466]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[628,530],[619,483],[617,440],[615,397],[614,345],[619,288],[626,244],[643,216],[669,199],[710,191],[765,192],[813,205]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[839,233],[802,234],[776,237],[748,248],[709,273],[719,306],[740,334],[751,366],[768,413],[790,475],[808,539]]},{\"col"
+    },
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3349.7309169999935,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3350.198457999999,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1743,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1297,
+          "outputTokens": 610
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.17092079999999998,
+      "quality": {
+        "passed": true,
+        "detail": "5 flows: droplets/blue, droplets/blue, droplets/blue, droplets/red, droplets/red"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[441,70],[480,101],[504,152],[504,233],[508,307],[510,374],[530,430],[551,466],[583,478],[623,508]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[491,627],[491,580],[487,526],[482,484],[492,450],[518,444],[551,466],[583,478],[623,508]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[623,508],[617,466],[616,404],[614,356],[620,287],[629,237],[650,208],[687,191],[737,190],[784,198],[815,207]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[841,232],[812,234],[778,235],[752,251],[722,274],[729,310],[744,338],[762,369],[781,416],[798,471]]},{\"co"
+    },
+    {
+      "caseId": "picture-flows-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3950.5713749999995,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3951.427457999991,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1743,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1297,
+          "outputTokens": 626
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.1747608,
+      "quality": {
+        "passed": true,
+        "detail": "5 flows: droplets/blue, droplets/blue, droplets/blue, droplets/red, droplets/red"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[443,70],[480,100],[502,153],[504,240],[505,314],[510,378],[542,458],[553,480],[595,517],[639,546]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[491,630],[492,577],[491,523],[487,487],[504,459],[534,457],[553,480],[595,517],[639,546]]},{\"color\":\"blue\",\"style\":\"droplets\",\"points\":[[638,541],[619,490],[617,448],[615,399],[614,340],[619,274],[629,229],[650,204],[687,191],[741,189],[785,194],[816,205]]},{\"color\":\"red\",\"style\":\"droplets\",\"points\":[[838,231],[805,234],[772,235],[744,251],[719,275],[720,302],[738,332],[750,363],[766,403],[782,4"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3463.5819159999955,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3464.1077499999956,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1742,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 466
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.195456,
+      "quality": {
+        "passed": true,
+        "detail": "6 flows: smoke/cyan, smoke/cyan, droplets/cyan, droplets/cyan, droplets/cyan, droplets/cyan"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"cyan\",\"style\":\"smoke\",\"points\":[[993,338],[993,318],[993,295]]},{\"color\":\"cyan\",\"style\":\"smoke\",\"points\":[[576,507],[576,489],[576,471]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[475,126],[453,146],[433,168],[419,190],[410,215]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[710,379],[742,392],[772,405],[799,417],[820,426]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[735,391],[727,410],[717,427],[696,449]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[156,389],[181,434],[215,476],[254,509],[309,546],[371,581],[447,610],[526,630],[603,639],[659,638],[716,627]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2725.1310419999936,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2725.709124999994,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1742,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1296,
+          "outputTokens": 417
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.12459840000000001,
+      "quality": {
+        "passed": true,
+        "detail": "5 flows: smoke/cyan, smoke/cyan, droplets/cyan, droplets/cyan, droplets/cyan"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"cyan\",\"style\":\"smoke\",\"points\":[[993,339],[993,319],[993,295]]},{\"color\":\"cyan\",\"style\":\"smoke\",\"points\":[[575,508],[575,489],[575,471]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[475,126],[453,146],[434,167],[422,186],[416,201],[411,215]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[706,377],[739,389],[769,402],[798,416],[821,424]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[154,391],[184,433],[215,475],[255,510],[302,543],[369,582],[437,608],[505,626],[575,637],[638,639],[684,635],[713,627]]}]}"
+    },
+    {
+      "caseId": "picture-flows-water-cycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3704.283875000023,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3704.7723340000084,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1742,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1296,
+          "outputTokens": 409
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.1226784,
+      "quality": {
+        "passed": true,
+        "detail": "5 flows: smoke/cyan, smoke/cyan, droplets/cyan, droplets/cyan, droplets/cyan"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"cyan\",\"style\":\"smoke\",\"points\":[[993,339],[993,319],[993,295]]},{\"color\":\"cyan\",\"style\":\"smoke\",\"points\":[[576,509],[576,492],[576,472]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[475,126],[453,147],[436,165],[423,184],[412,215]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[710,378],[739,389],[769,402],[796,415],[821,424]]},{\"color\":\"cyan\",\"style\":\"droplets\",\"points\":[[156,387],[183,438],[216,480],[259,512],[316,549],[380,583],[451,609],[515,627],[570,638],[634,639],[684,635],[715,626]]}]}"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3675.798791999987,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3676.1408749999828,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1739,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 564
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.218832,
+      "quality": {
+        "passed": true,
+        "detail": "6 flows: air/blue, air/blue, air/blue, sparks/orange, air/blue, sparks/orange"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"style\":\"air\",\"points\":[[357,254],[455,233],[518,231],[580,236],[656,226],[727,207],[780,184]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[402,552],[476,540],[535,518],[595,487],[672,466],[747,453],[838,432]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[372,372],[468,347],[527,339],[583,347],[631,339],[678,330],[724,316]]},{\"color\":\"orange\",\"style\":\"sparks\",\"points\":[[724,316],[752,309],[790,301],[823,287],[862,270],[891,258],[926,247],[972,243]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[386,458],[477,460],[530,451],[588,422],[636,408],[681,394],[736,384]]},{\"color\":\"orang"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3368.814584000036,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3369.679334000044,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1739,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1293,
+          "outputTokens": 576
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.1627512,
+      "quality": {
+        "passed": true,
+        "detail": "6 flows: air/blue, air/blue, air/blue, sparks/orange, air/blue, sparks/orange"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"style\":\"air\",\"points\":[[355,250],[445,235],[495,232],[570,234],[645,225],[716,205],[780,181]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[404,548],[466,536],[530,519],[596,488],[678,465],[747,451],[832,433]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[370,367],[437,351],[495,339],[550,342],[605,341],[659,330],[704,320],[732,311]]},{\"color\":\"orange\",\"style\":\"sparks\",\"points\":[[732,311],[761,307],[796,298],[836,280],[877,259],[908,256],[946,250]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[387,457],[453,456],[512,445],[567,427],[618,411],[674,394],[715,382],[746,376]]},{\"col"
+    },
+    {
+      "caseId": "picture-flows-cutaway",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 10611.123750000028,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 10611.362208999984,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1739,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1293,
+          "outputTokens": 590
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.16611120000000001,
+      "quality": {
+        "passed": true,
+        "detail": "6 flows: air/blue, air/blue, air/blue, sparks/orange, air/blue, sparks/orange"
+      },
+      "replyPreview": "{\"flows\":[{\"color\":\"blue\",\"style\":\"air\",\"points\":[[355,251],[460,233],[503,235],[577,240],[644,232],[711,215],[771,192],[800,179]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[405,548],[484,538],[540,511],[606,481],[684,458],[753,448],[821,439]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[371,366],[449,343],[496,329],[543,328],[592,340],[646,329],[696,316],[721,310]]},{\"color\":\"orange\",\"style\":\"sparks\",\"points\":[[721,310],[748,305],[779,301],[814,285],[849,265],[888,249],[931,247],[965,244]]},{\"color\":\"blue\",\"style\":\"air\",\"points\":[[386,460],[452,458],[494,453],[549,431],[601,420],[648,402],[690,39"
+    },
+    {
+      "caseId": "picture-flows-bicycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3754.775083000015,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3755.439624999999,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1738,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 11
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.086064,
+      "quality": {
+        "passed": true,
+        "detail": "0 flows: none"
+      },
+      "replyPreview": "{\"flows\":[]}"
+    },
+    {
+      "caseId": "picture-flows-bicycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2509.7304170000134,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2510.0403749999823,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1738,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1292,
+          "outputTokens": 11
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.027148800000000004,
+      "quality": {
+        "passed": true,
+        "detail": "0 flows: none"
+      },
+      "replyPreview": "{\"flows\":[]}"
+    },
+    {
+      "caseId": "picture-flows-bicycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1309.9086670000106,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1310.3682090000366,
+      "usageLines": [
+        {
+          "route": "/picture-flows",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1738,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1292,
+          "outputTokens": 11
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.027148800000000004,
+      "quality": {
+        "passed": true,
+        "detail": "0 flows: none"
+      },
+      "replyPreview": "{\"flows\":[]}"
+    }
+  ]
+}

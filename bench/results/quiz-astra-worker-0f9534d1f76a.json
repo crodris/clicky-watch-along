@@ -1,0 +1,249 @@
+{
+  "label": "quiz-astra",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:16:14.621Z",
+  "runCount": 3,
+  "port": 8797,
+  "interleavedWith": [
+    "quiz-base",
+    "quiz-haiku",
+    "quiz-sonnet",
+    "quiz-opus",
+    "quiz-fable",
+    "quiz-sol62"
+  ],
+  "summary": [
+    {
+      "caseId": "video-quiz-plan",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for the heart video transcript in verify-clicky's fixture",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2761,
+        "p95": 2963,
+        "min": 2232,
+        "max": 2963
+      },
+      "firstByteMs": {
+        "p50": 2760,
+        "p95": 2962,
+        "min": 2231,
+        "max": 2962
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.3333333333333333,
+      "meanInputTokens": 1401,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 264,
+      "meanCostUSD": 0.13053
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "route": "/video-quiz-plan",
+      "description": "Plans quiz moments for a 10-minute shark video with a sponsor read and a subscribe request",
+      "models": [
+        "gpt-6.2-astra"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3689,
+        "p95": 5049,
+        "min": 3335,
+        "max": 5049
+      },
+      "firstByteMs": {
+        "p50": 3688,
+        "p95": 5048,
+        "min": 3334,
+        "max": 5048
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 2,
+      "meanInputTokens": 2190,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 999,
+      "meanOutputTokens": 418,
+      "meanCostUSD": 0.15995
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2760.2450420000023,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2760.9062090000007,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1401,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 277
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.133728,
+      "quality": {
+        "passed": true,
+        "detail": "2 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":24,\"question\":\"What structure protects your heart?\",\"answerLabel\":\"rib cage\",\"functionWords\":[\"protects\"],\"explanation\":\"Your heart sits in the middle of your chest. Your rib cage protects it there.\",\"sourceLineSeconds\":12,\"subject\":\"human heart inside the rib cage\"},{\"pauseAtSeconds\":132,\"question\":\"Which heart chamber needs the thickest wall for its pumping job?\",\"answerLabel\":\"left ventricle\",\"functionWords\":[\"pumps\",\"blood\",\"body\"],\"explanation\":\"The left ventricle pumps blood to your whole body. That’s why its wall is thicker than any other chamber’s.\",\"sourc"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2962.3073339999974,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2962.6389999999956,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1401,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 294
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.137808,
+      "quality": {
+        "passed": true,
+        "detail": "2 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":24,\"question\":\"What protects your heart where it sits in your chest?\",\"answerLabel\":\"rib cage\",\"functionWords\":[\"protects\"],\"explanation\":\"Your heart sits in the middle of your chest. Your rib cage protects it there.\",\"sourceLineSeconds\":12,\"subject\":\"human heart inside the rib cage\"},{\"pauseAtSeconds\":132,\"question\":\"Which heart chamber needs the thickest wall for its pumping job?\",\"answerLabel\":\"left ventricle\",\"functionWords\":[\"pumps\",\"blood\",\"body\"],\"explanation\":\"The left ventricle has the thickest wall. It needs that wall because it pumps blood to your whole"
+    },
+    {
+      "caseId": "video-quiz-plan",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2231.090666999982,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2231.722624999995,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 1401,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 220
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.120048,
+      "quality": {
+        "passed": true,
+        "detail": "2 moments"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":24,\"question\":\"What protects the heart in your chest?\",\"answerLabel\":\"rib cage\",\"functionWords\":[\"protects\"],\"explanation\":\"Your heart sits in the middle of your chest. The rib cage protects it there.\",\"sourceLineSeconds\":12,\"subject\":\"human heart inside the rib cage\"},{\"pauseAtSeconds\":132,\"question\":\"Which heart chamber needs the thickest wall, and why?\",\"answerLabel\":\"left ventricle\",\"functionWords\":[\"pumps\",\"blood\",\"body\"],\"explanation\":\"The left ventricle has the thickest wall. It needs that wall to pump blood to the entire body.\",\"sourceLineSeconds\":120,\"sub"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3687.885750000016,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3688.5118749999674,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2190,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 438
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.21024,
+      "quality": {
+        "passed": true,
+        "detail": "3 moments at 36, 96, 204"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Which animals first appeared in the oceans more than four hundred million years ago?\",\"answerLabel\":\"Sharks\",\"functionWords\":[\"appeared\",\"predate\",\"dinosaurs\"],\"explanation\":\"Sharks first appeared in the oceans more than four hundred million years ago. That means sharks were already around long before the dinosaurs.\",\"sourceLineSeconds\":24,\"subject\":\"shark swimming in an ancient ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Which organ helps a shark float without a swim bladder?\",\"answerLabel\":\"Liver\",\"functionWords\":[\"oil\",\"lighter\",\"float\"],\"explanatio"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3334.113624999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3334.7530419999966,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2190,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1499,
+          "outputTokens": 425
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.1387656,
+      "quality": {
+        "passed": true,
+        "detail": "3 moments at 36, 96, 204"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Which animals first appeared in the oceans more than 400 million years ago?\",\"answerLabel\":\"Sharks\",\"functionWords\":[\"appeared\",\"predate\",\"dinosaurs\"],\"explanation\":\"Sharks appeared in the oceans more than 400 million years ago. That means they were swimming there long before the dinosaurs.\",\"sourceLineSeconds\":24,\"subject\":\"ancient shark swimming in the ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Which organ helps a shark float without a swim bladder?\",\"answerLabel\":\"Liver\",\"functionWords\":[\"oil\",\"lighter\",\"float\"],\"explanation\":\"A shark’s liver is fi"
+    },
+    {
+      "caseId": "video-quiz-plan-long",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 5048.3319580000825,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5049.40304200002,
+      "usageLines": [
+        {
+          "route": "/video-quiz-plan",
+          "model": "gpt-6.2-astra",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2190,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1499,
+          "outputTokens": 392
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.13084559999999998,
+      "quality": {
+        "passed": true,
+        "detail": "3 moments at 36, 96, 204"
+      },
+      "replyPreview": "{\"moments\":[{\"pauseAtSeconds\":36,\"question\":\"Which animals first appeared in the oceans more than 400 million years ago?\",\"answerLabel\":\"Sharks\",\"functionWords\":[\"appeared\",\"predate\"],\"explanation\":\"Sharks first appeared in the oceans more than 400 million years ago. That means they were already around long before the dinosaurs.\",\"sourceLineSeconds\":24,\"subject\":\"shark swimming in an ancient ocean\"},{\"pauseAtSeconds\":96,\"question\":\"Which organ helps a shark float without a swim bladder?\",\"answerLabel\":\"Liver\",\"functionWords\":[\"oil\",\"lighter\",\"float\"],\"explanation\":\"A shark's liver is filled wi"
+    }
+  ]
+}

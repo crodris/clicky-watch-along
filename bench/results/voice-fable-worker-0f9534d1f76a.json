@@ -1,0 +1,861 @@
+{
+  "label": "voice-fable",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:09:10.645Z",
+  "runCount": 5,
+  "port": 8795,
+  "interleavedWith": [
+    "voice-base",
+    "voice-haiku",
+    "voice-sonnet",
+    "voice-opus",
+    "voice-sol62",
+    "voice-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "voice-command",
+      "route": "/voice-command",
+      "description": "Turns a frame pop-out the other way after \"no, turn it the other way\", with a recent rotate_model of 45 degrees",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1584,
+        "p95": 1726,
+        "min": 1333,
+        "max": 1726
+      },
+      "firstByteMs": {
+        "p50": 1583,
+        "p95": 1725,
+        "min": 1332,
+        "max": 1725
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 248,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3299,
+      "meanOutputTokens": 84,
+      "meanCostUSD": 0.006
+    },
+    {
+      "caseId": "voice-command-seek",
+      "route": "/voice-command",
+      "description": "Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1659,
+        "p95": 1992,
+        "min": 1347,
+        "max": 1992
+      },
+      "firstByteMs": {
+        "p50": 1659,
+        "p95": 1992,
+        "min": 1345,
+        "max": 1992
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 202,
+      "meanCacheWriteTokens": 857,
+      "meanCacheReadTokens": 3430,
+      "meanOutputTokens": 82,
+      "meanCostUSD": 0.01416
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "route": "/voice-command",
+      "description": "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1343,
+        "p95": 1810,
+        "min": 1301,
+        "max": 1810
+      },
+      "firstByteMs": {
+        "p50": 1342,
+        "p95": 1809,
+        "min": 1298,
+        "max": 1809
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 246,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3299,
+      "meanOutputTokens": 77,
+      "meanCostUSD": 0.00571
+    },
+    {
+      "caseId": "voice-command-explain",
+      "route": "/voice-command",
+      "description": "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1322,
+        "p95": 1652,
+        "min": 1172,
+        "max": 1652
+      },
+      "firstByteMs": {
+        "p50": 1321,
+        "p95": 1652,
+        "min": 1171,
+        "max": 1652
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.4,
+      "meanInputTokens": 247,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3299,
+      "meanOutputTokens": 77,
+      "meanCostUSD": 0.00572
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "route": "/voice-command",
+      "description": "Calls no tool for \"thanks, that looks great\", which asks for nothing",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1017,
+        "p95": 1338,
+        "min": 926,
+        "max": 1338
+      },
+      "firstByteMs": {
+        "p50": 1016,
+        "p95": 1338,
+        "min": 926,
+        "max": 1338
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 248,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3299,
+      "meanOutputTokens": 9,
+      "meanCostUSD": 0.00302
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "voice-command",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1725.4631670000008,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1726.272250000001,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0060038,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -90, says \"turned it the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_0195ai7KC4MTLDsgsDgWVJAb\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-90,\"confirmation\":\"turned it the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1332.2755419999994,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1332.5872079999972,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0060038,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -90, says \"turned it the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01FX54xmpcs785Lc6hz9rfgk\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-90,\"confirmation\":\"turned it the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1370.663875000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1371.0165830000005,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0060038,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -90, says \"turned it the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01TsFP6digpEunLEUiZcGuJ9\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-90,\"confirmation\":\"turned it the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1720.5926669999972,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1720.8086669999975,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0060038,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -90, says \"turned it the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_018XmkMeqexsUDxrVVXK6ssa\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-90,\"confirmation\":\"turned it the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1583.1502919999984,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1583.5696669999961,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 84
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0060038,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -90, says \"turned it the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01EwudzK7vdr3DXsb3mbZdmd\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-90,\"confirmation\":\"turned it the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1345.4533340000053,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1346.5766670000012,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 4287,
+          "cacheReadTokens": 0,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.047766,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01CXdh7ecv9rQ1FavtgreqAj\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1659.2045829999988,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1659.4788750000007,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4287,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057534,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_013zGL4tXgwwmghsdM3SqZSP\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1700.630083000011,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1700.890041999999,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4287,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057534,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01WAFC6Yv31mDMioAUirHW73\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1991.6993749999965,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1992.0140830000018,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4287,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057534,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01MS5YQ4fkoe73ZrZfM6CDTQ\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1403.0537500000064,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1403.9774590000015,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4287,
+          "outputTokens": 82
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057534,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01TdJyAAVW8JP33urfR3SGPG\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"back thirty seconds\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1298.3702920000069,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1301.215624999997,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057078,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01NuVudYR34CSXpHHt4qS2dc\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1341.8322090000147,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1342.6131670000032,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057078,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01Dx9RcagEDmiT4UyfiPevbX\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1310.2451670000155,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1310.4814170000027,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057078,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_015QFzdtd9ibHY9ZabAS3JFJ\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1809.4827499999956,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1810.0036670000118,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057078,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01SHj9GP2x42KTAfyuXW3Gbc\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1648.5350000000035,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1648.9512919999834,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057078,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.15}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01L6JgVG523SWDcxQ3MPoRA3\",\"name\":\"zoom\",\"input\":{\"factor\":1.15,\"confirmation\":\"a little closer\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1375.5772080000024,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1376.4212499999849,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057158,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_0178WspiTjWsqeib19JMAgas\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"here's the tail\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1651.7682909999858,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1652.314916000003,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057158,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_0171MAem4edm95wTi52kWKfY\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"here's the tail\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1320.8287079999864,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1321.7532920000085,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057158,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01JJnywGQqY1ds6DJoD4jXWC\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"here's the tail\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1234.905208000011,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1235.6937500000058,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057158,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_019bscyawbagn535iNcCnEFc\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"here's the tail\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1171.3408750000235,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1171.6678340000217,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 77
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0057158,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01Emc34LegZajb4jJF9t9tSG\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"here's the tail\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1016.4513750000042,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1016.7723339999793,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 10
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0030438,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Glad it looks good.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 976.8220410000067,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 977.1552079999819,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 9
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0030038,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Glad you like it.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 1272.045541999978,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1272.361458999978,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 9
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0030038,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Glad you like it.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 925.9451250000275,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 926.3017920000129,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 10
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0030438,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Glad it looks good.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1337.6792499999865,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1338.0740000000224,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3299,
+          "outputTokens": 9
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0030038,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Glad you like it.\"}],\"stopReason\":\"end_turn\"}"
+    }
+  ]
+}

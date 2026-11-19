@@ -1,0 +1,819 @@
+{
+  "label": "parts-fable",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:11:01.619Z",
+  "runCount": 3,
+  "port": 8795,
+  "interleavedWith": [
+    "parts-base",
+    "parts-haiku",
+    "parts-sonnet",
+    "parts-opus",
+    "parts-sol62",
+    "parts-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "frame-parts-heart",
+      "route": "/video-frame-parts",
+      "description": "Finds the heart in a 1280x720 diagram frame",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3352,
+        "p95": 3512,
+        "min": 3299,
+        "max": 3512
+      },
+      "firstByteMs": {
+        "p50": 3352,
+        "p95": 3511,
+        "min": 3298,
+        "max": 3511
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.6666666666666667,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 265,
+      "meanCostUSD": 0.02094
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "route": "/video-frame-parts",
+      "description": "Lifts The Starry Night out as a whole picture and marks it as art",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3250,
+        "p95": 3281,
+        "min": 3202,
+        "max": 3281
+      },
+      "firstByteMs": {
+        "p50": 3249,
+        "p95": 3281,
+        "min": 3201,
+        "max": 3281
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.6666666666666667,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 232,
+      "meanCostUSD": 0.01962
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "route": "/video-frame-parts",
+      "description": "Marks a 3D cutaway of a turbofan as showing depth",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3406,
+        "p95": 3702,
+        "min": 3375,
+        "max": 3702
+      },
+      "firstByteMs": {
+        "p50": 3406,
+        "p95": 3702,
+        "min": 3375,
+        "max": 3702
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.3333333333333333,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 256,
+      "meanCostUSD": 0.02059
+    },
+    {
+      "caseId": "frame-parts-print",
+      "route": "/video-frame-parts",
+      "description": "Marks The Great Wave, a woodblock print, as art",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3298,
+        "p95": 3325,
+        "min": 3114,
+        "max": 3325
+      },
+      "firstByteMs": {
+        "p50": 3298,
+        "p95": 3324,
+        "min": 3114,
+        "max": 3324
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.3333333333333333,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 236,
+      "meanCostUSD": 0.01978
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "route": "/video-frame-parts",
+      "description": "Marks Dürer's Young Hare as art, though it shows one animal",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3262,
+        "p95": 3310,
+        "min": 3259,
+        "max": 3310
+      },
+      "firstByteMs": {
+        "p50": 3261,
+        "p95": 3309,
+        "min": 3259,
+        "max": 3309
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.6666666666666667,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 240,
+      "meanCostUSD": 0.01995
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "route": "/video-frame-parts",
+      "description": "Keeps a labeled bicycle diagram as a diagram, not art",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 3310,
+        "p95": 3383,
+        "min": 3238,
+        "max": 3383
+      },
+      "firstByteMs": {
+        "p50": 3310,
+        "p95": 3382,
+        "min": 3237,
+        "max": 3382
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.3333333333333333,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 243,
+      "meanCostUSD": 0.02004
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "route": "/video-frame-parts",
+      "description": "Finds no subject in a bar chart, which is not one drawn object",
+      "models": [
+        "claude-fable-5-2"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 2280,
+        "p95": 2444,
+        "min": 2231,
+        "max": 2444
+      },
+      "firstByteMs": {
+        "p50": 2279,
+        "p95": 2443,
+        "min": 2231,
+        "max": 2443
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1255,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1486,
+      "meanOutputTokens": 96,
+      "meanCostUSD": 0.01418
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3511.1932909999996,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3511.9925409999996,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 265
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0209372,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":407,\"top\":38,\"right\":856,\"bottom\":662},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":620,\"y\":160,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":503,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":700,\"y\":188,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Left atrium\",\"x\":740,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":600,\"y\":560,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":790,\"y\":420,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3351.8956249999974,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3352.342375,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 265
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0209372,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":406,\"top\":36,\"right\":856,\"bottom\":662},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":650,\"y\":160,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":503,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":660,\"y\":200,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":410,\"isQuizAnswer\":false},{\"label\":\"Left atrium\",\"x\":700,\"y\":255,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":600,\"y\":560,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":800,\"y\":520,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-heart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3297.745041000002,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3298.686375000005,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 265
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0209372,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":405,\"top\":36,\"right\":856,\"bottom\":662},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"Aorta\",\"x\":600,\"y\":160,\"isQuizAnswer\":false},{\"label\":\"Superior vena cava\",\"x\":503,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Pulmonary artery\",\"x\":650,\"y\":195,\"isQuizAnswer\":false},{\"label\":\"Right atrium\",\"x\":500,\"y\":400,\"isQuizAnswer\":false},{\"label\":\"Left atrium\",\"x\":740,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"Right ventricle\",\"x\":600,\"y\":560,\"isQuizAnswer\":false},{\"label\":\"Left ventricle\",\"x\":790,\"y\":510,\"isQuizAnswer\":fa"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3249.1804580000025,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3249.657916000011,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 232
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0196172,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":128,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":385,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"swirling sky\",\"x\":640,\"y\":235,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":507,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":702,\"y\":530,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":800,\"y\":665,\"isQuizAnswer\":false},{\"label\":\"blue hills\",\"x\":980,\"y\":470,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3280.9600000000064,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3281.302625000011,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 232
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0196172,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":128,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":385,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"swirling sky\",\"x\":640,\"y\":235,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":507,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":702,\"y\":525,\"isQuizAnswer\":false},{\"label\":\"blue hills\",\"x\":950,\"y\":475,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":800,\"y\":640,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-painting",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3201.2903750000114,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3201.5785000000033,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 232
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0196172,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":186,\"top\":0,\"right\":1094,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"crescent moon\",\"x\":1005,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"cypress tree\",\"x\":385,\"y\":450,\"isQuizAnswer\":false},{\"label\":\"swirling sky\",\"x\":640,\"y\":235,\"isQuizAnswer\":false},{\"label\":\"bright star\",\"x\":507,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"church steeple\",\"x\":703,\"y\":520,\"isQuizAnswer\":false},{\"label\":\"village houses\",\"x\":800,\"y\":660,\"isQuizAnswer\":false},{\"label\":\"blue hills\",\"x\":950,\"y\":480,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3406.007750000019,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3406.428249999997,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 258
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0206572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":120,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"outer casing\",\"x\":600,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"fan blades\",\"x\":520,\"y\":480,\"isQuizAnswer\":false},{\"label\":\"nose cone\",\"x\":410,\"y\":415,\"isQuizAnswer\":false},{\"label\":\"compressor blades\",\"x\":650,\"y\":365,\"isQuizAnswer\":false},{\"label\":\"combustion chamber\",\"x\":742,\"y\":340,\"isQuizAnswer\":false},{\"label\":\"turbine blades\",\"x\":860,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"exhaust nozzle\",\"x\":960,\"y\":290,\"isQuizAnswer"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3701.9335419999843,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3702.2767919999897,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 257
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.020617200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":120,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"outer casing\",\"x\":560,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"big fan\",\"x\":520,\"y\":480,\"isQuizAnswer\":false},{\"label\":\"nose cone\",\"x\":410,\"y\":415,\"isQuizAnswer\":false},{\"label\":\"compressor blades\",\"x\":650,\"y\":370,\"isQuizAnswer\":false},{\"label\":\"combustion chamber\",\"x\":742,\"y\":340,\"isQuizAnswer\":false},{\"label\":\"turbine blades\",\"x\":870,\"y\":300,\"isQuizAnswer\":false},{\"label\":\"exhaust nozzle\",\"x\":950,\"y\":290,\"isQuizAnswer\":f"
+    },
+    {
+      "caseId": "frame-parts-cutaway",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3374.809790999978,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3375.2700829999812,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 254
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0204972,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":280,\"top\":118,\"right\":1012,\"bottom\":612},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"outer casing\",\"x\":560,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"fan blades\",\"x\":520,\"y\":480,\"isQuizAnswer\":false},{\"label\":\"nose cone\",\"x\":410,\"y\":415,\"isQuizAnswer\":false},{\"label\":\"compressor\",\"x\":650,\"y\":375,\"isQuizAnswer\":false},{\"label\":\"combustion chamber\",\"x\":745,\"y\":340,\"isQuizAnswer\":false},{\"label\":\"turbine\",\"x\":850,\"y\":320,\"isQuizAnswer\":false},{\"label\":\"exhaust nozzle\",\"x\":950,\"y\":290,\"isQuizAnswer\":false},{\"lab"
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3113.8467920000257,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3114.349542000011,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 230
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0195372,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"great wave\",\"x\":470,\"y\":260,\"isQuizAnswer\":false},{\"label\":\"wave foam\",\"x\":660,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":790,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"fishing boat\",\"x\":700,\"y\":640,\"isQuizAnswer\":false},{\"label\":\"rowers\",\"x\":1000,\"y\":445,\"isQuizAnswer\":false},{\"label\":\"sky\",\"x\":900,\"y\":200,\"isQuizAnswer\":false},{\"label\":\"title writing\",\"x\":181,\"y\":125,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3297.801083999977,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3298.1757919999945,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 230
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0195372,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 7 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"great wave\",\"x\":450,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"wave foam\",\"x\":650,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":788,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"fishing boat\",\"x\":700,\"y\":640,\"isQuizAnswer\":false},{\"label\":\"rowers\",\"x\":1000,\"y\":445,\"isQuizAnswer\":false},{\"label\":\"sky\",\"x\":950,\"y\":200,\"isQuizAnswer\":false},{\"label\":\"title writing\",\"x\":181,\"y\":125,\"isQuizAnswer\":false}]}"
+    },
+    {
+      "caseId": "frame-parts-print",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3323.989209000021,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3324.64512500001,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 248
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0202572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject true, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":104,\"top\":0,\"right\":1176,\"bottom\":719},\"isArtwork\":true,\"wholePictureIsSubject\":true,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"great wave\",\"x\":470,\"y\":250,\"isQuizAnswer\":false},{\"label\":\"foam claws\",\"x\":650,\"y\":230,\"isQuizAnswer\":false},{\"label\":\"Mount Fuji\",\"x\":790,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"fishing boat\",\"x\":720,\"y\":640,\"isQuizAnswer\":false},{\"label\":\"rowers\",\"x\":1000,\"y\":445,\"isQuizAnswer\":false},{\"label\":\"sky\",\"x\":950,\"y\":200,\"isQuizAnswer\":false},{\"label\":\"title writing\",\"x\":180,\"y\":125,\"isQuizAnswer\":false},{\"label\":\"small wave\",\""
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3309.366000000009,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3309.8205829999933,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 240
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019937200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":400,\"top\":70,\"right\":925,\"bottom\":625},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"left ear\",\"x\":600,\"y\":190,\"isQuizAnswer\":false},{\"label\":\"right ear\",\"x\":722,\"y\":190,\"isQuizAnswer\":false},{\"label\":\"eye\",\"x\":704,\"y\":380,\"isQuizAnswer\":false},{\"label\":\"nose\",\"x\":774,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"whiskers\",\"x\":850,\"y\":398,\"isQuizAnswer\":false},{\"label\":\"front paws\",\"x\":770,\"y\":590,\"isQuizAnswer\":false},{\"label\":\"furry back\",\"x\":480,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"chest fur\",\"x\":680,\"y\":510"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3261.230540999968,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3261.691665999999,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 241
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0199772,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":400,\"top\":72,\"right\":922,\"bottom\":624},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"long ears\",\"x\":722,\"y\":190,\"isQuizAnswer\":false},{\"label\":\"eye\",\"x\":704,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"nose\",\"x\":774,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"whiskers\",\"x\":850,\"y\":398,\"isQuizAnswer\":false},{\"label\":\"front paws\",\"x\":770,\"y\":585,\"isQuizAnswer\":false},{\"label\":\"furry back\",\"x\":490,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"chest fur\",\"x\":690,\"y\":500,\"isQuizAnswer\":false},{\"label\":\"hind leg\",\"x\":578,\"y\":540"
+    },
+    {
+      "caseId": "frame-parts-art-of-one-animal",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3258.521915999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3258.747207999986,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 240
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.019937200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork true, wholePictureIsSubject false, pictureShowsDepth true, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":400,\"top\":72,\"right\":924,\"bottom\":624},\"isArtwork\":true,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":true,\"parts\":[{\"label\":\"left ear\",\"x\":600,\"y\":200,\"isQuizAnswer\":false},{\"label\":\"right ear\",\"x\":722,\"y\":190,\"isQuizAnswer\":false},{\"label\":\"eye\",\"x\":705,\"y\":381,\"isQuizAnswer\":false},{\"label\":\"nose\",\"x\":774,\"y\":430,\"isQuizAnswer\":false},{\"label\":\"whiskers\",\"x\":850,\"y\":398,\"isQuizAnswer\":false},{\"label\":\"front paws\",\"x\":770,\"y\":590,\"isQuizAnswer\":false},{\"label\":\"furry back\",\"x\":470,\"y\":290,\"isQuizAnswer\":false},{\"label\":\"chest fur\",\"x\":690,\"y\":510"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 3382.462708999985,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3382.7057090000017,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 243
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0200572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":568},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":553,\"y\":177,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":836,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":709,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":714,\"y\":458,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":560,\"y\":492,\"isQuizAnswer\":false},{\"label\":\"front tire\",\"x\":1019,\"y\":471,\"isQuizAnswer\":false},{\"label\":\"spokes\",\"x\":921,\"y\":414,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":866,\"y\":3"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 3309.6099579999573,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3309.9088749999646,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 242
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.020017200000000002,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":568},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":553,\"y\":177,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":837,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":709,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":714,\"y\":458,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":515,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"tire\",\"x\":1019,\"y\":471,\"isQuizAnswer\":false},{\"label\":\"spokes\",\"x\":921,\"y\":414,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":866,\"y\":371,\"is"
+    },
+    {
+      "caseId": "frame-parts-bicycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3237.4262909999816,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3237.857374999963,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 243
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.0200572,
+      "quality": {
+        "passed": true,
+        "detail": "isArtwork false, wholePictureIsSubject false, pictureShowsDepth false, 8 parts"
+      },
+      "replyPreview": "{\"subjectFound\":true,\"subjectBox\":{\"left\":340,\"top\":136,\"right\":1030,\"bottom\":568},\"isArtwork\":false,\"wholePictureIsSubject\":false,\"pictureShowsDepth\":false,\"parts\":[{\"label\":\"saddle\",\"x\":553,\"y\":177,\"isQuizAnswer\":false},{\"label\":\"handlebar grip\",\"x\":837,\"y\":150,\"isQuizAnswer\":false},{\"label\":\"top tube\",\"x\":709,\"y\":265,\"isQuizAnswer\":false},{\"label\":\"front tire\",\"x\":1019,\"y\":471,\"isQuizAnswer\":false},{\"label\":\"pedal\",\"x\":714,\"y\":458,\"isQuizAnswer\":false},{\"label\":\"chain\",\"x\":515,\"y\":495,\"isQuizAnswer\":false},{\"label\":\"front hub\",\"x\":898,\"y\":434,\"isQuizAnswer\":false},{\"label\":\"fork\",\"x\":866,\"y"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 2278.9541249999893,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2279.7191250000033,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 96
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.014177200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 2230.645375000022,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2230.9376660000416,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 96
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.014177200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    },
+    {
+      "caseId": "frame-parts-chart",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 2443.1304170000367,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 2443.530875000055,
+      "usageLines": [
+        {
+          "route": "/video-frame-parts",
+          "model": "claude-fable-5-2",
+          "serviceTier": "standard",
+          "inputTokens": 1255,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1486,
+          "outputTokens": 96
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.014177200000000001,
+      "quality": {
+        "passed": true,
+        "detail": "subjectFound false"
+      },
+      "replyPreview": "{\"subjectFound\":false}"
+    }
+  ]
+}

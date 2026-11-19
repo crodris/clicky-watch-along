@@ -1,0 +1,861 @@
+{
+  "label": "voice-base",
+  "benchKind": "worker",
+  "commitSHA": "0f9534d1f76a",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:09:10.551Z",
+  "runCount": 5,
+  "port": 8791,
+  "interleavedWith": [
+    "voice-haiku",
+    "voice-sonnet",
+    "voice-opus",
+    "voice-fable",
+    "voice-sol62",
+    "voice-astra"
+  ],
+  "summary": [
+    {
+      "caseId": "voice-command",
+      "route": "/voice-command",
+      "description": "Turns a frame pop-out the other way after \"no, turn it the other way\", with a recent rotate_model of 45 degrees",
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1008,
+        "p95": 1046,
+        "min": 931,
+        "max": 1046
+      },
+      "firstByteMs": {
+        "p50": 1007,
+        "p95": 1043,
+        "min": 930,
+        "max": 1043
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 248,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3298,
+      "meanOutputTokens": 113,
+      "meanCostUSD": 0.00011
+    },
+    {
+      "caseId": "voice-command-seek",
+      "route": "/voice-command",
+      "description": "Goes back 30 seconds in a YouTube video at 2:04, by seeking 30 seconds back or to 1:34",
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 817,
+        "p95": 931,
+        "min": 800,
+        "max": 931
+      },
+      "firstByteMs": {
+        "p50": 817,
+        "p95": 930,
+        "min": 800,
+        "max": 930
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 202,
+      "meanCacheWriteTokens": 857,
+      "meanCacheReadTokens": 3429,
+      "meanOutputTokens": 85,
+      "meanCostUSD": 0.0002
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "route": "/voice-command",
+      "description": "Zooms in on a frame pop-out with one zoom call, by a factor above 1",
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 832,
+        "p95": 997,
+        "min": 799,
+        "max": 997
+      },
+      "firstByteMs": {
+        "p50": 831,
+        "p95": 997,
+        "min": 799,
+        "max": 997
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 246,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3298,
+      "meanOutputTokens": 79,
+      "meanCostUSD": 0.0001
+    },
+    {
+      "caseId": "voice-command-explain",
+      "route": "/voice-command",
+      "description": "Explains the tail of a frame pop-out labeled wing, tail, and engine, with explain_part",
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 1004,
+        "p95": 1146,
+        "min": 905,
+        "max": 1146
+      },
+      "firstByteMs": {
+        "p50": 1004,
+        "p95": 1146,
+        "min": 905,
+        "max": 1146
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 247,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3298,
+      "meanOutputTokens": 114,
+      "meanCostUSD": 0.00011
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "route": "/voice-command",
+      "description": "Calls no tool for \"thanks, that looks great\", which asks for nothing",
+      "models": [
+        "claude-haiku-5-5"
+      ],
+      "serviceTiers": [
+        "standard"
+      ],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 683,
+        "p95": 822,
+        "min": 657,
+        "max": 822
+      },
+      "firstByteMs": {
+        "p50": 683,
+        "p95": 822,
+        "min": 657,
+        "max": 822
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1.2,
+      "meanInputTokens": 248,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3298,
+      "meanOutputTokens": 13,
+      "meanCostUSD": 0.00006
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "voice-command",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1043.2931250000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1046.2166659999998,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 111
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011328,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it back\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The last action turned the model 45 degrees, so reversing it means yawing back by -45.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01Fn32hPsF13iYvFXJx8snJa\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it back\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 1007.2717090000006,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1007.6931250000016,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 114
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011478,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it back the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The last action turned the model by 45 degrees, so reversing it means turning back by -45.\"},{\"type\":\"tool_use\",\"id\":\"toolu_011Jr9GHxXk87JWaMERdqcEV\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it back the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 929.9852499999979,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 930.5386670000007,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 106
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011078,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it back the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Reversing the last turn means rotating by -45 degrees.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01ASfQrRvu4dvBZpqkfrF5qB\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it back the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1033.877042,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1034.3288329999996,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 120
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011778,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it back the other way\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The last action turned the model 45 degrees, so reversing it means turning back by 45 degrees the other way.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01SB3cQcZydEWVKBYBjdLq6J\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it back the other way\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 960.4885829999985,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 961.068207999997,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 114
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011478,
+      "quality": {
+        "passed": true,
+        "detail": "rotate_model, yaw -45, says \"turned it back\""
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The last action turned the model 45 degrees, so reversing it means turning back by 45 degrees.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01JnXVjCXph2J9vwtyrVAruy\",\"name\":\"rotate_model\",\"input\":{\"yawDegrees\":-45,\"confirmation\":\"turned it back\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 806.221666999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 807.0069999999978,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 4286,
+          "cacheReadTokens": 0,
+          "outputTokens": 85
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00059845,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_014y5nYyvqKJTPuY2C1co99j\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Going back 30 seconds.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 929.7255409999925,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 930.882832999996,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4286,
+          "outputTokens": 85
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00010556,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01Gx6T1qY1Ls6ggn9Lk8bh6M\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Going back thirty seconds.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 817.3033340000111,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 817.494584,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4286,
+          "outputTokens": 85
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00010556,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01MYirXPqUq1wMXverMKpxLA\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Going back thirty seconds.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 799.5452500000101,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 799.9464160000061,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4286,
+          "outputTokens": 85
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00010556,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_017DCGUsVezSh83v9LsJbKTH\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Going back thirty seconds.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-seek",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 820.7601250000007,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 820.9775000000081,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4286,
+          "outputTokens": 85
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00010556,
+      "quality": {
+        "passed": true,
+        "detail": "seek_relative {\"seconds\":-30}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01Pop13qNLmN3oPJmWpfJsTZ\",\"name\":\"seek_relative\",\"input\":{\"seconds\":-30,\"confirmation\":\"Going back thirty seconds.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 997.0314579999977,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 997.4134999999951,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 79
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00009708000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.3}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01TxoPVVvPaTQ3zDfgwggcYd\",\"name\":\"zoom\",\"input\":{\"factor\":1.3,\"confirmation\":\"zooming in a little\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 893.3917919999949,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 893.8576250000187,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 80
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00009758000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.3}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_011LGYufEgd7w6NUai7qLLX2\",\"name\":\"zoom\",\"input\":{\"factor\":1.3,\"confirmation\":\"zoomed in a little\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 810.0571660000132,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 810.3578750000161,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 79
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00009708000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.3}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01WeiM2Wi5VURwir75WofTHn\",\"name\":\"zoom\",\"input\":{\"factor\":1.3,\"confirmation\":\"zooming in a little\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 831.0242499999877,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 831.5354579999985,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 79
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00009708000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.3}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01M6JgyPBP14AQoRV3aHVXhz\",\"name\":\"zoom\",\"input\":{\"factor\":1.3,\"confirmation\":\"zooming in a little\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-zoom",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 798.7347920000029,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 799.1194590000086,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 246,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 79
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00009708000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "zoom {\"factor\":1.3}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01GDni1uKEnpK8ddd5xAd7FJ\",\"name\":\"zoom\",\"input\":{\"factor\":1.3,\"confirmation\":\"zooming in a little\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 1048.1281249999884,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1048.6275000000023,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 102
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00010868000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The tail question is about a part on screen, so I'll explain it.\"},{\"type\":\"tool_use\",\"id\":\"toolu_019AgxmDb3AaiHZTff5NsTMQ\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"Let me show you the tail.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 904.8457089999865,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 905.244417000009,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 122
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011868000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The learner asks what the tail does, which is an explanation of a labeled part. I'll use explain_part with the \\\"tail\\\" label.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01MLYPp6zCkarXyfzmmHNvcB\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"Let me show you the tail.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 966.5546659999818,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 967.0052909999795,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 105
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011018,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The tail is a question about the scene, so I'll explain the part on screen.\"},{\"type\":\"tool_use\",\"id\":\"toolu_01XnBLeQxFMM231TE9y8NdcJ\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"Let me show you the tail.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 1003.5614169999899,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1003.8406670000113,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 107
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00011118,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The tail question is best answered by explaining the labeled part, so I'll do that.\"},{\"type\":\"tool_use\",\"id\":\"toolu_013X3E7JG7jgMxhqETNrCTs9\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"Let me show you the tail.\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-explain",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 1145.5268750000105,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 1146.096749999997,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 247,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 135
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00012518000000000002,
+      "quality": {
+        "passed": true,
+        "detail": "explain_part {\"label\":\"tail\"}"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"The learner asks what the tail does, which is a question, so I'll use the screen tool to answer it, or explain the labeled part. The tail label exists, so explain_part fits best.\"},{\"type\":\"tool_use\",\"id\":\"toolu_018XBQLUY56Gkpwont6sPrio\",\"name\":\"explain_part\",\"input\":{\"label\":\"tail\",\"confirmation\":\"Here is the tail\"}}],\"stopReason\":\"tool_use\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 821.6340420000197,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 822.2090420000022,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 9
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00006228000000000001,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"Glad it helps.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 708.2043750000012,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 708.4906250000058,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 14
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00006478,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You're welcome, glad it helps.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 680.9398749999818,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 681.4212919999845,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 14
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00006478,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You're welcome, glad it helped.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 656.6134580000071,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 656.783208000008,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 14
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00006478,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You're welcome, glad it helped.\"}],\"stopReason\":\"end_turn\"}"
+    },
+    {
+      "caseId": "voice-command-no-tool",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 682.6645409999765,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 683.2567079999717,
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3298,
+          "outputTokens": 14
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.00006478,
+      "quality": {
+        "passed": true,
+        "detail": "no tool"
+      },
+      "replyPreview": "{\"content\":[{\"type\":\"text\",\"text\":\"You're welcome, glad it helped.\"}],\"stopReason\":\"end_turn\"}"
+    }
+  ]
+}
