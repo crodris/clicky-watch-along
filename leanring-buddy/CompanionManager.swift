@@ -176,9 +176,6 @@ final class CompanionManager: ObservableObject {
         themeSettings: themeSettings,
         actions: AgentListActions(
             cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
-            resultsMayBeDeliveredNow: { [weak self] in
-                self.map { agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: $0.videoQuizQuestionIsActive) } ?? false
-            },
             showReadyScene: { [weak self] in
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startShowingTheReadyBackgroundScene()
@@ -243,7 +240,9 @@ final class CompanionManager: ObservableObject {
     )
     /// True from the moment a video quiz question is asked until its explanation
     /// has been spoken and the video has been resumed.
-    private var videoQuizQuestionIsActive = false
+    private var videoQuizQuestionIsActive = false {
+        didSet { backgroundAgentStore.aVideoQuizQuestionIsOpen = videoQuizQuestionIsActive }
+    }
 
     /// Conversation history so Claude remembers prior exchanges within a session.
     /// Each entry is the user's transcript and Claude's response.
@@ -2653,14 +2652,19 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
-        // A newer answer replaces the one still waiting, so the older agent's token leaves at once.
+    /// Keeps a task agent's answer until the learner asks for it. A newer answer replaces the one still waiting, so the
+    /// older agent's token leaves at once.
+    private func holdTheTaskAnswerUntilItIsHeard(_ spokenSummary: String, forAgent agentID: UUID) {
         if let replacedTaskAnswerAgentID = readyTaskAnswerAgentID {
             backgroundAgentStore.setResultIsWaiting(false, for: replacedTaskAnswerAgentID)
         }
         readyTaskAnswerAgentID = agentID
         readyTaskAnswer = taskAgentSpokenAnswer(spokenSummary)
         taskAnswerWaitsToBeHeard = true
+    }
+
+    private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
+        holdTheTaskAnswerUntilItIsHeard(spokenSummary, forAgent: agentID)
         finishTheBackgroundAgent(agentID, agentKind: .task, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
     }
 
@@ -3229,9 +3233,7 @@ final class CompanionManager: ObservableObject {
     private func seedBackgroundAgentsForScreenshots(runningAgentCount: Int) {
         let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots(runningAgentCount: runningAgentCount)
         // The seeded task's answer waits to be heard like a real one, so its list row's Hear answer button speaks it.
-        readyTaskAnswerAgentID = finishedAgentID
-        readyTaskAnswer = taskAgentSpokenAnswer("Karasuno won 2 sets to 1.")
-        taskAnswerWaitsToBeHeard = true
+        holdTheTaskAnswerUntilItIsHeard("Karasuno won 2 sets to 1.", forAgent: finishedAgentID)
         VoiceToolCallChip.shared.show(
             BackgroundAgentKind.task.finishedChipText,
             sender: chipSender(forAgent: finishedAgentID, kind: .task),

@@ -7,6 +7,7 @@
 //  keeps its token.
 //
 
+import Combine
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -333,6 +334,19 @@ struct AgentTokenTests {
             #expect(availableVoiceTools.contains(.showReadyModel) == listMayDeliver)
             #expect(availableVoiceTools.contains(.hearTaskAnswer) == listMayDeliver)
         }
+    }
+
+    @Test func theStorePublishesWhenAQuizQuestionOpensSoAnOpenListRedrawsItsButtons() async throws {
+        let store = makeBackgroundAgentStore()
+        var changesPublished = 0
+        let subscription = store.objectWillChange.sink { changesPublished += 1 }
+        #expect(agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen))
+        store.aVideoQuizQuestionIsOpen = true
+        #expect(changesPublished == 1)
+        #expect(!agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen))
+        store.aVideoQuizQuestionIsOpen = false
+        #expect(changesPublished == 2)
+        subscription.cancel()
     }
 
     // MARK: - Ring color

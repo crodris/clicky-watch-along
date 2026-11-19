@@ -18,8 +18,6 @@ import SwiftUI
 struct BackgroundAgentStep: Equatable {
     /// The step as a checklist item in the agent list, such as "Read the captions".
     let name: String
-    /// What the agent is doing while the step runs, such as "Reading the captions".
-    let inProgressText: String
     let expectedSeconds: TimeInterval
 }
 
@@ -87,29 +85,29 @@ enum BackgroundAgentKind {
         switch self {
         case .studyGuide:
             return [
-                BackgroundAgentStep(name: "Read the captions", inProgressText: "Reading the captions", expectedSeconds: 3),
-                BackgroundAgentStep(name: "Write the guide in Notion", inProgressText: "Writing the guide in Notion", expectedSeconds: 12),
+                BackgroundAgentStep(name: "Read the captions", expectedSeconds: 3),
+                BackgroundAgentStep(name: "Write the guide in Notion", expectedSeconds: 12),
             ]
         case .studyGuideUpdate:
             return [
-                BackgroundAgentStep(name: "Read the quiz results", inProgressText: "Reading your quiz results", expectedSeconds: 1),
-                BackgroundAgentStep(name: "Add the miss to the guide", inProgressText: "Adding your miss to the guide", expectedSeconds: 3),
+                BackgroundAgentStep(name: "Read the quiz results", expectedSeconds: 1),
+                BackgroundAgentStep(name: "Add the miss to the guide", expectedSeconds: 3),
             ]
         case .threeDModel:
             return [
-                BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
-                BackgroundAgentStep(name: "Build the 3D model", inProgressText: "Building the 3D model", expectedSeconds: 20),
+                BackgroundAgentStep(name: "Grab the frame", expectedSeconds: 1),
+                BackgroundAgentStep(name: "Build the 3D model", expectedSeconds: 20),
             ]
         case .experiment:
             return [
-                BackgroundAgentStep(name: "Grab the frame", inProgressText: "Grabbing the frame", expectedSeconds: 1),
+                BackgroundAgentStep(name: "Grab the frame", expectedSeconds: 1),
                 // GPT-6.2 Sol builds an experiment in about 30 to 40 seconds at Ultrafast (bench, 2026-11-19).
-                BackgroundAgentStep(name: "Build the experiment", inProgressText: "Building the experiment", expectedSeconds: 40),
+                BackgroundAgentStep(name: "Build the experiment", expectedSeconds: 40),
             ]
         // A task's steps come from the agent as it works (BackgroundAgent.reportedSteps), so its progress runs as one
         // step. A web search answer took about 11 seconds in a test, and one with a Notion page takes longer.
         case .task:
-            return [BackgroundAgentStep(name: "Work on the task", inProgressText: "Getting started", expectedSeconds: 45)]
+            return [BackgroundAgentStep(name: "Getting started", expectedSeconds: 45)]
         }
     }
 
@@ -201,8 +199,8 @@ struct BackgroundAgent: Identifiable, Equatable {
 
     /// The steps the agent list shows: a task agent's reported steps, or the kind's fixed steps.
     var stepNames: [String] {
-        guard kind == .task else { return kind.stepNames }
-        return reportedSteps.isEmpty ? [kind.steps[0].inProgressText] : reportedSteps
+        guard kind == .task, !reportedSteps.isEmpty else { return kind.stepNames }
+        return reportedSteps
     }
 
     /// How much of the agent's triangle is filled, from its tail to its tip.
@@ -333,6 +331,11 @@ func backgroundAgentElapsedTimeText(seconds: TimeInterval) -> String {
 final class BackgroundAgentStore: ObservableObject {
     /// Newest first.
     @Published private(set) var agents: [BackgroundAgent] = []
+
+    /// Whether a video quiz question is open, which `CompanionManager` sets. The agent list reads it to hold its Show
+    /// and Hear buttons (`agentListMayDeliverAWaitingResult`), and it is published so an open list redraws when a
+    /// question opens or closes.
+    @Published var aVideoQuizQuestionIsOpen = false
 
     /// Read when an agent starts, to pick its player. Changing the theme later never changes a running agent.
     private let themeSettings: CompanionThemeSettings

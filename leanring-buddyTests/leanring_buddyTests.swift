@@ -1801,6 +1801,7 @@ struct leanring_buddyTests {
     @Test func aTaskAgentShowsTheStepsItReports() async throws {
         let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .task)
+        #expect(store.agents.first?.stepNames == ["Getting started"])
         #expect(store.agents.first?.stepStatuses == [.current])
 
         store.reportStep("Searching the web", for: agentID)

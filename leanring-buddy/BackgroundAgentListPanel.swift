@@ -43,8 +43,6 @@ func agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: Bool) -> Bool {
 /// What a row's buttons do besides cancelling a running agent.
 struct AgentListActions {
     let cancelAgent: (UUID) -> Void
-    /// Asked each time the list draws and again when a button is pressed, since a question can open while the list is up.
-    let resultsMayBeDeliveredNow: () -> Bool
     /// Rises the 3D model or experiment that is waiting to be shown.
     let showReadyScene: () -> Void
     /// Speaks the task answer that is waiting to be heard.
@@ -338,6 +336,7 @@ private struct AgentListView: View {
                         ForEach(store.agents) { agent in
                             AgentRowView(
                                 agent: agent,
+                                resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
                                 isExpanded: expandedAgentID == agent.id,
                                 onToggle: { expandedAgentID = expandedAgentID == agent.id ? nil : agent.id },
                                 actions: actions
@@ -368,6 +367,8 @@ private struct AgentListView: View {
 
 private struct AgentRowView: View {
     let agent: BackgroundAgent
+    /// False while a video quiz question is open, when the Show and Hear buttons wait (`agentListMayDeliverAWaitingResult`).
+    let resultsMayBeDeliveredNow: Bool
     let isExpanded: Bool
     let onToggle: () -> Void
     let actions: AgentListActions
@@ -526,7 +527,7 @@ extension AgentRowView {
     /// its Notion page. A result that was already delivered offers only the page.
     @ViewBuilder fileprivate var resultButtons: some View {
         HStack(spacing: 6) {
-            if agent.resultIsWaitingToBeDelivered && actions.resultsMayBeDeliveredNow() {
+            if agent.resultIsWaitingToBeDelivered && resultsMayBeDeliveredNow {
                 switch agent.finishedResult {
                 case .readyScene:
                     AgentActionButton(title: agent.kind == .experiment ? "Show experiment" : "Show model", titleColor: DS.Colors.textPrimary, action: actions.showReadyScene)

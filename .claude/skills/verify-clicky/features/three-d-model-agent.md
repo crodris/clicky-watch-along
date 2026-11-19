@@ -5,14 +5,14 @@ A violet-ringed token floats right of the notch while `POST /live-scene` builds 
 When the model is ready and the screen is free, Clicky pauses the video, the model rises out of it, and Clicky says what it shows.
 When something else is on screen, the model waits, its checked token stays beside the notch until it is shown or 10 minutes pass, and the chip says "3D model ready · say show the model".
 
-The experiment agent behind "let me try it" (see [Let me try it simulation](./simulation.md)) runs the same code with a lime-ringed token, the steps "Grabbing the frame" and "Building the experiment", and the chip "Experiment ready · say show the experiment".
+The experiment agent behind "let me try it" (see [Let me try it simulation](./simulation.md)) runs the same code with a lime-ringed token, the steps "Grab the frame" and "Build the experiment", and the chip "Experiment ready · say show the experiment".
 Its log lines start with `Experiment:` instead of `3D model:`.
 
 ## Sub-features
 
 - `model-router-split` sends "build me a 3D model of this engine" to `build_model_in_background`, and "show me this in 3D" or a famous place to `build_new_scene`.
 - `model-background` builds without pausing the video and without a status line, and logs `3D model: built "<what>" in N s`.
-- `model-token` shows a violet-ringed token, and the agent list's row shows the steps "Grabbing the frame" and then "Building the 3D model".
+- `model-token` shows a violet-ringed token, and the agent list's row shows the steps "Grab the frame" and then "Build the 3D model".
 - `model-rises` pauses the video and lifts the model out of it when Clicky is idle, done speaking, and nothing is on screen, and logs `3D model: showing "<what>", rising out of the video true`.
 - `model-waits` logs `3D model: the screen is busy, so the model waits for "show the model"` when a scene or pop-out is up, and `show_ready_model` then clears it and shows the model.
   The finished agent's token stays beside the notch, with a green check, until the model is shown or 10 minutes pass, and its list row offers "Show model" ("Show experiment" for an experiment) while no video quiz question is open. Click the token, then the button, to show it.
