@@ -13,7 +13,8 @@
  *                       Gemini: minimal (sent as low), low, medium, high, or xhigh.
  *   BENCH_SERVICE_TIER  GPT only, such as ultrafast. The tier OpenAI reports back goes in the usage log line.
  *
- * /v1/messages (the agent harness) and /live-scene's GPT path never use it.
+ * /v1/messages (the agent harness) takes only a claude-* model and answers a 501 to any other. /live-scene's GPT path never
+ * uses it.
  * Every prompt here was tuned for Claude, so a GPT or Gemini model that loses may only have lost to the prompt.
  */
 

@@ -175,8 +175,12 @@ async function forwardToAnthropic(
 ): Promise<Response> {
   let body = await request.text();
 
-  // /v1/messages serves the agent harness, so only /chat, the app's voice reply, runs on the benchmark's model.
-  const benchOverride = options.routeName === "/chat" ? benchModelOverride() : undefined;
+  // /chat and /v1/messages, the agent harness's task agent, run on the benchmark's model. The task agent uses
+  // Anthropic's server-side web search and fetch, so only a Claude model can run it.
+  const benchOverride = benchModelOverride();
+  if (options.routeName === "/v1/messages" && benchOverride !== undefined && benchOverride.provider !== "anthropic") {
+    return jsonResponse({ error: `The task agent runs only on Claude, not ${benchOverride.model}` }, 501);
+  }
   if (benchOverride?.provider === "openai") {
     return await forwardChatToOpenAI(benchOverride, body);
   }

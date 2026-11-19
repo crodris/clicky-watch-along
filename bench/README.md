@@ -82,7 +82,7 @@ A `claude-*` model swaps the model in the request.
 A `gpt-*` model gets the request mapped to the OpenAI Responses API, and its reply and its `/chat` stream are mapped back.
 `BENCH_EFFORT` replaces the route's effort, and `BENCH_SERVICE_TIER` sets the OpenAI tier.
 Without `BENCH_MODEL` the Worker behaves as it always did, and `wrangler.toml` never sets it.
-`/v1/messages`, which serves the agent harness, never uses it.
+`/v1/messages`, which serves the agent harness, runs on a `claude-*` model and answers a 501 to any other, since the task agent uses Anthropic's server-side web search.
 Each Worker holds one model, so the run starts one Worker per model and gives each its own port.
 
 ### Before you start

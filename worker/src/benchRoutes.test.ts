@@ -206,16 +206,16 @@ describe("with a Claude BENCH_MODEL", () => {
     expect(sentBody(fetchMock)).toEqual({ ...chatBody, model: "claude-haiku-5-5" });
   });
 
-  it("never changes /v1/messages, which serves the agent harness", async () => {
+  it("changes the model of the task agent's /v1/messages body and nothing else", async () => {
     const fetchMock = stubFetch(emptyAnthropicReply);
-    const messagesBodyText = JSON.stringify({ model: "claude-sonnet-5-5", messages: [] });
+    const messagesBody = { model: "claude-sonnet-5-5", stream: true, messages: [] };
 
     await worker.fetch(
-      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: messagesBodyText, headers: { "x-clicky-app-secret": "app-secret" } }),
-      { ...claudeEnv, CLICKY_APP_SECRET: "app-secret" },
+      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: JSON.stringify(messagesBody), headers: { "x-clicky-app-secret": "app-secret" } }),
+      { ...baseEnv, BENCH_MODEL: "claude-haiku-5-5", CLICKY_APP_SECRET: "app-secret" },
     );
 
-    expect(fetchMock.mock.calls[0]?.[1].body).toBe(messagesBodyText);
+    expect(sentBody(fetchMock)).toEqual({ ...messagesBody, model: "claude-haiku-5-5" });
   });
 });
 
@@ -321,17 +321,17 @@ describe("with a GPT BENCH_MODEL", () => {
     expect(sentBody(fetchMock)).toMatchObject({ model: "gpt-6-luna", stream: true, instructions: "you're clicky", max_output_tokens: 1024 });
   });
 
-  it("never changes /v1/messages, which serves the agent harness", async () => {
+  it("refuses the task agent's /v1/messages with a 501, since only Claude runs the task agent", async () => {
     const fetchMock = stubFetch(emptyAnthropicReply);
-    const messagesBodyText = JSON.stringify({ model: "claude-sonnet-5-5", messages: [] });
 
-    await worker.fetch(
-      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: messagesBodyText, headers: { "x-clicky-app-secret": "app-secret" } }),
+    const response = await worker.fetch(
+      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: "{}", headers: { "x-clicky-app-secret": "app-secret" } }),
       { ...gptEnv, CLICKY_APP_SECRET: "app-secret" },
     );
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(anthropicURL);
-    expect(fetchMock.mock.calls[0]?.[1].body).toBe(messagesBodyText);
+    expect(response.status).toBe(501);
+    expect(await response.text()).toContain("The task agent runs only on Claude");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -471,16 +471,16 @@ describe("with a Gemini BENCH_MODEL", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("never changes /v1/messages, which serves the agent harness", async () => {
+  it("refuses the task agent's /v1/messages with a 501, since only Claude runs the task agent", async () => {
     const fetchMock = stubFetch(emptyAnthropicReply);
-    const messagesBodyText = JSON.stringify({ model: "claude-sonnet-5-5", messages: [] });
 
-    await worker.fetch(
-      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: messagesBodyText, headers: { "x-clicky-app-secret": "app-secret" } }),
+    const response = await worker.fetch(
+      new Request("http://127.0.0.1:8791/v1/messages", { method: "POST", body: "{}", headers: { "x-clicky-app-secret": "app-secret" } }),
       { ...geminiEnv, CLICKY_APP_SECRET: "app-secret" },
     );
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(anthropicURL);
-    expect(fetchMock.mock.calls[0]?.[1].body).toBe(messagesBodyText);
+    expect(response.status).toBe(501);
+    expect(await response.text()).toContain("The task agent runs only on Claude");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
