@@ -226,6 +226,17 @@ describe("with a Claude BENCH_MODEL", () => {
 });
 
 describe("with a GPT BENCH_MODEL", () => {
+  it("never falls back to Claude for a GPT benchmark model that is out of credit, since the bench measures that model", async () => {
+    const fetchMock = stubFetch(() => new Response(JSON.stringify({ error: { code: "credit_balance_exhausted" } }), { status: 429 }));
+    const quizRoute = routeRequests.find(({ route }) => route === "/video-quiz-plan");
+    if (quizRoute === undefined) throw new Error("routeRequests lists /video-quiz-plan");
+
+    const response = await post(quizRoute.route, quizRoute.body, gptEnv);
+
+    expect(response.status).toBe(429);
+    expect(fetchMock.mock.calls.every((fetchCall) => fetchCall[0] === openAIURL)).toBe(true);
+  });
+
   it.each(routeRequests)("sends $route to OpenAI, with the tier, and never to Anthropic", async ({ route, body }) => {
     const fetchMock = stubFetch(emptyOpenAIReply);
 

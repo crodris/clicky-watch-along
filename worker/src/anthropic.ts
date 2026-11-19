@@ -114,6 +114,11 @@ export async function requestAnthropicReplyText(
   return { ok: true, replyText: firstTextBlock(anthropicMessage.message) };
 }
 
+/** A 429 (out of credit or rate limited) or a 5xx (down, or not reached). A 4xx about the request would fail on Claude too. */
+function openAICannotAnswerNow(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
 /**
  * One non-streaming Anthropic Messages call. A successful result carries the reply with its content list checked,
  * so a caller that needs tool_use blocks or the stop reason can read them.
@@ -128,24 +133,32 @@ export async function requestAnthropicMessage(
   messagesRequestBody: unknown,
   routeOpenAIModel?: OpenAIBenchOverride,
 ): Promise<{ ok: true; message: AnthropicMessage } | { ok: false; response: Response }> {
-  const benchOverride = benchModelOverride() ?? routeOpenAIModel;
-  if (benchOverride?.provider === "openai" || benchOverride?.provider === "gemini") {
-    const vendorName = benchOverride.provider === "openai" ? "OpenAI" : "Gemini";
+  const benchOverride = benchModelOverride();
+  const vendorModel = benchOverride ?? routeOpenAIModel;
+  if (vendorModel?.provider === "openai" || vendorModel?.provider === "gemini") {
+    const vendorName = vendorModel.provider === "openai" ? "OpenAI" : "Gemini";
     const vendorReply =
-      benchOverride.provider === "openai"
-        ? await requestBenchOpenAIMessage(benchOverride, routeName, messagesRequestBody)
-        : await requestBenchGeminiMessage(benchOverride, routeName, messagesRequestBody);
-    if (!vendorReply.ok) {
+      vendorModel.provider === "openai"
+        ? await requestBenchOpenAIMessage(vendorModel, routeName, messagesRequestBody)
+        : await requestBenchGeminiMessage(vendorModel, routeName, messagesRequestBody);
+    // A route's own GPT model falls back to the Claude model its body names when OpenAI is out of credit, rate limited,
+    // or down, so the learner still gets an answer. A benchmark override never falls back, since it measures one model.
+    const fallsBackToClaude = !vendorReply.ok && benchOverride === undefined && openAICannotAnswerNow(vendorReply.status);
+    if (!vendorReply.ok && !fallsBackToClaude) {
       return { ok: false, response: jsonResponse({ error: vendorReply.error }, vendorReply.status) };
     }
-    logModelUsage(routeName, vendorReply.responseJSON);
-    const parsedVendorMessage = anthropicMessageSchema.safeParse(vendorReply.message);
-    if (!parsedVendorMessage.success) {
-      return { ok: false, response: jsonResponse({ error: `${vendorName} response had no content list` }, 502) };
+    if (vendorReply.ok) {
+      logModelUsage(routeName, vendorReply.responseJSON);
+      const parsedVendorMessage = anthropicMessageSchema.safeParse(vendorReply.message);
+      if (!parsedVendorMessage.success) {
+        return { ok: false, response: jsonResponse({ error: `${vendorName} response had no content list` }, 502) };
+      }
+      return { ok: true, message: parsedVendorMessage.data };
     }
-    return { ok: true, message: parsedVendorMessage.data };
+    console.error(`[${routeName}] ${vendorModel.model} could not answer (HTTP ${vendorReply.status}), so the route falls back to Claude`);
   }
-  const sentRequestBody = benchOverride === undefined ? messagesRequestBody : applyClaudeBenchOverride(messagesRequestBody, benchOverride);
+  const sentRequestBody =
+    benchOverride === undefined || benchOverride.provider !== "anthropic" ? messagesRequestBody : applyClaudeBenchOverride(messagesRequestBody, benchOverride);
 
   let anthropicResponse: Response;
   try {

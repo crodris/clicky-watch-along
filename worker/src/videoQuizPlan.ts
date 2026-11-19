@@ -305,11 +305,13 @@ export async function handleVideoQuizPlan(request: Request, anthropicAPIKey: str
   // the first minute, and the learner would lose a plan that was otherwise right.
   let lastValidationError = "";
   for (let attempt = 1; attempt <= maximumPlanAttempts; attempt += 1) {
-    // The request is in Anthropic's shape, with no model, since quizPlanModel names it and a bench Claude model replaces it.
+    // The request is in Anthropic's shape. quizPlanModel sends it to GPT-6.2 Sol, and the model named here is the Claude
+    // fallback for when OpenAI cannot answer, which planned every quiz before 2026-11-19.
     const anthropicReply = await requestAnthropicReplyJSON(
       anthropicAPIKey,
       "/video-quiz-plan",
       {
+        model: "claude-sonnet-5-5",
         // The model thinks before it answers, and that thinking counts toward this limit.
         max_tokens: 16000,
         system: systemPrompt,

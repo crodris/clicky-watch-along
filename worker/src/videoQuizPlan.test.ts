@@ -355,6 +355,28 @@ describe("handleVideoQuizPlan", () => {
     });
   });
 
+  it("falls back to Sonnet when OpenAI is out of credit or down, and not when OpenAI refuses the request", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const anthropicPlanReply = () =>
+      new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(validPlan) }] }), { status: 200 });
+    const outOfCredit = () => new Response(JSON.stringify({ error: { code: "credit_balance_exhausted" } }), { status: 429 });
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) => (url.includes("openai") ? outOfCredit() : anthropicPlanReply()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(validPlan);
+    expect(fetchMock.mock.calls.map((fetchCall) => fetchCall[0])).toEqual(["https://api.openai.com/v1/responses", "https://api.anthropic.com/v1/messages"]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1].body))).toMatchObject({ model: "claude-sonnet-5-5" });
+
+    const refusedFetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: "bad schema" } }), { status: 400 }));
+    vi.stubGlobal("fetch", refusedFetch);
+    const refusedResponse = await handleVideoQuizPlan(requestWithBody(validRequest), "anthropic-key", "openai-key");
+    expect(refusedResponse.status).toBe(400);
+    expect(refusedFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("retries when the reply text is not JSON", async () => {
     const fetchMock = vi
       .fn()
