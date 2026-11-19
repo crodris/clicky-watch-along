@@ -154,6 +154,8 @@ final class CompanionManager: ObservableObject {
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
     /// the video, and it stays so they can ask again.
     private var readyTaskAnswer: String?
+    /// The task agent whose answer `readyTaskAnswer` holds, so its token leaves once the answer is heard or replaced.
+    private var readyTaskAnswerAgentID: UUID?
     /// True until the newest answer is heard. Only then does the router take a command with no video or scene in front,
     /// so once it is heard a plain question goes back to the quick path instead of a voice command call.
     private var taskAnswerWaitsToBeHeard = false
@@ -167,13 +169,21 @@ final class CompanionManager: ObservableObject {
     private var studyGuideRefreshesBeingChecked = 0
     /// The Haikyu!! team theme the learner picked in the menu bar panel, the one source of truth for it.
     let themeSettings = CompanionThemeSettings()
-    /// What Clicky works on in the background, shown as wingmen beside the cursor and in the agent list.
+    /// What Clicky works on in the background, shown as tokens beside the notch and in the agent list.
     private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
         store: backgroundAgentStore,
         themeSettings: themeSettings,
-        cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) }
+        actions: AgentListActions(
+            cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
+            showReadyScene: { [weak self] in self?.startShowingTheReadyBackgroundScene() },
+            hearTaskAnswer: { [weak self] in self?.startSpeakingTheTaskAnswer() }
+        )
     )
+    /// The discs floating beside the notch, one per running agent or waiting result. A click opens the agent list under it.
+    private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore) { [weak self] click in
+        self?.agentListPanelController.toggle(from: click.tokenSlot, belowTokenFrame: click.panelFrame, on: click.screen)
+    }
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -326,9 +336,7 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
-        VoiceToolCallChip.shared.avatarWingmenAreShowing = { [weak self] in
-            self?.backgroundAgentStore.agents.contains { $0.player != nil && $0.isShownAsAWingman(at: Date()) } ?? false
-        }
+        agentTokenDockController.start()
         #if DEBUG
         // Off unless asked for, since any process on this Mac can reach a loopback port.
         if CommandLine.arguments.contains("--voice-tool-debug-server") {
@@ -487,6 +495,7 @@ final class CompanionManager: ObservableObject {
         escapeKeyCancellable?.cancel()
         agentListShortcutCancellable?.cancel()
         agentListPanelController.close()
+        agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
         accessibilityCheckTimer?.invalidate()
@@ -858,7 +867,7 @@ final class CompanionManager: ObservableObject {
                 }
                 await waitForTheLatestResponseTaskToFinish()
                 await waitForTheTourAndSpeechToEnd()
-                // The finish chip and the wingman's hop play for a few seconds before the learner speaks again.
+                // The finish chip and the agent's check mark show for a few seconds before the learner speaks again.
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
             }
             if stepWaitsForAQuestion {
@@ -2636,6 +2645,11 @@ final class CompanionManager: ObservableObject {
     }
 
     private func finishTheTaskAgent(_ agentID: UUID, spokenSummary: String, pageURL: URL?) {
+        // A newer answer replaces the one still waiting, so the older agent's token leaves at once.
+        if let replacedTaskAnswerAgentID = readyTaskAnswerAgentID {
+            backgroundAgentStore.setResultIsWaiting(false, for: replacedTaskAnswerAgentID)
+        }
+        readyTaskAnswerAgentID = agentID
         readyTaskAnswer = taskAgentSpokenAnswer(spokenSummary)
         taskAnswerWaitsToBeHeard = true
         finishTheBackgroundAgent(agentID, agentKind: .task, with: .answer(spokenSummary: spokenSummary, pageURL: pageURL))
@@ -2645,6 +2659,9 @@ final class CompanionManager: ObservableObject {
     private func startSpeakingTheTaskAnswer() {
         guard let readyTaskAnswer else { return }
         taskAnswerWaitsToBeHeard = false
+        if let readyTaskAnswerAgentID {
+            backgroundAgentStore.setResultIsWaiting(false, for: readyTaskAnswerAgentID)
+        }
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         currentResponseTask = Task {
@@ -2736,8 +2753,9 @@ final class CompanionManager: ObservableObject {
             // A scene cancelled from the agent list never shows, even when the Worker had already replied.
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
-            if readyBackgroundScene != nil {
+            if let replacedReadyBackgroundScene = readyBackgroundScene {
                 print("\(agentKind.displayName): this \(agentKind.builtThingName) finished last, so it replaces the scene still waiting to be shown")
+                backgroundAgentStore.setResultIsWaiting(false, for: replacedReadyBackgroundScene.agentID)
             }
             // The quiz fields are the page's text, so the lesson cuts them.
             let simulationLesson = agentKind == .experiment
@@ -2819,6 +2837,7 @@ final class CompanionManager: ObservableObject {
     private func showTheReadyBackgroundScene(requestGeneration: Int) async {
         guard let sceneToShow = readyBackgroundScene else { return }
         readyBackgroundScene = nil
+        backgroundAgentStore.setResultIsWaiting(false, for: sceneToShow.agentID)
         let logPrefix = sceneToShow.agentKind.displayName
         let sourceVideoIsInFront = sceneToShow.sourceTabURL != nil && videoQuizSession.frontTabURLOfTheFrontWindow() == sceneToShow.sourceTabURL
         if sourceVideoIsInFront {
@@ -2837,7 +2856,10 @@ final class CompanionManager: ObservableObject {
             // or "show the experiment", unless a newer one took its place. The video plays on only when no newer request
             // started, after a cleared pop-out lands, as every resume waits. Any newer request counts, since a scene request
             // holds Clicky's pause for its own scene, so a plain question asked during the capture leaves the video paused.
-            readyBackgroundScene = readyBackgroundScene ?? sceneToShow
+            if readyBackgroundScene == nil {
+                readyBackgroundScene = sceneToShow
+                backgroundAgentStore.setResultIsWaiting(true, for: sceneToShow.agentID)
+            }
             guard requestGeneration == liveSceneRequestGeneration else { return }
             await LiveSceneOverlay.shared.waitForReturnToFinish()
             guard requestGeneration == liveSceneRequestGeneration else { return }
@@ -2991,7 +3013,7 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Nothing is spoken when the guide ends, because the learner is watching a video. The wingman beside the cursor,
+    /// Nothing is spoken when the guide ends, because the learner is watching a video. The token beside the notch,
     /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
     @discardableResult
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async -> Bool {
@@ -3174,7 +3196,7 @@ final class CompanionManager: ObservableObject {
 
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
         if toolName == Self.debugSeedAgentsToolName {
-            seedBackgroundAgentsForScreenshots()
+            seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
             return .changed(state: nil)
         }
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
@@ -3186,10 +3208,10 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Puts three running agents, one finished with its ending chip, and one failed on screen with no Worker call, so
-    /// every wingman, chip, and agent list state can be captured at once. Running agents fill from the clock and stay up
-    /// until cancelled from the list.
-    private func seedBackgroundAgentsForScreenshots() {
-        let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots()
+    /// every token, chip, and agent list state can be captured at once. Running agents fill from the clock and stay up
+    /// until cancelled from the list. `runningAgentCount` below 3 leaves room beside the notch for the finished and failed tokens.
+    private func seedBackgroundAgentsForScreenshots(runningAgentCount: Int) {
+        let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots(runningAgentCount: runningAgentCount)
         VoiceToolCallChip.shared.show(
             BackgroundAgentKind.task.finishedChipText,
             sender: chipSender(forAgent: finishedAgentID, kind: .task),

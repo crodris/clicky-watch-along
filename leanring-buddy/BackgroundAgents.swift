@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  The record of work Clicky does in the background while the learner watches a video, such as writing
-//  a Notion study guide or building a 3D model. The store is the one source of truth that the wingmen next to the blue cursor
+//  a Notion study guide or building a 3D model. The store is the one source of truth that the agent tokens beside the notch
 //  and the agent list both read. Nothing here draws or talks to the network.
 //
 
@@ -14,11 +14,11 @@ import SwiftUI
 
 // MARK: - Agent
 
-/// One step of an agent's work, with about how long it takes, which sets how fast the wingman fills while it runs.
+/// One step of an agent's work, with about how long it takes, which sets how fast the progress ring fills while it runs.
 struct BackgroundAgentStep: Equatable {
     /// The step as a checklist item in the agent list, such as "Read the captions".
     let name: String
-    /// What the wingman's line says while the step runs, such as "Reading the captions".
+    /// What the agent is doing while the step runs, such as "Reading the captions".
     let inProgressText: String
     let expectedSeconds: TimeInterval
 }
@@ -57,7 +57,7 @@ enum BackgroundAgentKind {
         }
     }
 
-    /// A darker shade of the same hue for the chip's letters, since the wingman's color is too light to read
+    /// A darker shade of the same hue for the chip's letters, since the agent's color is too light to read
     /// inside a white outline.
     var chipTextColor: Color {
         switch self {
@@ -184,6 +184,10 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// The Haikyu!! player this agent is while a team theme is on, kept for the agent's whole life, so a running agent
     /// keeps its player when the learner changes the theme. Nil under the Clicky blue theme.
     var player: HaikyuPlayer? = nil
+    /// True while a finished agent's result still waits for the learner, such as a 3D model not yet shown or a task answer
+    /// not yet heard. Its token stays beside the notch until the result is delivered or `secondsAWaitingResultKeepsItsToken`
+    /// pass. A result delivered at once, such as a study guide page, never waits.
+    var resultIsWaitingToBeDelivered = false
 
     /// The steps the agent list shows: a task agent's reported steps, or the kind's fixed steps.
     var stepNames: [String] {
@@ -191,7 +195,7 @@ struct BackgroundAgent: Identifiable, Equatable {
         return reportedSteps.isEmpty ? [kind.steps[0].inProgressText] : reportedSteps
     }
 
-    /// How much of the wingman's triangle is filled, from its tail to its tip.
+    /// How much of the agent's triangle is filled, from its tail to its tip.
     /// A failed or cancelled agent shows an empty outline, because its phase does not keep how far it got.
     var filledFraction: Double {
         switch phase {
@@ -208,7 +212,7 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// step done before it is.
     static let shareOfAStepTheProgressMovesThrough = 0.85
 
-    /// How far the work is, from 0 to 1, which the wingman and the agent list both show. A running step moves in a
+    /// How far the work is, from 0 to 1, which the token's ring and the agent list both show. A running step moves in a
     /// straight line from its start toward 85% of its share over its expected seconds, and waits there if it runs long.
     func progress(at now: Date) -> Double {
         guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else {
@@ -230,7 +234,7 @@ struct BackgroundAgent: Identifiable, Equatable {
         )
     }
 
-    /// The line beside the wingman while it works, or nil once the agent has ended.
+    /// What the agent is doing now, or nil once the agent has ended.
     var inProgressText: String? {
         guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
         if kind == .task, let latestReportedStep = reportedSteps.last {
@@ -249,20 +253,28 @@ struct BackgroundAgent: Identifiable, Equatable {
         return nil
     }
 
-    /// How long a finished or failed agent stays beside the cursor after it ends, so the learner sees how it went.
-    static let secondsAWingmanLingersAfterItEnds: TimeInterval = 4
+    /// How long an ended agent's token stays beside the notch, and its chip stays at the cursor, so the learner sees how it went.
+    static let secondsAnEndedAgentsTokenStays: TimeInterval = 4
 
-    /// A running agent shows. A finished or failed one shows for a few seconds after it ends.
-    /// A cancelled one leaves at once, since the learner asked for that.
-    func isShownAsAWingman(at now: Date) -> Bool {
+    /// How long a finished agent's token waits for its result to be delivered before it leaves. The result stays in the list.
+    static let secondsAWaitingResultKeepsItsToken: TimeInterval = 600
+
+    /// Where this agent's token ranks when slots are scarce, or nil when it has no token at `now`.
+    /// A running agent has one. A finished agent whose result waits keeps one for ten minutes. Any other finished or failed
+    /// agent keeps one for the few seconds its chip shows. A cancelled agent has none, since the learner asked for that.
+    func tokenRank(at now: Date) -> AgentTokenRank? {
         switch phase {
         case .running:
-            return true
+            return .running
         case .finished, .failed:
-            guard let endedAt else { return false }
-            return now.timeIntervalSince(endedAt) < Self.secondsAWingmanLingersAfterItEnds
+            guard let endedAt else { return nil }
+            let secondsSinceItEnded = now.timeIntervalSince(endedAt)
+            if resultIsWaitingToBeDelivered, secondsSinceItEnded < Self.secondsAWaitingResultKeepsItsToken {
+                return .waitingResult
+            }
+            return secondsSinceItEnded < Self.secondsAnEndedAgentsTokenStays ? .ending : nil
         case .cancelled:
-            return false
+            return nil
         }
     }
 
@@ -344,13 +356,13 @@ final class BackgroundAgentStore: ObservableObject {
     }
 
     #if DEBUG
-    /// For screenshots and demo takes (`debug_seed_agents`): three running agents, one finished, and one failed, with
-    /// volleyball subjects. The formation and the agent list put the newest agent first, so the team's best-known player,
-    /// who the theme hands out first, starts last and leads. The third player starts first, so the failed portrait takes
-    /// the third slot for the 4 seconds it shows, instead of hiding in the "+N" overflow. Returns the finished agent's
-    /// id, for its ending chip.
+    /// For screenshots and demo takes (`debug_seed_agents`): up to three running agents, one finished with a result that
+    /// waits to be heard, and one failed, with volleyball subjects. `runningAgentCount` below 3 leaves room beside the
+    /// notch for the finished and failed tokens too. The agent list puts the newest agent first, so the team's
+    /// best-known player, who the theme hands out first, starts last and leads. Returns the finished agent's id, for
+    /// its ending chip.
     @discardableResult
-    func seedAgentsForScreenshots() -> UUID {
+    func seedAgentsForScreenshots(runningAgentCount: Int = 3) -> UUID {
         var systemRandomNumberGenerator = SystemRandomNumberGenerator()
         // Agents already in the store count too, so a second seed follows the same rule as any new agent
         // (nextHaikyuPlayer) instead of handing out the first five players again.
@@ -365,20 +377,26 @@ final class BackgroundAgentStore: ObservableObject {
                 randomNumberGenerator: &systemRandomNumberGenerator
             ))
         }
-        let studyGuideAgentID = startAgent(kind: .studyGuide, studyGuideVideoKey: nil, player: seedPlayers[2])
-        setSubject("HAIKYU!! The Dumpster Battle trailer", for: studyGuideAgentID)
-        completeStep(for: studyGuideAgentID)
+        if runningAgentCount >= 3 {
+            let studyGuideAgentID = startAgent(kind: .studyGuide, studyGuideVideoKey: nil, player: seedPlayers[2])
+            setSubject("HAIKYU!! The Dumpster Battle trailer", for: studyGuideAgentID)
+            completeStep(for: studyGuideAgentID)
+        }
         let failedAgentID = startAgent(kind: .experiment, studyGuideVideoKey: nil, player: seedPlayers[4])
         setSubject("The spin on a jump serve", for: failedAgentID)
         fail(failedAgentID, reason: "The experiment could not be built. Ask again to try once more.")
         let finishedAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[3])
         setSubject("Who won the Spring High final", for: finishedAgentID)
         finish(finishedAgentID, with: .answer(spokenSummary: "Karasuno won 2 sets to 1.", pageURL: nil))
-        let threeDModelAgentID = startAgent(kind: .threeDModel, studyGuideVideoKey: nil, player: seedPlayers[1])
-        setSubject("The volleyball court with the net", for: threeDModelAgentID)
-        let taskAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[0])
-        setSubject("Karasuno vs Nekoma at nationals", for: taskAgentID)
-        reportStep("Reading the Haikyuu wiki", for: taskAgentID)
+        if runningAgentCount >= 2 {
+            let threeDModelAgentID = startAgent(kind: .threeDModel, studyGuideVideoKey: nil, player: seedPlayers[1])
+            setSubject("The volleyball court with the net", for: threeDModelAgentID)
+        }
+        if runningAgentCount >= 1 {
+            let taskAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[0])
+            setSubject("Karasuno vs Nekoma at nationals", for: taskAgentID)
+            reportStep("Reading the Haikyuu wiki", for: taskAgentID)
+        }
         return finishedAgentID
     }
     #endif
@@ -396,7 +414,7 @@ final class BackgroundAgentStore: ObservableObject {
         return agent.id
     }
 
-    /// The player of an agent, for the ending chip, which outlives the agent's wingman only by a moment.
+    /// The player of an agent, for the ending chip.
     func player(for agentID: UUID) -> HaikyuPlayer? {
         agents.first { $0.id == agentID }?.player
     }
@@ -434,8 +452,26 @@ final class BackgroundAgentStore: ObservableObject {
         }
     }
 
+    /// A 3D model or experiment waits to be shown, and a task answer waits to be heard. A guide's page opens at once.
     func finish(_ agentID: UUID, with result: BackgroundAgentResult) {
         endRunningAgent(agentID, in: .finished(result))
+        switch result {
+        case .readyScene, .answer: setResultIsWaiting(true, for: agentID)
+        case .notionPage: break
+        }
+    }
+
+    /// Set to false when the result reaches the learner, or a newer result replaces it, and to true again when a scene
+    /// that was about to rise has to wait for "show the model" after all. The token follows.
+    func setResultIsWaiting(_ resultIsWaiting: Bool, for agentID: UUID) {
+        guard let agentIndex = agents.firstIndex(where: { $0.id == agentID }), agents[agentIndex].finishedResult != nil else { return }
+        agents[agentIndex].resultIsWaitingToBeDelivered = resultIsWaiting
+        guard resultIsWaiting else { return }
+        // The token leaves on its own when the ten minutes pass, so the views that show it need one more refresh then.
+        Task {
+            try? await Task.sleep(for: .seconds(BackgroundAgent.secondsAWaitingResultKeepsItsToken + 0.05))
+            objectWillChange.send()
+        }
     }
 
     func fail(_ agentID: UUID, reason: String) {
@@ -461,99 +497,12 @@ final class BackgroundAgentStore: ObservableObject {
             agent.endedAt = Date()
         }
         guard agentEnded else { return }
-        // The wingman of a finished or failed agent leaves on its own, so the views that show it need one more refresh then.
+        // The token of a finished or failed agent leaves on its own, so the views that show it need one more refresh then.
         Task {
-            try? await Task.sleep(for: .seconds(BackgroundAgent.secondsAWingmanLingersAfterItEnds + 0.05))
+            try? await Task.sleep(for: .seconds(BackgroundAgent.secondsAnEndedAgentsTokenStays + 0.05))
             objectWillChange.send()
         }
     }
-}
-
-// MARK: - Formation
-
-/// The two looks a wingman can have, as one table of numbers. The triangle is the unthemed wingman, and the avatar is
-/// a team player's portrait, which is bigger and so sits farther from the blue triangle.
-enum WingmanStyle: Equatable {
-    case triangle
-    case avatar
-
-    /// Where the wingman in a slot sits, from the blue triangle's center, in points. Slot 0 is the one closest to it.
-    func offset(forSlot slot: Int) -> CGSize {
-        switch self {
-        case .triangle: return CGSize(width: 15 * CGFloat(slot + 1), height: 18 * CGFloat(slot + 1))
-        case .avatar: return CGSize(width: 30 + 22 * CGFloat(slot), height: 34 + 34 * CGFloat(slot))
-        }
-    }
-
-    /// A finished agent's wingman hops from its slot to just ahead of the blue triangle's tip, which points up and to the left.
-    var aheadOfTheTipOffset: CGSize {
-        switch self {
-        case .triangle: return CGSize(width: -14, height: -20)
-        case .avatar: return CGSize(width: -30, height: -34)
-        }
-    }
-
-    /// The wingman's width and height. The one closest to the blue triangle is a little larger.
-    func size(forSlot slot: Int) -> CGFloat {
-        switch self {
-        case .triangle: return 11
-        case .avatar: return slot == 0 ? 40 : 32
-        }
-    }
-
-    /// How much the wingman grows while it fades out.
-    var exitScale: CGFloat {
-        switch self {
-        case .triangle: return 1.8
-        case .avatar: return 1.25
-        }
-    }
-
-    /// Where the step pill starts, from the wingman's leading edge.
-    var stepLineOffset: CGFloat {
-        switch self {
-        case .triangle: return 16
-        case .avatar: return 48
-        }
-    }
-}
-
-/// Where each wingman sits behind the blue triangle. The wingmen of the three newest agents trail down and to the right,
-/// along the triangle's tail, and the rest are counted in the overflow.
-struct WingmanFormation: Equatable {
-    struct Placement: Equatable {
-        let agent: BackgroundAgent
-        /// Position in the trail, counted from the blue triangle. It sets how loosely the wingman follows the cursor.
-        let slot: Int
-        /// From the blue triangle's center, in points.
-        let offset: CGSize
-    }
-
-    static let mostWingmen = 3
-
-    let placements: [Placement]
-    let overflowCount: Int
-    /// Portraits when any shown agent has a player. A triangle agent that started before the theme was picked keeps
-    /// its own size, at the portrait spacing.
-    var style: WingmanStyle = .triangle
-}
-
-/// `agentsToShow` is newest first. A finished agent takes the spot ahead of the tip and no slot in the trail,
-/// so the trail has no gap while it waits to leave.
-func wingmanFormation(for agentsToShow: [BackgroundAgent]) -> WingmanFormation {
-    let style: WingmanStyle = agentsToShow.contains { $0.player != nil } ? .avatar : .triangle
-    let agentsInTheTrail = agentsToShow.filter { $0.finishedResult == nil }
-    let finishedPlacements = agentsToShow.filter { $0.finishedResult != nil }.map { finishedAgent in
-        WingmanFormation.Placement(agent: finishedAgent, slot: 0, offset: style.aheadOfTheTipOffset)
-    }
-    let trailPlacements = agentsInTheTrail.prefix(WingmanFormation.mostWingmen).enumerated().map { slot, agent in
-        WingmanFormation.Placement(agent: agent, slot: slot, offset: style.offset(forSlot: slot))
-    }
-    return WingmanFormation(
-        placements: finishedPlacements + trailPlacements,
-        overflowCount: max(0, agentsInTheTrail.count - WingmanFormation.mostWingmen),
-        style: style
-    )
 }
 
 // MARK: - Ready scene
