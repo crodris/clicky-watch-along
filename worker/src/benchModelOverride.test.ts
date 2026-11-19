@@ -75,8 +75,8 @@ describe("configureBenchModelOverride", () => {
     expect(benchModelOverride()).toBeUndefined();
   });
 
-  it("refuses a model that is neither Claude nor GPT", () => {
-    expect(configureBenchModelOverride({ BENCH_MODEL: "gemini-3" })).toContain("claude- or gpt-");
+  it("refuses a model that is none of Claude, GPT, or Gemini", () => {
+    expect(configureBenchModelOverride({ BENCH_MODEL: "llama-4" })).toContain("claude-, gpt-, or gemini-");
     expect(benchModelOverride()).toBeUndefined();
   });
 

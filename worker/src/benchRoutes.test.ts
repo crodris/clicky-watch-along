@@ -174,10 +174,10 @@ describe("with a bad BENCH_MODEL", () => {
     const fetchMock = stubFetch(emptyAnthropicReply);
     const [judgeRoute] = routeRequests;
 
-    const response = await post(judgeRoute.route, judgeRoute.body, { ...baseEnv, BENCH_MODEL: "gemini-3" });
+    const response = await post(judgeRoute.route, judgeRoute.body, { ...baseEnv, BENCH_MODEL: "llama-4" });
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "BENCH_MODEL must start with claude- or gpt-, not gemini-3" });
+    expect(await response.json()).toEqual({ error: "BENCH_MODEL must start with claude-, gpt-, or gemini-, not llama-4" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

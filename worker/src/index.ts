@@ -27,7 +27,7 @@
 
 import { appSecretHeaderName, requestCarriesTheAppSecret, routesThatNeedTheAppSecret } from "./appSecret";
 import { jsonResponse } from "./anthropic";
-import { benchModelOverride, claudeChatBodyText, configureBenchModelOverride, forwardChatToOpenAI } from "./benchModelOverride";
+import { benchModelOverride, claudeChatBodyText, configureBenchModelOverride, forwardChatToGemini, forwardChatToOpenAI } from "./benchModelOverride";
 import { handleNotionPage } from "./notionPage";
 import { handleJudgeAnswer, handleLiveScene } from "./liveScene";
 import { handleVideoQuizPlan } from "./videoQuizPlan";
@@ -57,7 +57,9 @@ interface Env {
   NOTION_API_KEY?: string;
   /** The secret the app sends in x-clicky-app-secret. The Notion routes and /v1/messages refuse a request without it. */
   CLICKY_APP_SECRET?: string;
-  /** Local benchmark runs only: a claude-* or gpt-* model that replaces the one each model route and /chat asks for. */
+  /** Local benchmark runs only: a gemini-* BENCH_MODEL calls Google's OpenAI-compatible endpoint with this key. */
+  GEMINI_API_KEY?: string;
+  /** Local benchmark runs only: a claude-*, gpt-*, or gemini-* model that replaces the one each model route and /chat asks for. */
   BENCH_MODEL?: string;
   /** With BENCH_MODEL: replaces the route's effort. */
   BENCH_EFFORT?: string;
@@ -177,6 +179,9 @@ async function forwardToAnthropic(
   const benchOverride = options.routeName === "/chat" ? benchModelOverride() : undefined;
   if (benchOverride?.provider === "openai") {
     return await forwardChatToOpenAI(benchOverride, body);
+  }
+  if (benchOverride?.provider === "gemini") {
+    return await forwardChatToGemini(benchOverride, body);
   }
   if (benchOverride?.provider === "anthropic") {
     body = claudeChatBodyText(body, benchOverride);

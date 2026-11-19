@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { applyClaudeBenchOverride, benchModelOverride, requestBenchOpenAIMessage } from "./benchModelOverride";
+import { applyClaudeBenchOverride, benchModelOverride, requestBenchGeminiMessage, requestBenchOpenAIMessage } from "./benchModelOverride";
 
 // Passthrough keeps every field of each block and of the reply, because /voice-command reads tool_use inputs and a
 // caller may send the blocks back to Anthropic unchanged.
@@ -117,17 +117,21 @@ export async function requestAnthropicMessage(
   messagesRequestBody: unknown,
 ): Promise<{ ok: true; message: AnthropicMessage } | { ok: false; response: Response }> {
   const benchOverride = benchModelOverride();
-  if (benchOverride?.provider === "openai") {
-    const openAIReply = await requestBenchOpenAIMessage(benchOverride, routeName, messagesRequestBody);
-    if (!openAIReply.ok) {
-      return { ok: false, response: jsonResponse({ error: openAIReply.error }, openAIReply.status) };
+  if (benchOverride?.provider === "openai" || benchOverride?.provider === "gemini") {
+    const vendorName = benchOverride.provider === "openai" ? "OpenAI" : "Gemini";
+    const vendorReply =
+      benchOverride.provider === "openai"
+        ? await requestBenchOpenAIMessage(benchOverride, routeName, messagesRequestBody)
+        : await requestBenchGeminiMessage(benchOverride, routeName, messagesRequestBody);
+    if (!vendorReply.ok) {
+      return { ok: false, response: jsonResponse({ error: vendorReply.error }, vendorReply.status) };
     }
-    logModelUsage(routeName, openAIReply.responseJSON);
-    const parsedOpenAIMessage = anthropicMessageSchema.safeParse(openAIReply.message);
-    if (!parsedOpenAIMessage.success) {
-      return { ok: false, response: jsonResponse({ error: "OpenAI response had no content list" }, 502) };
+    logModelUsage(routeName, vendorReply.responseJSON);
+    const parsedVendorMessage = anthropicMessageSchema.safeParse(vendorReply.message);
+    if (!parsedVendorMessage.success) {
+      return { ok: false, response: jsonResponse({ error: `${vendorName} response had no content list` }, 502) };
     }
-    return { ok: true, message: parsedOpenAIMessage.data };
+    return { ok: true, message: parsedVendorMessage.data };
   }
   const sentRequestBody = benchOverride === undefined ? messagesRequestBody : applyClaudeBenchOverride(messagesRequestBody, benchOverride);
 
