@@ -14,9 +14,10 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 /**
  * The policy the app serves a generated page with (LiveSceneOverlay.livePageContentSecurityPolicy), with this server's
- * own origin in place of clicky-asset:, so a page can load three.js and the screenshots but cannot fetch, post to, or open
- * a WebRTC connection to any other host, such as a local Worker that holds API keys. Unlike the app, the bench does not
- * block a page that navigates itself away, which can only send a GET.
+ * own origin in place of clicky-asset:, so a page can load three.js and the screenshots but cannot fetch from or post to
+ * any other host, such as a local Worker that holds API keys. The app's WebKit view enforces `webrtc 'block'`, and
+ * headless Chrome may ignore it, so a page here may still open a WebRTC connection. Unlike the app, the bench also does not
+ * block a page that navigates itself away, which can send a GET.
  */
 export const scenePageContentSecurityPolicy =
   "default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; webrtc 'block'";
