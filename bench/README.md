@@ -199,8 +199,10 @@ Ultrafast changes how fast OpenAI answers, not what the model writes, and costs 
 Round one runs every model once on each of 3 cases, and round two runs only the best two or three again at the app's own tier.
 
 On `/live-scene`, `BENCH_MODEL` picks the request: a `gpt-*` model runs the app's own GPT request, with no tier unless `BENCH_SERVICE_TIER` names one, and any other model runs the Claude request.
-So `base` here is GPT-6.1 Sol at the standard tier, and a Worker with no vars is the app exactly as it ships, at Ultrafast.
-The app side doubles as the tier check and as a same-model control: it should land level with `base` in the blind judge.
+So `base` here is GPT-6.1 Sol at the standard tier, and a Worker with no vars, the `app` side, is the app exactly as it ships, at Ultrafast.
+Judge every side against `app` with `--baseline app`.
+On 2026-11-19 the standard tier did not hold up as a stand-in: `app` beat `base` 5-1 on the same model and effort, so a standard-tier baseline makes every challenger look better than it is.
+The challengers still run at the standard tier, which may cost them quality, so a challenger that wins there should win at Ultrafast too.
 
 ```bash
 $V worker-up 8791 -- --inspector-port 9301 --var BENCH_MODEL:gpt-6.1-sol
@@ -213,8 +215,8 @@ g=render1
 node bench/bench.ts worker --pages-dir bench/replies/render --label $g --runs 1 --only live-scene,simulation-projectile,simulation-lever \
   --side $g-base:8791:$C --side $g-app:8799:$C --side $g-haiku:8792:$C --side $g-sonnet:8793:$C --side $g-opus:8794:$C \
   --side $g-fable:8795:$C --side $g-sol62:8796:$C --side $g-astra:8797:$C --side $g-neon:8798:$C
-node bench/judge.ts --replies bench/replies/render --routes /live-scene --dry-run
-node bench/judge.ts --replies bench/replies/render --routes /live-scene
+node bench/judge.ts --replies bench/replies/render --routes /live-scene --baseline app --dry-run
+node bench/judge.ts --replies bench/replies/render --routes /live-scene --baseline app
 ```
 
 The judge loads each saved page in headless Chrome with three.js from `leanring-buddy/LiveSceneAssets/` (`sceneShots.ts`), and screenshots it twice.
@@ -223,8 +225,10 @@ Both go side by side into one picture, which the judges see next to the learner'
 A page that never ends its tour, has no `run()`, or throws is said so in the words under its picture.
 Each page takes about 40 seconds on Chrome's software renderer, so 27 pages take about 18 minutes before the first judging call.
 
-Round one costs about $6 for the 27 renders and $3 for the judge's 96 calls, by the per-token prices in `usage.ts` (an estimate before the run).
-Round two runs the survivors with `--runs 2` at the app's tier, adding `--var BENCH_SERVICE_TIER:ultrafast` to a GPT Worker, for about $5.
+Round one on 2026-11-19 cost $5.43 for 26 renders and $1.42 for the judge's 92 calls, and took 52 minutes.
+Fable's heart page passed the bench's 5 minute limit, so it has no reply and its cost is unknown.
+Round two runs the survivors with `--runs 2` at the app's tier, adding `--var BENCH_SERVICE_TIER:ultrafast` to a GPT Worker.
+A GPT-6.2 Astra render costs about $1.15 at Ultrafast, so round two with Astra and GPT-6.2 Sol costs about $13.
 Its replies go to `bench/replies/render/`, apart from the other routes' replies, so the judge pairs only this run.
 
 ### Task agent

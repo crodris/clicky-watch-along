@@ -1,0 +1,203 @@
+{
+  "label": "render1-base",
+  "benchKind": "worker",
+  "commitSHA": "c829fc7b3e0c",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T18:21:45.805Z",
+  "runCount": 1,
+  "port": 8791,
+  "interleavedWith": [
+    "render1-app",
+    "render1-haiku",
+    "render1-sonnet",
+    "render1-opus",
+    "render1-fable",
+    "render1-sol62",
+    "render1-astra",
+    "render1-neon"
+  ],
+  "summary": [
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "default"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 122512,
+        "p95": 122512,
+        "min": 122512,
+        "max": 122512
+      },
+      "firstByteMs": {
+        "p50": 122480,
+        "p95": 122480,
+        "min": 122480,
+        "max": 122480
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2303,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 7161,
+      "meanCostUSD": 0.07622
+    },
+    {
+      "caseId": "simulation-projectile",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a cannon frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "default"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 83883,
+        "p95": 83883,
+        "min": 83883,
+        "max": 83883
+      },
+      "firstByteMs": {
+        "p50": 83883,
+        "p95": 83883,
+        "min": 83883,
+        "max": 83883
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 5600,
+      "meanCostUSD": 0.06441
+    },
+    {
+      "caseId": "simulation-lever",
+      "route": "/live-scene",
+      "description": "Builds a simulation over a lever frame for \"let me try it\"",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "default"
+      ],
+      "runs": 1,
+      "qualityPassed": 1,
+      "totalMs": {
+        "p50": 72797,
+        "p95": 72797,
+        "min": 72797,
+        "max": 72797
+      },
+      "firstByteMs": {
+        "p50": 72788,
+        "p95": 72788,
+        "min": 72788,
+        "max": 72788
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 4203,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 3087,
+      "meanOutputTokens": 5741,
+      "meanCostUSD": 0.05995
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 122479.974917,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 122512.216125,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "default",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 7161
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.076216,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-projectile",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 83882.62695800001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 83883.01245799998,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "default",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 5600
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.064406,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: At the same launch speed, will a 30-degree or a 45-degree launch send the ball farther?"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "simulation-lever",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 72787.50099999993,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 72796.60749999993,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "default",
+          "inputTokens": 4203,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3087,
+          "outputTokens": 5741
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.059950699999999996,
+      "quality": {
+        "passed": true,
+        "detail": "prediction: How does moving the right weight farther from the pivot change the lever's tilt?"
+      },
+      "replyPreview": ""
+    }
+  ]
+}
