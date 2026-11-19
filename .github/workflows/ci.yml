@@ -73,6 +73,7 @@ jobs:
           cache-dependency-path: bench/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
+      - run: pnpm test
       # The committed results must still parse, since the charts are built from them.
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.

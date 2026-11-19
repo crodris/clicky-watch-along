@@ -45,6 +45,16 @@ describe("benchCases", () => {
       assert.doesNotThrow(() => JSON.stringify(candidate.requestBody(appProfile)), `${candidate.id} request body`);
     }
   });
+
+  it("names every case the morning runbook's --only lists run, so a renamed case cannot leave the runbook pointing at nothing", () => {
+    const readmeText = readFileSync(join(benchDirectory, "README.md"), "utf8");
+    const onlyLists = [...readmeText.matchAll(/--only ([a-z0-9,-]+)/g)].map((onlyMatch) => onlyMatch[1].split(","));
+
+    assert.ok(onlyLists.length >= 7, "the runbook lists a run for each of the 7 routes");
+    for (const caseId of onlyLists.flat()) {
+      assert.ok(benchCases.some((candidate) => candidate.id === caseId), `README names the case ${caseId}, which does not exist`);
+    }
+  });
 });
 
 describe("the /voice-command cases", () => {
