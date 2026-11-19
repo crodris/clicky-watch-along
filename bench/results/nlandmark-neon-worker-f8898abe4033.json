@@ -1,0 +1,338 @@
+{
+  "label": "nlandmark-neon",
+  "benchKind": "worker",
+  "commitSHA": "f8898abe4033",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-19T14:57:05.526Z",
+  "runCount": 5,
+  "port": 8798,
+  "interleavedWith": [
+    "nlandmark-base"
+  ],
+  "summary": [
+    {
+      "caseId": "landmark",
+      "route": "/landmark",
+      "description": "Recognizes the Eiffel Tower in a 1280x720 frame",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 5236,
+        "p95": 5576,
+        "min": 4482,
+        "max": 5576
+      },
+      "firstByteMs": {
+        "p50": 5236,
+        "p95": 5575,
+        "min": 4482,
+        "max": 5575
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1714,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 243,
+      "meanCostUSD": 0.00878
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "route": "/landmark",
+      "description": "Says a heart diagram is not a famous place",
+      "models": [
+        "gemini-4-neon"
+      ],
+      "serviceTiers": [],
+      "runs": 5,
+      "qualityPassed": 5,
+      "totalMs": {
+        "p50": 4971,
+        "p95": 5757,
+        "min": 3187,
+        "max": 5757
+      },
+      "firstByteMs": {
+        "p50": 4970,
+        "p95": 5757,
+        "min": 3187,
+        "max": 5757
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 1714,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 0,
+      "meanOutputTokens": 198,
+      "meanCostUSD": 0.00811
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "landmark",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 5574.883375,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5575.996375,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 226
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008532,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 4481.561,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4482.191208,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 228
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008562,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 5235.86175,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5236.285625,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 243
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008787,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 5534.744999999999,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5535.278958999999,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 284
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.009402,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 4784.320541999998,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4784.8712080000005,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 232
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008622,
+      "quality": {
+        "passed": true,
+        "detail": "Eiffel Tower at 48.85837,2.29448"
+      },
+      "replyPreview": "{\"isFamousPlace\":true,\"name\":\"Eiffel Tower\",\"nameTakesThe\":true,\"latitude\":48.85837,\"longitude\":2.29448,\"heightMeters\":330,\"radiusMeters\":62.5}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 4793.286290999997,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4793.871790999998,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 163
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007587,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 5739.530458000001,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5740.077583000006,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 253
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008937,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 3187.1847500000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 3187.375165999998,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 199
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.008127,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 3,
+      "httpStatus": 200,
+      "firstByteMs": 4970.185042000005,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 4970.716208999998,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 187
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007947,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    },
+    {
+      "caseId": "landmark-not-a-place",
+      "runIndex": 4,
+      "httpStatus": 200,
+      "firstByteMs": 5756.761457999994,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 5757.131833000007,
+      "usageLines": [
+        {
+          "route": "/landmark",
+          "model": "gemini-4-neon",
+          "inputTokens": 1714,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 186
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.007932,
+      "quality": {
+        "passed": true,
+        "detail": "isFamousPlace false"
+      },
+      "replyPreview": "{\"isFamousPlace\":false}"
+    }
+  ]
+}
