@@ -399,14 +399,25 @@ func screenRectInChromeCoordinates(from pageGeometry: ChromePageGeometry, backin
 /// A screen rectangle in the overlay page's coordinates. Chrome's screen origin
 /// is the top left of the main display, and AppKit's is the bottom left.
 func rectInOverlayPage(of screenRect: ScreenRectInChromeCoordinates, overlayScreen: NSScreen) -> [String: Double] {
+    let rectInOverlay = rectInOverlayCoordinates(of: screenRect, overlayScreen: overlayScreen)
+    return [
+        "x": rectInOverlay.minX,
+        "y": rectInOverlay.minY,
+        "width": rectInOverlay.width,
+        "height": rectInOverlay.height,
+    ]
+}
+
+/// The same rectangle as a CGRect, for the SwiftUI overlay, where the origin is the overlay's top left.
+func rectInOverlayCoordinates(of screenRect: ScreenRectInChromeCoordinates, overlayScreen: NSScreen) -> CGRect {
     let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? overlayScreen.frame.height
     let overlayTopInChromeCoordinates = mainDisplayHeight - overlayScreen.frame.maxY
-    return [
-        "x": screenRect.rectX - overlayScreen.frame.minX,
-        "y": screenRect.rectY - overlayTopInChromeCoordinates,
-        "width": screenRect.rectWidth,
-        "height": screenRect.rectHeight,
-    ]
+    return CGRect(
+        x: screenRect.rectX - overlayScreen.frame.minX,
+        y: screenRect.rectY - overlayTopInChromeCoordinates,
+        width: screenRect.rectWidth,
+        height: screenRect.rectHeight
+    )
 }
 
 /// The video's place on screen in the overlay page's coordinates.

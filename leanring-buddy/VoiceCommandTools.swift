@@ -197,6 +197,17 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case hearTaskAnswer = "hear_task_answer"
     case recordGuess = "record_guess"
 
+    /// Whether the tool turns the request into a look at the media on screen, which draws the loop around it.
+    /// A turn that only runs tools, such as turning a model or seeking a video, never does.
+    var handsOffToALookAtTheMedia: Bool {
+        switch self {
+        case .answerWithScreen, .buildNewScene, .popOut:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// What the app can do right now. A tool that cannot work is left out, so the model never picks it.
     nonisolated struct Context: Equatable, Sendable {
         var sceneIsOnScreen: Bool
