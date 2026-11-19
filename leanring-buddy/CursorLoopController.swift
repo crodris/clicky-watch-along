@@ -157,7 +157,10 @@ final class CursorLoopController: ObservableObject {
             return nil
         }
         let screenFrames = NSScreen.screens.map(\.frame)
-        guard let screenIndex = indexOfTheScreenFrameHolding(largestMedia.screenRect, screenFramesInAppKitCoordinates: screenFrames),
+        let mediaRect = largestMedia.screenRect
+        // The numbers come from the page, so a rect that is not finite frames nothing.
+        guard [mediaRect.rectX, mediaRect.rectY, mediaRect.rectWidth, mediaRect.rectHeight].allSatisfy(\.isFinite),
+              let screenIndex = indexOfTheScreenFrameHolding(mediaRect, screenFramesInAppKitCoordinates: screenFrames),
               let mainDisplayHeight = screenFrames.first?.height else {
             return nil
         }

@@ -225,6 +225,18 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
     #expect(CursorLoopOutline.seed(for: mediaRect) != CursorLoopOutline.seed(for: exampleMediaRects[1]))
 }
 
+@Test func aPageNumberThatIsNotFiniteCannotCrashTheSeed() {
+    // Int64(.nan) and Int64(.infinity) trap, and the rect's numbers come from the page.
+    let badRects = [
+        CGRect(x: CGFloat.nan, y: 0, width: 600, height: 338),
+        CGRect(x: 0, y: CGFloat.infinity, width: 600, height: 338),
+        CGRect(x: 0, y: 0, width: 1e300, height: 338),
+    ]
+    for badRect in badRects {
+        #expect(CursorLoopOutline.seed(for: badRect) == CursorLoopOutline.seed(for: badRect))
+    }
+}
+
 @Test func aLoopNearAScreenEdgeIsPulledInsideIt() {
     let screenBounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
     // A 16:9 video letterboxed in full screen touches both side edges.

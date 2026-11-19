@@ -221,11 +221,13 @@ enum CursorLoopOutline {
         return clampedRect.isNull ? outsetRect : clampedRect
     }
 
-    /// The same wobble for the same rect, so a loop never shimmers when it is rebuilt.
+    /// The same wobble for the same rect, so a loop never shimmers when it is rebuilt. The rect's numbers come from
+    /// the page, so they are hashed as bit patterns, which never trap on a NaN or an infinity the way an integer
+    /// conversion does.
     static func seed(for mediaRect: CGRect) -> UInt64 {
         var mixedBits: UInt64 = 0x9E37_79B9_7F4A_7C15
         for value in [mediaRect.minX, mediaRect.minY, mediaRect.width, mediaRect.height] {
-            mixedBits ^= UInt64(bitPattern: Int64(value.rounded()))
+            mixedBits ^= Double(value.rounded()).bitPattern
             mixedBits = mixedBits &* 0xBF58_476D_1CE4_E5B9
             mixedBits ^= mixedBits >> 31
         }
