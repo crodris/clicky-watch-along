@@ -55,6 +55,16 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
     #expect(state.turn == .notWaitingForALoop)
 }
 
+@Test func onlyTheFirstHandOffOfATurnStartsTheHandOffWindow() {
+    // A later hand-off must not move the window, or a rect that missed the first one would still draw.
+    var state = CursorLoopState()
+    state.pushToTalkWasReleased()
+    state.requestBecameALookAtTheMedia(at: 10)
+    state.requestBecameALookAtTheMedia(at: 11)
+    state.mediaRectArrived(exampleMedia, at: 11.2)
+    #expect(state.loop == .hidden)
+}
+
 @Test func aTurnThatNeverHandsOffNeverDrawsALoop() {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
