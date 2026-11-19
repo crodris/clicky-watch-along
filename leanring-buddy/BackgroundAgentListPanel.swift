@@ -2,10 +2,10 @@
 //  BackgroundAgentListPanel.swift
 //  leanring-buddy
 //
-//  The clickable list of background agents. Shift + option opens it next to the mouse, and a click on an agent token
-//  beside the notch opens it under that token with the agent's row expanded. It is a borderless,
-//  nonactivating panel that never becomes key, so Chrome keeps the keyboard while the learner clicks a row.
-//  It closes on Escape, on a click outside, or on the shortcut again.
+//  The clickable list of background agents. The Agents slice of the settings dial (shift + option) opens it next to the
+//  mouse, and a click on an agent token beside the notch opens it under that token with the agent's row expanded.
+//  It is a borderless, nonactivating panel that never becomes key, so Chrome keeps the keyboard while the learner
+//  clicks a row. It closes on Escape, on a click outside, or on a second click on the token it opened from.
 //
 
 import AppKit
@@ -65,7 +65,7 @@ final class AgentListPanelController {
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
-    /// The disc the list was opened from, nil when the shortcut opened it, so a second click on the same disc closes it.
+    /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
 
     init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, actions: AgentListActions) {
@@ -76,7 +76,7 @@ final class AgentListPanelController {
 
     var isOpen: Bool { panel != nil }
 
-    /// The shift + option shortcut: open next to the mouse with no row expanded, or close.
+    /// The settings dial's Agents slice: open next to the mouse with no row expanded, or close when it is already open.
     func toggle() {
         if isOpen {
             close()
