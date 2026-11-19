@@ -1,8 +1,8 @@
 /**
  * POST /live-scene and POST /judge-answer.
  *
- * /live-scene asks GPT-6.1 Sol Ultrafast, at medium reasoning effort, for a self-contained three.js page
- * and a quiz. LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet at low effort instead,
+ * /live-scene asks GPT Ultrafast, at medium reasoning effort, for a self-contained three.js page and a quiz: GPT-6.1 Sol
+ * for a 3D model and GPT-6.2 Sol for a simulation (appGPTSceneModelByKind). LIVE_SCENE_MODEL=sonnet sends the same prompt to Sonnet at low effort instead,
  * which test runs use because a GPT scene costs about $0.37 and a Sonnet one about $0.04.
  * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT overrides the
  * effort, for comparing scene quality. A benchmark Worker's BENCH_MODEL picks the path by its vendor: a gpt-* model runs the
@@ -283,7 +283,17 @@ async function requestClaudeLiveSceneReply(
 
 /** The GPT model and tier the app uses, which a gpt-* BENCH_MODEL replaces. */
 type GPTSceneModel = { model: string; serviceTier: string | undefined };
-const appGPTSceneModel: GPTSceneModel = { model: "gpt-6.1-sol", serviceTier: "ultrafast" };
+
+/**
+ * The GPT model and tier the app uses for each scene kind, which a gpt-* BENCH_MODEL replaces.
+ * On 2026-11-19 GPT-6.2 Sol beat GPT-6.1 Sol on simulations, 14-2 in the blind judge across 9 experiment pairs, where
+ * 6.1 Sol's run never finished on two pages. It takes about 17 seconds longer, which a simulation built in the background
+ * hides. 3D models stay on GPT-6.1 Sol, where the two tied and the learner waits on the scene. bench/README.md has the bakeoff.
+ */
+const appGPTSceneModelByKind: Record<LiveSceneRequestKind, GPTSceneModel> = {
+  model: { model: "gpt-6.1-sol", serviceTier: "ultrafast" },
+  simulation: { model: "gpt-6.2-sol", serviceTier: "ultrafast" },
+};
 
 async function requestGPTLiveSceneReply(
   openAIAPIKey: string,
@@ -358,8 +368,8 @@ export async function handleLiveScene(
   const benchOverride = benchModelOverride();
   const liveSceneModel: LiveSceneModel =
     benchOverride === undefined ? parsedModelSetting.data : benchOverride.provider === "openai" ? "gpt" : "sonnet";
-  const gptSceneModel: GPTSceneModel =
-    benchOverride?.provider === "openai" ? { model: benchOverride.model, serviceTier: benchOverride.serviceTier } : appGPTSceneModel;
+  const benchGPTSceneModel: GPTSceneModel | undefined =
+    benchOverride?.provider === "openai" ? { model: benchOverride.model, serviceTier: benchOverride.serviceTier } : undefined;
   const parsedEffortSetting = liveSceneEffortSettingSchema.safeParse(env.LIVE_SCENE_EFFORT || undefined);
   if (!parsedEffortSetting.success) {
     return jsonResponse({ error: `LIVE_SCENE_EFFORT must be low, medium, high, xhigh, or max, not ${env.LIVE_SCENE_EFFORT}` }, 500);
@@ -374,6 +384,7 @@ export async function handleLiveScene(
     return parsedRequest.response;
   }
   const sceneRequest = parsedRequest.requestBody;
+  const gptSceneModel = benchGPTSceneModel ?? appGPTSceneModelByKind[sceneRequest.kind];
 
   // One retry, because a broken page leaves the learner with a voice and nothing on screen.
   let lastValidationReason = "The model reply could not be checked";

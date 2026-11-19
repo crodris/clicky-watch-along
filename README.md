@@ -47,7 +47,7 @@ HeyClicky's real-time graphics demo inspired this part.
 
 **Let me try it.** Over a video about a science idea, like a launched ball, a pendulum, sugar dissolving, a cup of cocoa cooling, or the shape of a water molecule, end what you say with "let me try it" or "let me play with it", or say "simulate this".
 Clicky builds a hands-on experiment of that idea while the video keeps playing, then pauses the video and lifts the experiment out of it, with sliders for the things you can change and a Run button.
-GPT-6.1 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
+GPT-6.2 Sol writes the three.js scene from the same screenshot a 3D model uses, and it runs on the simple model scientists use for that topic, like Newton's law of cooling, instead of a canned animation.
 Over a screen that is not a science lesson, it builds the science behind what it shows, like how fast warm milk cools in a baby bottle.
 It works like a real experiment, in four steps:
 1. Clicky asks a hypothesis to test, like "Will 30 or 60 degrees send the ball farther?", and waits for your guess.
@@ -304,7 +304,7 @@ harness/                 # Go helper that runs the task agent's loop through the
 worker/                  # Cloudflare Worker proxy
   src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles
   src/videoQuizPlan.ts      # Picks the quiz spots from the transcript
-  src/liveScene.ts          # Asks GPT-6.1 Sol for the 3D scene and grades spoken answers
+  src/liveScene.ts          # Asks GPT-6.1 Sol for a 3D model or GPT-6.2 Sol for a simulation, and grades spoken answers
   src/videoFrameParts.ts    # Finds the subject and its parts in a video frame or page image
   src/landmark.ts           # Recognizes a famous place in a video frame
   src/voiceCommand.ts       # Asks Haiku which voice tools to call

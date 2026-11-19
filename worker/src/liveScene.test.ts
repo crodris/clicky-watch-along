@@ -268,6 +268,22 @@ describe("handleLiveScene model setting", () => {
     }
   });
 
+  it("builds a simulation on GPT-6.2 Sol and a 3D model, or an older app's request, on GPT-6.1 Sol, both at Ultrafast", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: simulationModelReply })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sceneKeys);
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "model" }), sceneKeys);
+    await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+
+    const sentModels = fetchMock.mock.calls.map((call) => {
+      const sentBody = JSON.parse(String(call[1].body));
+      return `${sentBody.model} ${sentBody.service_tier}`;
+    });
+    expect(sentModels).toEqual(["gpt-6.2-sol ultrafast", "gpt-6.1-sol ultrafast", "gpt-6.1-sol ultrafast"]);
+  });
+
   it("sends the simulation rules only when the request kind is simulation", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(simulationModelReply));
     vi.stubGlobal("fetch", fetchMock);

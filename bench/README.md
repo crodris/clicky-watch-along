@@ -183,7 +183,7 @@ wait
 | `/chat` | Sonnet 5.5, low effort | pass counts and the blind judge |
 | `/picture-flows` | Sonnet 5.5, low effort (Opus 5.5 before 2026-11-19) | pass counts and the blind judge |
 | `/landmark` | Sonnet 5.5, low effort | pass counts |
-| `/live-scene` | GPT-6.1 Sol Ultrafast, medium effort | baseline only, below |
+| `/live-scene` | GPT-6.1 Sol Ultrafast, medium effort, and GPT-6.2 Sol for a simulation since 2026-11-19 | the render bakeoff, below |
 | task agent (`/v1/messages`) | Sonnet 5.5, medium effort | `taskAgent.ts`, below |
 
 `/voice-command` sends thinking off, so a GPT model gets the lowest reasoning effort it accepts: `none`, else `minimal`, else `low`.
@@ -200,6 +200,7 @@ Round one runs every model once on each of 3 cases, and round two runs only the 
 
 On `/live-scene`, `BENCH_MODEL` picks the request: a `gpt-*` model runs the app's own GPT request, with no tier unless `BENCH_SERVICE_TIER` names one, and any other model runs the Claude request.
 So `base` here is GPT-6.1 Sol at the standard tier, and a Worker with no vars, the `app` side, is the app exactly as it ships, at Ultrafast.
+Since 2026-11-19 the app builds simulations on GPT-6.2 Sol, so the `app` side does too, and the rounds below ran before that.
 Judge every side against `app` with `--baseline app`.
 On 2026-11-19 the standard tier did not hold up as a stand-in: `app` beat `base` 5-1 on the same model and effort, so a standard-tier baseline makes every challenger look better than it is.
 The challengers still run at the standard tier, which may cost them quality, so a challenger that wins there should win at Ultrafast too.
@@ -230,6 +231,9 @@ Fable's heart page passed the bench's 5 minute limit, so it has no reply and its
 Round two runs the survivors with `--runs 2` at the app's tier, adding `--var BENCH_SERVICE_TIER:ultrafast` to a GPT Worker.
 Round two on 2026-11-19 ran Astra and GPT-6.2 Sol at Ultrafast against `app`, 2 runs of each case, for $12.06 in renders and $0.77 for the judge, in 14 minutes.
 Astra won 11-0 with a p50 of 18.5 s against 20.3 s, at $1.09 a render against $0.43. GPT-6.2 Sol won 7-4 but took 35.9 s.
+A third run put GPT-6.2 Sol against 6.1 Sol on all 5 simulations once, for $4.51 in renders and $0.33 for the judge, and GPT-6.2 Sol won 9-0.
+Across the 9 simulation pairs it won 14-2, and 6.1 Sol's lever and pendulum runs never finished, so simulations moved to GPT-6.2 Sol.
+3D models stay on GPT-6.1 Sol, since Astra costs 2.5 times as much.
 Its replies go to `bench/replies/render/`, apart from the other routes' replies, so the judge pairs only this run.
 
 ### Task agent
