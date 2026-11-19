@@ -190,6 +190,32 @@ The Worker finds it from the first 400 and remembers it, so only the first call 
 `/chat` gives a GPT model the same 1,024 output tokens, and a GPT model counts its reasoning inside them.
 A `/chat` reply with no `[POINT]` tag and a short, cut-off text means the reasoning used the limit, not that the model failed to point.
 
+### Task agent
+
+The task agent is the one model call `bench.ts` does not cover, because its loop runs in the Go harness, which talks to the Worker's `POST /v1/messages` passthrough.
+`taskAgent.ts` runs the built harness against Workers that each run the agent on one Claude model.
+GPT and Gemini cannot run it, since it uses Anthropic's server-side web search and the harness speaks the Anthropic API.
+
+Build the harness once, and start a Fable Worker beside the ones above.
+Luna cannot run the task agent, so it can give up port 8795 to Fable.
+
+```bash
+(cd harness && go build -o ../bench/.harness/clicky-agent-harness .)
+$V worker-up 8795 -- --inspector-port 9305 --var BENCH_MODEL:claude-fable-5-2
+node bench/taskAgent.ts --harness bench/.harness/clicky-agent-harness --label agent --runs 2 \
+  --side base:8791 --side haiku:8792 --side sonnet:8793 --side opus:8794 --side fable:8795
+```
+
+It runs 3 goals that need web search and no Chrome, once per run per side, one task at a time, with the sides alternating run by run.
+The app's tools answer as in the app where they can: `report_step` shows, `read_video_captions` and `look_at_video` say no video is open, and `write_notion_page` says Notion is off, so no Notion page is written.
+Each run records total time, time to the first `tool_call` or `log` line (the end of the first turn, not the first token), turns, tokens, cost, and the spoken answer.
+Time is read over finished runs only, and tokens and cost over every run.
+Cost counts tokens only, at the prices in `usage.ts`, so web search fees are not in it.
+The harness does not log its model or its web search count, so the model comes from the side name (`base` and `sonnet` are Sonnet 5.5), or from `name:port:model`.
+
+Results go to `bench/results/<label>-<side>-task-agent-<sha>.json`, and each full answer to `bench/replies/task-agent/<side>-<task>-<run>.json`, so the answers can be read side by side.
+The Worker logs the model each call used, so `wrangler tail` on a side confirms that its override applied.
+
 ### The blind judge
 
 The pass counts cannot see whether a frame's parts sit on the right places, whether a flow follows the picture, or whether a quiz plan asks good questions.
