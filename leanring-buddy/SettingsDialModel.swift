@@ -8,6 +8,7 @@
 //  SettingsDialPanel.swift draws the dial and turns the real mouse into these offsets.
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -31,10 +32,12 @@ enum SettingsDialGeometry {
 
 /// How far the dial's window reaches from the dial's center, wide enough for the plate, both fans with their labels,
 /// and the first-run hint. One fixed size keeps the window from resizing as a fan opens.
+/// The sides reach past the Team fan's widest label pill, "Clicky blue" at the fan's left end, and the top reaches past
+/// the pills above the fan's top balls. `SettingsDialTests` checks that every pill fits.
 enum SettingsDialPlacement {
-    static let reachLeft: CGFloat = 204
-    static let reachRight: CGFloat = 204
-    static let reachAbove: CGFloat = 196
+    static let reachLeft: CGFloat = 252
+    static let reachRight: CGFloat = 252
+    static let reachAbove: CGFloat = 200
     static let reachBelow: CGFloat = 160
 
     static var panelSize: CGSize {
@@ -54,6 +57,51 @@ enum SettingsDialPlacement {
     private static func clamped(_ value: CGFloat, lowest: CGFloat, highest: CGFloat) -> CGFloat {
         guard lowest <= highest else { return (lowest + highest) / 2 }
         return min(max(value, lowest), highest)
+    }
+}
+
+// MARK: - Labels
+
+/// The dial's text labels. Text never sits on the bare page: every label is drawn on its own dark pill that is sized to
+/// the text with padding, so the text shows inside its background however long it is.
+enum SettingsDialLabel {
+    static let fontSize: CGFloat = 11
+    static let horizontalPadding: CGFloat = 8
+    static let verticalPadding: CGFloat = 3
+    /// The space between a token or fan ball and the pill of its label.
+    static let gapFromItem: CGFloat = 3
+
+    /// The pill that holds `text`, measured with the same font the dial draws it in.
+    static func pillSize(forText text: String) -> CGSize {
+        let measuredText = (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: fontSize, weight: .semibold)])
+        return CGSize(
+            width: ceil(measuredText.width) + 2 * horizontalPadding,
+            height: ceil(measuredText.height) + 2 * verticalPadding
+        )
+    }
+
+    /// How far a token label's pill center sits from the token's center, vertically. The design puts Team's label above
+    /// its token and the others below.
+    static func tokenLabelCenterOffsetY(for slice: SettingsDialSlice, labelPillHeight: CGFloat) -> CGFloat {
+        let distance = SettingsDialGeometry.tokenDiameter / 2 + gapFromItem + labelPillHeight / 2
+        return slice == .team ? -distance : distance
+    }
+
+    /// Where the pill of the highlighted fan ball goes, as an offset from the dial's center. The pill sits just outside
+    /// the ball, in the direction away from the dial's center. Balls sit side by side along the arc, so a pill outside
+    /// the arc never covers the next ball the pointer is about to reach.
+    static func fanLabelCenterOffset(ballCenterOffset: CGPoint, ballRadius: CGFloat, labelPillSize: CGSize) -> CGPoint {
+        let distanceFromDialCenter = hypot(ballCenterOffset.x, ballCenterOffset.y)
+        guard distanceFromDialCenter > 0 else { return ballCenterOffset }
+        let outwardX = ballCenterOffset.x / distanceFromDialCenter
+        let outwardY = ballCenterOffset.y / distanceFromDialCenter
+        // How far a rectangle reaches along the outward direction from its own center.
+        let pillReachAlongOutward = abs(outwardX) * labelPillSize.width / 2 + abs(outwardY) * labelPillSize.height / 2
+        let distanceFromBallCenter = ballRadius + gapFromItem + pillReachAlongOutward
+        return CGPoint(
+            x: ballCenterOffset.x + outwardX * distanceFromBallCenter,
+            y: ballCenterOffset.y + outwardY * distanceFromBallCenter
+        )
     }
 }
 

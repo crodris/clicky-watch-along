@@ -97,6 +97,15 @@ func agentTokenServeEasedProgress(_ linearProgress: Double) -> Double {
     return clampedProgress * clampedProgress * (3 - 2 * clampedProgress)
 }
 
+// MARK: - A disc under a flight stays put
+
+/// Whether a disc has to stay where it is for now. A disc that a token is flying to, or that a landed token's flying panel
+/// still covers for a moment, does not slide to close a gap until the panel has left. The panel stays at the old slot, so a
+/// slide before then shows the token there and in the disc that slides away.
+func agentTokenDiscMustWaitForItsFlight<DiscID: Equatable>(_ discID: DiscID, flightLandsOn: DiscID?, lingeringFlightSitsOn: DiscID?) -> Bool {
+    discID == flightLandsOn || discID == lingeringFlightSitsOn
+}
+
 // MARK: - Where it starts and which display
 
 /// How far the blue cursor glyph sits from the mouse: 35 points right and 25 points below, as `BlueCursorView` places it

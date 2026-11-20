@@ -26,7 +26,7 @@ final class CursorLoopController: ObservableObject {
     private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
 
-    private static let secondsBetweenFrontTabPolls: TimeInterval = 1
+    static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
@@ -119,6 +119,15 @@ final class CursorLoopController: ObservableObject {
             end(because: .thinkingStopped)
         }
     }
+
+    // MARK: - Waiting for background work
+
+    /// Each returns once a task the controller started has finished, so a test reads the result when the work is done instead of
+    /// sleeping for a guessed time, which a loaded runner can outlast. A task that has not started yet is not waited for.
+    func waitForTheMediaReadToFinish() async { await mediaRectReadTask?.value }
+    func waitForTheIdleHoldToFinish() async { await idleMustHoldTask?.value }
+    /// Only returns when the poll ends the loop, since a poll whose samples match keeps sampling for as long as the loop shows.
+    func waitForThePollToEndTheLoop() async { await pollTask?.value }
 
     func end(because reason: CursorLoopEndReason) {
         guard state.loopIsShowing || state.turn != .notWaitingForALoop else { return }

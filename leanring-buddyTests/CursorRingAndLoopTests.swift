@@ -145,49 +145,50 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTab?, polling polledSample: FrontTabSample = exampleSample()) async -> CursorLoopController {
     let controller = CursorLoopController(readTheMediaInTheFrontTab: { media }, readTheFrontTabSample: { polledSample })
     controller.pushToTalkWasReleased()
-    // The rect read runs as a task, so it has arrived once the task has had a turn.
-    try? await Task.sleep(for: .milliseconds(50))
+    // The rect read runs as a task, so wait for it instead of guessing how long it takes.
+    await controller.waitForTheMediaReadToFinish()
     return controller
 }
 
-private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2
-
-@Test @MainActor func anIdleThatLastsThroughTheRouterCallDoesNotEndATurnWaitingForItsHandOff() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func anIdleThatLastsThroughTheRouterCallDoesNotEndATurnWaitingForItsHandOff() async {
     // After a push-to-talk request the dictation session's idle lands after the request set processing, and the router
     // call that follows takes about a second before it hands off, so a turn still waiting for that hand-off must survive.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    await controller.waitForTheIdleHoldToFinish()
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
 }
 
-@Test @MainActor func anIdleThatLastsOnlyAMomentDoesNotEndALoopThatIsShowing() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func anIdleThatLastsOnlyAMomentDoesNotEndALoopThatIsShowing() async {
     // A plain keyword path request draws its loop at once, and the dictation session's idle lands just after.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.requestBecameALookAtTheMedia()
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
     controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    await controller.waitForTheIdleHoldToFinish()
     #expect(controller.isShowingTheLoop)
 }
 
-@Test @MainActor func anIdleThatHoldsEndsALoopThatIsShowing() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func anIdleThatHoldsEndsALoopThatIsShowing() async {
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    await controller.waitForTheIdleHoldToFinish()
     #expect(!controller.isShowingTheLoop)
 }
 
-@Test @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
     // The learner switched tabs between the release and the hand-off, so the rect the loop would frame is stale.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia, polling: exampleSample(tabID: 99))
     controller.requestBecameALookAtTheMedia()
-    try? await Task.sleep(for: .milliseconds(200))
+    let pollStart = ContinuousClock.now
+    await controller.waitForThePollToEndTheLoop()
     #expect(!controller.isShowingTheLoop)
+    // The first sample runs before the poll's first wait, so the loop ends well before a whole poll interval.
+    #expect(ContinuousClock.now - pollStart < .seconds(CursorLoopController.secondsBetweenFrontTabPolls))
 }
 
 @Test func aRequestDrawsALoopOnlyWhenNoSceneOrQuizQuestionOwnsTheScreen() {

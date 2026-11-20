@@ -1201,12 +1201,31 @@ struct ChromeVideoTab {
     /// too, except an SVG, which can have only a viewBox and so no natural width. Returns the window's and
     /// the element's raw page geometry as JSON, or 'none' under 160x90 visible. An image wholly inside the
     /// viewport and stretched to its box also returns its URL, since only then do its own frames line up with the capture.
-    /// Only a short https URL comes back, so a large data: URL never travels through AppleScript. The page measures in CSS pixels and the window in
+    /// Only a short https URL comes back, so a large data: URL never travels through AppleScript.
+    /// A video the page has not started can sit above the player that shows its thumbnail, with only a thin slice of the
+    /// element in the viewport. When under half of a video is visible and a close ancestor of about its size is almost
+    /// wholly visible, that ancestor's box is the media, so the loop goes around the player the learner sees. The page measures in CSS pixels and the window in
     /// screen points, so `screenRectInChromeCoordinates` turns them into one screen rect, using Chrome's
     /// accessibility web area when it can, and the page zoom and the screen Chrome is on when it cannot.
     static let largestVisibleMediaJavaScript = [
         "(function () {",
         "var best = null; var bestScore = 0;",
+        "function visibleShare(box) {",
+        "var visibleLeft = Math.max(box.left, 0); var visibleTop = Math.max(box.top, 0); var visibleRight = Math.min(box.right, window.innerWidth); var visibleBottom = Math.min(box.bottom, window.innerHeight);",
+        "if (visibleRight <= visibleLeft || visibleBottom <= visibleTop || !box.width || !box.height) { return 0; }",
+        "return ((visibleRight - visibleLeft) * (visibleBottom - visibleTop)) / (box.width * box.height);",
+        "}",
+        "function boxOfTheVideoTheLearnerSees(video, videoRect) {",
+        "if (visibleShare(videoRect) >= 0.5) { return videoRect; }",
+        "var ancestor = video.parentElement;",
+        "for (var level = 0; ancestor && level < 6; level++) {",
+        "var ancestorRect = ancestor.getBoundingClientRect();",
+        "var areaRatio = (ancestorRect.width * ancestorRect.height) / (videoRect.width * videoRect.height);",
+        "if (areaRatio >= 0.8 && areaRatio <= 1.25 && visibleShare(ancestorRect) >= 0.9) { return ancestorRect; }",
+        "ancestor = ancestor.parentElement;",
+        "}",
+        "return videoRect;",
+        "}",
         "var candidates = document.querySelectorAll('video, img');",
         "for (var index = 0; index < candidates.length; index++) {",
         "var element = candidates[index];",
@@ -1216,6 +1235,7 @@ struct ChromeVideoTab {
         "var style = window.getComputedStyle(element);",
         "if (style.visibility === 'hidden' || style.opacity === '0') { continue; }",
         "var rect = element.getBoundingClientRect();",
+        "if (isVideo) { rect = boxOfTheVideoTheLearnerSees(element, rect); }",
         "var left = Math.max(rect.left, 0); var top = Math.max(rect.top, 0);",
         "var right = Math.min(rect.right, window.innerWidth); var bottom = Math.min(rect.bottom, window.innerHeight);",
         "if (right <= left || bottom <= top) { continue; }",

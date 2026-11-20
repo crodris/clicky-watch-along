@@ -1298,6 +1298,53 @@ struct leanring_buddyTests {
         #expect(javaScriptContext.evaluateScript("calls.join(',')").toString() == "main paused,main played")
     }
 
+    /// Runs the media script against a page whose only video has `videoRect` and a chain of ancestors with the given rects,
+    /// nearest first, in a viewport 1680 by 969, and returns the box it reports as `[top, height]`.
+    private func mediaBoxTheLoopGoesAround(videoRect: [Double], ancestorRects: [[Double]]) throws -> [Double]? {
+        let javaScriptContext = try #require(JSContext())
+        javaScriptContext.evaluateScript("""
+        function fakeRect(left, top, width, height) {
+            return { left: left, top: top, width: width, height: height, right: left + width, bottom: top + height };
+        }
+        var ancestors = [\(ancestorRects.map { "fakeRect(\($0[0]), \($0[1]), \($0[2]), \($0[3]))" }.joined(separator: ", "))];
+        var nextParent = null;
+        for (var index = ancestors.length - 1; index >= 0; index--) {
+            (function (rect, parent) {
+                nextParent = { getBoundingClientRect: function () { return rect; }, parentElement: parent };
+            })(ancestors[index], nextParent);
+        }
+        var video = { tagName: 'VIDEO', videoWidth: 1920, currentSrc: '', parentElement: nextParent,
+            getBoundingClientRect: function () { return fakeRect(\(videoRect[0]), \(videoRect[1]), \(videoRect[2]), \(videoRect[3])); } };
+        var document = { querySelectorAll: function () { return [video]; } };
+        var window = { innerWidth: 1680, innerHeight: 969, screenX: 1710, screenY: 30, outerWidth: 1920, outerHeight: 1050, devicePixelRatio: 1,
+            getComputedStyle: function () { return { visibility: 'visible', opacity: '1', objectFit: 'contain' }; } };
+        """)
+        let reply = try #require(javaScriptContext.evaluateScript(ChromeVideoTab.largestVisibleMediaJavaScript)?.toString(), "the script threw: \(javaScriptContext.exception?.toString() ?? "no exception")")
+        guard let replyData = reply.data(using: .utf8),
+              let geometry = try? JSONSerialization.jsonObject(with: replyData) as? [String: Any],
+              let top = (geometry["top"] as? NSNumber)?.doubleValue, let height = (geometry["height"] as? NSNumber)?.doubleValue else { return nil }
+        return [top, height]
+    }
+
+    @Test func aVideoAboveItsPlayerBeforeItHasStartedGetsThePlayersBoxNotTheSliceInTheViewport() async throws {
+        // YouTube before the first play: the thumbnail shows in the player at 68 down, and the video element sits one
+        // player height above, with 68 points of it inside the viewport.
+        let box = try mediaBoxTheLoopGoesAround(videoRect: [16, -590, 1170, 658], ancestorRects: [[16, 68, 1170, 0], [16, 68, 1170, 658]])
+        #expect(box == [68, 658])
+    }
+
+    @Test func aVideoThatSitsInItsPlayerKeepsItsOwnBoxAndAScrolledOneKeepsItsVisibleSlice() async throws {
+        #expect(try mediaBoxTheLoopGoesAround(videoRect: [16, 68, 1170, 658], ancestorRects: [[16, 68, 1170, 658]]) == [68, 658])
+        // A video scrolled up until 30 percent of it shows has an ancestor of its own size that is no more visible, so the slice stays.
+        #expect(try mediaBoxTheLoopGoesAround(videoRect: [16, -460, 1170, 658], ancestorRects: [[16, -460, 1170, 658]]) == [0, 198])
+        // An article around a video is far bigger than the video, so it is never taken for the player.
+        #expect(try mediaBoxTheLoopGoesAround(videoRect: [16, -590, 1170, 658], ancestorRects: [[0, -1000, 1680, 3000]]) == [0, 68])
+        // A box that fits in the viewport but is nearly twice the video's area is not the player either.
+        #expect(try mediaBoxTheLoopGoesAround(videoRect: [16, -590, 1170, 658], ancestorRects: [[0, 0, 1600, 900]]) == [0, 68])
+        // An ancestor of the video's size that is mostly out of the viewport is no more visible than the video.
+        #expect(try mediaBoxTheLoopGoesAround(videoRect: [16, -590, 1170, 658], ancestorRects: [[16, -500, 1170, 658]]) == [0, 68])
+    }
+
     @Test func learnerVideoJavaScriptEmbedsOnlyNumbersAndNoDoubleQuotes() async throws {
         let seekScript = LearnerVideoCommand.seekBy(seconds: -10).javaScript
         #expect(seekScript.contains("video.currentTime + -10.0"))

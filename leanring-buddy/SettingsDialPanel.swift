@@ -225,8 +225,11 @@ struct SettingsDialView: View {
     private func token(for slice: SettingsDialSlice) -> some View {
         let isSelected = viewModel.selection.slice == slice
         let tokenCenter = point(atAngleDegrees: slice.angleDegrees, radius: SettingsDialGeometry.tokenRingRadius)
-        // Team's label sits above its token, since the plate's top edge is just past it, and the others sit below.
-        let labelOffsetY: CGFloat = slice == .team ? -35 : 33
+        let labelText = tokenTitle(for: slice)
+        let labelOffsetY = SettingsDialLabel.tokenLabelCenterOffsetY(
+            for: slice,
+            labelPillHeight: SettingsDialLabel.pillSize(forText: labelText).height
+        )
         return ZStack {
             Circle()
                 .fill(isSelected ? accentColor : tokenFillColor)
@@ -249,10 +252,7 @@ struct SettingsDialView: View {
         }
         .position(tokenCenter)
         .overlay {
-            Text(tokenTitle(for: slice))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(Color.white.opacity(0.9))
-                .shadow(color: Color.black.opacity(0.8), radius: 2, x: 0, y: 1)
+            labelPill(labelText)
                 .position(x: tokenCenter.x, y: tokenCenter.y + labelOffsetY)
         }
         .animation(viewModel.reduceMotion ? nil : .easeOut(duration: 0.1), value: isSelected)
@@ -348,27 +348,35 @@ struct SettingsDialView: View {
         return ZStack {
             ForEach(Array(themes.enumerated()), id: \.offset) { itemIndex, itemTheme in
                 let isEmphasized = emphasizedIndex == itemIndex
-                let size: CGFloat = isEmphasized ? 30 : 21
-                let itemCenter = point(atAngleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0, radius: SettingsDialGeometry.fanRadius)
-                ZStack {
-                    SettingsDialThemeBall(theme: itemTheme, size: size)
-                        .shadow(color: isEmphasized ? accentColor.opacity(0.7) : .clear, radius: 8)
-                    if isEmphasized {
-                        Text(itemTheme.displayName)
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.white)
-                            .fixedSize()
-                            .shadow(color: Color.black.opacity(0.8), radius: 3, x: 0, y: 1)
-                            .offset(y: -36)
-                    }
-                }
-                .position(itemCenter)
-                // The enlarged ball and its label draw over the smaller balls next to it.
-                .zIndex(isEmphasized ? 1 : 0)
-                .animation(viewModel.reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.8), value: isEmphasized)
-                .transition(fanItemTransition(forItemAt: itemIndex))
+                SettingsDialThemeBall(theme: itemTheme, size: isEmphasized ? Self.emphasizedFanBallSize : Self.fanBallSize)
+                    .shadow(color: isEmphasized ? accentColor.opacity(0.7) : .clear, radius: 8)
+                    .position(fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0))
+                    // The enlarged ball draws over the smaller balls next to it.
+                    .zIndex(isEmphasized ? 1 : 0)
+                    .animation(viewModel.reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.8), value: isEmphasized)
+                    .transition(fanItemTransition(forItemAt: itemIndex))
+            }
+            if let emphasizedIndex, themes.indices.contains(emphasizedIndex) {
+                let labelText = themes[emphasizedIndex].displayName
+                let ballCenter = fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: emphasizedIndex) ?? 0)
+                let labelCenterOffset = SettingsDialLabel.fanLabelCenterOffset(
+                    ballCenterOffset: CGPoint(x: ballCenter.x - centerInView.x, y: ballCenter.y - centerInView.y),
+                    ballRadius: Self.emphasizedFanBallSize / 2,
+                    labelPillSize: SettingsDialLabel.pillSize(forText: labelText)
+                )
+                labelPill(labelText)
+                    .position(x: centerInView.x + labelCenterOffset.x, y: centerInView.y + labelCenterOffset.y)
+                    .zIndex(2)
+                    .transition(.opacity)
             }
         }
+    }
+
+    private static let fanBallSize: CGFloat = 21
+    private static let emphasizedFanBallSize: CGFloat = 30
+
+    private func fanBallCenter(angleDegrees: Double) -> CGPoint {
+        point(atAngleDegrees: angleDegrees, radius: SettingsDialGeometry.fanRadius)
     }
 
     private var modelFan: some View {
@@ -393,6 +401,21 @@ struct SettingsDialView: View {
                     .transition(fanItemTransition(forItemAt: itemIndex))
             }
         }
+    }
+
+    // MARK: Labels
+
+    /// Text on its own dark pill, sized to the text, so a label never shows outside its background.
+    private func labelPill(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: SettingsDialLabel.fontSize, weight: .semibold))
+            .foregroundColor(Color.white.opacity(0.92))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, SettingsDialLabel.horizontalPadding)
+            .padding(.vertical, SettingsDialLabel.verticalPadding)
+            .background(Capsule().fill(DS.Colors.settingsDialPlate.opacity(0.92)))
+            .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
     }
 
     // MARK: Hint

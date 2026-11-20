@@ -225,7 +225,12 @@ struct AgentHarnessTests {
         #expect(answers.isEmpty, "a request waits before the timeout")
         #expect(desk.answer(approvalID: "approval-1", approved: true, scope: .always))
 
-        try? await Task.sleep(for: .seconds(0.6))
+        // A loaded runner can start the timeout task late, so wait until the request is declined, with a deadline far past the
+        // timeout, instead of sleeping for a guessed time.
+        let deadline = Date().addingTimeInterval(10)
+        while !desk.waitingRequests.isEmpty, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(answers.map(\.approvalID) == ["approval-1", "approval-2"])
         #expect(answers.map(\.approved) == [true, false], "the learner's answer stands and the unanswered request is declined")
         #expect(desk.waitingRequests.isEmpty)

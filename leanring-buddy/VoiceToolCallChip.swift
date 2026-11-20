@@ -4,7 +4,7 @@
 //
 //  A small chip under the cursor that names each voice tool call, such as
 //  rotate_model(yawDegrees: -45), then fades out. It uses the status label's look:
-//  an icon on a white tile and colored letters with a white outline.
+//  an icon on a white rounded-square tile, or a round portrait with no tile, and colored letters with a white outline.
 //  A background agent that ends shows its line here too, in the agent's own color with its triangle as the icon,
 //  so the learner sees which agent it speaks for. It has a quieter second part and a longer stay.
 //
@@ -19,6 +19,22 @@ enum VoiceToolCallChipSender: Equatable {
     /// `color` is the agent's own color, which tints the triangle and the letters. `player` is the Haikyu!! player the
     /// agent was, so the chip shows the portrait instead of the triangle.
     case backgroundAgent(color: AgentPaletteColor, player: HaikyuPlayer?)
+}
+
+/// The shape the chip's icon has, which is also the shape of whatever sits behind it. A white rounded square behind a
+/// round portrait shows its corners around the circle, so a portrait gets no tile.
+enum VoiceToolCallChipIconShape: Equatable {
+    case roundedSquareTile
+    case circularPortrait
+}
+
+extension VoiceToolCallChipSender {
+    var iconShape: VoiceToolCallChipIconShape {
+        switch self {
+        case .backgroundAgent(_, player: .some): return .circularPortrait
+        case .voiceToolCall, .backgroundAgent(_, player: nil): return .roundedSquareTile
+        }
+    }
 }
 
 @MainActor
@@ -39,13 +55,7 @@ private struct VoiceToolCallChipView: View {
         ZStack(alignment: .leading) {
             if chipModel.isVisible {
                 HStack(spacing: 6) {
-                    chipIcon
-                        .frame(width: 22, height: 22)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.white)
-                                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
-                        )
+                    VoiceToolCallChipIcon(sender: chipModel.sender)
                     OutlinedChipText(chipText: chipModel.chipText, chipTextIsCode: chipModel.chipTextIsCode, textColor: chipTextColor)
                     if let secondaryChipText = chipModel.secondaryChipText {
                         OutlinedChipText(chipText: secondaryChipText, chipTextIsCode: false, textColor: DS.Colors.textTertiary)
@@ -60,16 +70,45 @@ private struct VoiceToolCallChipView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private var chipIcon: some View {
+    private var chipTextColor: Color {
         switch chipModel.sender {
+        case .voiceToolCall: return DS.Colors.blue700
+        // Dark gray, readable inside the white outline whatever the team's color is.
+        case .backgroundAgent(_, player: .some): return DS.Colors.backgroundAgentPlayerNameText
+        case .backgroundAgent(let agentColor, nil): return agentColor.chipTextColor
+        }
+    }
+}
+
+/// The chip's icon with whatever backs it, 22 points square. The backing follows the icon's shape (`iconShape`), so no
+/// white shows outside a round portrait.
+struct VoiceToolCallChipIcon: View {
+    let sender: VoiceToolCallChipSender
+    private static let iconSize: CGFloat = 22
+    private static let shadowColor = Color.black.opacity(0.3)
+
+    var body: some View {
+        switch sender.iconShape {
+        case .roundedSquareTile:
+            symbolOrTriangle
+                .frame(width: Self.iconSize, height: Self.iconSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.white)
+                        .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
+                )
+        case .circularPortrait:
+            portrait
+        }
+    }
+
+    @ViewBuilder private var symbolOrTriangle: some View {
+        switch sender {
         case .voiceToolCall:
             Image(systemName: "hand.point.up.left.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(DS.Colors.blue600)
-        case .backgroundAgent(_, let player?):
-            HaikyuPortraitView(player: player, size: 22)
-                .overlay(Circle().stroke(player.school.accentColor, lineWidth: 2))
-        case .backgroundAgent(let agentColor, nil):
+        case .backgroundAgent(let agentColor, _):
             // The cursor triangle's tilt, so the icon reads as the agent's triangle.
             Triangle()
                 .fill(agentColor.color)
@@ -78,12 +117,12 @@ private struct VoiceToolCallChipView: View {
         }
     }
 
-    private var chipTextColor: Color {
-        switch chipModel.sender {
-        case .voiceToolCall: return DS.Colors.blue700
-        // Dark gray, readable inside the white outline whatever the team's color is.
-        case .backgroundAgent(_, player: .some): return DS.Colors.backgroundAgentPlayerNameText
-        case .backgroundAgent(let agentColor, nil): return agentColor.chipTextColor
+    @ViewBuilder private var portrait: some View {
+        if case .backgroundAgent(_, let player?) = sender {
+            // The ring is drawn inside the portrait's circle, and the shadow follows that circle, so nothing else shows.
+            HaikyuPortraitView(player: player, size: Self.iconSize)
+                .overlay(Circle().strokeBorder(player.school.accentColor, lineWidth: 2))
+                .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
         }
     }
 }
