@@ -72,8 +72,8 @@ struct AgentTokenDiscView: View {
         .overlay(alignment: .bottomTrailing) {
             if agent.finishedResult != nil {
                 // Dark rim and the same size as the design's badge, so the check reads on a light menu bar too.
-                // The 2 point offset keeps the whole rim inside the disc's panel, which is 3 points wider than the disc on each
-                // side and only about 3 points taller on a 1080p display's menu bar, where a 3 point offset cut the rim's bottom.
+                // The 2 point offset keeps the whole rim inside the disc's panel, which is as tall as the menu bar. A screenshot of
+                // a 1080p display's bar showed a 3 point offset cutting the rim's bottom, and 2 points leaving it whole.
                 FinishedCheckMark(size: 11)
                     .overlay(Circle().stroke(Color.black, lineWidth: 1))
                     .offset(x: 2, y: 2)
