@@ -1,6 +1,6 @@
 # Team theme
 
-The learner picks Clicky blue, one of ten Haikyu!! schools, or Random in the menu bar panel's "Team theme" section.
+The learner picks Clicky blue, one of ten Haikyu!! schools, or Random in the menu bar panel's "Team theme" section or the settings dial's Team fan.
 A school turns the cursor into a volleyball in the team's colors, and turns every background agent that starts into one of that team's players, shown as a round portrait in a progress ring in a token beside the notch and as a themed row in the agent list.
 
 ## Sub-features

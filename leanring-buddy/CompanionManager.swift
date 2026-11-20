@@ -701,7 +701,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Holding shift + option opens the settings dial, releasing the keys commits the highlighted item, and a key,
-    /// a mouse button, or Escape cancels it.
+    /// a mouse button, Escape, or the event tap stopping cancels it.
     private func bindShiftOptionHoldToTheSettingsDial() {
         settingsDialCancellable = globalPushToTalkShortcutMonitor
             .settingsDialEventPublisher

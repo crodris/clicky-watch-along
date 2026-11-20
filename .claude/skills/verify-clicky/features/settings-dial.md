@@ -14,7 +14,8 @@ Team and Model fan their choices on an outer arc, Agents opens the agent list, S
 - `dial-fan-travel` keeps a fan open while the pointer travels outward past the plate, even across another slice's angle, and changes the slice only when the pointer comes back inside the plate.
 - `dial-commit` applies the highlighted item on release: a Team item sets the theme, a Model item sets the voice model, Agents opens the agent list at the mouse, Show toggles Show Clicky, and More opens the menu bar panel.
 - `dial-cancel` commits nothing when the keys are released in the center, on Team or Model with no item highlighted, or far past the fan, and when Escape or another key is pressed.
-  It also closes an open dial when the event tap stops or macOS cuts it off, which this skill cannot drive and reports as unverified on the real app.
+  It also closes an open dial when the event tap stops or macOS cuts it off, which a main thread stalled past the tap's timeout can cause, so the learner holds the keys again.
+  This skill cannot drive that path, so it is unverified on the real app.
 - `dial-edge` shifts the dial and its fans inward near a screen edge, so nothing is cut off, and picks nothing until the pointer has moved 10 points.
 - `dial-passthrough` lets every click reach the app under the dial, and never takes the keyboard.
 

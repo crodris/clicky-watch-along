@@ -157,7 +157,7 @@ app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.
 key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>
                           Press that key through System Events, as the learner would, while the app runs.
-                          dial-hold and dial-release hold and let go of shift and option for the settings dial, and agents-list opens the agent list through the dial.
+                          dial-hold and dial-release hold and let go of shift and option for the settings dial, and agents-list opens the agent list through the dial and puts the mouse back.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 ```
 
