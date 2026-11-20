@@ -180,12 +180,15 @@ final class ThemeStudioController: ObservableObject {
         return true
     }
 
-    /// Saves the highlighted idea, makes it the theme, closes the card, and plays the theme's done sound once.
+    /// Saves the highlighted idea, makes it the theme, closes the card, ends the line Clicky was saying about the ideas, and
+    /// plays the theme's done sound once.
     func saveTheHighlightedIdea() -> SaveOutcome {
         guard case .showingIdeas(let ideas) = state else { return .nothingToSave }
         do {
             let savedTheme = try themeSettings.saveAndApply(ideas.highlightedIdea, pictureJPEG: ideas.picture?.jpegData)
             state = state.afterSaving()
+            // The card is gone, so a line still describing its ideas would talk over the done sound.
+            environment.stopSpeaking()
             environment.playSound(savedTheme.sounds.done)
             return .saved(themeName: savedTheme.name)
         } catch {

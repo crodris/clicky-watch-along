@@ -216,6 +216,23 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
     return pointsAtThePicture ? .fromThePicture : .fromWords
 }
 
+// MARK: - When a line may play
+
+/// Whether a line the studio has queued may start now: the learner is not holding push-to-talk, no audio is playing, and
+/// Clicky is not thinking about a request, so the line never plays over the learner's voice, over another line, or over
+/// the request that followed it.
+/// The studio's own design holds the thinking state while it reads a picture, so that state does not hold a line back while
+/// a design runs. Otherwise the "no picture" line would wait for the ideas, and their line would replace it.
+nonisolated func themeStudioLineMayStart(
+    dictationIsInProgress: Bool,
+    clickyIsThinking: Bool,
+    audioIsPlaying: Bool,
+    themeStudioIsDesigning: Bool
+) -> Bool {
+    if dictationIsInProgress || audioIsPlaying { return false }
+    return themeStudioIsDesigning || !clickyIsThinking
+}
+
 // MARK: - What a save says
 
 /// What the chip under the cursor says when a theme is saved, by the voice tool (`save_theme`) or by a click on Save.

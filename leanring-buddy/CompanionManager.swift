@@ -246,6 +246,9 @@ final class CompanionManager: ObservableObject {
         )
     }()
     private var themeStudioSpeechTask: Task<Void, Never>?
+    /// True from the moment the studio's own line starts to play until it ends, so closing the card stops that line and never
+    /// an unrelated answer that is playing when the card closes.
+    private var themeStudioLineIsPlaying = false
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -1096,7 +1099,11 @@ final class CompanionManager: ObservableObject {
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
-        if let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
+        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
+        if videoQuizPhrasesAreMatchedAheadOfTheRouter(
+            themeStudioIsOpen: themeStudioController.isOpen,
+            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer
+        ), let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
             handleVideoQuizVoiceCommand(videoQuizCommand)
             return
         }
@@ -1106,7 +1113,6 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
             return
         }
-        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
         if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
         let brainTakesEveryRequest = BrainTakesEveryRequest.isOn()
@@ -2851,20 +2857,28 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Says a studio line once the one Clicky is speaking ends, so a "no picture" line is not cut off by the ideas' own line,
-    /// and once the learner is not holding push-to-talk, so it never plays over their voice.
+    /// Says a studio line once nothing else is happening: no audio playing, so a "no picture" line is not cut off by the
+    /// ideas' own line, no push-to-talk held, and no request of the learner's being worked on, so it never plays over their
+    /// voice or over the request that followed it. The three are checked together in one loop, since each can start while
+    /// the line waits for another.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
     private func speakAThemeStudioLine(_ line: String) {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = Task {
-            await self.waitForClickyToFinishSpeaking()
-            while self.buddyDictationManager.isDictationInProgress && !Task.isCancelled {
+            while !Task.isCancelled && !themeStudioLineMayStart(
+                dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
+                clickyIsThinking: self.voiceState == .processing,
+                audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
+                themeStudioIsDesigning: self.themeStudioController.state.isDesigning
+            ) {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
             guard !Task.isCancelled else { return }
+            self.themeStudioLineIsPlaying = true
             await self.speakLiveSceneLine(line)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
+            self.themeStudioLineIsPlaying = false
             if self.voiceState == .responding {
                 self.voiceState = .idle
             }
@@ -2872,12 +2886,15 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Ends the studio's spoken line when the card closes. Cancelling the speech task also drops a line still waiting for
-    /// its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
-    /// runs once it is cancelled, so this does it.
+    /// Ends the studio's spoken line when the card closes or saves. Cancelling the speech task also drops a line still waiting
+    /// for its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
+    /// runs once it is cancelled, so this does it. Playback stops only while the studio's own line is playing, since the
+    /// audio may be an answer the router handed off with the card open.
     private func stopTheThemeStudioSpeech() {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = nil
+        guard themeStudioLineIsPlaying else { return }
+        themeStudioLineIsPlaying = false
         elevenLabsTTSClient.stopPlayback()
         if voiceState == .responding {
             voiceState = .idle

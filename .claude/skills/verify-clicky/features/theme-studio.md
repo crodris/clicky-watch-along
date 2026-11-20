@@ -13,8 +13,12 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - `studio-pick` highlights an idea by number (`pick_theme_idea`) or by a tile click.
 - `studio-refine` sends the ideas on the card and `basedOnIdea` back to the route (`design_theme`), dims the old ideas while it runs, and returns to them with "Sorry, I couldn't design that one." when it fails.
 - `studio-picture` captures the largest picture in Chrome's front tab for "make my theme from this picture", draws the loop, and lets an idea use it as the cursor (whole or round, with an outline and a tint) or as the agent tokens' faces.
-- `studio-save` writes `theme.json` and `picture.jpg`, sets `companionTheme` to `custom:<id>`, closes the card, and plays the theme's done sound.
-- `studio-close` closes the card and keeps the old theme, from `close_theme_studio`, the Close button, or Escape.
+- `studio-save` writes `theme.json` and `picture.jpg`, sets `companionTheme` to `custom:<id>`, closes the card, stops the line Clicky is saying about the ideas, and plays the theme's done sound.
+  A click on Save shows a chip under the cursor, "Theme saved", or "Couldn't save the theme" when the write fails, and the card stays open on a failure. The voice tool's chip comes from the router instead.
+- `studio-close` closes the card and keeps the old theme, from `close_theme_studio`, the Close button, or Escape, and stops the line Clicky is saying about the ideas, or a line still waiting to be said.
+  It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
+- `studio-router` sends every word spoken with the card open to `/voice-command`, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
+  A failed router request says "Sorry, I couldn't do that one." and leaves the card as it was, instead of answering the words as a question about the screen.
 - `studio-agents` gives each new agent the first theme agent color no running agent or waiting result has, and the picture as its round face when the theme uses it.
 
 ## How to get to it (user POV)
@@ -60,8 +64,17 @@ Preconditions:
   `~/Library/Application Support/Clicky/Themes/<id>/theme.json` holds the idea, with `picture.jpg` beside it when the theme uses the picture.
   Post `{"name":"debug_seed_agents","arguments":{"kinds":["task","task","task"]}}`: the three tokens beside the notch take the first three theme agent colors, and with a picture theme their faces are the picture. Run `$V shot studio-agents`.
   Relaunch the app: the theme is still applied, and the menu bar panel lists it after the built-in themes.
+- **Save click.** Open the card again and click Save with the real mouse: read the button's point from a `$V shot`, then run `swift demo/scripts/mouse/mouse.swift click <x> <y>`.
+  The card closes, a "Theme saved" chip shows under the cursor for about 1.4 seconds, and `companionTheme` is `custom:<id>`.
+  Run `chmod a-w ~/Library/Application\ Support/Clicky/Themes`, open the card, and click Save again: the card stays open and the chip says "Couldn't save the theme".
+  Put it back with `chmod u+w` on the same folder.
 - **Close and Escape.** Open the card again, then post `close_theme_studio`, or run `$V key escape`.
   The card closes, the cursor goes back to the saved theme, and the saved `companionTheme` is unchanged.
+- **Closing stops the studio's own line.** Open the card and, while Clicky is still saying the ideas' line (about 5 seconds after the tiles show), post `close_theme_studio`, or click Save.
+  The audio stops at once, and the app log shows no later `ElevenLabs TTS: playing` for that line.
+  Then launch with `$V app-launch "change my theme | +30 what is on my screen"`, post `close_theme_studio` while the screen answer plays, and hear it play to its end.
+- **Router failure.** Launch with `$V app-launch "change my theme | +40 two"`, run `$V worker-down` once the three tiles show, and wait for the second step.
+  Clicky says "Sorry, I couldn't do that one.", the card stays open with the first idea highlighted, and the app log has `Voice command: the router failed, so its fallback takes it` with no screen answer for "two".
 - **Failure.** Stop the Worker this run started, then post `design_theme`: the card closes, and Clicky says "Sorry, I couldn't design that one."
   With ideas on the card, the same failure on a refinement brings the previous ideas back.
 - Put the learner's theme back when done: `defaults write com.crodris.clicky-watch-along companionTheme <the value read first>`, or `defaults delete` it, and remove the test theme's folder from `~/Library/Application Support/Clicky/Themes/`.

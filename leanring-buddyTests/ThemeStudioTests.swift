@@ -176,6 +176,32 @@ struct AsksToDesignAThemeTests {
     }
 }
 
+// MARK: - When a line may play
+
+struct ThemeStudioLineTimingTests {
+    private func lineMayStart(
+        dictation: Bool = false, thinking: Bool = false, audioPlaying: Bool = false, designing: Bool = false
+    ) -> Bool {
+        themeStudioLineMayStart(
+            dictationIsInProgress: dictation, clickyIsThinking: thinking, audioIsPlaying: audioPlaying, themeStudioIsDesigning: designing
+        )
+    }
+
+    @Test func aLineWaitsForPushToTalkAnAnswerBeingWorkedOnAndAudioAllAtOnce() {
+        #expect(lineMayStart())
+        #expect(!lineMayStart(dictation: true))
+        // The learner's request that began while the line waited for push-to-talk holds it back too.
+        #expect(!lineMayStart(thinking: true))
+        #expect(!lineMayStart(audioPlaying: true))
+    }
+
+    @Test func theStudiosOwnDesignDoesNotHoldItsPictureLineBackButStillYieldsToVoiceAndAudio() {
+        #expect(lineMayStart(thinking: true, designing: true))
+        #expect(!lineMayStart(dictation: true, thinking: true, designing: true))
+        #expect(!lineMayStart(thinking: true, audioPlaying: true, designing: true))
+    }
+}
+
 // MARK: - What the router reads
 
 struct ThemeStudioRouterStateTests {

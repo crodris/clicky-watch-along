@@ -821,6 +821,9 @@ nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSO
 /// waiting to be heard, since "what did you find" may come from the page the task agent opened, or a task agent's tool
 /// waiting for the learner's "yes" or "no", or the Theme Studio card, where every spoken word is a number, a change, or "save it".
 /// A quiz answer goes to the judge, and a scene still building keeps its keyword path.
+/// The open Theme Studio card wins over a scene still building, since the router may call `build_new_scene` from the card,
+/// and the card's next word ("two") would otherwise take the keyword path, cancel that build, and become a screen answer.
+/// A quiz question still wins over the card.
 /// With the brain flag on, it takes every first utterance that is not one of those two, even with nothing live.
 nonisolated func voiceCommandRouterTakesTheTranscript(
     sceneIsOnScreen: Bool,
@@ -833,9 +836,11 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     sceneIsBuilding: Bool,
     brainTakesEveryRequest: Bool = false
 ) -> Bool {
-    if phaseIsWaitingForAQuizAnswer || sceneIsBuilding { return false }
+    if phaseIsWaitingForAQuizAnswer { return false }
+    if themeStudioIsOpen { return true }
+    if sceneIsBuilding { return false }
     if brainTakesEveryRequest { return true }
-    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting || themeStudioIsOpen
+    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting
 }
 
 /// The "one brain" switch. With it on, the voice command model picks the action for every first utterance, instead of

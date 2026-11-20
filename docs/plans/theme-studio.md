@@ -196,19 +196,22 @@ Flow:
    With no picture to capture, Clicky says "I don't see a picture in Chrome's front tab, so I'll go from your words." and designs from the words.
 3. When the ideas arrive, the card shows them, the first is highlighted, `previewTheme` becomes that idea, and Clicky speaks `spokenLine`.
    A failed call says "Sorry, I couldn't design that one." and goes back to the previous ideas, or closes the card when there were none.
-4. While the studio is open, `voiceCommandRouterTakesTheTranscript` takes every command (`themeStudioIsOpen`), and the router is offered:
+4. While the studio is open, `voiceCommandRouterTakesTheTranscript` takes every command (`themeStudioIsOpen`), even while a scene the router started is still building, and only an open quiz question wins over it.
+   The quiz phrases ("can we stop", "quiz me on this video") are the router's too unless a quiz question is open (`videoQuizPhrasesAreMatchedAheadOfTheRouter`).
+   The router is offered:
    - `design_theme` (`request`, optional `basedOnIdea`, optional `fromPicture`): new ideas, or a change to the ones on the card. Offered whenever no quiz question is open, so the brain flag can open the studio too. It returns `.handedOff`, since the card and `spokenLine` say what happened.
    - `pick_theme_idea` (`number` 1 to 3): highlight and preview it. Offered only while ideas show.
    - `save_theme`: save the highlighted idea and apply it. Offered only while ideas show.
    - `close_theme_studio`: close the card and keep the old theme. Offered only while the studio is open.
    The scene state carries `themeStudio: { ideas: ["Ember", "Moonlit", "Forest"], highlighted: 2, designing: false }`.
    Chip phrases: pick says "Trying idea 2", save says "Theme saved", close says "Kept your old theme", and design_theme shows none.
-5. Saving writes the theme and its picture with `CustomThemeStore`, sets `themeSettings.theme = .custom(theme)`, clears `previewTheme`, closes the card, and plays the theme's done sound once.
+5. Saving writes the theme and its picture with `CustomThemeStore`, sets `themeSettings.theme = .custom(theme)`, clears `previewTheme`, closes the card, stops the line Clicky was saying about the ideas, and plays the theme's done sound once.
    A click on Save shows the "Theme saved" chip as the voice tool does, or "Couldn't save the theme" when the write fails.
-   The store creates the theme's folder with no intermediate folders, so an existing folder throws before any write.
+   The store refuses an id that is not a theme id, such as "../x", before it makes a folder, and creates the theme's folder with no intermediate folders, so an existing folder throws before any write.
 6. Escape closes the studio first when it is open, ahead of the scene behavior, and keeps the old theme.
    A push-to-talk press does not close it. A new `design_theme` cancels a design call still running.
-   Closing the card by Escape, the Close button, or `close_theme_studio` stops the line Clicky is saying about the ideas, and a studio line waits for push-to-talk to end before it plays.
+   Closing the card by Escape, the Close button, or `close_theme_studio` stops the line Clicky is saying about the ideas, and only that line: an answer playing for another request keeps playing.
+   A studio line waits until no audio plays, push-to-talk is not held, and Clicky is not thinking about a request, all checked together (`themeStudioLineMayStart`). The studio's own design does not count as thinking.
 
 The card is a borderless nonactivating panel that never becomes key, like the agent list, placed at the first corner around the mouse where it does not cover the pointer (reuse `approvalListAnchorTopLeft`).
 It shows the title, three tiles (the idea's cursor drawn by `CustomCursorView`, its name, its accent and agent colors as swatches, and a small agent token in its first agent color with the picture face when it uses the picture), the highlighted tile's tags (shape motion in words, the sounds), and the hint line "Say one, two, or three · or what to change · say save it".

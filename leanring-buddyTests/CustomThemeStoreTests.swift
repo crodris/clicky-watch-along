@@ -96,6 +96,31 @@ struct CustomThemeStoreTests {
         }
     }
 
+    @Test func aThemeWhoseIdIsNotAFolderNameThrowsAndCreatesNothingOutsideTheThemesFolder() throws {
+        try withATemporaryThemeStore { store in
+            let idea = try parsedThemeIdea()
+            let escapingFolderName = "clicky-escaped-\(UUID().uuidString.lowercased())"
+            // "../name" would resolve to a sibling of the Themes folder.
+            let escapedFolderURL = store.themesDirectoryURL.deletingLastPathComponent().appendingPathComponent(escapingFolderName, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: escapedFolderURL) }
+
+            for badThemeID in ["../\(escapingFolderName)", "a/b", "Moonlit", ""] {
+                let themeWithABadID = CustomTheme(
+                    id: badThemeID, name: idea.name, accentHex: idea.accentHex, contrastHex: idea.contrastHex,
+                    agentColorHexes: idea.agentColorHexes, cursor: idea.cursor, motion: idea.motion,
+                    sounds: idea.sounds, usesPicture: false
+                )
+                #expect(throws: CustomThemeStoreError.themeIDIsNotAValidFolderName) {
+                    try store.write(themeWithABadID, pictureJPEG: nil)
+                }
+            }
+
+            #expect(!FileManager.default.fileExists(atPath: escapedFolderURL.path))
+            // The guard comes first, so not even the Themes folder was made.
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
+    }
+
     @Test func twoThemesWithOneNameGetTwoFolders() throws {
         try withATemporaryThemeStore { store in
             let idea = try parsedThemeIdea()

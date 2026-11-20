@@ -31,6 +31,10 @@ function voiceReply(...toolCalls: Array<[string, Record<string, unknown>]>): str
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 const check = (caseId: string, replyText: string) => benchCase(caseId).checkReply(replyText, "application/json", replyText.length);
 
 describe("benchCases", () => {
@@ -113,13 +117,15 @@ describe("the /theme-ideas cases", () => {
   const themeReply = (...ideas: object[]) => JSON.stringify({ title: "Three ideas", spokenLine: "Here are three.", ideas });
 
   it("sends the words alone, and the words with the Starry Night frame as a picture", () => {
-    const wordsBody = benchCase("theme-ideas-words").requestBody(appProfile) as { request: string; picture?: unknown };
-    const pictureBody = benchCase("theme-ideas-picture").requestBody(appProfile) as { picture: { jpegBase64: string; width: number; height: number } };
-
+    const wordsBody = benchCase("theme-ideas-words").requestBody(appProfile);
+    const pictureBody = benchCase("theme-ideas-picture").requestBody(appProfile);
+    assert.ok(isRecord(wordsBody) && isRecord(pictureBody));
     assert.equal(wordsBody.request, "something cozy for night");
     assert.equal(wordsBody.picture, undefined);
-    assert.ok(pictureBody.picture.jpegBase64.length > 1000);
-    assert.deepEqual([pictureBody.picture.width, pictureBody.picture.height], [1280, 720]);
+    const picture = pictureBody.picture;
+    assert.ok(isRecord(picture) && typeof picture.jpegBase64 === "string");
+    assert.ok(picture.jpegBase64.length > 1000);
+    assert.deepEqual([picture.width, picture.height], [1280, 720]);
   });
 
   it("passes the words case for three well-formed ideas that use no picture, and fails a picture that was never sent", () => {

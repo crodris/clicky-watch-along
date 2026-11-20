@@ -193,6 +193,8 @@ struct ThemeStudioControllerTests {
 
         #expect(!harness.studio.pickIdea(number: 1))
         #expect(harness.studio.saveTheHighlightedIdea() == .nothingToSave)
+        // Nothing was saved and the card stays open, so no line is cut.
+        #expect(harness.stopSpeakingCount == 0)
         gate.open()
         await harness.studio.waitForTheDesign()
         #expect(harness.studio.state.isShowingIdeas)
@@ -205,9 +207,12 @@ struct ThemeStudioControllerTests {
             harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
             await harness.studio.waitForTheDesign()
             harness.studio.pickIdea(number: 2)
+            #expect(harness.stopSpeakingCount == 0)
 
             #expect(harness.studio.saveTheHighlightedIdea() == .saved(themeName: "Moonlit"))
             #expect(harness.studio.state == .closed)
+            // The card is gone, so the line about its ideas stops, as it does when the card is closed.
+            #expect(harness.stopSpeakingCount == 1)
             #expect(harness.presenter.hideCount == 1)
             #expect(harness.themeSettings.previewTheme == nil)
             guard case .custom(let savedTheme) = harness.themeSettings.theme else { Issue.record("not a custom theme"); return }

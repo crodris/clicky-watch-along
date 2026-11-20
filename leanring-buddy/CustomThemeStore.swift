@@ -14,6 +14,8 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     /// The theme uses the picture, so saving it needs the picture's JPEG.
     case themeUsesAPictureButNoneWasGiven
     case couldNotChooseAFreeFolderName
+    /// The id is joined onto the Themes folder as a folder name, so one that is not a theme id could write outside it.
+    case themeIDIsNotAValidFolderName
 }
 
 nonisolated struct CustomThemeStore: Sendable {
@@ -96,8 +98,10 @@ nonisolated struct CustomThemeStore: Sendable {
     /// with its parents, and the theme's folder after it with none: `createDirectory` with intermediate folders succeeds on a
     /// folder that is already there, so a folder made between the free-name check and this call would be written into, and
     /// the cleanup below would then delete it. This way an existing folder throws before any write, and the cleanup removes
-    /// only a folder this call created.
+    /// only a folder this call created. An id that is not a theme id, such as "../x", throws before any folder is made,
+    /// since it would put the theme outside the Themes folder.
     func write(_ savedTheme: CustomTheme, pictureJPEG: Data?) throws {
+        guard Self.isAValidThemeID(savedTheme.id) else { throw CustomThemeStoreError.themeIDIsNotAValidFolderName }
         let fileManager = FileManager.default
         let themeDirectoryURL = themesDirectoryURL.appendingPathComponent(savedTheme.id, isDirectory: true)
         try fileManager.createDirectory(at: themesDirectoryURL, withIntermediateDirectories: true)

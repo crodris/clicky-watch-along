@@ -122,9 +122,25 @@ struct ThemeStudioRouterRuleTests {
     @Test func theRouterTakesEveryCommandWhileTheStudioIsOpenEvenWithNothingElseLive() {
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false) == false)
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
-        // A quiz answer still goes to the judge, and a scene still building keeps its keyword path.
+        // A quiz answer still goes to the judge, even with the card open.
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false) == false)
-        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true) == false)
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: true) == false)
+    }
+
+    @Test func theOpenCardWinsOverASceneStillBuildingSoTheRouterStaysOnForTheNextWord() {
+        // The router may call build_new_scene from the card, and "two" must not take the keyword path and cancel the build.
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true))
+        // With the card closed, a scene still building keeps its keyword path.
+        #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, themeStudioIsOpen: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true) == false)
+    }
+
+    @Test func theQuizPhrasesAreMatchedAheadOfTheRouterUnlessTheCardIsOpenWithNoQuizQuestion() {
+        #expect(videoQuizPhrasesAreMatchedAheadOfTheRouter(themeStudioIsOpen: false, phaseIsWaitingForAQuizAnswer: false))
+        #expect(videoQuizPhrasesAreMatchedAheadOfTheRouter(themeStudioIsOpen: false, phaseIsWaitingForAQuizAnswer: true))
+        // "can we stop" and "quiz me on this video" are for the router while the card is open.
+        #expect(videoQuizPhrasesAreMatchedAheadOfTheRouter(themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: false) == false)
+        // The router takes no command during a quiz question, so "stop the quiz" keeps its phrase match.
+        #expect(videoQuizPhrasesAreMatchedAheadOfTheRouter(themeStudioIsOpen: true, phaseIsWaitingForAQuizAnswer: true))
     }
 
     @Test func theRoutersMessageCarriesTheStudiosIdeasAndHighlight() throws {
