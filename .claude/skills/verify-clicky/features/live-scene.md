@@ -44,7 +44,7 @@ Preconditions:
   The usage line has `"model":"claude-sonnet-5-5"`.
 - **Cost ceiling.** One `[/live-scene]` usage line per request.
   Two lines mean the reply failed the page checks once and the route retried, and the report names the retry.
-  Each line has `output_tokens` under 14000, because Sonnet stops at 16000 and GPT at 14000, and a reply at the cap is a cut-off page.
+  A GPT line has `output_tokens` under 14000 and a Sonnet line under 64000, because each model stops at that cap (`max_output_tokens` and `claudeLiveSceneMaxTokens` in `worker/src/liveScene.ts`), and a reply at the cap is a cut-off page.
   Sonnet runs at low effort and showed 0 thinking tokens with 4145 and 4884 output tokens on 2026-11-05.
 
 ## Gotchas
