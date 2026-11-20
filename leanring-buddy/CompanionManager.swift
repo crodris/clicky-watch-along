@@ -166,14 +166,14 @@ final class CompanionManager: ObservableObject {
         }
         return agentHarness
     }()
-    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the agent list showed it
-    /// before the press. The router takes the command, offers `answer_approval`, and names the request's capability only
-    /// for this one, so a yes the app would refuse is never asked of the model.
+    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the approval card had
+    /// shown its whole summary for a second at the press, and it is still waiting. The router takes the command, offers
+    /// `answer_approval`, and names the request's capability only for this one, so a yes the app would refuse is never
+    /// asked of the model.
     private var approvalRequestAVoiceAnswerMayReach: HarnessApprovalRequest? {
-        guard let lastPushToTalkPressedAt,
-              let approvalID = agentHarness.approvalDesk.oldestRequestID(shownBefore: lastPushToTalkPressedAt) else { return nil }
+        guard let approvalIDTheLearnerHadSeenAtThePress else { return nil }
         return agentHarness.approvalDesk.oldestWaitingRequest.flatMap { oldestRequest in
-            oldestRequest.approvalID == approvalID ? oldestRequest : nil
+            oldestRequest.approvalID == approvalIDTheLearnerHadSeenAtThePress ? oldestRequest : nil
         }
     }
 
@@ -292,9 +292,9 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
-    /// When the learner last pressed push-to-talk, or a rehearsal step stood in for a press. A voice answer to an approval
-    /// counts only for a request that was on screen before then.
-    private var lastPushToTalkPressedAt: Date?
+    /// The approval request whose whole summary the card had shown for a second when the learner last pressed
+    /// push-to-talk, or a rehearsal step stood in for a press. A voice answer can reach only this request.
+    private var approvalIDTheLearnerHadSeenAtThePress: String?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
@@ -831,7 +831,7 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
-            lastPushToTalkPressedAt = Date()
+            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
             cursorLoopController.pushToTalkWasPressed()
@@ -1011,7 +1011,7 @@ final class CompanionManager: ObservableObject {
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
-            lastPushToTalkPressedAt = Date()
+            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)

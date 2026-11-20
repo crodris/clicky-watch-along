@@ -130,11 +130,6 @@ nonisolated func approvalWaitingChipTexts(agentName: String) -> (primary: String
 }
 
 extension AgentListApprovalState {
-    var needsAnAnswer: Bool {
-        if case .needsAnswer = self { return true }
-        return false
-    }
-
     /// The line under the row's subject, or nil for a row that waits for nothing.
     var rowStatusText: String? {
         switch self {
