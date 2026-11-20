@@ -128,10 +128,8 @@ final class ThemeStudioController: ObservableObject {
                 return
             }
             print("Theme studio: designed \(reply.ideas.count) ideas in \(Int(Date().timeIntervalSince(startedAt))) s")
-            let stateWithIdeas = state.withIdeasArrived(arrivedIdeas)
-            // The learner closed the card while the Worker worked, so there is nothing to show or say.
-            guard stateWithIdeas != state else { return }
-            state = stateWithIdeas
+            // A card closed, or a design replaced, while the Worker worked cancelled this task, so the ideas here are the newest.
+            state = state.withIdeasArrived(arrivedIdeas)
             showThePreview(of: arrivedIdeas)
             environment.speak(reply.spokenLine)
         } catch {

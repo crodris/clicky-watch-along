@@ -73,5 +73,6 @@ Preconditions:
 - The card sits one level below the cursor overlay windows, so the previewed cursor draws over it. A cursor that looks cut off by the card is a window level bug.
 - An idea that uses the picture cannot be saved without the picture's JPEG, and a saved folder without `picture.jpg` is skipped at load with a `Custom themes: skipped` log line.
 - A hand-edited `theme.json` that breaks a rule (a path with an arc, an accent too dark to read) is skipped at load, not repaired.
+- With Show Clicky off, the cursor overlay fades a second after the last interaction (transient cursor mode), so the preview shows on the card's tiles only until the next push-to-talk.
 - Agents started while only a preview shows take the saved theme's colors, not the preview's.
 - Seeded agents never end on their own. Cancel them from the agent list or quit the app.

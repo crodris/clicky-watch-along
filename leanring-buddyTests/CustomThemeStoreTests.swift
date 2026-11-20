@@ -46,6 +46,14 @@ struct CustomThemeStoreTests {
         }
     }
 
+    @Test func aThemeThatDoesNotUseThePictureLeavesItOutEvenWhenTheStudioHasOne() throws {
+        try withATemporaryThemeStore { store in
+            let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: pictureBytes)
+            #expect(!FileManager.default.fileExists(atPath: store.pictureURL(forThemeID: savedTheme.id).path))
+            #expect(store.loadSavedThemes() == [savedTheme])
+        }
+    }
+
     @Test func aThemeThatUsesThePictureCannotBeSavedWithoutOne() throws {
         try withATemporaryThemeStore { store in
             let idea = try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true)
