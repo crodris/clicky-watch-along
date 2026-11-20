@@ -161,16 +161,16 @@ export function contrastRatioAgainstTheDarkSurface(hexColor: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-/** Hue in degrees (0 to 360) and HSL saturation (0 to 1). */
-function hueAndSaturationOfHex(hexColor: string): { hueDegrees: number; saturation: number } {
+/** Hue in degrees (0 to 360), and HSL saturation and lightness (0 to 1). */
+function hueAndSaturationOfHex(hexColor: string): { hueDegrees: number; saturation: number; lightness: number } {
   const [red, green, blue] = rgbOfHex(hexColor).map((channel) => channel / 255);
   const highest = Math.max(red, green, blue);
   const lowest = Math.min(red, green, blue);
   const spread = highest - lowest;
-  if (spread === 0) {
-    return { hueDegrees: 0, saturation: 0 };
-  }
   const lightness = (highest + lowest) / 2;
+  if (spread === 0) {
+    return { hueDegrees: 0, saturation: 0, lightness };
+  }
   const saturation = spread / (1 - Math.abs(2 * lightness - 1));
   let hueDegrees: number;
   if (highest === red) {
@@ -180,12 +180,19 @@ function hueAndSaturationOfHex(hexColor: string): { hueDegrees: number; saturati
   } else {
     hueDegrees = (red - green) / spread + 4;
   }
-  return { hueDegrees: (hueDegrees * 60 + 360) % 360, saturation };
+  return { hueDegrees: (hueDegrees * 60 + 360) % 360, saturation, lightness };
 }
 
-/** Red means a failed agent and green means a finished one, so an agent token never uses either. */
+/** HSL lightness above which a red or green hue reads as a pastel, such as a light pink, never as the failed red or the done green. */
+const highestStateColorLightness = 0.75;
+
+/**
+ * Red means a failed agent and green means a finished one, so an agent token never uses either.
+ * A light pastel such as #F4A6C0 has a red hue but cannot be mistaken for the failed red, so it passes.
+ */
 function agentColorProblem(hexColor: string): string | undefined {
-  const { hueDegrees, saturation } = hueAndSaturationOfHex(hexColor);
+  const { hueDegrees, saturation, lightness } = hueAndSaturationOfHex(hexColor);
+  if (lightness > highestStateColorLightness) return undefined;
   if (saturation > 0.35 && (hueDegrees >= 340 || hueDegrees <= 20)) {
     return "is a saturated red, and red means a failed agent";
   }
@@ -465,7 +472,27 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
  * uppercased, unknown fields dropped). One that fails names the first broken rule as one plain sentence, which the
  * handler puts in its single retry message.
  */
-export function checkThemeIdeas(modelReply: ModelReply, requestHadAPicture: boolean): ThemeIdeasCheck {
+/**
+ * The agent colors a token may use: #RRGGBB, readable on the dark surface, and not a state color.
+ * One stray color among several is dropped instead of asking the model again, which costs a whole design call.
+ */
+export function usableAgentColors(agentColors: string[]): string[] {
+  return agentColors.filter(
+    (agentColor) =>
+      hexColorPattern.test(agentColor) &&
+      contrastRatioAgainstTheDarkSurface(agentColor) >= minimumContrastRatio &&
+      agentColorProblem(agentColor) === undefined,
+  );
+}
+
+/** Drops the agent colors a token may not use when enough remain, and otherwise leaves them for ideaProblem to name. */
+function withUsableAgentColors(idea: ModelIdea): ModelIdea {
+  const remainingAgentColors = usableAgentColors(idea.agentColors);
+  return remainingAgentColors.length >= minimumAgentColorCount ? { ...idea, agentColors: remainingAgentColors } : idea;
+}
+
+export function checkThemeIdeas(unrepairedModelReply: ModelReply, requestHadAPicture: boolean): ThemeIdeasCheck {
+  const modelReply = { ...unrepairedModelReply, ideas: unrepairedModelReply.ideas.map(withUsableAgentColors) };
   const titleProblem = lengthProblem("title", modelReply.title, maximumTitleLength);
   if (titleProblem !== undefined) return { accepted: false, reason: titleProblem };
   const spokenLineProblem = lengthProblem("spokenLine", modelReply.spokenLine, maximumSpokenLineLength);

@@ -325,6 +325,16 @@ struct CustomThemeParserTests {
         #expect(try !looksLikeAStateColor(atHue: 270))
     }
 
+    @Test func aLightPinkIsNotAStateColorEvenThoughItsHueIsRed() throws {
+        // Both came from real replies to "something cozy for night" on 2026-11-20, which failed the whole design.
+        for lightPinkHex in ["#F4A6C0", "#F2A0B8"] {
+            let lightPink = try #require(ThemeRGBColor(hex: lightPinkHex))
+            #expect(!lightPink.looksLikeAStateColor, "\(lightPinkHex) is a pastel, not the failed red")
+        }
+        // The same hue at a mid lightness still reads as red.
+        #expect(try #require(ThemeRGBColor(hex: "#E0456A")).looksLikeAStateColor)
+    }
+
     @Test func aPaleOrGrayColorIsNotAStateColorEvenWithARedOrGreenHue() throws {
         // Saturation 0.35 and under reads as pastel or gray, so a soft pink stays allowed.
         let palePinkIdea = replacingField(in: goodThemeIdea, at: ["agentColors", "1"], with: .string("#E5D0D0"))

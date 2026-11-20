@@ -142,6 +142,19 @@ describe("checkThemeIdeas", () => {
     expect(checkThemeIdeas(replyWithFirstIdea({ agentColors: washedOutAndNeighbors }), false)).toMatchObject({ accepted: true });
   });
 
+  it("allows a light pink agent color, which has a red hue but never reads as the failed red", () => {
+    // Both colors came from real replies to "something cozy for night" on 2026-11-20, and each one failed the whole design.
+    const lightPinks = ["#7DD3FC", "#F4A6C0", "#F2A0B8"];
+
+    expect(checkThemeIdeas(replyWithFirstIdea({ agentColors: lightPinks }), false)).toMatchObject({ accepted: true });
+  });
+
+  it("drops one agent color that breaks a rule when 3 good ones remain, instead of asking the model again", () => {
+    const check = checkThemeIdeas(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#F87171", "#C4B5FD", "#FDE68A"] }), false);
+
+    expect(check.accepted && check.reply.ideas[0].agentColors).toEqual(["#7DD3FC", "#C4B5FD", "#FDE68A"]);
+  });
+
   it("refuses a cursor with no shapes and one with 7", () => {
     const idea = goodIdea();
     expect(rejectionReason(replyWithFirstIdea({ cursor: { kind: "shapes", shapes: [], picture: null } }))).toContain("must have 1 to 6 shapes, and it has 0");

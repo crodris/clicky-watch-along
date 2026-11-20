@@ -176,6 +176,10 @@ nonisolated struct ThemeRGBColor: Equatable, Sendable {
         return degrees < 0 ? degrees + 360 : degrees
     }
 
+    var hslLightness: Double {
+        (max(red, green, blue) + min(red, green, blue)) / 2
+    }
+
     var hslSaturation: Double {
         let highest = max(red, green, blue)
         let lowest = min(red, green, blue)
@@ -186,9 +190,11 @@ nonisolated struct ThemeRGBColor: Equatable, Sendable {
     }
 
     /// Red means failed and green means done on a token, so an agent color may not look like either: a hue from 340 to 20
-    /// degrees, or from 95 to 165 degrees, with an HSL saturation over 0.35.
+    /// degrees, or from 95 to 165 degrees, with an HSL saturation over 0.35 and an HSL lightness of 0.75 or less.
     var looksLikeAStateColor: Bool {
-        guard hslSaturation > 0.35 else { return false }
+        // A light pastel such as #F4A6C0 has a red hue but cannot be mistaken for the failed red. The Worker's
+        // agentColorProblem uses the same 0.75 line.
+        guard hslLightness <= 0.75, hslSaturation > 0.35 else { return false }
         let hue = hueDegrees
         let looksRed = hue >= 340 || hue <= 20
         let looksGreen = hue >= 95 && hue <= 165
