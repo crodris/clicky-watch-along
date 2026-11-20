@@ -22,10 +22,12 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down               Stop the Workers this script started.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch [--brain] "<steps>"
+  app-launch [--brain] [--harness-brain] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain also passes --brain-takes-every-request, so the router takes every first utterance
                           without writing the flag into the defaults the everyday Clicky shares.
+                          --harness-brain also passes --brain-runs-in-the-harness, so voice commands run on the brain in
+                          the agent harness instead of POST /voice-command. The two flags go in either order.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
@@ -515,13 +517,24 @@ require_screen_recording_grant() {
   echo "warning: the app log has no 'Clicky start' permission line after 10 seconds" >&2
 }
 
-command_app_launch() {
-  local brain_launch_arguments=()
-  if [[ "$1" == "--brain" ]]; then
-    brain_launch_arguments=(--brain-takes-every-request)
+# Reads app-launch's flags into app_launch_flag_arguments, the app's own launch arguments for them, and the steps after
+# them into app_launch_rehearsal_steps.
+parse_app_launch_arguments() {
+  app_launch_flag_arguments=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --brain) app_launch_flag_arguments+=(--brain-takes-every-request) ;;
+      --harness-brain) app_launch_flag_arguments+=(--brain-runs-in-the-harness) ;;
+      *) break ;;
+    esac
     shift
-  fi
-  local rehearsal_steps="${1:?rehearsal steps}"
+  done
+  app_launch_rehearsal_steps="${1:?rehearsal steps}"
+}
+
+command_app_launch() {
+  parse_app_launch_arguments "$@"
+  local rehearsal_steps="$app_launch_rehearsal_steps"
   local app_path
   app_path="$(debug_app_path)"
   if [[ -z "$app_path" ]]; then echo "No Debug Clicky.app built from this repository. Run this script's build command first." >&2; exit 1; fi
@@ -548,7 +561,7 @@ command_app_launch() {
   fi
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
-    --args --voice-tool-debug-server ${brain_launch_arguments[@]+"${brain_launch_arguments[@]}"} --live-scene-rehearsal "$rehearsal_steps"
+    --args --voice-tool-debug-server ${app_launch_flag_arguments[@]+"${app_launch_flag_arguments[@]}"} --live-scene-rehearsal "$rehearsal_steps"
   for _ in $(seq 1 20); do
     local launched_pid
     launched_pid="$(running_clicky_pids | head -1)"

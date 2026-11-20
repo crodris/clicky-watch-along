@@ -1,6 +1,7 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
-# and running_clicky_pids, which `app-launch` uses to refuse a second Clicky.
+# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, and parse_app_launch_arguments, which reads
+# `app-launch`'s flags.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -50,4 +51,10 @@ fake_process_ids="$fake_process_ids $fake_app_id"
 sleep 0.5
 # A real Clicky on this Mac is listed too, so the check looks for the fake app's id among the ids.
 check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids | grep -cx "$fake_app_id" || true)" "1"
-echo "ok: verify-clicky build freshness and running-app detection"
+# app-launch's flags become the app's launch arguments in either order, and the steps follow them.
+parse_app_launch_arguments --harness-brain --brain "turn it to the left|^pause it"
+check "both brain flags pass their launch arguments" "${app_launch_flag_arguments[*]}" "--brain-runs-in-the-harness --brain-takes-every-request"
+check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
+parse_app_launch_arguments "pop this out"
+check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
+echo "ok: verify-clicky build freshness, running-app detection, and app-launch flags"

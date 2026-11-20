@@ -15,6 +15,7 @@ A request that needs a new scene or a screenshot answer hands off to the old pat
   A voice pause or play drops Clicky's own pause record on that tab.
 - `voice-handoff` sends "show me a different model", "pop this out", "animate this" (`animate_picture`), and questions about the screen to the old path.
 - `voice-brain-flag` makes the router take every first utterance, with nothing on screen and no video in front, when `brainTakesEveryRequest` is on (`defaults write com.crodris.clicky-watch-along brainTakesEveryRequest -bool YES`, or `--brain-takes-every-request` on a Debug build). It is off by default. The "animate this" and "let me try it" keyword branches are skipped, and a quiz answer, a scene still building, "stop the quiz", and "put it back" keep their own code.
+- `voice-harness-brain` runs the same Haiku loop in the agent harness instead of `POST /voice-command` when `brainRunsInTheHarness` is on (`defaults write com.crodris.clicky-watch-along brainRunsInTheHarness -bool YES`, or `--brain-runs-in-the-harness` on a Debug build, which `app-launch --harness-brain` passes). It is off by default. The harness (`harness/brain.go`, `harness/brainloop.go`) sends each call as a `tool_call` with its `turnIndex`, and the app runs it through the same `runVoiceTool` code, chips, and action lines. The harness keeps no memory yet, so the app still sends the last 5 actions. A turn with no reply in 8 seconds fails the command with no retry, and 10 seconds with no harness event fails it on the app's side, and both take the router failure fallback.
 - `voice-quiz-controls` lets the judge hear skip, repeat, a hint request, or a view command during a quiz question.
 - `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `answer_with_screen`, `show_ready_model`, `hear_task_answer`) whose own scene, speech, status line, or thinking dots follow.
 - `voice-give-up` says "Sorry, I couldn't do that one." when the third turn still needs the model, and never the model's own text, which it writes before a tool call runs and can claim a success that failed.
@@ -53,6 +54,12 @@ Preconditions:
   Then post `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rotate_model","arguments":{"yawDegrees":-45}}}`.
   The result's text is `{"ok":true,"state":{...}}` with `yawDegrees` 45 lower than before, and the model turns on screen.
   The same request with an `Origin` header gets HTTP 403.
+- **The brain in the harness.** On a YouTube video with one clear object, run `$V app-launch --brain --harness-brain "pop this out|turn it to the left|zoom in a bit|no, the other way"`, then `$V app-wait`.
+  The app log shows one `Brain: turn N on claude-haiku-5-5 stopped for ..., N ms` line per turn, the same chips and spoken confirmations as the old path, and the Worker log has no `[/voice-command]` usage line.
+- **A press during a brain turn.** Run `$V app-launch --harness-brain "^skip to where they talk about the engine|pause it"`.
+  The log shows `Live scene rehearsal: pressing push-to-talk during the voice command`, then `Brain: command cancelled during turn 1`, and no `Voice command:` line of the first command after the press.
+  The press handler's audio stop is unchanged code that runs before any router code, so this step proves the cancel, not the audio stop.
+- **A failed brain.** Stop the Worker mid-run, and check that the next command takes the keyword path within 8 seconds of its `voice_command` line (`Voice command: the router failed, so the keyword path takes it`).
 - **Cost ceiling.** One `[/voice-command]` usage line per model turn, `claude-haiku-5-5`, `thinking_tokens` 0, and under 200 output tokens.
   After the first call within 5 minutes, `cache_read_input_tokens` is above 1000, because the tool list and the system prompt are cached.
 

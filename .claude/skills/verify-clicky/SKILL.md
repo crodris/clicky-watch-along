@@ -106,6 +106,8 @@ $V app-wait 240
 ```
 
 `app-launch --brain "<steps>"` also passes `--brain-takes-every-request`, so the voice command router takes every first utterance, as with the `brainTakesEveryRequest` default on, without changing the defaults the everyday Clicky shares.
+`app-launch --harness-brain "<steps>"` also passes `--brain-runs-in-the-harness`, so each voice command runs on the brain in the agent harness instead of `POST /voice-command`, as with the `brainRunsInTheHarness` default on.
+The two flags go in either order, such as `app-launch --brain --harness-brain "<steps>"`.
 
 Steps are separated by `|`.
 The app waits 3 seconds, then sends each step as if it were spoken.
@@ -113,6 +115,9 @@ It waits for the step's own work to finish, including a pop-out's narration, and
 A step that starts with `?` first waits up to 4 minutes for a quiz question to be asked and spoken, then answers it.
 A step that starts with `~` lets the next step interrupt it after 6 seconds.
 A step that starts with `&` first waits up to 3 minutes for every background agent to finish, then for a 3D model's rise and narration or an experiment's rise and guess question, then 4 seconds more for the finish chip.
+A step that starts with `^` presses push-to-talk 0.3 seconds after the app writes the step's `voice_command` line to the harness, through the handler a real press runs, and releases it 0.2 seconds later.
+It needs `--harness-brain`, and the log says `Live scene rehearsal: pressing push-to-talk during the voice command`.
+The empty press asks nothing, and the next step goes out as usual.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
@@ -153,7 +158,9 @@ worker-up [port] [-- wrangler args]
 worker-down               Stop the Workers this script started.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
+app-launch [--brain] [--harness-brain] "<steps>"
+                          Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
+                          --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.
