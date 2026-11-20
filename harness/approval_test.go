@@ -130,10 +130,15 @@ func (captured *capturedRequests) next(t *testing.T) approvalRequestMessage {
 // authorizeAndAnswer runs one authorization in the background, answers the request it sends, and returns the phase.
 func authorizeAndAnswer(t *testing.T, gate *approvalGate, tool toolName, needed capability, answer approvalResultMessage) approvalPhase {
 	t.Helper()
+	return authorizeInTaskAndAnswer(t, gate, context.Background(), "task-1", tool, needed, answer)
+}
+
+func authorizeInTaskAndAnswer(t *testing.T, gate *approvalGate, taskContext context.Context, taskID string, tool toolName, needed capability, answer approvalResultMessage) approvalPhase {
+	t.Helper()
 	captured := newCapturedRequests()
 	phases := make(chan approvalPhase, 1)
 	go func() {
-		phases <- gate.authorize(context.Background(), "task-1", tool, needed, "summary", captured.send)
+		phases <- gate.authorize(taskContext, taskID, tool, needed, "summary", captured.send)
 	}()
 	answer.ApprovalID = captured.next(t).ApprovalID
 	if !gate.deliver(answer) {
@@ -142,26 +147,48 @@ func authorizeAndAnswer(t *testing.T, gate *approvalGate, tool toolName, needed 
 	return <-phases
 }
 
-func TestAnAlwaysAnswerCoversThatToolAtThatCapabilityForTheRestOfTheProcess(t *testing.T) {
+func TestAnAlwaysAnswerCoversThatToolAtThatCapabilityForTheRestOfThatTaskOnly(t *testing.T) {
 	gate := newApprovalGate()
-	if got := authorizeAndAnswer(t, gate, "tool_a", capabilitySends, approvalResultMessage{Approved: true, Scope: approvalScopeAlways}); got != approvalGiven {
+	taskAContext, endTaskA := context.WithCancel(context.Background())
+	defer endTaskA()
+	always := approvalResultMessage{Approved: true, Scope: approvalScopeAlways}
+	if got := authorizeInTaskAndAnswer(t, gate, taskAContext, "task-a", "tool_a", capabilitySends, always); got != approvalGiven {
 		t.Fatalf("the first call ended in phase %d", got)
 	}
-	// The same tool and capability runs without a question, in any task.
+	// A second call of the same tool and capability in the same task runs without a question.
 	silent := newCapturedRequests()
-	if got := gate.authorize(context.Background(), "task-2", "tool_a", capabilitySends, "summary", silent.send); got != approvalAlreadyGranted {
-		t.Errorf("the same tool should be already granted, got phase %d", got)
+	if got := gate.authorize(taskAContext, "task-a", "tool_a", capabilitySends, "summary", silent.send); got != approvalAlreadyGranted {
+		t.Errorf("the same tool in the same task should be already granted, got phase %d", got)
 	}
 	if len(silent.requests) != 0 {
 		t.Error("an already granted call must not send a request")
 	}
-	// Another tool, or the same tool at another capability, still asks.
-	if got := authorizeAndAnswer(t, gate, "tool_b", capabilitySends, approvalResultMessage{Approved: false, Scope: approvalScopeOnce}); got != approvalDeclined {
+	// Another task asks again, since its goal is not the one the learner approved.
+	if got := authorizeInTaskAndAnswer(t, gate, context.Background(), "task-b", "tool_a", capabilitySends, approvalResultMessage{Approved: false, Scope: approvalScopeOnce}); got != approvalDeclined {
+		t.Errorf("another task should ask, got phase %d", got)
+	}
+	// Another tool, or the same tool at another capability, still asks in the same task.
+	if got := authorizeInTaskAndAnswer(t, gate, taskAContext, "task-a", "tool_b", capabilitySends, approvalResultMessage{Approved: false, Scope: approvalScopeOnce}); got != approvalDeclined {
 		t.Errorf("another tool should ask, got phase %d", got)
 	}
-	if got := authorizeAndAnswer(t, gate, "tool_a", capabilityDeletes, approvalResultMessage{Approved: false, Scope: approvalScopeOnce}); got != approvalDeclined {
+	if got := authorizeInTaskAndAnswer(t, gate, taskAContext, "task-a", "tool_a", capabilityDeletes, approvalResultMessage{Approved: false, Scope: approvalScopeOnce}); got != approvalDeclined {
 		t.Errorf("the same tool at another capability should ask, got phase %d", got)
 	}
+	// Once the task ends, the gate holds no grant for it. The context runs the cleanup in its own goroutine.
+	endTaskA()
+	deadline := time.Now().Add(5 * time.Second)
+	for grantCountOf(gate) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the gate still holds %d grants after the task ended", grantCountOf(gate))
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func grantCountOf(gate *approvalGate) int {
+	gate.mutex.Lock()
+	defer gate.mutex.Unlock()
+	return len(gate.standingGrants)
 }
 
 func TestAOnceAnswerAndAnAlwaysNoAreNeverRemembered(t *testing.T) {

@@ -36,7 +36,7 @@ type taskRunner struct {
 	skillsDirectories []string
 	// mcp holds the learner's MCP servers. It is nil when none are configured.
 	mcp *mcpHub
-	// approvals holds the learner's answers, and the always ones last until the harness stops.
+	// approvals holds the learner's answers, and an always one lasts until the task that gave it ends.
 	approvals *approvalGate
 }
 
@@ -311,7 +311,7 @@ func (runner *taskRunner) capabilityOf(name toolName) (capability, bool) {
 func approvalOutcomeWords(phase approvalPhase) string {
 	switch phase {
 	case approvalAlreadyGranted:
-		return "was already approved for the rest of this session"
+		return "was already approved for the rest of this task"
 	case approvalGiven:
 		return "was approved"
 	default:

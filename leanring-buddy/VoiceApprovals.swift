@@ -54,7 +54,7 @@ nonisolated struct ApprovalVoiceAnswer: Equatable, Sendable {
     /// What the chip under the cursor says once the answer went through.
     var chipPhrase: String {
         guard approved else { return "Declined it" }
-        return scope == .always ? "Allowed it, always" : "Allowed it"
+        return scope == .always ? "Allowed it for this task" : "Allowed it"
     }
 }
 

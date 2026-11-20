@@ -784,6 +784,7 @@ private struct ApprovalCardView: View {
                 AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
                     answerApproval(approvalRequest.approvalID, true, .always)
                 }
+                .help("Allow this tool for the rest of this task")
                 AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
                     answerApproval(approvalRequest.approvalID, false, .once)
                 }
