@@ -55,7 +55,7 @@ Steps:
 
 - Each rebuild can drop Clicky's Accessibility grant, and then the dial never opens, since the event tap needs it.
   Check that the app log says `accessibility: true` before the first `$V key dial-hold`.
-- The mouse must sit at least 250 points from every screen edge, or the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
+- The mouse must sit at least 260 points from the left and right screen edges and 210 points from the top, or the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
 - The first-run hint shows once per Mac, so run `defaults delete com.crodris.clicky-watch-along settingsDialHintWasShown` before a run that photographs it.
 - A Team or Model commit writes `companionTheme` or `selectedClaudeModel`, and Show writes `isClickyCursorEnabled`, in the defaults the everyday Debug app shares.
   Write the original values back when the run ends, and delete `selectedClaudeModel`, `isClickyCursorEnabled`, and `settingsDialHintWasShown`, which did not exist before.
