@@ -21,7 +21,7 @@ Its log lines start with `Experiment:` instead of `3D model:`.
 ## How to get to it (user POV)
 
 - With a video in Chrome's front tab, hold ctrl+option and say "build me a 3D model of this engine".
-- While it builds, say "make me a Notion study guide for this", then hold shift + option to see both agents.
+- While it builds, say "make me a Notion study guide for this", then hold shift + option, flick to Agents, and let go to see both agents.
 - If the chip says "say show the model", say "show the model".
 
 ## Driving it with verify-clicky.sh

@@ -1,11 +1,12 @@
 # Team theme
 
-The learner picks Clicky blue, one of ten Haikyu!! schools, or Random in the menu bar panel's "Team theme" section.
-A school turns the cursor into a volleyball in the team's colors, and turns every background agent that starts into one of that team's players, shown as a round portrait in a progress ring in a token beside the notch and as a themed row in the shift + option agent list.
+The learner picks Clicky blue, one of ten Haikyu!! schools, or Random in the menu bar panel's "Team theme" section or the settings dial's Team fan.
+A school turns the cursor into a volleyball in the team's colors, and turns every background agent that starts into one of that team's players, shown as a round portrait in a progress ring in a token beside the notch and as a themed row in the agent list.
 
 ## Sub-features
 
 - `theme-picker` saves the pick under `companionTheme` in UserDefaults and applies it at once, with no relaunch.
+  The menu bar panel's buttons and the settings dial's Team fan set the same value.
 - `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the ring's ticks and dots, the loop, and the navigation bubble in the school's accent.
   Nekoma's ball is red with a black outline and white seams, and Inarizaki's is black with white lines.
   Three streaks in the team color trail the ball while it flies to a part and back, and while it follows a fast-moving mouse, turned toward the movement.
@@ -21,9 +22,9 @@ A school turns the cursor into a volleyball in the team's colors, and turns ever
 
 ## How to get to it (user POV)
 
-- Click the menu bar icon, then a school, Random, or Clicky blue under "Team theme".
+- Click the menu bar icon, then a school, Random, or Clicky blue under "Team theme", or hold shift + option, flick to Team, and let go on a ball ([`settings-dial.md`](./settings-dial.md)).
 - Start any background agent by voice, such as "make me a study guide" while a YouTube video plays.
-- Click an agent's token beside the notch, or the "+N" disc, to open the agent list under it, or hold shift + option to open the list next to the mouse.
+- Click an agent's token beside the notch, or the "+N" disc, to open the agent list under it, or hold shift + option, flick to Agents, and let go to open the list next to the mouse.
 
 ## Driving it with verify-clicky.sh
 

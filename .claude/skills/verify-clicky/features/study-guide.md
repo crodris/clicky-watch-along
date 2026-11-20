@@ -3,7 +3,7 @@
 While a YouTube video plays in Chrome's front tab, the learner asks for a study guide, and Clicky writes a Notion page about the video in the background while the video keeps playing.
 `POST /study-guide` has Sonnet draft the guide from the captions and writes it as its own page in the Private section of the Notion user who made the token, with a timestamp link on every point and the quiz questions the learner missed or skipped listed first.
 Clicky does not speak when the guide ends. An agent token floats beside the notch while it runs, and a finished guide opens in a Chrome tab behind the video tab, with a quiet chip under the cursor.
-The learner can revise or open the guide by voice, and hold shift + option to see every agent and cancel one.
+The learner can revise or open the guide by voice, and hold shift + option, then flick to Agents, to see every agent and cancel one.
 
 ## Sub-features
 
@@ -15,8 +15,8 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 - `guide-voice-tools` offers `make_study_guide` with a YouTube video in front, no quiz question open, and no guide saved for that video, and `revise_study_guide` and `open_study_guide` once a guide is saved for it. The guide is saved under `savedStudyGuide.<video id>` in the app's defaults, so it outlives a relaunch, and `defaults delete com.crodris.clicky-watch-along savedStudyGuide.<video id>` makes the video writable again. Trashing the page in Notion does the same at the next voice command, since `POST /study-guide-status` then answers `{ "pageExists": false }` and the app logs `is no longer in Notion, so the saved guide is forgotten`.
 - `guide-background` writes the guide in its own task, so a push-to-talk press does not cancel it, and nothing is spoken when it ends.
 - `guide-token` shows an amber-ringed token right of the notch while the guide runs, its ring filling through each step in step with the agent list's meter, and full with a green check mark after "Tink" and the amber chip "Study guide ready", with an amber triangle icon, when the page exists. The token leaves when the chip ends, since the page opened at once.
-- `guide-agent-list` opens with a shift + option hold of 0.3 s, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape, a click outside, or the same hold closes it, and Chrome keeps the keyboard throughout.
-  A key or a left, right, or middle mouse press during the hold breaks it, and so does a mouse button already down from a drag, so shift + option + drag in another app never opens the list.
+- `guide-agent-list` opens from a click on a token, or from the settings dial's Agents slice next to the mouse, lists each agent with its subject, time, and steps, and cancels a running guide from its expanded row. Escape or a click outside closes it, and Chrome keeps the keyboard throughout.
+  A key or a left, right, or middle mouse press during the hold breaks it, and so does a mouse button already down from a drag, so shift + option + drag in another app never opens the dial.
 - `guide-cancel-revision` keeps a cancelled revise or refresh whose reply already arrived, since the Worker already trashed the old page, and loads the new page in the old page's tab. A cancelled new guide keeps nothing.
 - `guide-forgotten` forgets a saved guide whose page was trashed or deleted in Notion at its next status check, so `open_study_guide` fails with "This video's study guide was deleted in Notion" and `make_study_guide` is offered again. A guide being rewritten by a running guide agent is never forgotten.
 - `guide-background-tab` opens the finished page as a new last tab of Chrome's front window, without switching away from the learner's tab.
@@ -26,7 +26,7 @@ The learner can revise or open the guide by voice, and hold shift + option to se
 
 ## How to get to it (user POV)
 
-- Click the guide's token beside the notch to open the agent list under it with that row expanded, or hold shift + option for a moment to open the list next to the mouse, click a row to see its steps, and press Cancel to stop a running guide.
+- Click the guide's token beside the notch to open the agent list under it with that row expanded, or hold shift + option, flick to Agents, and let go to open the list next to the mouse, click a row to see its steps, and press Cancel to stop a running guide.
 
 - With a YouTube video in Chrome's front tab, hold ctrl+option and say "make me a Notion study guide for this".
 - After the guide is ready, say "make the study guide shorter" or "open my study guide".
@@ -57,11 +57,11 @@ Preconditions:
   After the app log shows `Study guide: wrote`, run `$V shot guide-done` within 4 seconds to see the token with a full ring and a green check mark and the "Study guide ready" chip under the cursor.
 - **Team theme.** [`team-theme.md`](./team-theme.md) drives every themed token and list state with seeded agents and no model call.
 - **Agent list.** While the guide runs, run `$V key agents-list`, then `$V shot guide-list`.
-  The screenshot shows the "Agents" panel below and right of the mouse with a "1 running" header and a Study guide row.
-  Run `$V key agents-list` again, or `$V key escape`, and a second `$V shot` shows it gone.
+  The screenshot shows the "Agents" panel below and right of the mouse, opened through the dial's Agents slice, with a "1 running" header and a Study guide row.
+  Run `$V key escape`, and a second `$V shot` shows it gone.
 - **Agent list during a drag.** Needs the Accessibility grant (`Clicky start` logs `accessibility: true`).
   Close the list, start a 4 second drag in the background with `swift demo/scripts/mouse/mouse.swift drag 300 1000 330 1010 4 &`, wait 1.5 seconds, hold shift and option for 0.8 seconds through System Events (`key down shift`, `key down option`, `delay 0.8`), and run `$V shot drag-hold` before releasing them.
-  The screenshot shows no "Agents" panel. It passed on 2026-11-16.
+  The screenshot shows no dial and no "Agents" panel. It passed on 2026-11-16.
 - **Trashed guide.** After a guide is written, trash its page with `PATCH https://api.notion.com/v1/pages/<page id>` and `{"in_trash":true}`, then post `tools/call` for `open_study_guide`.
   The result is an error saying the guide was deleted in Notion, the log shows `Study guide: <url> is no longer in Notion, so the saved guide is forgotten`, and `tools/list` offers `make_study_guide` again. It passed on 2026-11-16.
 - **Background tab.** Before the guide ends, note the front tab with `osascript -e 'tell application "Google Chrome" to get URL of active tab of front window'`.

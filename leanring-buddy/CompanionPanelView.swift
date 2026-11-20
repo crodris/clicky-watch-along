@@ -807,9 +807,6 @@ struct CompanionPanelView: View {
 private struct TeamThemePickerView: View {
     @ObservedObject var themeSettings: CompanionThemeSettings
 
-    private static let allThemes: [CompanionTheme] =
-        [.clickyBlue] + HaikyuSchool.allCases.map(CompanionTheme.school) + [.random]
-
     private let columns = [
         GridItem(.flexible(), spacing: 6),
         GridItem(.flexible(), spacing: 6),
@@ -822,7 +819,7 @@ private struct TeamThemePickerView: View {
                 .foregroundColor(DS.Colors.textSecondary)
 
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(Self.allThemes, id: \.rawValue) { theme in
+                ForEach(CompanionTheme.allChoices, id: \.rawValue) { theme in
                     TeamThemeOptionButton(
                         theme: theme,
                         isSelected: themeSettings.theme == theme,
@@ -842,14 +839,6 @@ private struct TeamThemeOptionButton: View {
 
     @State private var isHovered = false
 
-    private var name: String {
-        switch theme {
-        case .clickyBlue: return "Clicky blue"
-        case .school(let school): return school.displayName
-        case .random: return "Random"
-        }
-    }
-
     /// The selected button's border: the theme's own color, which for Random is Clicky blue.
     private var selectionColor: Color {
         theme.cursorColor
@@ -860,7 +849,7 @@ private struct TeamThemeOptionButton: View {
             HStack(spacing: 8) {
                 TeamThemeSwatch(theme: theme)
                     .frame(width: 18, height: 18)
-                Text(name)
+                Text(theme.displayName)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                     .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                     .lineLimit(1)

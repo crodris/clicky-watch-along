@@ -167,7 +167,7 @@ final class CompanionManager: ObservableObject {
     /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
     /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.
     private var studyGuideRefreshesBeingChecked = 0
-    /// The Haikyu!! team theme the learner picked in the menu bar panel, the one source of truth for it.
+    /// The Haikyu!! team theme the learner picked in the menu bar panel or the settings dial, the one source of truth for it.
     let themeSettings = CompanionThemeSettings()
     /// The loop around the video or image a request looks at, which the cursor overlay draws.
     let cursorLoopController = CursorLoopController()
@@ -192,6 +192,8 @@ final class CompanionManager: ObservableObject {
     private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore) { [weak self] click in
         self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
     }
+    /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
+    private let settingsDialController = SettingsDialController()
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -256,7 +258,7 @@ final class CompanionManager: ObservableObject {
 
     private var shortcutTransitionCancellable: AnyCancellable?
     private var escapeKeyCancellable: AnyCancellable?
-    private var agentListShortcutCancellable: AnyCancellable?
+    private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var scrollWheelCancellable: AnyCancellable?
     private var cursorLoopVoiceStateCancellable: AnyCancellable?
@@ -383,7 +385,7 @@ final class CompanionManager: ObservableObject {
         bindShortcutTransitions()
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
-        bindShiftOptionHoldToTheAgentList()
+        bindShiftOptionHoldToTheSettingsDial()
         bindTheCursorLoopToVoiceStateAndScrolling()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
@@ -509,7 +511,8 @@ final class CompanionManager: ObservableObject {
         shortcutTransitionCancellable?.cancel()
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
-        agentListShortcutCancellable?.cancel()
+        settingsDialCancellable?.cancel()
+        settingsDialController.close()
         agentListPanelController.close()
         agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
@@ -697,14 +700,51 @@ final class CompanionManager: ObservableObject {
             }
     }
 
-    /// Holding shift + option opens the agent list, and holding them again closes it.
-    private func bindShiftOptionHoldToTheAgentList() {
-        agentListShortcutCancellable = globalPushToTalkShortcutMonitor
-            .agentListShortcutPublisher
+    /// Holding shift + option opens the settings dial, releasing the keys commits the highlighted item, and a key,
+    /// a mouse button, Escape, or the event tap stopping cancels it.
+    private func bindShiftOptionHoldToTheSettingsDial() {
+        settingsDialCancellable = globalPushToTalkShortcutMonitor
+            .settingsDialEventPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in
-                self?.agentListPanelController.toggle()
+            .sink { [weak self] settingsDialEvent in
+                self?.handleSettingsDialEvent(settingsDialEvent)
             }
+    }
+
+    private func handleSettingsDialEvent(_ settingsDialEvent: SettingsDialShortcutRecognizer.Event) {
+        switch settingsDialEvent {
+        case .opened:
+            // An open agent list would sit under the dial, and its Agents slice opens it again.
+            agentListPanelController.close()
+            settingsDialController.open(snapshot: SettingsDialSnapshot(
+                theme: themeSettings.theme,
+                modelID: selectedModel,
+                isClickyCursorEnabled: isClickyCursorEnabled,
+                runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count
+            ))
+        case .released:
+            if let settingsDialChoice = settingsDialController.releaseAndReturnTheChoice() {
+                commitSettingsDialChoice(settingsDialChoice)
+            }
+        case .cancelled:
+            settingsDialController.close()
+        }
+    }
+
+    private func commitSettingsDialChoice(_ settingsDialChoice: SettingsDialChoice) {
+        switch settingsDialChoice {
+        case .theme(let theme):
+            themeSettings.theme = theme
+        case .model(let modelChoice):
+            setSelectedModel(modelChoice.modelID)
+        case .agents:
+            // Opening the dial closed the list, so this opens it next to the mouse with no row expanded.
+            agentListPanelController.toggle()
+        case .toggleShowClicky:
+            setClickyCursorEnabled(!isClickyCursorEnabled)
+        case .more:
+            NotificationCenter.default.post(name: .clickyShowPanel, object: nil)
+        }
     }
 
     /// The loop around the media ends when Clicky stops thinking or starts to speak, and when the page scrolls.
@@ -2225,10 +2265,15 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape closes the agent list when it is open. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// Escape only cancels the settings dial when it is open, and only closes the agent list when that is open. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
+        // With the settings dial open, Escape only cancels it. The monitor sends Escape ahead of the dial's own
+        // cancel, so the dial is still open here.
+        if settingsDialController.isOpen {
+            return
+        }
         // With the agent list open, Escape only closes it.
         if agentListPanelController.isOpen {
             agentListPanelController.close()
