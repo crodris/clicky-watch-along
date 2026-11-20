@@ -1,5 +1,9 @@
 # Theme Studio: build plan
 
+Written 2026-11-20.
+The Swift side is built, and "Where the build differs from this plan" at the end lists each change and why.
+The Worker route `POST /theme-ideas` is built separately against the contract below.
+
 ## Goal
 
 "Hey Clicky, change my theme" opens a studio card next to the cursor with three theme ideas.
@@ -218,3 +222,29 @@ One runnable check per logic change:
 - The settings dial's Team fan keeps the built-in themes. Custom themes show in the menu bar panel.
 - Deleting or renaming a saved theme.
 - Animated or SVG pictures. The picture is the JPEG capture.
+
+## Where the build differs from this plan
+
+- `CustomTheme` is not `Codable`.
+  The boundary is `CustomTheme.parse(idea:id:pictureIsAvailable:)`, which reads the Worker's idea shape as a `JSONValue` and throws a `CustomThemeParseError` that names the rule broken.
+  A saved `theme.json` holds the same idea shape, written by `CustomTheme.ideaJSON`, so one function parses both and `ideaJSON` also builds `currentIdeas` for a refinement.
+  The theme's id is its folder name, so `theme.json` does not hold it.
+  A hand-made folder whose name is not lowercase letters, digits, and hyphens is skipped.
+- A picture cursor sets `usesPicture` true whether or not the idea said so, so a reply that forgot the flag still saves its picture.
+- `CustomCursorShape` holds the parsed `SVGPathData` and the path text the model wrote, and the file `SVGPathData.swift` checks the Worker's rules (commands `M L H V C S Q T Z`, no arcs, every written coordinate from -2 to 26, at most 600 characters, a path that starts with a move).
+  A derived mirror control point of `S` or `T` is not range checked, since the text never wrote it.
+- `AgentPaletteColor` gained `case custom(ThemeRGBColor)` and `allCases` became `fixedPalette`, so the token ring, triangle, list row, and chip follow a theme's agent colors with no view change.
+  `AgentFace` (`triangle`, `player`, `themePicture`) replaces the chip's `player:` input, and `BackgroundAgent.themePictureThemeID` keeps the picture face for an agent's whole life.
+  `agentTokenRingColorChoice` needed no new case.
+- Agents take the saved theme, never the studio's preview, so an agent started while the learner only tries an idea does not keep that idea's colors.
+- `CompanionThemeSettings.previewTheme` is `private(set)`, set by `preview(_:picture:)` and `clearPreview()`, with a matching `previewPicture`, `shownThemePicture`, `savedCustomThemes`, `menuBarThemeChoices`, and `saveAndApply(_:pictureJPEG:)`.
+- `ThemeStudioController` owns the state, takes the Worker call, the picture capture, and the spoken line as functions (`Environment`), and shows the card through `ThemeStudioCardPresenting`, so tests drive it with a stub Worker and no window.
+  CompanionManager's part is wiring: one lazy controller, the keyword branch, the four tools, the Escape check, and the speech and capture functions.
+- `design_theme`'s `fromPicture` has three values: true captures the largest picture in Chrome's front tab again, false drops the card's picture, and a missing input keeps the card's picture.
+- A custom cursor that does not turn toward movement stays upright in every state, and its trail streaks, which the model still sets, turn with the movement so they trail behind it.
+  `CursorFacing` (`pointerAngle`, `followsMouseMovement`, `upright`) replaces the volleyball check in the overlay's rotation.
+- The card sits one level below the cursor overlay windows, 64 points from the mouse, so the previewed cursor draws over it and the glyph that sits 35 points right of the pointer has room.
+  It has no click-outside close, since the learner clicks elsewhere while it is open, and it shares the agent list's panel class, hover-and-pointer view, and placement functions.
+- `bench/fixtures/brain-evals.json` has two new contexts, `themeStudioClosed` and `themeStudioIdeas`.
+  The older contexts do not list `design_theme`, although the app offers it in all of them, since `fixtures/voice-command-video.json` is a real capture that a test compares them to.
+- `ThemeIdeasRealReplyTests` parses two replies recorded from the real route on 2026-11-20, so the parser is checked against what the route writes.
