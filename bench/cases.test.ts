@@ -100,6 +100,48 @@ describe("the /voice-command cases", () => {
   });
 });
 
+describe("the /theme-ideas cases", () => {
+  const idea = (overrides: Record<string, unknown> = {}) => ({
+    name: "Moonlit",
+    accent: "#7DD3FC",
+    contrast: "#1E1B4B",
+    agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"],
+    cursor: { kind: "shapes", shapes: [{ d: "M12 2 L22 22 L2 22 Z", fill: "#7DD3FC", stroke: null, strokeWidth: 0 }], picture: null },
+    usesPicture: false,
+    ...overrides,
+  });
+  const themeReply = (...ideas: object[]) => JSON.stringify({ title: "Three ideas", spokenLine: "Here are three.", ideas });
+
+  it("sends the words alone, and the words with the Starry Night frame as a picture", () => {
+    const wordsBody = benchCase("theme-ideas-words").requestBody(appProfile) as { request: string; picture?: unknown };
+    const pictureBody = benchCase("theme-ideas-picture").requestBody(appProfile) as { picture: { jpegBase64: string; width: number; height: number } };
+
+    assert.equal(wordsBody.request, "something cozy for night");
+    assert.equal(wordsBody.picture, undefined);
+    assert.ok(pictureBody.picture.jpegBase64.length > 1000);
+    assert.deepEqual([pictureBody.picture.width, pictureBody.picture.height], [1280, 720]);
+  });
+
+  it("passes the words case for three well-formed ideas that use no picture, and fails a picture that was never sent", () => {
+    assert.equal(check("theme-ideas-words", themeReply(idea(), idea(), idea())).passed, true);
+    assert.equal(check("theme-ideas-words", themeReply(idea({ usesPicture: true }), idea(), idea())).passed, false);
+    assert.equal(check("theme-ideas-words", themeReply(idea({ cursor: { kind: "picture", shapes: [], picture: null } }), idea(), idea())).passed, false);
+  });
+
+  it("fails two ideas, a lowercase color, and an arc", () => {
+    assert.equal(check("theme-ideas-words", themeReply(idea(), idea())).passed, false);
+    assert.equal(check("theme-ideas-words", themeReply(idea({ accent: "#7dd3fc" }), idea(), idea())).passed, false);
+    const arcCursor = { kind: "shapes", shapes: [{ d: "M2 2 A5 5 0 0 1 20 20", fill: "#7DD3FC", stroke: null, strokeWidth: 0 }], picture: null };
+    assert.equal(check("theme-ideas-words", themeReply(idea({ cursor: arcCursor }), idea(), idea())).passed, false);
+  });
+
+  it("passes the picture case only when at least one idea uses the picture", () => {
+    assert.equal(check("theme-ideas-picture", themeReply(idea({ usesPicture: true }), idea(), idea())).passed, true);
+    assert.equal(check("theme-ideas-picture", themeReply(idea(), idea(), idea())).passed, false);
+    assert.equal(check("theme-ideas-picture", "not json").passed, false);
+  });
+});
+
 describe("the new quality checks", () => {
   it("passes the chart frame only when the reply finds no subject", () => {
     assert.equal(check("frame-parts-chart", JSON.stringify({ subjectFound: false })).passed, true);
