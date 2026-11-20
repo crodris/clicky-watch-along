@@ -106,6 +106,17 @@ struct HarnessVoiceCommandTests {
         // A second cancel, such as a press during the hand-off's reply, sends nothing either.
         linesCancelledAfterTheMark.commandWasCancelled()
         #expect(cancelledAfterTheMark.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_pop", outcome: .handedOff)])
+
+        // A hand-off that does not cancel the command, such as closing a scene with no video to resume, sends its
+        // result on the normal path. A press after it sends nothing, since the command is complete.
+        let cancelledAfterTheResult = HarnessLineRecorder()
+        let linesCancelledAfterTheResult = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledAfterTheResult.record(harnessCommand) })
+        linesCancelledAfterTheResult.callStarted(toolUseID: "toolu_close")
+        linesCancelledAfterTheResult.handOffHasStarted()
+        linesCancelledAfterTheResult.sendTheResult(of: .handedOff)
+        linesCancelledAfterTheResult.sendTheResult(of: .handedOff)
+        linesCancelledAfterTheResult.commandWasCancelled()
+        #expect(cancelledAfterTheResult.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_close", outcome: .handedOff)])
     }
 
     @Test func theWaitForAnEventStopsWhileAToolRunsAndFailsTheCommandWhenNothingComes() async {
