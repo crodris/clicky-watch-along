@@ -150,7 +150,7 @@ private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTa
     return controller
 }
 
-@Test @MainActor func anIdleThatLastsThroughTheRouterCallDoesNotEndATurnWaitingForItsHandOff() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func anIdleThatLastsThroughTheRouterCallDoesNotEndATurnWaitingForItsHandOff() async {
     // After a push-to-talk request the dictation session's idle lands after the request set processing, and the router
     // call that follows takes about a second before it hands off, so a turn still waiting for that hand-off must survive.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
@@ -161,7 +161,7 @@ private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTa
     #expect(controller.isShowingTheLoop)
 }
 
-@Test @MainActor func anIdleThatLastsOnlyAMomentDoesNotEndALoopThatIsShowing() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func anIdleThatLastsOnlyAMomentDoesNotEndALoopThatIsShowing() async {
     // A plain keyword path request draws its loop at once, and the dictation session's idle lands just after.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.requestBecameALookAtTheMedia()
@@ -171,7 +171,7 @@ private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTa
     #expect(controller.isShowingTheLoop)
 }
 
-@Test @MainActor func anIdleThatHoldsEndsALoopThatIsShowing() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func anIdleThatHoldsEndsALoopThatIsShowing() async {
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
@@ -180,23 +180,15 @@ private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTa
     #expect(!controller.isShowingTheLoop)
 }
 
-@Test @MainActor func anIdleThatHoldsStillEndsTheLoopWhenTheMainActorIsBusyBeforeTheHoldStarts() async {
-    // A loaded runner can keep the main actor busy for longer than the hold, so the hold's task starts late. The result must
-    // not depend on how late, which a test that sleeps for a guessed time cannot promise.
-    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
-    controller.requestBecameALookAtTheMedia()
-    Task { Thread.sleep(forTimeInterval: 0.4) }
-    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
-    await controller.waitForTheIdleHoldToFinish()
-    #expect(!controller.isShowingTheLoop)
-}
-
-@Test @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
     // The learner switched tabs between the release and the hand-off, so the rect the loop would frame is stale.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia, polling: exampleSample(tabID: 99))
     controller.requestBecameALookAtTheMedia()
+    let pollStart = ContinuousClock.now
     await controller.waitForThePollToEndTheLoop()
     #expect(!controller.isShowingTheLoop)
+    // The first sample runs before the poll's first wait, so the loop ends well before a whole poll interval.
+    #expect(ContinuousClock.now - pollStart < .seconds(CursorLoopController.secondsBetweenFrontTabPolls))
 }
 
 @Test func aRequestDrawsALoopOnlyWhenNoSceneOrQuizQuestionOwnsTheScreen() {

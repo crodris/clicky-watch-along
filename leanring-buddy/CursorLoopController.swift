@@ -26,7 +26,7 @@ final class CursorLoopController: ObservableObject {
     private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
 
-    private static let secondsBetweenFrontTabPolls: TimeInterval = 1
+    static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
