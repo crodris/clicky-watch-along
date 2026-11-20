@@ -47,6 +47,9 @@ struct AgentListActions {
     let showReadyScene: () -> Void
     /// Speaks the task answer that is waiting to be heard.
     let hearTaskAnswer: () -> Void
+    /// Answers a task agent's approval request from the Yes, Always, and No buttons. The desk ignores a click that comes
+    /// too soon after the request showed (`HarnessApprovalDesk.answerByClick`).
+    let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
 }
 
 @MainActor
@@ -60,6 +63,8 @@ final class AgentListPanelController {
     private let store: BackgroundAgentStore
     private let themeSettings: CompanionThemeSettings
     private let actions: AgentListActions
+    /// The queue of requests the learner answers with the Yes, Always, and No buttons of the oldest one's row.
+    private let approvalDesk: HarnessApprovalDesk
     private var panel: AgentListPanel?
     private var clickOutsideMonitor: Any?
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
@@ -68,9 +73,10 @@ final class AgentListPanelController {
     /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
 
-    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, actions: AgentListActions) {
+    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, approvalDesk: HarnessApprovalDesk, actions: AgentListActions) {
         self.store = store
         self.themeSettings = themeSettings
+        self.approvalDesk = approvalDesk
         self.actions = actions
     }
 
@@ -120,6 +126,7 @@ final class AgentListPanelController {
         let agentListView = AgentListView(
             store: store,
             themeSettings: themeSettings,
+            approvalDesk: approvalDesk,
             actions: actions,
             initiallyExpandedAgentID: initiallyExpandedAgentID
         ) { [weak self] contentSize in
@@ -150,6 +157,18 @@ final class AgentListPanelController {
         // Not makeKeyAndOrderFront, which would take the keyboard from Chrome.
         agentListPanel.orderFrontRegardless()
         installClickOutsideMonitor()
+    }
+
+    /// An approval request arrived: open the list next to the mouse with the requesting agent's row expanded. An open
+    /// list stays where it is, since the row that holds the request expands by itself.
+    func openForAnApprovalRequest(fromAgentID agentID: UUID) {
+        guard !isOpen else { return }
+        let mouseLocation = NSEvent.mouseLocation
+        open(
+            anchorTopLeft: CGPoint(x: mouseLocation.x + Self.gapFromTheMouse, y: mouseLocation.y - Self.gapFromTheMouse),
+            visibleFrame: screenUnderTheMouseCursor()?.visibleFrame ?? .zero,
+            initiallyExpandedAgentID: agentID
+        )
     }
 
     func close() {
@@ -255,6 +274,7 @@ private struct AgentListView: View {
     @ObservedObject var store: BackgroundAgentStore
     @ObservedObject var themeSettings: CompanionThemeSettings
     let actions: AgentListActions
+    @ObservedObject var approvalDesk: HarnessApprovalDesk
     let onContentSizeChange: (CGSize) -> Void
 
     @State private var expandedAgentID: UUID?
@@ -264,12 +284,14 @@ private struct AgentListView: View {
     init(
         store: BackgroundAgentStore,
         themeSettings: CompanionThemeSettings,
+        approvalDesk: HarnessApprovalDesk,
         actions: AgentListActions,
         initiallyExpandedAgentID: UUID?,
         onContentSizeChange: @escaping (CGSize) -> Void
     ) {
         self.store = store
         self.themeSettings = themeSettings
+        self.approvalDesk = approvalDesk
         self.actions = actions
         self.onContentSizeChange = onContentSizeChange
         _expandedAgentID = State(initialValue: initiallyExpandedAgentID)
@@ -334,10 +356,13 @@ private struct AgentListView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(store.agents) { agent in
+                            let approvalState = agentListApprovalState(forAgentID: agent.id, waitingRequests: approvalDesk.waitingRequests)
                             AgentRowView(
                                 agent: agent,
                                 resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
-                                isExpanded: expandedAgentID == agent.id,
+                                // The row that holds the request stays open, so the learner can read it before answering.
+                                isExpanded: expandedAgentID == agent.id || approvalState.needsAnAnswer,
+                                approvalState: approvalState,
                                 onToggle: { expandedAgentID = expandedAgentID == agent.id ? nil : agent.id },
                                 actions: actions
                             )
@@ -370,6 +395,7 @@ private struct AgentRowView: View {
     /// False while a video quiz question is open, when the Show and Hear buttons wait (`agentListMayDeliverAWaitingResult`).
     let resultsMayBeDeliveredNow: Bool
     let isExpanded: Bool
+    let approvalState: AgentListApprovalState
     let onToggle: () -> Void
     let actions: AgentListActions
 
@@ -399,6 +425,12 @@ private struct AgentRowView: View {
                                 .foregroundColor(DS.Colors.textSecondary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
+                            if let approvalStatusText = approvalState.rowStatusText {
+                                Text(approvalStatusText)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(DS.Colors.warningText)
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer(minLength: 8)
                         elapsedTimeText
@@ -486,6 +518,9 @@ private struct AgentRowView: View {
 
     private var expandedDetails: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if case .needsAnswer(let approvalRequest) = approvalState {
+                approvalRequestBlock(approvalRequest)
+            }
             ForEach(Array(agent.stepStatuses.enumerated()), id: \.offset) { stepIndex, stepStatus in
                 HStack(spacing: 8) {
                     Text(stepStatus.symbol)
@@ -544,6 +579,38 @@ extension AgentRowView {
                 }
             }
         }
+    }
+
+    /// The harness's summary of what the tool will do, shown whole and never cut, since reading all of it is how the
+    /// learner decides. It is text a web page or an MCP server may have written, so it is shown as plain text only.
+    fileprivate func approvalRequestBlock(_ approvalRequest: HarnessApprovalRequest) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: "Allow this?")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(DS.Colors.warningText)
+            Text(verbatim: approvalRequest.summary)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(DS.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(DS.Colors.surface2))
+            HStack(spacing: 6) {
+                AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {
+                    actions.answerApproval(approvalRequest.approvalID, true, .once)
+                }
+                AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
+                    actions.answerApproval(approvalRequest.approvalID, true, .always)
+                }
+                AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
+                    actions.answerApproval(approvalRequest.approvalID, false, .once)
+                }
+            }
+            Text(verbatim: "Or say yes or no.")
+                .font(.system(size: 10))
+                .foregroundColor(DS.Colors.textSecondary)
+        }
+        .padding(.bottom, 4)
     }
 }
 

@@ -30,6 +30,12 @@ type runningTask struct {
 type taskRunner struct {
 	client anthropic.Client
 	writer *protocolWriter
+	// skillsDirectories are searched in order for a task's skill.
+	skillsDirectories []string
+	// mcp holds the learner's MCP servers. It is nil when none are configured.
+	mcp *mcpHub
+	// approvals holds the learner's answers, and the always ones last until the harness stops.
+	approvals *approvalGate
 }
 
 // send writes a message for a task unless the task was cancelled, since a cancelled task sends nothing more.
@@ -62,13 +68,26 @@ func (runner *taskRunner) runTask(taskContext context.Context, task *runningTask
 // unchanged.
 func (runner *taskRunner) converse(taskContext context.Context, task *runningTask, start startTaskMessage) (string, error) {
 	startedAt := time.Now()
-	messages := []anthropic.MessageParam{
-		anthropic.NewUserMessage(anthropic.NewTextBlock(firstMessage(start.Goal, start.FrontTabTitle, start.FrontTabURL))),
+	var chosenSkill *skill
+	if start.Skill != nil {
+		loaded, err := loadSkill(runner.skillsDirectories, *start.Skill)
+		if err != nil {
+			return "", err
+		}
+		chosenSkill = &loaded
 	}
-	pageWasWritten := false
+	tools, err := taskAgentTools(chosenSkill, runner.mcp.connect())
+	if err != nil {
+		return "", err
+	}
+	offered := offeredToolNames(tools)
+	messages := []anthropic.MessageParam{
+		anthropic.NewUserMessage(anthropic.NewTextBlock(firstMessage(start.Goal, start.FrontTabTitle, start.FrontTabURL, chosenSkill))),
+	}
+	var page pageOutcome
 
 	for turnNumber := 1; turnNumber <= mostTaskAgentTurns; turnNumber++ {
-		reply, err := runner.requestTurn(taskContext, messages)
+		reply, err := runner.requestTurn(taskContext, messages, tools)
 		if err != nil {
 			return "", err
 		}
@@ -83,13 +102,13 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 			continue
 
 		case finishTask:
-			toolResults, err := runner.runAppTools(taskContext, task, start.TaskID, step.afterRunning, &pageWasWritten)
+			toolResults, err := runner.runToolCalls(taskContext, task, start.TaskID, step.afterRunning, offered, &page)
 			if err != nil {
 				return "", err
 			}
 			// A page refused in the same turn as finish goes back to the agent with a finish that did not count, so it
 			// writes the page again instead of the task ending without one.
-			if finishWaitsForTheRefusedPage(step.afterRunning, pageWasWritten, turnNumber == mostTaskAgentTurns) {
+			if finishWaitsForTheRefusedPage(step.afterRunning, page.written, turnNumber == mostTaskAgentTurns) {
 				for _, finishCallID := range step.finishCallIDs {
 					toolResults = append(toolResults, anthropic.NewToolResultBlock(finishCallID, "Not finished: the page was not written. Fix it, write it, then call finish again.", true))
 				}
@@ -110,7 +129,7 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 			return step.text, nil
 
 		case runTools:
-			toolResults, err := runner.runAppTools(taskContext, task, start.TaskID, step.calls, &pageWasWritten)
+			toolResults, err := runner.runToolCalls(taskContext, task, start.TaskID, step.calls, offered, &page)
 			if err != nil {
 				return "", err
 			}
@@ -122,11 +141,11 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 
 // requestTurn streams one request and returns the accumulated reply, since a long reply at this token limit is not
 // allowed as a plain request.
-func (runner *taskRunner) requestTurn(taskContext context.Context, messages []anthropic.MessageParam) (turn, error) {
+func (runner *taskRunner) requestTurn(taskContext context.Context, messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) (turn, error) {
 	requestContext, cancel := context.WithTimeout(taskContext, turnTimeout)
 	defer cancel()
 
-	stream := runner.client.Messages.NewStreaming(requestContext, taskAgentRequest(messages))
+	stream := runner.client.Messages.NewStreaming(requestContext, taskAgentRequest(messages, tools))
 	defer stream.Close()
 
 	var message anthropic.Message
@@ -163,38 +182,90 @@ func usageLine(turnNumber int, reply turn) string {
 	)
 }
 
-// runAppTools sends each call the app runs, together, waits for all of their results, and returns one tool_result
-// block per call in the calls' order. A call to a tool the agent was not given is answered here with an error, so the
-// app only ever sees the tools it knows. It sets pageWasWritten once a write_notion_page call succeeds.
-func (runner *taskRunner) runAppTools(
+// pageOutcome records whether the task's Notion page was written, which finish waits on.
+type pageOutcome struct {
+	written bool
+}
+
+// runToolCalls runs the calls of one turn and returns one tool_result block per call in the calls' order.
+//
+// A call to a tool the task was not offered (the set in offered) is answered here with an error. A tool with no capability starts at once.
+// One with a capability waits for the learner's approval, one call at a time in the turn's order, and a declined one
+// gets the declined result and never runs. It sets page once a write_notion_page call succeeds.
+func (runner *taskRunner) runToolCalls(
 	taskContext context.Context,
 	task *runningTask,
 	taskID string,
 	calls []toolCall,
-	pageWasWritten *bool,
+	offered map[toolName]bool,
+	page *pageOutcome,
 ) ([]anthropic.ContentBlockParamUnion, error) {
 	resultsByToolUseID := map[string]toolResultMessage{}
-	for _, call := range calls {
-		if toolsTheAppRuns[call.Name] {
-			input := call.Input
-			if len(input) == 0 {
-				input = json.RawMessage("{}")
-			}
+	// An MCP server's tool runs in the harness, in its own goroutine, and its result arrives here.
+	serverResults := make(chan toolResultMessage, len(calls))
+	// Every check and summary below reads the same encoding of the input that runs.
+	for index := range calls {
+		calls[index].Input = canonicalToolInput(calls[index].Input)
+	}
+	start := func(call toolCall) {
+		input := call.Input
+		if _, isAppTool := appToolCapabilities[call.Name]; isAppTool {
 			runner.send(taskContext, newToolCallMessage(taskID, call.ID, call.Name, input))
-		} else {
+			return
+		}
+		go func() {
+			result := runner.mcp.call(taskContext, call.Name, input)
+			result.TaskID, result.ToolUseID = taskID, call.ID
+			serverResults <- result
+		}()
+	}
+
+	var callsThatNeedApproval []toolCall
+	for _, call := range calls {
+		// A tool the task was not offered is not a tool, even when the app or a server has it. A skill that limits the
+		// tools holds the agent to them here, and not only in the request, since the model may call a name it never saw.
+		switch needed, known := runner.capabilityOf(call.Name); {
+		case !known || !offered[call.Name]:
 			resultsByToolUseID[call.ID] = toolResultMessage{
 				TaskID:    taskID,
 				ToolUseID: call.ID,
 				Content:   mustMarshal(fmt.Sprintf("%s is not a tool", call.Name)),
 				IsError:   true,
 			}
+		case needed.needsApproval():
+			callsThatNeedApproval = append(callsThatNeedApproval, call)
+		default:
+			start(call)
 		}
+	}
+
+	for _, call := range callsThatNeedApproval {
+		needed, _ := runner.capabilityOf(call.Name)
+		// A payload too long to show in full is refused, not approved on a summary that cuts it.
+		if refusal := approvalRefusal(call, runner.mcp.tool(call.Name)); refusal != "" {
+			resultsByToolUseID[call.ID] = toolResultMessage{TaskID: taskID, ToolUseID: call.ID, Content: mustMarshal(refusal), IsError: true}
+			continue
+		}
+		phase := runner.approvals.authorize(taskContext, taskID, call.Name, needed, approvalSummary(call, runner.mcp.tool(call.Name)), func(message outboundMessage) {
+			runner.send(taskContext, message)
+		})
+		if phase == approvalAbandoned {
+			return nil, taskContext.Err()
+		}
+		runner.log(taskContext, fmt.Sprintf("Approval: %s (%s) %s", call.Name, needed, approvalOutcomeWords(phase)))
+		if phase.mayRun() {
+			start(call)
+			continue
+		}
+		resultsByToolUseID[call.ID] = toolResultMessage{TaskID: taskID, ToolUseID: call.ID, Content: mustMarshal(declinedToolResult), IsError: true}
 	}
 
 	for len(resultsByToolUseID) < len(calls) {
 		select {
 		case <-taskContext.Done():
 			return nil, taskContext.Err()
+		case result := <-serverResults:
+			resultsByToolUseID[result.ToolUseID] = result
 		case result := <-task.toolResults:
 			if !callsInclude(calls, result.ToolUseID) {
 				fmt.Fprintf(os.Stderr, "harness: dropped a tool result for %s, which this turn did not call\n", result.ToolUseID)
@@ -208,11 +279,42 @@ func (runner *taskRunner) runAppTools(
 	for _, call := range calls {
 		result := resultsByToolUseID[call.ID]
 		if call.Name == writeNotionPageTool && !result.IsError {
-			*pageWasWritten = true
+			page.written = true
 		}
 		toolResultBlocks = append(toolResultBlocks, toolResultBlock(result))
 	}
 	return toolResultBlocks, nil
+}
+
+// offeredToolNames is the set of tool names a task's request lists.
+func offeredToolNames(tools []anthropic.ToolUnionParam) map[toolName]bool {
+	offered := map[toolName]bool{}
+	for _, tool := range tools {
+		offered[toolName(*tool.GetName())] = true
+	}
+	return offered
+}
+
+// capabilityOf is what a tool may do, and false for a tool the agent was not given.
+func (runner *taskRunner) capabilityOf(name toolName) (capability, bool) {
+	if needed, isAppTool := appToolCapabilities[name]; isAppTool {
+		return needed, true
+	}
+	if serverTool := runner.mcp.tool(name); serverTool != nil {
+		return serverTool.capability(), true
+	}
+	return capabilityNone, false
+}
+
+func approvalOutcomeWords(phase approvalPhase) string {
+	switch phase {
+	case approvalAlreadyGranted:
+		return "was already approved for the rest of this session"
+	case approvalGiven:
+		return "was approved"
+	default:
+		return "was declined"
+	}
 }
 
 func callsInclude(calls []toolCall, toolUseID string) bool {

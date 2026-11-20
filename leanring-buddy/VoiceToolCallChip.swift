@@ -151,6 +151,13 @@ final class VoiceToolCallChip {
         DispatchQueue.main.asyncAfter(deadline: .now() + secondsOnScreen, execute: hideWorkItem)
     }
 
+    /// Hides the chip now, but only while it still shows `chipText`, so a newer chip is never cut short.
+    func hide(ifShowing chipText: String) {
+        guard chipModel.isVisible, chipModel.chipText == chipText else { return }
+        hideWorkItem?.cancel()
+        chipModel.isVisible = false
+    }
+
     private func placeChipUnderTheCursor(_ panel: NSPanel) {
         guard let screenFrame = screenUnderTheMouseCursor()?.frame else { return }
         panel.setFrameOrigin(voiceToolCallChipOrigin(mouseLocation: NSEvent.mouseLocation, screenFrame: screenFrame))

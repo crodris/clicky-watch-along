@@ -22,7 +22,10 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down               Stop the Workers this script started.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
+  app-launch [--brain] "<steps>"
+                          Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
+                          --brain also passes --brain-takes-every-request, so the router takes every first utterance
+                          without writing the flag into the defaults the everyday Clicky shares.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
@@ -513,7 +516,12 @@ require_screen_recording_grant() {
 }
 
 command_app_launch() {
-  local rehearsal_steps="$1"
+  local brain_launch_arguments=()
+  if [[ "$1" == "--brain" ]]; then
+    brain_launch_arguments=(--brain-takes-every-request)
+    shift
+  fi
+  local rehearsal_steps="${1:?rehearsal steps}"
   local app_path
   app_path="$(debug_app_path)"
   if [[ -z "$app_path" ]]; then echo "No Debug Clicky.app built from this repository. Run this script's build command first." >&2; exit 1; fi
@@ -540,7 +548,7 @@ command_app_launch() {
   fi
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
-    --args --voice-tool-debug-server --live-scene-rehearsal "$rehearsal_steps"
+    --args --voice-tool-debug-server ${brain_launch_arguments[@]+"${brain_launch_arguments[@]}"} --live-scene-rehearsal "$rehearsal_steps"
   for _ in $(seq 1 20); do
     local launched_pid
     launched_pid="$(running_clicky_pids | head -1)"
@@ -672,7 +680,7 @@ main() {
     worker-up) command_worker_up "$@" ;;
     worker-down) command_worker_down ;;
     post) command_post "${1:?route}" "${2:?body file}" "${3:-}" ;;
-    app-launch) command_app_launch "${1:?rehearsal steps}" ;;
+    app-launch) command_app_launch "$@" ;;
     app-wait) command_app_wait "${1:-240}" ;;
     app-quit) command_app_quit ;;
     shot) command_shot "${1:?shot name}" ;;

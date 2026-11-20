@@ -8,6 +8,7 @@ import (
 func TestParsingAMessageFromTheApp(t *testing.T) {
 	tabTitle := "SpaceX catch"
 	tabURL := "https://www.youtube.com/watch?v=abc"
+	skillName := "flashcards"
 
 	tests := []struct {
 		name string
@@ -23,6 +24,11 @@ func TestParsingAMessageFromTheApp(t *testing.T) {
 			name: "start_task with no page",
 			line: `{"type":"start_task","taskID":"task-1","goal":"compare","frontTabTitle":null,"frontTabURL":null}`,
 			want: startTaskMessage{TaskID: "task-1", Goal: "compare"},
+		},
+		{
+			name: "start_task with a skill",
+			line: `{"type":"start_task","taskID":"task-1","goal":"make cards","frontTabTitle":null,"frontTabURL":null,"skill":"flashcards"}`,
+			want: startTaskMessage{TaskID: "task-1", Goal: "make cards", Skill: &skillName},
 		},
 		{
 			name: "tool_result with text",

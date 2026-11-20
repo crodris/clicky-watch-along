@@ -71,6 +71,75 @@ CI runs it on every committed result, so a result file that no longer parses fai
 - `costUSD` prices each usage line by the model it names. `/tts` is priced per character. A GPT call is priced per token at the standard prices in `usage.ts`, times the tier OpenAI reported (Ultrafast is 6 times standard), and the case summary lists the tiers in `serviceTiers`. The GPT prices are estimates, since OpenAI's pricing page refuses automated fetches, and `gpt-6-luna`'s price is a guess. A model or tier with no price, or a model route that answered without a usage line, records `costUSD` as null and prints a warning, so the run goes on, and the case's mean cost is then null too.
 - `quality` is a per-case check of the reply, such as the pointer landing on a "Download PDF" control or the landmark within 0.003 degrees of the Eiffel Tower.
 
+## Brain evals
+
+`brainEvals.ts` measures whether the Haiku voice command router behind `POST /voice-command` picks the right tool for what a learner says.
+It sends each case's words, screen state, and offered tools to a Worker and scores the tool calls in the reply.
+Run it after any change to the router's model, its system prompt in `worker/src/voiceCommand.ts`, or a tool description, and compare the result with the committed baseline.
+The 43 cases at one run cost about one cent, and three runs of each cost about two cents.
+
+```bash
+V=.claude/skills/verify-clicky/verify-clicky.sh
+$V new-run brain-evals
+$V worker-up 8797 -- --inspector-port 9307
+node bench/brainEvals.ts run --label baseline --port 8797
+$V cleanup
+```
+
+`--runs N` repeats every case N times, since Haiku is not deterministic.
+`--only <case ids>` limits the run to a comma separated list of the case ids in the fixture.
+Results go to `bench/results/<label>-brain-evals-<commit>.json`.
+`brainEvals.ts` needs `worker/.dev.vars` with `ANTHROPIC_API_KEY`, and the Worker's usage log lines give each call's tokens and cost.
+
+### What each score means
+
+Each run of a case ends in one outcome.
+
+- `pass`: the tools the router called match one of the case's accepted answers. Order and repeated calls do not matter.
+- `wrongTool`: it called a tool, and no accepted answer is that tool or set of tools.
+- `wrongInput`: the tools called match an accepted answer, but a call's input differs from the case's `input`.
+- `missedTool`: it called no tool, and every accepted answer holds a tool.
+- `spuriousTool`: it called a tool, and the only accepted answer is a plain spoken reply.
+- `error`: the Worker answered with an error or not at all.
+
+The table shows the pass rate for each screen context and overall, the count of each failure outcome, p50 and p95 latency in milliseconds, and the cost in dollars.
+A failed run prints the words, what the case accepted, and what the router called.
+
+### The cases
+
+`fixtures/brain-evals.json` holds `contexts` and `cases`.
+A context is a screen the learner can be in: `nothing`, `video`, `scene3D`, `experimentGuess`, `popout`, `readyModel`, `taskAnswer`, and `approvalWaiting`.
+It holds the `scene_state` the app sends and the names of the tools the app offers there.
+A case holds an `id`, a `context`, what the learner `say`s, a `why`, and `accept`.
+`accept` lists acceptable answers, and any one passes.
+Each answer is a tool name, `"none"` for a plain spoken reply, or a list of names for tools called together.
+A case may also hold `input`, a map from a tool name to the input that tool's calls must carry, such as `{ "start_background_task": { "skill": "flashcards" } }`.
+Each listed key must equal the call's value, and `null` means the key must be absent, so `{ "skill": null }` checks that no skill was passed.
+Keys not listed are not checked, and every call of that tool must match.
+A tool named in `input` must be one an accepted answer calls.
+A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them.
+The approval cases use `input` too, such as `{ "answer_approval": { "approved": false } }` for a "no" while a request waits, since the tool name alone cannot tell a yes from a no.
+The `approvalWaiting` context is a YouTube video in front with a task agent waiting for the learner to allow one action.
+Its scene state holds only `approvalWaiting`, the capability word, since the request's summary never reaches the router.
+
+To add a case, append it to `cases`, using a tool the case's context offers, and run `pnpm test` in `bench/`.
+The test checks the ids, the context, and that every accepted tool is offered there.
+To add a screen, add a context with the state and tools the app would send, which `AppVoiceTool.available` in `VoiceCommandTools.swift` and `scene-tools.js` decide.
+
+### The requests
+
+`fixtures/voice-command.json` and `voice-command-video.json` are real app request bodies, and `brainEvals.test.ts` checks that the message this file builds matches them byte for byte.
+The tools come from `fixtures/brain-evals-tools.json`, one descriptor per tool in the app's order, filtered to the tools each context offers.
+The fixture's top-level `skills` list stands for the skills the app finds on disk (the bundled `flashcards`).
+`withSkills` adds them to `start_background_task` as `AppVoiceTool.descriptor(skills:)` does in the app: each skill as `name: description` in the description, and a `skill` enum in the input schema.
+The test `uses the sentences the app source holds` fails when the sentences in `withSkills` drift from `VoiceCommandTools.swift`.
+Tool descriptions may be up to 4096 characters, as in the Worker.
+The descriptions in that catalog are copied from `VoiceCommandTools.swift` and `scene-tools.js`.
+When you change one, run `node bench/brainEvals.ts sync-tools`, which rewrites the catalog's descriptions, and the test `holds the description the app source holds` fails until you do.
+Input schemas, `set_control` (its description lists the page's controls), and a tool the app source does not define yet are edited in the catalog by hand.
+A tool marked `handWritten` is one of those, such as `animate_picture` until the app defines it.
+After a description change, record a new baseline, since the old one measured the old text.
+
 ## Model bakeoff runbook
 
 This runs every Worker route that calls a model on each lab's flagship models, and compares each with `base`, the model the route uses today, on the fixed fixtures.

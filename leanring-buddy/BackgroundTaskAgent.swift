@@ -7,15 +7,47 @@
 //  talks to. CompanionManager runs the tools the harness asks for.
 //
 
+import AppKit
 import Foundation
 
 /// The tools the app runs for a task agent. Web search and web fetch run within Anthropic's turn, and the harness ends
-/// the task on finish, so the harness asks for these four and no other.
+/// the task on finish, so the harness asks for these and no other. MCP server tools run in the harness too.
 nonisolated enum TaskAgentTool: String, Sendable {
     case reportStep = "report_step"
     case readVideoCaptions = "read_video_captions"
     case lookAtVideo = "look_at_video"
     case writeNotionPage = "write_notion_page"
+    // The general tools, run by runTaskAgentGeneralTool below.
+    case takeScreenshot = "take_screenshot"
+    case readClipboard = "read_clipboard"
+    case writeClipboard = "write_clipboard"
+    case openURL = "open_url"
+}
+
+/// Where the agent's skills live. A skill is a Markdown file, <name>.md, that the harness reads when a task names it.
+nonisolated enum TaskAgentFolders {
+    /// ~/Library/Application Support/Clicky, which holds the learner's own skills and the MCP server config.
+    static func clickyApplicationSupportURL() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Clicky", isDirectory: true)
+    }
+
+    /// The MCP servers the learner set up, in the shape of Claude Code's mcpServers. The harness reads it when the first
+    /// task starts, and a missing file means no servers.
+    static func mcpConfigURL(clickyApplicationSupportURL: URL = TaskAgentFolders.clickyApplicationSupportURL()) -> URL {
+        clickyApplicationSupportURL.appendingPathComponent("mcp.json")
+    }
+
+    /// The learner's folder first, so a skill they wrote overrides a bundled one of the same name, then the bundled
+    /// skills. Those live in leanring-buddy/Skills, but the target's synchronized folders copy every file to the top of
+    /// the bundle's Resources folder, so the bundled skills are read from there. Both readers skip a file that is not a
+    /// skill.
+    static func skillsDirectoryURLs(bundleResourceURL: URL?, clickyApplicationSupportURL: URL = TaskAgentFolders.clickyApplicationSupportURL()) -> [URL] {
+        var skillsDirectoryURLs = [clickyApplicationSupportURL.appendingPathComponent("Skills", isDirectory: true)]
+        if let bundleResourceURL {
+            skillsDirectoryURLs.append(bundleResourceURL)
+        }
+        return skillsDirectoryURLs
+    }
 }
 
 nonisolated enum TaskAgentError: Error, Equatable {
@@ -97,6 +129,102 @@ nonisolated func taskAgentSpokenAnswer(_ spokenSummary: String) -> String {
         if firstSentences.count == 3 { stop = true }
     }
     return String(firstSentences.joined(separator: " ").prefix(longestSpokenTaskAnswer))
+}
+
+// MARK: - General tools
+
+/// The folder that holds the files a task's tools make, such as the screenshot take_screenshot saves so a later tool can
+/// pass its path. It is deleted when the task ends.
+nonisolated enum TaskAgentWorkspace {
+    static func folderURL(taskID: UUID, temporaryDirectoryURL: URL = FileManager.default.temporaryDirectory) -> URL {
+        temporaryDirectoryURL.appendingPathComponent("ClickyTasks", isDirectory: true).appendingPathComponent(taskID.uuidString, isDirectory: true)
+    }
+
+    /// The next free screenshot-N.jpg in the task's folder, counting from 1.
+    static func nextScreenshotURL(taskID: UUID, temporaryDirectoryURL: URL = FileManager.default.temporaryDirectory) throws -> URL {
+        let folderURL = folderURL(taskID: taskID, temporaryDirectoryURL: temporaryDirectoryURL)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        var screenshotNumber = 1
+        while FileManager.default.fileExists(atPath: folderURL.appendingPathComponent("screenshot-\(screenshotNumber).jpg").path) {
+            screenshotNumber += 1
+        }
+        return folderURL.appendingPathComponent("screenshot-\(screenshotNumber).jpg")
+    }
+
+    static func removeFolder(taskID: UUID, temporaryDirectoryURL: URL = FileManager.default.temporaryDirectory) {
+        try? FileManager.default.removeItem(at: folderURL(taskID: taskID, temporaryDirectoryURL: temporaryDirectoryURL))
+    }
+}
+
+/// The clipboard's text is cut to this, since every later turn sends a tool result again.
+nonisolated let longestTaskAgentClipboardText = 20_000
+
+/// The link open_url may open: https with a host, and short. The agent reads web pages, which can ask it to open a link,
+/// so nothing else (file:, a custom app scheme, http) reaches NSWorkspace.
+nonisolated func taskAgentOpenableURL(_ linkText: String) -> URL? {
+    let trimmedLinkText = linkText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmedLinkText.count <= 2048,
+          let url = URL(string: trimmedLinkText),
+          url.scheme?.lowercased() == "https",
+          let host = url.host, !host.isEmpty else {
+        return nil
+    }
+    return url
+}
+
+/// Runs one of the general tools and returns its tool_result content. A tool that fails returns an error result, so the
+/// agent can work around it. The Mac is touched only here and only for the four tools the harness lists.
+@MainActor
+func runTaskAgentGeneralTool(
+    named toolName: String,
+    input: [String: JSONValue],
+    taskID: UUID,
+    pasteboard: NSPasteboard = .general
+) async -> (content: JSONValue, isError: Bool) {
+    switch TaskAgentTool(rawValue: toolName) {
+    case .takeScreenshot:
+        do {
+            let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+            guard let screenCapture = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first else {
+                return (.string("No screen could be captured"), true)
+            }
+            let screenshotURL = try TaskAgentWorkspace.nextScreenshotURL(taskID: taskID)
+            try screenCapture.imageData.write(to: screenshotURL)
+            return (.array([
+                .object(["type": .string("text"), "text": .string("Saved to \(screenshotURL.path)")]),
+                .object([
+                    "type": .string("image"),
+                    "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(screenCapture.imageData.base64EncodedString())]),
+                ]),
+            ]), false)
+        } catch {
+            return (.string("The screenshot failed: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"), true)
+        }
+    case .readClipboard:
+        guard let clipboardText = pasteboard.string(forType: .string), !clipboardText.isEmpty else {
+            return (.string("The clipboard holds no text"), true)
+        }
+        return (.string(String(clipboardText.prefix(longestTaskAgentClipboardText))), false)
+    case .writeClipboard:
+        guard let text = input["text"]?.stringValue, !text.isEmpty else {
+            return (.string("text must hold the text to copy"), true)
+        }
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            return (.string("The clipboard would not take the text"), true)
+        }
+        return (.string("Copied \(text.count) characters to the clipboard"), false)
+    case .openURL:
+        guard let url = taskAgentOpenableURL(input["url"]?.stringValue ?? "") else {
+            return (.string("url must be an https link"), true)
+        }
+        guard NSWorkspace.shared.open(url) else {
+            return (.string("The link would not open"), true)
+        }
+        return (.string("Opened \(url.absoluteString)"), false)
+    case .reportStep, .readVideoCaptions, .lookAtVideo, .writeNotionPage, nil:
+        return (.string("\(toolName) is not a general tool"), true)
+    }
 }
 
 /// Writes the agent's page through the Worker's /notion-page route. The harness never reaches Notion, so the app does.

@@ -8,6 +8,7 @@
 //  or Notion. harness/protocol.go is the other half of the messages in this file.
 //
 
+import Combine
 import Foundation
 
 // MARK: - Messages from the harness
@@ -27,9 +28,47 @@ nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case failed(reason: String)
 }
 
+/// What a tool may do, which decides whether the harness asks before running it. harness/approval.go is the other half.
+/// A capability this app does not know still parses, so the request gets an answer (no) and the task does not wait.
+nonisolated enum HarnessCapability: Equatable, Sendable {
+    /// Puts something where others see it or changes a thing: a message, a page, a link with data in it, the clipboard.
+    case sends
+    case deletes
+    case spends
+    /// Reads what the learner never offered: the screen, the clipboard.
+    case readsPrivate
+    case unknown(String)
+
+    init(wireName: String) {
+        switch wireName {
+        case "sends": self = .sends
+        case "deletes": self = .deletes
+        case "spends": self = .spends
+        case "reads_private": self = .readsPrivate
+        default: self = .unknown(wireName)
+        }
+    }
+}
+
+/// "once" covers one call. "always" covers that tool at that capability for the rest of the harness process.
+nonisolated enum HarnessApprovalScope: String, Equatable, Sendable {
+    case once
+    case always
+}
+
+/// The harness waits for an answer to this before it runs one tool call.
+nonisolated struct HarnessApprovalRequest: Equatable, Sendable {
+    let taskID: UUID
+    let approvalID: String
+    let capability: HarnessCapability
+    /// In plain words, from the harness, from the call's own input.
+    let summary: String
+}
+
 /// One line the harness wrote, checked at the boundary. A line that is not one of these is dropped and logged.
 nonisolated enum HarnessMessage: Equatable, Sendable {
     case ready
+    case approvalRequest(HarnessApprovalRequest)
     case toolCall(taskID: UUID, HarnessToolCall)
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
@@ -64,6 +103,13 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
         switch messageType {
         case "ready":
             self = .ready
+        case "approval_request":
+            self = .approvalRequest(HarnessApprovalRequest(
+                taskID: try requiredTaskID(),
+                approvalID: try requiredText("approvalID"),
+                capability: HarnessCapability(wireName: try requiredText("capability")),
+                summary: try requiredText("summary")
+            ))
         case "tool_call":
             guard let input = messageJSON["input"]?.objectValue else {
                 throw ParseError.missingField(messageType: messageType, fieldName: "input")
@@ -87,20 +133,24 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
 // MARK: - Messages to the harness
 
 nonisolated enum HarnessCommand: Equatable, Sendable {
-    case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?)
+    /// `skill` names a skill file the harness reads from its skills folders, or is nil for a task with no skill.
+    case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String?)
     /// `content` is a string or an array of content blocks, such as the image block look_at_video returns.
     case toolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool)
     case cancelTask(taskID: UUID)
+    /// The answer to one approval_request, named by the harness's approvalID.
+    case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
 
     var json: JSONValue {
         switch self {
-        case .startTask(let taskID, let goal, let frontTabTitle, let frontTabURL):
+        case .startTask(let taskID, let goal, let frontTabTitle, let frontTabURL, let skill):
             return .object([
                 "type": .string("start_task"),
                 "taskID": .string(taskID.uuidString),
                 "goal": .string(goal),
                 "frontTabTitle": frontTabTitle.map(JSONValue.string) ?? .null,
                 "frontTabURL": frontTabURL.map(JSONValue.string) ?? .null,
+                "skill": skill.map(JSONValue.string) ?? .null,
             ])
         case .toolResult(let taskID, let toolUseID, let content, let isError):
             return .object([
@@ -112,6 +162,13 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
             ])
         case .cancelTask(let taskID):
             return .object(["type": .string("cancel_task"), "taskID": .string(taskID.uuidString)])
+        case .approvalResult(let approvalID, let approved, let scope):
+            return .object([
+                "type": .string("approval_result"),
+                "approvalID": .string(approvalID),
+                "approved": .bool(approved),
+                "scope": .string(scope.rawValue),
+            ])
         }
     }
 
@@ -128,6 +185,8 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
 @MainActor
 final class HarnessTaskRouter {
     private var eventContinuationsByTaskID: [UUID: AsyncStream<HarnessTaskEvent>.Continuation] = [:]
+    /// Called once for each task the router stops tracking, whether it finished, failed, was cancelled, or lost its harness.
+    var onTaskEnded: ((UUID) -> Void)?
 
     var hasATaskRunning: Bool { !eventContinuationsByTaskID.isEmpty }
 
@@ -142,6 +201,9 @@ final class HarnessTaskRouter {
         switch message {
         case .ready:
             print("Agent harness: ready")
+        case .approvalRequest:
+            // AgentHarness hands these to its approval desk before they reach the router.
+            break
         case .log(let logText):
             print(logText)
         case .toolCall(let taskID, let toolCall):
@@ -157,6 +219,7 @@ final class HarnessTaskRouter {
     /// since a cancelled task may still have a message on its way.
     func end(taskID: UUID, lastEvent: HarnessTaskEvent? = nil) {
         guard let eventContinuation = eventContinuationsByTaskID.removeValue(forKey: taskID) else { return }
+        onTaskEnded?(taskID)
         if let lastEvent {
             eventContinuation.yield(lastEvent)
         }
@@ -170,7 +233,144 @@ final class HarnessTaskRouter {
     }
 }
 
+// MARK: - Approvals
+
+/// Holds each approval_request until the learner answers it, its task ends, or `timeoutSeconds` pass, which declines it.
+/// Requests wait in arrival order, and the learner answers the oldest first (by the buttons in the agent list, or by
+/// voice with `answer_approval`). The desk only keeps the queue and sends the answers. `onRequestArrived` and
+/// `onWaitingRequestsChanged` let CompanionManager show the request, and a Debug build's `debug_answer_approval` tool
+/// answers through `answer(approvalID:approved:scope:)` like the buttons do.
+@MainActor
+final class HarnessApprovalDesk: ObservableObject {
+    /// How long a request waits for an answer before it is declined, so a learner who walked away does not leave the
+    /// agent waiting for good. harness/approval.go waits as long as the task lives.
+    nonisolated static let defaultTimeoutSeconds: Double = 120
+
+    /// A click on the agent list's buttons counts only this long after the oldest request came on screen. The list opens
+    /// next to the mouse, so a click the learner meant for the page could otherwise land on Yes.
+    nonisolated static let secondsBeforeAClickCounts: Double = 1
+
+    /// Oldest first.
+    @Published private(set) var waitingRequests: [HarnessApprovalRequest] = []
+    /// When the oldest request, the one the agent list shows with its buttons, came on screen.
+    private(set) var oldestRequestShownAt: Date?
+    var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
+    var onWaitingRequestsChanged: (([HarnessApprovalRequest]) -> Void)?
+
+    private let timeoutSeconds: Double
+    private let sendAnswer: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
+    private let currentDate: () -> Date
+
+    init(
+        timeoutSeconds: Double = HarnessApprovalDesk.defaultTimeoutSeconds,
+        currentDate: @escaping () -> Date = Date.init,
+        sendAnswer: @escaping (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
+    ) {
+        self.timeoutSeconds = timeoutSeconds
+        self.currentDate = currentDate
+        self.sendAnswer = sendAnswer
+    }
+
+    /// Sets when the oldest request came on screen, after any change to the queue that may have put a new one first.
+    private func noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: String?) {
+        guard waitingRequests.first?.approvalID != oldestApprovalIDBefore else { return }
+        oldestRequestShownAt = waitingRequests.isEmpty ? nil : currentDate()
+    }
+
+    /// The agent list's buttons answer through here. A click that comes too soon after the request showed is ignored,
+    /// so the learner sees the request before a click can answer it. Returns false when the click did not count.
+    @discardableResult
+    func answerByClick(approvalID: String, approved: Bool, scope: HarnessApprovalScope) -> Bool {
+        guard let oldestRequestShownAt,
+              currentDate().timeIntervalSince(oldestRequestShownAt) >= Self.secondsBeforeAClickCounts else {
+            print("Agent harness: ignored a click on approval \(approvalID) that came within \(Self.secondsBeforeAClickCounts) s of the request showing")
+            return false
+        }
+        return answer(approvalID: approvalID, approved: approved, scope: scope)
+    }
+
+    /// The request the learner answers next, which is also the one the agent list shows.
+    var oldestWaitingRequest: HarnessApprovalRequest? { waitingRequests.first }
+
+    func receive(_ request: HarnessApprovalRequest) {
+        // A repeated ID would leave two entries for one answer.
+        guard !waitingRequests.contains(where: { $0.approvalID == request.approvalID }) else { return }
+        let oldestApprovalIDBefore = waitingRequests.first?.approvalID
+        waitingRequests.append(request)
+        noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
+        print("Agent harness: approval requested for \(request.capability): \(request.summary)")
+        onRequestArrived?(request)
+        onWaitingRequestsChanged?(waitingRequests)
+        Task { [weak self, timeoutSeconds] in
+            try? await Task.sleep(for: .seconds(timeoutSeconds))
+            self?.declineIfStillWaiting(approvalID: request.approvalID)
+        }
+    }
+
+    /// An answer that came first stands, since `answer` finds nothing left to decline.
+    private func declineIfStillWaiting(approvalID: String) {
+        if answer(approvalID: approvalID, approved: false, scope: .once) {
+            print("Agent harness: approval \(approvalID) timed out after \(timeoutSeconds) s, so it was declined")
+        }
+    }
+
+    /// Returns false when no request with this ID is waiting, such as one already answered.
+    @discardableResult
+    func answer(approvalID: String, approved: Bool, scope: HarnessApprovalScope) -> Bool {
+        guard let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else { return false }
+        let oldestApprovalIDBefore = waitingRequests.first?.approvalID
+        waitingRequests.remove(at: requestIndex)
+        noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
+        print("Agent harness: approval \(approvalID) \(approved ? "given" : "declined") (\(scope.rawValue))")
+        sendAnswer(approvalID, approved, scope)
+        onWaitingRequestsChanged?(waitingRequests)
+        return true
+    }
+
+    /// Forgets a task's requests when the task ends. The harness already abandoned them, so nothing is sent.
+    func dropRequests(forTaskID taskID: UUID) {
+        let requestCountBefore = waitingRequests.count
+        let oldestApprovalIDBefore = waitingRequests.first?.approvalID
+        waitingRequests.removeAll { $0.taskID == taskID }
+        noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
+        if waitingRequests.count != requestCountBefore {
+            onWaitingRequestsChanged?(waitingRequests)
+        }
+    }
+}
+
 // MARK: - The helper process
+
+/// The environment the harness is launched with: only what it reads, so none of this Mac's Anthropic credentials reach
+/// the Worker. harness/main.go is the other half. CLICKY_SKILLS_DIRS lists the skills folders in the order the harness
+/// searches them, joined with ":". CLICKY_MCP_CONFIG is the mcp.json of the learner's MCP servers. The few variables in
+/// `harnessInheritedVariableNames` are copied so a stdio MCP server the harness starts can find its command and home.
+nonisolated func agentHarnessEnvironment(
+    workerBaseURL: String,
+    appSecret: String?,
+    skillsDirectoryURLs: [URL],
+    mcpConfigURL: URL? = nil,
+    parentEnvironment: [String: String] = [:]
+) -> [String: String] {
+    var harnessEnvironment: [String: String] = [:]
+    for variableName in harnessInheritedVariableNames {
+        harnessEnvironment[variableName] = parentEnvironment[variableName]
+    }
+    harnessEnvironment["CLICKY_WORKER_BASE_URL"] = workerBaseURL
+    if let appSecret, !appSecret.isEmpty {
+        harnessEnvironment["CLICKY_APP_SECRET"] = appSecret
+    }
+    if !skillsDirectoryURLs.isEmpty {
+        harnessEnvironment["CLICKY_SKILLS_DIRS"] = skillsDirectoryURLs.map(\.path).joined(separator: ":")
+    }
+    if let mcpConfigURL {
+        harnessEnvironment["CLICKY_MCP_CONFIG"] = mcpConfigURL.path
+    }
+    return harnessEnvironment
+}
+
+/// None of these is a credential. The harness copies them to a stdio MCP server, never the Worker's secret.
+nonisolated let harnessInheritedVariableNames = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "SHELL"]
 
 enum AgentHarnessError: Error, Equatable {
     case helperIsMissing(path: String)
@@ -184,7 +384,11 @@ final class AgentHarness {
     private let workerBaseURL: String
     private let appSecretDefaults: UserDefaults
     private let helperURL: URL
-    private let taskRouter = HarnessTaskRouter()
+    let taskRouter = HarnessTaskRouter()
+    /// Holds the requests the harness waits on until the learner answers them.
+    private(set) lazy var approvalDesk = HarnessApprovalDesk { [weak self] approvalID, approved, scope in
+        self?.write(.approvalResult(approvalID: approvalID, approved: approved, scope: scope))
+    }
 
     private var runningProcess: Process?
     private var standardInputHandle: FileHandle?
@@ -202,18 +406,29 @@ final class AgentHarness {
         self.workerBaseURL = workerBaseURL
         self.appSecretDefaults = appSecretDefaults
         self.helperURL = helperURL
+        // A task that ends takes its waiting requests with it.
+        taskRouter.onTaskEnded = { [weak self] endedTaskID in
+            self?.approvalDesk.dropRequests(forTaskID: endedTaskID)
+        }
     }
 
-    /// Starts a task on the harness. The stream ends after the task finishes or fails, or when the harness stops.
-    func startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?) throws -> AsyncStream<HarnessTaskEvent> {
+    /// Starts a task on the harness, with the steps of the named skill when `skill` is given. The stream ends after the
+    /// task finishes or fails, or when the harness stops.
+    func startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String? = nil) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let taskEvents = taskRouter.register(taskID: taskID)
-        write(.startTask(taskID: taskID, goal: goal, frontTabTitle: frontTabTitle, frontTabURL: frontTabURL))
+        write(.startTask(taskID: taskID, goal: goal, frontTabTitle: frontTabTitle, frontTabURL: frontTabURL, skill: skill))
         return taskEvents
     }
 
     func sendToolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool) {
         write(.toolResult(taskID: taskID, toolUseID: toolUseID, content: content, isError: isError))
+    }
+
+    /// Answers a request the harness is waiting on. Returns false when none is waiting under this ID.
+    @discardableResult
+    func answerApproval(approvalID: String, approved: Bool, scope: HarnessApprovalScope) -> Bool {
+        approvalDesk.answer(approvalID: approvalID, approved: approved, scope: scope)
     }
 
     /// Stops the task in the harness, which then sends nothing more for it.
@@ -236,11 +451,18 @@ final class AgentHarness {
         let process = Process()
         process.executableURL = helperURL
         // A clean environment with only what the harness reads, so none of this Mac's Anthropic credentials reach the Worker.
-        var harnessEnvironment = ["CLICKY_WORKER_BASE_URL": workerBaseURL]
-        if let appSecret = appSecretDefaults.string(forKey: ClickyAppSecret.defaultsKey), !appSecret.isEmpty {
-            harnessEnvironment["CLICKY_APP_SECRET"] = appSecret
+        let skillsDirectoryURLs = TaskAgentFolders.skillsDirectoryURLs(bundleResourceURL: Bundle.main.resourceURL)
+        if let userSkillsDirectoryURL = skillsDirectoryURLs.first {
+            // So the learner finds the place to put a skill.
+            try? FileManager.default.createDirectory(at: userSkillsDirectoryURL, withIntermediateDirectories: true)
         }
-        process.environment = harnessEnvironment
+        process.environment = agentHarnessEnvironment(
+            workerBaseURL: workerBaseURL,
+            appSecret: appSecretDefaults.string(forKey: ClickyAppSecret.defaultsKey),
+            skillsDirectoryURLs: skillsDirectoryURLs,
+            mcpConfigURL: TaskAgentFolders.mcpConfigURL(),
+            parentEnvironment: ProcessInfo.processInfo.environment
+        )
 
         let standardInputPipe = Pipe()
         let standardOutputPipe = Pipe()
@@ -279,7 +501,12 @@ final class AgentHarness {
 
     private func handleHarnessLine(_ outputLine: String) {
         do {
-            taskRouter.route(try HarnessMessage(line: outputLine))
+            let message = try HarnessMessage(line: outputLine)
+            if case .approvalRequest(let approvalRequest) = message {
+                approvalDesk.receive(approvalRequest)
+                return
+            }
+            taskRouter.route(message)
         } catch {
             print("Agent harness: dropped a line it could not read (\(error)): \(outputLine.prefix(200))")
         }

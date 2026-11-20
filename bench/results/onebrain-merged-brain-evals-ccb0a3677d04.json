@@ -1,0 +1,3971 @@
+{
+  "label": "onebrain-merged",
+  "benchKind": "brain-evals",
+  "commitSHA": "ccb0a3677d04",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-20T00:27:35.888Z",
+  "runCount": 3,
+  "port": 8789,
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summary": {
+    "overall": {
+      "runs": 129,
+      "passed": 129,
+      "passRate": 1,
+      "wrongTool": 0,
+      "wrongInput": 0,
+      "missedTool": 0,
+      "spuriousTool": 0,
+      "errors": 0,
+      "p50Ms": 846,
+      "p95Ms": 1042,
+      "totalCostUSD": 0.01966,
+      "meanCostUSD": 0.000152
+    },
+    "byContext": {
+      "nothing": {
+        "runs": 27,
+        "passed": 27,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 833,
+        "p95Ms": 1054,
+        "totalCostUSD": 0.00282,
+        "meanCostUSD": 0.000105
+      },
+      "video": {
+        "runs": 30,
+        "passed": 30,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 863,
+        "p95Ms": 1055,
+        "totalCostUSD": 0.00441,
+        "meanCostUSD": 0.000147
+      },
+      "scene3D": {
+        "runs": 15,
+        "passed": 15,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 827,
+        "p95Ms": 941,
+        "totalCostUSD": 0.00242,
+        "meanCostUSD": 0.000161
+      },
+      "experimentGuess": {
+        "runs": 12,
+        "passed": 12,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 838,
+        "p95Ms": 1015,
+        "totalCostUSD": 0.00232,
+        "meanCostUSD": 0.000193
+      },
+      "popout": {
+        "runs": 9,
+        "passed": 9,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 901,
+        "p95Ms": 991,
+        "totalCostUSD": 0.00161,
+        "meanCostUSD": 0.000179
+      },
+      "readyModel": {
+        "runs": 6,
+        "passed": 6,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 829,
+        "p95Ms": 906,
+        "totalCostUSD": 0.00136,
+        "meanCostUSD": 0.000227
+      },
+      "taskAnswer": {
+        "runs": 9,
+        "passed": 9,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 818,
+        "p95Ms": 1178,
+        "totalCostUSD": 0.00129,
+        "meanCostUSD": 0.000144
+      },
+      "approvalWaiting": {
+        "runs": 21,
+        "passed": 21,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 873,
+        "p95Ms": 945,
+        "totalCostUSD": 0.00343,
+        "meanCostUSD": 0.000163
+      }
+    }
+  },
+  "samples": [
+    {
+      "caseId": "nothing-pop-out",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {
+            "confirmation": "lifting it out now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 3388,
+          "cacheReadTokens": 0,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00046510000000000003,
+      "httpStatus": 200,
+      "totalMs": 837.570209,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-pop-out",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {
+            "confirmation": "lifting it out now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00007548,
+      "httpStatus": 200,
+      "totalMs": 743.691709,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-pop-out",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {
+            "confirmation": "lifting it out now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00007548,
+      "httpStatus": 200,
+      "totalMs": 880.6836250000001,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-animate",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {
+            "confirmation": "animating it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 135,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007488,
+      "httpStatus": 200,
+      "totalMs": 787.183458,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-animate",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {
+            "confirmation": "animating it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 135,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007488,
+      "httpStatus": 200,
+      "totalMs": 810.8487499999992,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-animate",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {
+            "confirmation": "animating it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 135,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007488,
+      "httpStatus": 200,
+      "totalMs": 804.1050000000005,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-try-it",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {
+            "confirmation": "setting it up"
+          }
+        }
+      ],
+      "spokenText": "No simulation is on screen yet, so I'll build one.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00008448,
+      "httpStatus": 200,
+      "totalMs": 781.2303339999999,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-try-it",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {
+            "confirmation": "setting it up"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007498,
+      "httpStatus": 200,
+      "totalMs": 768.1611250000005,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-try-it",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {
+            "confirmation": "setting it up"
+          }
+        }
+      ],
+      "spokenText": "No simulation is on screen yet, so I'll build one.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 74
+        }
+      ],
+      "costUSD": 0.00008448,
+      "httpStatus": 200,
+      "totalMs": 823.9302079999998,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-try-again",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": "Asking what to retry"
+          }
+        }
+      ],
+      "spokenText": "I'm not sure what \"that\" refers to, since nothing is on screen and there's no recent action to repeat. Could you tell me what you'd like to try again?",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 137,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 110
+        }
+      ],
+      "costUSD": 0.00010258000000000001,
+      "httpStatus": 200,
+      "totalMs": 945.2144580000004,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-try-again",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [],
+      "spokenText": "I'm not sure what \"that\" refers to, since nothing is on screen and there are no recent actions. Could you tell me what you'd like to try again?",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 137,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 48
+        }
+      ],
+      "costUSD": 0.00007158000000000002,
+      "httpStatus": 200,
+      "totalMs": 772.6275000000005,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-try-again",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [],
+      "spokenText": "I'm not sure what \"that\" refers to, since nothing is on screen and there's no recent action. Could you tell me what you'd like to try again?",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 137,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 47
+        }
+      ],
+      "costUSD": 0.00007108000000000002,
+      "httpStatus": 200,
+      "totalMs": 779.3120419999996,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-question",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": ""
+          }
+        }
+      ],
+      "spokenText": "This is a question, so it goes to answer_with_screen.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 72
+        }
+      ],
+      "costUSD": 0.00008378,
+      "httpStatus": 200,
+      "totalMs": 732.9199579999986,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-question",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": ""
+          }
+        }
+      ],
+      "spokenText": "This is a question, so I'll have the screen answer it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 71
+        }
+      ],
+      "costUSD": 0.00008328,
+      "httpStatus": 200,
+      "totalMs": 832.925333000001,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-question",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": ""
+          }
+        }
+      ],
+      "spokenText": "This is a question, so it goes to answer_with_screen.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 139,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 72
+        }
+      ],
+      "costUSD": 0.00008378,
+      "httpStatus": 200,
+      "totalMs": 842.3110840000008,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-research",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how this catch compares to the first booster catch. The learner is asking about the catch shown on screen, compared with the first booster catch.",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "This is a research request that needs the web, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 147,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 145
+        }
+      ],
+      "costUSD": 0.00012108000000000001,
+      "httpStatus": 200,
+      "totalMs": 1027.485041,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-research",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how this catch compares to the first booster catch. The learner is asking about the catch shown on screen, and the comparison should cover the first booster catch.",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "This is a research request that needs the web, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 147,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 150
+        }
+      ],
+      "costUSD": 0.00012358,
+      "httpStatus": 200,
+      "totalMs": 1054.028000000002,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-research",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how this catch compares to the first booster catch. The learner is asking about the catch shown in the current video or page, compared against the first booster catch.",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "This needs research beyond the screen, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 147,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 148
+        }
+      ],
+      "costUSD": 0.00012258,
+      "httpStatus": 200,
+      "totalMs": 1109.3262920000016,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-make-it-flow",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {
+            "confirmation": "making it flow"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 138,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007518000000000001,
+      "httpStatus": 200,
+      "totalMs": 891.0249580000018,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-make-it-flow",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {
+            "confirmation": "making it flow"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 138,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007518000000000001,
+      "httpStatus": 200,
+      "totalMs": 713.538625000001,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-make-it-flow",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "animate_picture",
+          "input": {
+            "confirmation": "making it flow"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 138,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00007518000000000001,
+      "httpStatus": 200,
+      "totalMs": 725.1985420000019,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-slow-down",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.75,
+            "confirmation": "slowing it to three quarters speed"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 5337,
+          "cacheReadTokens": 0,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.0007303250000000001,
+      "httpStatus": 200,
+      "totalMs": 972.8345420000005,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-slow-down",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.75,
+            "confirmation": "slowing it to three quarters speed"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011657,
+      "httpStatus": 200,
+      "totalMs": 854.9996660000033,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-slow-down",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.75,
+            "confirmation": "slowing it to three quarters speed"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011657,
+      "httpStatus": 200,
+      "totalMs": 793.7022919999981,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-seek-back",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30,
+            "confirmation": "Going back 30 seconds."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011607,
+      "httpStatus": 200,
+      "totalMs": 886.5330410000024,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-seek-back",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30,
+            "confirmation": "Going back thirty seconds."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011607,
+      "httpStatus": 200,
+      "totalMs": 806.8057499999995,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-seek-back",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30,
+            "confirmation": "Going back thirty seconds."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011607,
+      "httpStatus": 200,
+      "totalMs": 808.5384999999987,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder",
+            "confirmation": "Searching the captions for that."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00011587,
+      "httpStatus": 200,
+      "totalMs": 871.6320410000044,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder",
+            "confirmation": "Looking for the swim bladder part."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00011737000000000001,
+      "httpStatus": 200,
+      "totalMs": 818.6447919999991,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder",
+            "confirmation": "Looking for the swim bladder part."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00011737000000000001,
+      "httpStatus": 200,
+      "totalMs": 863.0578749999986,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-build-model",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "build_model_in_background",
+          "input": {
+            "whatToBuild": "this shark",
+            "confirmation": "starting the shark model"
+          }
+        }
+      ],
+      "spokenText": "Building a 3D model in the background, since one is offered for this request.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00012787,
+      "httpStatus": 200,
+      "totalMs": 856.9380420000016,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-build-model",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "build_model_in_background",
+          "input": {
+            "whatToBuild": "this shark",
+            "confirmation": "starting the shark model"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00011737000000000001,
+      "httpStatus": 200,
+      "totalMs": 843.6180000000022,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-build-model",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "build_model_in_background",
+          "input": {
+            "whatToBuild": "this shark",
+            "confirmation": "starting the shark model"
+          }
+        }
+      ],
+      "spokenText": "Build model in background is offered (not show_ready_model), so use it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 109
+        }
+      ],
+      "costUSD": 0.00012837,
+      "httpStatus": 200,
+      "totalMs": 892.2301670000015,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-try-it",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {
+            "confirmation": "setting it up"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 199,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00010077000000000001,
+      "httpStatus": 200,
+      "totalMs": 711.2612920000029,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-try-it",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {
+            "confirmation": "setting it up"
+          }
+        }
+      ],
+      "spokenText": "The video is about sharks floating, with no simulation on screen yet, so I'll build one.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 199,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00011527000000000001,
+      "httpStatus": 200,
+      "totalMs": 873.7189169999983,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-try-it",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "build_simulation",
+          "input": {
+            "confirmation": "setting it up"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 199,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00010077000000000001,
+      "httpStatus": 200,
+      "totalMs": 683.5267500000045,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-no-tool",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [],
+      "spokenText": "I can't order pizza; that's outside what I can do here. I can only control the video, build 3D models, or answer questions about what's on screen.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 200,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 45
+        }
+      ],
+      "costUSD": 0.00009587,
+      "httpStatus": 200,
+      "totalMs": 862.9158749999988,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-no-tool",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": "I can't order a pizza, but I can help with this video."
+          }
+        }
+      ],
+      "spokenText": "I can't order pizza; none of my tools place orders. I can help with the video, though, such as pausing it or finding a moment in it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 200,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 112
+        }
+      ],
+      "costUSD": 0.00012937000000000002,
+      "httpStatus": 200,
+      "totalMs": 950.5641249999971,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-no-tool",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [],
+      "spokenText": "I can't order a pizza, since none of my tools place orders. I can help with the video that's playing, \"How sharks float,\" if you want to pause it, look something up, or make a study guide.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 200,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 58
+        }
+      ],
+      "costUSD": 0.00010237000000000001,
+      "httpStatus": 200,
+      "totalMs": 900.1894590000011,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-other-way",
+      "context": "scene3D",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45,
+            "confirmation": "turned it back the other way"
+          }
+        }
+      ],
+      "spokenText": "The last action turned the model 45 degrees right, so reversing it means turning 45 degrees left.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 261,
+          "cacheWriteTokens": 5245,
+          "cacheReadTokens": 0,
+          "outputTokens": 117
+        }
+      ],
+      "costUSD": 0.0007402250000000001,
+      "httpStatus": 200,
+      "totalMs": 941.3477090000015,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-other-way",
+      "context": "scene3D",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45,
+            "confirmation": "turned it back"
+          }
+        }
+      ],
+      "spokenText": "The last action turned the model 45 degrees, so reversing it means turning back the other way.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 110
+        }
+      ],
+      "costUSD": 0.00013355000000000002,
+      "httpStatus": 200,
+      "totalMs": 877.9486669999969,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-other-way",
+      "context": "scene3D",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45,
+            "confirmation": "turned it back the other way"
+          }
+        }
+      ],
+      "spokenText": "The last action turned the model 45 degrees, so reversing it means turning back the other way.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 261,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 113
+        }
+      ],
+      "costUSD": 0.00013505,
+      "httpStatus": 200,
+      "totalMs": 935.4102499999935,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-what-for",
+      "context": "scene3D",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "crankshaft",
+            "confirmation": "Here's the crankshaft."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 241,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011905000000000001,
+      "httpStatus": 200,
+      "totalMs": 795.2057919999934,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-what-for",
+      "context": "scene3D",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "crankshaft",
+            "confirmation": "Let me show you the crankshaft."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 241,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00012005000000000002,
+      "httpStatus": 200,
+      "totalMs": 802.6427919999987,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-what-for",
+      "context": "scene3D",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "crankshaft",
+            "confirmation": "Here is the crankshaft."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 241,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011905000000000001,
+      "httpStatus": 200,
+      "totalMs": 848.1754999999976,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-explode",
+      "context": "scene3D",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1,
+            "confirmation": "pulling the parts apart"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011625,
+      "httpStatus": 200,
+      "totalMs": 804.1841669999994,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-explode",
+      "context": "scene3D",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1,
+            "confirmation": "pulling the parts apart"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011625,
+      "httpStatus": 200,
+      "totalMs": 828.1110830000034,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-explode",
+      "context": "scene3D",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1,
+            "confirmation": "pulling the parts apart"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011625,
+      "httpStatus": 200,
+      "totalMs": 829.281332999999,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-inside",
+      "context": "scene3D",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "set_inside_view",
+          "input": {
+            "open": true,
+            "confirmation": "Opening the shell so you can see inside"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.00011875,
+      "httpStatus": 200,
+      "totalMs": 827.4414170000018,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-inside",
+      "context": "scene3D",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "set_inside_view",
+          "input": {
+            "open": true,
+            "confirmation": "opening the shell"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.00011525,
+      "httpStatus": 200,
+      "totalMs": 770.3892500000002,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-inside",
+      "context": "scene3D",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "set_inside_view",
+          "input": {
+            "open": true,
+            "confirmation": "Cutting the shell open"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 238,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00011675,
+      "httpStatus": 200,
+      "totalMs": 846.5957079999935,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-zoom-try",
+      "context": "scene3D",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3,
+            "confirmation": "zooming in a bit"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 242,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011665,
+      "httpStatus": 200,
+      "totalMs": 764.7715830000016,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-zoom-try",
+      "context": "scene3D",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3,
+            "confirmation": "zooming in a bit"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 242,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011665,
+      "httpStatus": 200,
+      "totalMs": 787.3776660000003,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "scene-zoom-try",
+      "context": "scene3D",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3,
+            "confirmation": "zooming in a bit"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 242,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5245,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011665,
+      "httpStatus": 200,
+      "totalMs": 747.4820840000029,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-guess-short",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty degrees goes farther",
+            "confirmation": "got it, now try it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 416,
+          "cacheWriteTokens": 5545,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.000778225,
+      "httpStatus": 200,
+      "totalMs": 810.9486250000045,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-guess-short",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty degrees goes farther",
+            "confirmation": "Got it, now try it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 416,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 88
+        }
+      ],
+      "costUSD": 0.00014105,
+      "httpStatus": 200,
+      "totalMs": 872.9058750000113,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-guess-short",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "sixty degrees goes farther",
+            "confirmation": "Got it, now try it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 416,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 88
+        }
+      ],
+      "costUSD": 0.00014105,
+      "httpStatus": 200,
+      "totalMs": 823.5402919999906,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-guess-unsure",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "they'd tie, I guess",
+            "confirmation": "got it, now try it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 413,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 86
+        }
+      ],
+      "costUSD": 0.00013975,
+      "httpStatus": 200,
+      "totalMs": 844.5299159999995,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-guess-unsure",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "they'd tie, I guess",
+            "confirmation": "Got it, now try it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 413,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00014025,
+      "httpStatus": 200,
+      "totalMs": 837.755250000002,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-guess-unsure",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "they'd tie, I guess",
+            "confirmation": "Got it, now try it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 413,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00014025,
+      "httpStatus": 200,
+      "totalMs": 838.4021669999929,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {
+            "confirmation": "running it now"
+          }
+        }
+      ],
+      "spokenText": "The prediction question is still unanswered, but the learner asked to run it, and run_simulation is the matching tool.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 406,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 90
+        }
+      ],
+      "costUSD": 0.00014105,
+      "httpStatus": 200,
+      "totalMs": 893.9537500000006,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {
+            "confirmation": "running it now"
+          }
+        }
+      ],
+      "spokenText": "The prediction question is still open, but the learner asked to run it, and run_simulation is the matching tool.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 406,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00013955,
+      "httpStatus": 200,
+      "totalMs": 908.3094580000034,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {
+            "confirmation": "running it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 406,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00012305,
+      "httpStatus": 200,
+      "totalMs": 777.3630419999972,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45,
+            "confirmation": "angle set to 45"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 411,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014555000000000001,
+      "httpStatus": 200,
+      "totalMs": 1014.9082500000077,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45,
+            "confirmation": "angle set to 45"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 411,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014555000000000001,
+      "httpStatus": 200,
+      "totalMs": 826.5811670000112,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "experiment-set-angle",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 45,
+            "confirmation": "angle set to 45"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 411,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5545,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00014555000000000001,
+      "httpStatus": 200,
+      "totalMs": 806.4425420000043,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-other-way",
+      "context": "popout",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45,
+            "confirmation": "turned it back the other way"
+          }
+        }
+      ],
+      "spokenText": "The last action turned the model 45 degrees, so reversing it means turning back by -45.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 4798,
+          "cacheReadTokens": 0,
+          "outputTokens": 113
+        }
+      ],
+      "costUSD": 0.00068105,
+      "httpStatus": 200,
+      "totalMs": 991.209124999994,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-other-way",
+      "context": "popout",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45,
+            "confirmation": "turned it back"
+          }
+        }
+      ],
+      "spokenText": "The last action turned the model by 45 degrees, so reversing it means turning back by -45.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 111
+        }
+      ],
+      "costUSD": 0.00012828,
+      "httpStatus": 200,
+      "totalMs": 928.6964159999916,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-other-way",
+      "context": "popout",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45,
+            "confirmation": "turned it back"
+          }
+        }
+      ],
+      "spokenText": "The last action turned the model by 45 degrees, so reversing it means turning back by 45 degrees.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 248,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 115
+        }
+      ],
+      "costUSD": 0.00013028,
+      "httpStatus": 200,
+      "totalMs": 922.1570829999982,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-explain",
+      "context": "popout",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "engine",
+            "confirmation": "Let me show you the engine."
+          }
+        }
+      ],
+      "spokenText": "The learner asks what the engine does, which is a question about a labeled part, so explain_part fits.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 112
+        }
+      ],
+      "costUSD": 0.00012648,
+      "httpStatus": 200,
+      "totalMs": 915.5469580000063,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-explain",
+      "context": "popout",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "engine",
+            "confirmation": "Let me show you the engine."
+          }
+        }
+      ],
+      "spokenText": "The engine question is about a labeled part, so I'll use explain_part.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 104
+        }
+      ],
+      "costUSD": 0.00012248,
+      "httpStatus": 200,
+      "totalMs": 901.0783749999973,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-explain",
+      "context": "popout",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "explain_part",
+          "input": {
+            "label": "engine",
+            "confirmation": "Let me show you the engine"
+          }
+        }
+      ],
+      "spokenText": "The learner asks what the engine does, and a labeled part exists for it, so I'll use explain_part.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 113
+        }
+      ],
+      "costUSD": 0.00012698,
+      "httpStatus": 200,
+      "totalMs": 887.9603749999951,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-close",
+      "context": "popout",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "close_scene",
+          "input": {
+            "confirmation": "Closing it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 221,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00009758000000000001,
+      "httpStatus": 200,
+      "totalMs": 789.7114160000056,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-close",
+      "context": "popout",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "close_scene",
+          "input": {
+            "confirmation": "Closing it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 221,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00009758000000000001,
+      "httpStatus": 200,
+      "totalMs": 744.1114999999991,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "popout-close",
+      "context": "popout",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "close_scene",
+          "input": {
+            "confirmation": "Closing it now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 221,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4798,
+          "outputTokens": 55
+        }
+      ],
+      "costUSD": 0.00009758000000000001,
+      "httpStatus": 200,
+      "totalMs": 733.8881669999973,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "ready-show",
+      "context": "readyModel",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "show_ready_model",
+          "input": {
+            "confirmation": "Showing the shark's liver model"
+          }
+        }
+      ],
+      "spokenText": "A 3D model is ready and waiting, so I'll bring it up.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 227,
+          "cacheWriteTokens": 5573,
+          "cacheReadTokens": 0,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.000761825,
+      "httpStatus": 200,
+      "totalMs": 850.1080829999992,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "ready-show",
+      "context": "readyModel",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "show_ready_model",
+          "input": {
+            "confirmation": "Here is the shark's liver model"
+          }
+        }
+      ],
+      "spokenText": "A model is ready and waiting, so I'll show it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5573,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011843,
+      "httpStatus": 200,
+      "totalMs": 832.2856250000041,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "ready-show",
+      "context": "readyModel",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "show_ready_model",
+          "input": {
+            "confirmation": "Showing the shark's liver model"
+          }
+        }
+      ],
+      "spokenText": "A model is ready and waiting, so I'll show it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5573,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011843,
+      "httpStatus": 200,
+      "totalMs": 906.0893749999959,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "ready-seek",
+      "context": "readyModel",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10,
+            "confirmation": "Going back ten seconds."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 230,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5573,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00012073,
+      "httpStatus": 200,
+      "totalMs": 803.5382499999978,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "ready-seek",
+      "context": "readyModel",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10,
+            "confirmation": "Going back ten seconds."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 230,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5573,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00012073,
+      "httpStatus": 200,
+      "totalMs": 829.3744999999908,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "ready-seek",
+      "context": "readyModel",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10,
+            "confirmation": "Going back ten seconds."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 230,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5573,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00012073,
+      "httpStatus": 200,
+      "totalMs": 781.4120419999963,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-hear",
+      "context": "taskAnswer",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "hear_task_answer",
+          "input": {
+            "confirmation": "let me check what came back"
+          }
+        }
+      ],
+      "spokenText": "The learner is asking about a background task result, so I'll read it out.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 3574,
+          "cacheReadTokens": 0,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00050035,
+      "httpStatus": 200,
+      "totalMs": 814.718417000011,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-hear",
+      "context": "taskAnswer",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "hear_task_answer",
+          "input": {
+            "confirmation": "let me check what it found"
+          }
+        }
+      ],
+      "spokenText": "The learner asks what the background task found, so I'll use hear_task_answer.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.00009134,
+      "httpStatus": 200,
+      "totalMs": 840.2914170000004,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-hear",
+      "context": "taskAnswer",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "hear_task_answer",
+          "input": {
+            "confirmation": "let me check what it found"
+          }
+        }
+      ],
+      "spokenText": "The learner asks what the background agent found. Use hear_task_answer.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00009034,
+      "httpStatus": 200,
+      "totalMs": 817.7246670000022,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-followup",
+      "context": "taskAnswer",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Look up who built it. The learner is asking about the subject they were just looking at; nothing specific is on screen right now, so identify the subject from the request context and find out who built or created it.",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "The learner wants research on something on screen, which needs the web, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 138,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 164
+        }
+      ],
+      "costUSD": 0.00013154000000000003,
+      "httpStatus": 200,
+      "totalMs": 1177.8008750000008,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-followup",
+      "context": "taskAnswer",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Look up who built it, based on what the learner is currently looking at on screen. Nothing specific is shown on screen right now, so identify the subject from any visible content and research its builder or creator.",
+            "confirmation": "looking into it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 138,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 134
+        }
+      ],
+      "costUSD": 0.00011654,
+      "httpStatus": 200,
+      "totalMs": 1021.3706249999959,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-followup",
+      "context": "taskAnswer",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Look up who built it, based on what the learner is asking about on screen. Nothing specific is currently shown in the scene state, so identify the subject from the learner's words and any visible content.",
+            "confirmation": "Looking into who built it"
+          }
+        }
+      ],
+      "spokenText": "The learner wants research on who built something on screen, which needs the web, so I'll hand it to a background task.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 138,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 168
+        }
+      ],
+      "costUSD": 0.00013354000000000003,
+      "httpStatus": 200,
+      "totalMs": 1139.8647080000082,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-pop-out",
+      "context": "taskAnswer",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {
+            "confirmation": "lifting it out now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00007734,
+      "httpStatus": 200,
+      "totalMs": 798.6976660000073,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-pop-out",
+      "context": "taskAnswer",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {
+            "confirmation": "popping it out"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00007634,
+      "httpStatus": 200,
+      "totalMs": 756.6915420000005,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "task-pop-out",
+      "context": "taskAnswer",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "pop_out",
+          "input": {
+            "confirmation": "lifting it out now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 136,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3574,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00007734,
+      "httpStatus": 200,
+      "totalMs": 739.8930419999961,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-flashcards",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "make flashcards from this video, \"How sharks float\"",
+            "skill": "flashcards",
+            "confirmation": "making flashcards now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 119
+        }
+      ],
+      "costUSD": 0.00013307,
+      "httpStatus": 200,
+      "totalMs": 819.6659159999981,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-flashcards",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "make flashcards from this video, \"How sharks float\"",
+            "skill": "flashcards",
+            "confirmation": "making the flashcards now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 120
+        }
+      ],
+      "costUSD": 0.00013356999999999998,
+      "httpStatus": 200,
+      "totalMs": 846.7971249999973,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-flashcards",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "make flashcards from this video, \"How sharks float\"",
+            "skill": "flashcards",
+            "confirmation": "making flashcards now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 119
+        }
+      ],
+      "costUSD": 0.00013307,
+      "httpStatus": 200,
+      "totalMs": 766.9862500000017,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-flashcards-quiz-me",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video playing now, \"How sharks float\", and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making your flashcards now"
+          }
+        }
+      ],
+      "spokenText": "Flashcards from the video is a background task with the flashcards skill.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 156
+        }
+      ],
+      "costUSD": 0.00015187,
+      "httpStatus": 200,
+      "totalMs": 1054.6494999999995,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-flashcards-quiz-me",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video that is playing, \"How sharks float\", and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "Making flashcards from this video now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 138
+        }
+      ],
+      "costUSD": 0.00014287,
+      "httpStatus": 200,
+      "totalMs": 823.694875000001,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-flashcards-quiz-me",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "skill": "flashcards",
+            "goal": "Make flashcards from the video \"How sharks float\" that is playing, and save them as a Notion page.",
+            "confirmation": "Making flashcards now"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 205,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 135
+        }
+      ],
+      "costUSD": 0.00014137,
+      "httpStatus": 200,
+      "totalMs": 850.2207920000073,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-study-cards",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video \"How sharks float\" that is playing in Chrome, and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making the study cards now"
+          }
+        }
+      ],
+      "spokenText": "The learner wants flashcards from the video, which matches the flashcards skill.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 164
+        }
+      ],
+      "costUSD": 0.00015547,
+      "httpStatus": 200,
+      "totalMs": 1042.462750000006,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-study-cards",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video that is playing, \"How sharks float\", and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making the flashcards now"
+          }
+        }
+      ],
+      "spokenText": "The learner wants flashcards from the video, which matches the flashcards skill.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 160
+        }
+      ],
+      "costUSD": 0.00015347,
+      "httpStatus": 200,
+      "totalMs": 998.4806669999962,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-study-cards",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the video \"How sharks float\" that is playing in Chrome, and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making the study cards now"
+          }
+        }
+      ],
+      "spokenText": "The learner wants flashcards from the video, which matches the flashcards skill.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 164
+        }
+      ],
+      "costUSD": 0.00015547,
+      "httpStatus": 200,
+      "totalMs": 1011.6417080000101,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-research-no-skill",
+      "context": "video",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "find out how this compares to the first booster catch",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "The learner wants a web comparison, which needs the background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 110
+        }
+      ],
+      "costUSD": 0.00012906999999999998,
+      "httpStatus": 200,
+      "totalMs": 879.4737909999967,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-research-no-skill",
+      "context": "video",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how the video on screen, \"How sharks float\", compares to the first booster catch. Look up the first booster catch and compare the two.",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "The learner wants a comparison with a booster catch, which needs web research. Starting a background task.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 149
+        }
+      ],
+      "costUSD": 0.00014857,
+      "httpStatus": 200,
+      "totalMs": 1003.3803329999937,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "video-research-no-skill",
+      "context": "video",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Find out how the subject of this video (How sharks float) compares to the first booster catch. Use the video's captions and the web to research and compare.",
+            "confirmation": "Looking into it"
+          }
+        }
+      ],
+      "spokenText": "The learner wants research comparing this video to the first booster catch, which needs the web, so I'll start a background task.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5337,
+          "outputTokens": 155
+        }
+      ],
+      "costUSD": 0.00015157,
+      "httpStatus": 200,
+      "totalMs": 1181.7673330000107,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-flashcards",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the page on screen, and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making flashcards from this page"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 140,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 128
+        }
+      ],
+      "costUSD": 0.00011187999999999999,
+      "httpStatus": 200,
+      "totalMs": 867.1500839999935,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-flashcards",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the page on screen, and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making flashcards from this page"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 140,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 128
+        }
+      ],
+      "costUSD": 0.00011187999999999999,
+      "httpStatus": 200,
+      "totalMs": 929.2715000000026,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-flashcards",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Make flashcards from the page on screen, and save them as a Notion page.",
+            "skill": "flashcards",
+            "confirmation": "making flashcards from this page"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 140,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 128
+        }
+      ],
+      "costUSD": 0.00011187999999999999,
+      "httpStatus": 200,
+      "totalMs": 885.2779999999912,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-research-no-skill",
+      "context": "nothing",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "Look up how many times Starship has flown, as of the latest available information.",
+            "confirmation": "looking into it"
+          }
+        }
+      ],
+      "spokenText": "This needs web research, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 143,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 117
+        }
+      ],
+      "costUSD": 0.00010668,
+      "httpStatus": 200,
+      "totalMs": 855.9939160000067,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-research-no-skill",
+      "context": "nothing",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "look up how many times Starship has flown",
+            "confirmation": "looking into it"
+          }
+        }
+      ],
+      "spokenText": "This needs a web lookup, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 143,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 110
+        }
+      ],
+      "costUSD": 0.00010318000000000001,
+      "httpStatus": 200,
+      "totalMs": 875.9172079999989,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "nothing-research-no-skill",
+      "context": "nothing",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "start_background_task",
+          "input": {
+            "goal": "look up how many times Starship has flown",
+            "confirmation": "looking that up"
+          }
+        }
+      ],
+      "spokenText": "This needs a web lookup, so I'll hand it to a background agent.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 143,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 3388,
+          "outputTokens": 110
+        }
+      ],
+      "costUSD": 0.00010318000000000001,
+      "httpStatus": 200,
+      "totalMs": 819.0562079999945,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-yes",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": false,
+            "confirmation": "allowed it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval is waiting for \"sends\", and the learner said yes, so I'll allow it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 208,
+          "cacheWriteTokens": 5739,
+          "cacheReadTokens": 0,
+          "outputTokens": 132
+        }
+      ],
+      "costUSD": 0.000804175,
+      "httpStatus": 200,
+      "totalMs": 873.050540999975,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-yes",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": false,
+            "confirmation": "allowed it"
+          }
+        }
+      ],
+      "spokenText": "The scene state shows an approval is waiting, and the learner said \"yes\", so I'll allow it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 130
+        }
+      ],
+      "costUSD": 0.00014319,
+      "httpStatus": 200,
+      "totalMs": 942.7687079999887,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-yes",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": false,
+            "confirmation": "allowed it"
+          }
+        }
+      ],
+      "spokenText": "The scene state shows an approval is waiting, and the learner said \"yes\", so I'll allow it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 130
+        }
+      ],
+      "costUSD": 0.00014319,
+      "httpStatus": 200,
+      "totalMs": 891.0326250000217,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-sure-go-ahead",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": false,
+            "confirmation": "allowed it"
+          }
+        }
+      ],
+      "spokenText": "The scene state shows an approval is waiting, and the learner said \"sure, go ahead\", so I'll allow it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 213,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 135
+        }
+      ],
+      "costUSD": 0.00014619,
+      "httpStatus": 200,
+      "totalMs": 905.7903340000194,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-sure-go-ahead",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": false,
+            "confirmation": "allowed it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval is waiting, and the learner said \"sure, go ahead\", so I'll approve it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 213,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 134
+        }
+      ],
+      "costUSD": 0.00014569,
+      "httpStatus": 200,
+      "totalMs": 944.6271249999991,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-sure-go-ahead",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": false,
+            "confirmation": "allowed it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval is waiting, and the learner said \"sure, go ahead\", so I'll allow it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 213,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 134
+        }
+      ],
+      "costUSD": 0.00014569,
+      "httpStatus": 200,
+      "totalMs": 922.7147090000217,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-no",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": false,
+            "always": false,
+            "confirmation": "declined it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval waiting for \"sends\", and the learner said \"no\", so I'll decline it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 130
+        }
+      ],
+      "costUSD": 0.00014309000000000001,
+      "httpStatus": 200,
+      "totalMs": 898.3138340000005,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-no",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": false,
+            "always": false,
+            "confirmation": "declined it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval request is waiting, so \"no\" declines it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 120
+        }
+      ],
+      "costUSD": 0.00013809,
+      "httpStatus": 200,
+      "totalMs": 869.0985829999845,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-no",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": false,
+            "always": false,
+            "confirmation": "declined it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval waiting for \"sends\", and the learner said \"no\", so I decline it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 128
+        }
+      ],
+      "costUSD": 0.00014209000000000002,
+      "httpStatus": 200,
+      "totalMs": 872.9850830000069,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-dont",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": false,
+            "always": false,
+            "confirmation": "declined it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval waiting for \"sends\", so \"no, don't do that\" declines it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 212,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 127
+        }
+      ],
+      "costUSD": 0.00014209000000000002,
+      "httpStatus": 200,
+      "totalMs": 974.211667000025,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-dont",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": false,
+            "always": false,
+            "confirmation": "declined it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval request waiting, and the learner said \"no, don't do that,\" which declines it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 212,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 129
+        }
+      ],
+      "costUSD": 0.00014309000000000001,
+      "httpStatus": 200,
+      "totalMs": 933.0521250000165,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-dont",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": false,
+            "always": false,
+            "confirmation": "declined it"
+          }
+        }
+      ],
+      "spokenText": "The scene shows an approval request waiting, and the learner said no, so I'll decline it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 212,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 126
+        }
+      ],
+      "costUSD": 0.00014159,
+      "httpStatus": 200,
+      "totalMs": 904.7268329999933,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-always",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": true,
+            "confirmation": "always allowed"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00012739,
+      "httpStatus": 200,
+      "totalMs": 823.1196249999921,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-always",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": true,
+            "confirmation": "always allowed it"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 99
+        }
+      ],
+      "costUSD": 0.00012789,
+      "httpStatus": 200,
+      "totalMs": 804.4887500000186,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-always",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_approval",
+          "input": {
+            "approved": true,
+            "always": true,
+            "confirmation": "always allowed"
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.00012739,
+      "httpStatus": 200,
+      "totalMs": 843.0610000000161,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-unrelated-pause",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {
+            "confirmation": "Paused the video."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00010639,
+      "httpStatus": 200,
+      "totalMs": 754.277333999984,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-unrelated-pause",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {
+            "confirmation": "Paused the video."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00010639,
+      "httpStatus": 200,
+      "totalMs": 846.2786659999983,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-unrelated-pause",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {
+            "confirmation": "Pausing it."
+          }
+        }
+      ],
+      "spokenText": "",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 210,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 56
+        }
+      ],
+      "costUSD": 0.00010639,
+      "httpStatus": 200,
+      "totalMs": 862.1876249999914,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-unrelated-question",
+      "context": "approvalWaiting",
+      "runIndex": 0,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": ""
+          }
+        }
+      ],
+      "spokenText": "This is a question about what's on screen, so I'll have it answered from the video.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 212,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00011709,
+      "httpStatus": 200,
+      "totalMs": 815.1875,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-unrelated-question",
+      "context": "approvalWaiting",
+      "runIndex": 1,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": ""
+          }
+        }
+      ],
+      "spokenText": "This is a question about what's on screen, so I'll have the screen answer it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 212,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00011709,
+      "httpStatus": 200,
+      "totalMs": 791.7084160000086,
+      "outcome": "pass"
+    },
+    {
+      "caseId": "approval-unrelated-question",
+      "context": "approvalWaiting",
+      "runIndex": 2,
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {
+            "confirmation": ""
+          }
+        }
+      ],
+      "spokenText": "This is a question about what's on screen, so I'll have the screen answer it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 212,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5739,
+          "outputTokens": 77
+        }
+      ],
+      "costUSD": 0.00011709,
+      "httpStatus": 200,
+      "totalMs": 790.2976669999771,
+      "outcome": "pass"
+    }
+  ]
+}

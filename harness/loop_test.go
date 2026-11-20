@@ -128,7 +128,7 @@ func assertTheAgentsRequest(t *testing.T, requestBody map[string]any) {
 	for _, tool := range tools {
 		toolNames = append(toolNames, jsonValueAt(t, tool, "name").(string))
 	}
-	wantNames := "web_search,web_fetch,report_step,read_video_captions,look_at_video,write_notion_page,finish"
+	wantNames := "web_search,web_fetch,report_step,read_video_captions,look_at_video,take_screenshot,read_clipboard,write_clipboard,open_url,write_notion_page,finish"
 	if got := strings.Join(toolNames, ","); got != wantNames {
 		t.Fatalf("tools were %s, want %s", got, wantNames)
 	}
@@ -158,7 +158,7 @@ func assertTheAgentsRequest(t *testing.T, requestBody map[string]any) {
 		}
 	}
 	// Strict tools need every nested object closed too.
-	pageSchema := jsonValueAt(t, tools[5], "input_schema", "properties")
+	pageSchema := jsonValueAt(t, tools[9], "input_schema", "properties")
 	if jsonValueAt(t, pageSchema, "sections", "items", "additionalProperties") != false || jsonValueAt(t, pageSchema, "sources", "items", "additionalProperties") != false {
 		t.Errorf("the page's nested objects are open: %v", pageSchema)
 	}

@@ -20,14 +20,20 @@ final class VoiceToolDebugServer {
 
     private let listTools: @MainActor () async -> [VoiceToolDescriptor]
     private let callTool: @MainActor (String, [String: JSONValue]) async -> VoiceToolOutcome
+    /// Answers a task agent's approval request, so a take can approve or decline without the voice yes or no.
+    private let answerApproval: @MainActor (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Bool
     private var listener: NWListener?
+
+    static let answerApprovalToolName = "debug_answer_approval"
 
     init(
         listTools: @escaping @MainActor () async -> [VoiceToolDescriptor],
-        callTool: @escaping @MainActor (String, [String: JSONValue]) async -> VoiceToolOutcome
+        callTool: @escaping @MainActor (String, [String: JSONValue]) async -> VoiceToolOutcome,
+        answerApproval: @escaping @MainActor (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Bool
     ) {
         self.listTools = listTools
         self.callTool = callTool
+        self.answerApproval = answerApproval
     }
 
     func start() {
@@ -115,12 +121,29 @@ final class VoiceToolDebugServer {
                     "inputSchema": tool.inputSchema,
                     "annotations": .object(["readOnlyHint": .bool(tool.readOnly)]),
                 ])
-            })])
+            } + [debugAnswerApprovalToolJSON])])
         case "tools/call":
             guard let toolName = rpcRequest["params"]?["name"]?.stringValue else {
                 return httpResponse(status: "200 OK", body: rpcError(id: requestID, code: -32602, message: "params.name is required"))
             }
             let toolInput = rpcRequest["params"]?["arguments"]?.objectValue ?? [:]
+            if toolName == Self.answerApprovalToolName {
+                let answerText: String
+                let answerFailed: Bool
+                if let approvalAnswer = DebugApprovalAnswer(arguments: toolInput) {
+                    answerFailed = !answerApproval(approvalAnswer.approvalID, approvalAnswer.approved, approvalAnswer.scope)
+                    answerText = answerFailed ? "No approval with that ID is waiting" : "Answered \(approvalAnswer.approvalID)"
+                } else {
+                    answerFailed = true
+                    answerText = "approvalID (text) and approved (true or false) are required, and scope is once or always"
+                }
+                print("Voice tool debug server: \(toolName) \(JSONValue.object(toolInput).compactJSONText) -> \(answerText)")
+                result = .object([
+                    "content": .array([.object(["type": .string("text"), "text": .string(answerText)])]),
+                    "isError": .bool(answerFailed),
+                ])
+                return httpResponse(status: "200 OK", body: .object(["jsonrpc": .string("2.0"), "id": requestID, "result": result]))
+            }
             let outcome = await callTool(toolName, toolInput)
             print("Voice tool debug server: \(toolName) \(JSONValue.object(toolInput).compactJSONText) -> \(outcome.toolResultText)")
             result = .object([
@@ -150,6 +173,41 @@ final class VoiceToolDebugServer {
         return Data(headerText.utf8) + bodyBytes
     }
 }
+
+/// The arguments of debug_answer_approval, checked at the boundary. A scope that is not once or always is refused rather
+/// than guessed, since "always" lasts for the rest of the harness process.
+nonisolated struct DebugApprovalAnswer: Equatable {
+    let approvalID: String
+    let approved: Bool
+    let scope: HarnessApprovalScope
+
+    init?(arguments: [String: JSONValue]) {
+        guard let approvalID = arguments["approvalID"]?.stringValue, !approvalID.isEmpty,
+              let approved = arguments["approved"]?.boolValue else { return nil }
+        if let scopeText = arguments["scope"]?.stringValue {
+            guard let scope = HarnessApprovalScope(rawValue: scopeText) else { return nil }
+            self.scope = scope
+        } else {
+            scope = .once
+        }
+        self.approvalID = approvalID
+        self.approved = approved
+    }
+}
+
+private let debugAnswerApprovalToolJSON: JSONValue = .object([
+    "name": .string(VoiceToolDebugServer.answerApprovalToolName),
+    "description": .string("Debug only. Answers a task agent's approval request, which the app declines on its own after 30 seconds."),
+    "inputSchema": .object([
+        "type": .string("object"),
+        "properties": .object([
+            "approvalID": .object(["type": .string("string")]),
+            "approved": .object(["type": .string("boolean")]),
+            "scope": .object(["type": .string("string"), "enum": .array([.string("once"), .string("always")])]),
+        ]),
+        "required": .array([.string("approvalID"), .string("approved")]),
+    ]),
+])
 
 /// The status the server refuses a request with before it reads the body, or nil when the request may go on.
 /// A browser adds Origin to every cross-site request, and a JSON content type forces a preflight this server never

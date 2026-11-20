@@ -105,6 +105,8 @@ $V app-launch "show me the inside of a heart"
 $V app-wait 240
 ```
 
+`app-launch --brain "<steps>"` also passes `--brain-takes-every-request`, so the voice command router takes every first utterance, as with the `brainTakesEveryRequest` default on, without changing the defaults the everyday Clicky shares.
+
 Steps are separated by `|`.
 The app waits 3 seconds, then sends each step as if it were spoken.
 It waits for the step's own work to finish, including a pop-out's narration, and then for any tour or speech still going, including the question a tour's end starts, before the next step.

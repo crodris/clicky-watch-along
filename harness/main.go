@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -24,10 +25,18 @@ const (
 )
 
 // configuration is what the app sets in the harness's environment when it launches the process. The app passes a
-// clean environment with just these two variables, so no Anthropic credential of the developer's reaches the Worker.
+// clean environment with only these variables, so no Anthropic credential of the developer's reaches the Worker.
 type configuration struct {
 	workerBaseURL string
 	appSecret     string
+	// skillsDirectories are the folders that hold skill files, from CLICKY_SKILLS_DIRS. The app lists the user's folder
+	// before its own, so a skill the user wrote overrides a bundled one of the same name.
+	skillsDirectories []string
+	// mcpConfigPath is the mcp.json to read, from CLICKY_MCP_CONFIG. Empty means no MCP servers.
+	mcpConfigPath string
+	// lookupEnvironment reads this process's variables, which a stdio MCP server's baseline environment copies a few of.
+	// A nil one reads the real environment.
+	lookupEnvironment func(string) string
 }
 
 func loadConfiguration(lookupEnvironment func(string) string) (configuration, error) {
@@ -35,7 +44,19 @@ func loadConfiguration(lookupEnvironment func(string) string) (configuration, er
 	if workerBaseURL == "" {
 		return configuration{}, errors.New("CLICKY_WORKER_BASE_URL is not set")
 	}
-	return configuration{workerBaseURL: workerBaseURL, appSecret: lookupEnvironment("CLICKY_APP_SECRET")}, nil
+	var skillsDirectories []string
+	for _, directory := range filepath.SplitList(lookupEnvironment("CLICKY_SKILLS_DIRS")) {
+		if directory != "" {
+			skillsDirectories = append(skillsDirectories, directory)
+		}
+	}
+	return configuration{
+		workerBaseURL:     workerBaseURL,
+		appSecret:         lookupEnvironment("CLICKY_APP_SECRET"),
+		skillsDirectories: skillsDirectories,
+		mcpConfigPath:     lookupEnvironment("CLICKY_MCP_CONFIG"),
+		lookupEnvironment: lookupEnvironment,
+	}, nil
 }
 
 func main() {
@@ -75,9 +96,17 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 	}
 	client := anthropic.NewClient(clientOptions...)
 	writer := newProtocolWriter(output)
+	var servers *mcpHub
+	if harnessConfiguration.mcpConfigPath != "" {
+		lookupEnvironment := harnessConfiguration.lookupEnvironment
+		if lookupEnvironment == nil {
+			lookupEnvironment = os.Getenv
+		}
+		servers = newMCPHub(rootContext, harnessConfiguration.mcpConfigPath, lookupEnvironment, func(text string) { writer.send(newLogMessage(text)) })
+	}
 	serving := &harness{
 		rootContext: rootContext,
-		runner:      &taskRunner{client: client, writer: writer},
+		runner:      &taskRunner{client: client, writer: writer, skillsDirectories: harnessConfiguration.skillsDirectories, mcp: servers, approvals: newApprovalGate()},
 		tasks:       map[string]*runningTask{},
 	}
 
@@ -97,6 +126,7 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 
 	serving.cancelEveryTask()
 	serving.taskGroup.Wait()
+	servers.close()
 	return nil
 }
 
@@ -113,6 +143,10 @@ func (serving *harness) handle(line []byte) {
 		serving.deliverToolResult(message)
 	case cancelTaskMessage:
 		serving.cancelTask(message.TaskID)
+	case approvalResultMessage:
+		if !serving.runner.approvals.deliver(message) {
+			fmt.Fprintf(os.Stderr, "harness: dropped an approval answer for %s, which nothing is waiting for\n", message.ApprovalID)
+		}
 	}
 }
 

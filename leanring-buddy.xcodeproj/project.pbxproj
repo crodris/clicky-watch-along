@@ -254,11 +254,14 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/harness/approval.go",
 				"$(SRCROOT)/harness/go.mod",
 				"$(SRCROOT)/harness/go.sum",
 				"$(SRCROOT)/harness/loop.go",
 				"$(SRCROOT)/harness/main.go",
+				"$(SRCROOT)/harness/mcp.go",
 				"$(SRCROOT)/harness/protocol.go",
+				"$(SRCROOT)/harness/skills.go",
 				"$(SRCROOT)/harness/taskagent.go",
 				"$(SRCROOT)/tools/build-agent-harness.sh",
 			);
