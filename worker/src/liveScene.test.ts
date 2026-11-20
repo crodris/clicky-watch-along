@@ -199,6 +199,22 @@ describe("handleLiveScene model setting", () => {
     expect(consoleLogSpy).toHaveBeenCalledWith('[/live-scene] usage {"input_tokens":2400,"output_tokens":4100}');
   });
 
+  it("tells a simulation's model to name its animation callbacks and never declare frame twice", async () => {
+    // GPT-6.2 Sol declared `frame` twice in about a third of simulation pages on 2026-11-19, which the page check
+    // rejects, and a rejected retry fails the whole build.
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: sceneModelReply, usage: {} })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sceneKeys);
+
+    const sentBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body)) as { instructions: string };
+    expect(sentBody.instructions).toContain("such as stepRun or stepTour, never frame, and declare each name only once in its scope");
+  });
+
   it("asks Sonnet when LIVE_SCENE_MODEL is sonnet and returns its page", async () => {
     const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => verdictReply(sceneModelReply));
     vi.stubGlobal("fetch", fetchMock);
