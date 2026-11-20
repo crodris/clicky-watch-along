@@ -235,15 +235,19 @@ func (runner *taskRunner) runToolCalls(
 		// The page is private, but a source link is one the learner may click, so a link the agent could have written
 		// from what it read is refused before the call reaches the app.
 		pageRefusal := ""
-		if call.Name == writeNotionPageTool {
+		// A page the task was not offered gets "is not a tool" below, so its sources are not checked or logged.
+		if call.Name == writeNotionPageTool && known && offered[call.Name] {
 			check := sources.checkPageSources(call.Input)
 			pageRefusal = check.refusal
-			if pageRefusal == "" {
+			switch {
+			case pageRefusal == "":
 				// The page cites each link as the set spelled it, never as the agent did.
 				call.Input = check.input
-			} else {
+			case check.refusedCount == 0:
+				runner.log(taskContext, "Task agent: refused a page whose sources could not be read")
+			default:
 				// A count only, since a refused link can hold what the agent read on the screen or the clipboard.
-				runner.log(taskContext, fmt.Sprintf("Task agent: refused %d page sources", check.refusedCount))
+				runner.log(taskContext, fmt.Sprintf("Task agent: refused a page, unresearched sources: %d", check.refusedCount))
 			}
 		}
 		switch {

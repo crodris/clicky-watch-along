@@ -574,6 +574,25 @@ func refusalTextOfPage(t *testing.T, worker *fakeWorker, requestNumber int, tool
 	return ""
 }
 
+func TestAPageWhoseSourcesCannotBeReadLogsThatInsteadOfACount(t *testing.T) {
+	unreadablePage := `{"title":"Booster catch","summary":"How the tower caught the booster on its first try.","sections":[{"heading":"Catch","points":["The arms closed."]}],"sources":"not a list"}`
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_page_1", "write_notion_page", unreadablePage))
+		default:
+			writeStreamedMessage(writer, "tool_use", toolUseBlock("toolu_finish", "finish", `{"spokenSummary":"No page."}`))
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(startTaskLine("task-1", "write a page about the catch"))
+	driver.expectLine("task_finished")
+
+	if !driver.logsContain("Task agent: refused a page whose sources could not be read") || driver.logsContain("unresearched sources: 0") {
+		t.Errorf("an unreadable page should log that its sources could not be read, with no count: %v", driver.logs)
+	}
+}
+
 func TestAPageMayCiteASearchResultButNotALinkTheAgentWrote(t *testing.T) {
 	const searchResultLink = "https://a.example/x"
 	const writtenLink = "https://b.example/?q=secret"
@@ -600,7 +619,7 @@ func TestAPageMayCiteASearchResultButNotALinkTheAgentWrote(t *testing.T) {
 		t.Fatalf("the app got %s, want only the page that cites the search result", toolCallLine)
 	}
 	// The log says how many sources were refused and never which, since a refused link can hold the learner's data.
-	if !driver.logsContain("Task agent: refused 1 page sources") || driver.logsContain("b.example") || driver.logsContain("secret") {
+	if !driver.logsContain("Task agent: refused a page, unresearched sources: 1") || driver.logsContain("b.example") || driver.logsContain("secret") {
 		t.Errorf("the refusal's log line is missing or names a link: %v", driver.logs)
 	}
 	driver.send(toolResultLine("task-1", "toolu_page_2", `"Written: https://www.notion.so/page"`, false))
