@@ -21,6 +21,29 @@ func agentListPanelOrigin(anchorTopLeft: CGPoint, panelSize: CGSize, visibleFram
     return CGPoint(x: originX, y: originY)
 }
 
+/// Where the list opens for an approval request: the first corner around the mouse whose panel, at its tallest and
+/// after it is kept on screen, does not cover the pointer, so a click the learner aimed at the page cannot be taken as
+/// Yes. It returns the panel's top-left corner, the anchor `agentListPanelOrigin` takes.
+func approvalListAnchorTopLeft(mouseLocation: CGPoint, panelSize: CGSize, visibleFrame: CGRect, gapFromTheMouse: CGFloat) -> CGPoint {
+    let leftOfTheMouse = mouseLocation.x - gapFromTheMouse - panelSize.width
+    let rightOfTheMouse = mouseLocation.x + gapFromTheMouse
+    let belowTheMouse = mouseLocation.y - gapFromTheMouse
+    let aboveTheMouse = mouseLocation.y + gapFromTheMouse + panelSize.height
+    let candidateAnchors = [
+        CGPoint(x: rightOfTheMouse, y: belowTheMouse),
+        CGPoint(x: leftOfTheMouse, y: belowTheMouse),
+        CGPoint(x: rightOfTheMouse, y: aboveTheMouse),
+        CGPoint(x: leftOfTheMouse, y: aboveTheMouse),
+    ]
+    for candidateAnchor in candidateAnchors {
+        let origin = agentListPanelOrigin(anchorTopLeft: candidateAnchor, panelSize: panelSize, visibleFrame: visibleFrame)
+        if !CGRect(origin: origin, size: panelSize).contains(mouseLocation) {
+            return candidateAnchor
+        }
+    }
+    return candidateAnchors[0]
+}
+
 // MARK: - Panel
 
 private final class AgentListPanel: NSPanel {
@@ -122,6 +145,7 @@ final class AgentListPanelController {
         self.visibleFrame = visibleFrame
         self.anchorTopLeft = anchorTopLeft
         discTheListWasOpenedFrom = nil
+        approvalDesk.theListShowedTheOldestRequest()
 
         let agentListView = AgentListView(
             store: store,
@@ -164,9 +188,15 @@ final class AgentListPanelController {
     func openForAnApprovalRequest(fromAgentID agentID: UUID) {
         guard !isOpen else { return }
         let mouseLocation = NSEvent.mouseLocation
+        let visibleFrame = screenUnderTheMouseCursor()?.visibleFrame ?? .zero
         open(
-            anchorTopLeft: CGPoint(x: mouseLocation.x + Self.gapFromTheMouse, y: mouseLocation.y - Self.gapFromTheMouse),
-            visibleFrame: screenUnderTheMouseCursor()?.visibleFrame ?? .zero,
+            anchorTopLeft: approvalListAnchorTopLeft(
+                mouseLocation: mouseLocation,
+                panelSize: CGSize(width: Self.panelWidth, height: Self.maximumPanelHeight),
+                visibleFrame: visibleFrame,
+                gapFromTheMouse: Self.gapFromTheMouse
+            ),
+            visibleFrame: visibleFrame,
             initiallyExpandedAgentID: agentID
         )
     }

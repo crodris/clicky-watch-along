@@ -25,7 +25,7 @@ type noteInput struct {
 // fixtureImageBytes is not a real PNG, since only the encoding on the wire matters to the tests.
 var fixtureImageBytes = []byte("fake-png-bytes")
 
-// newFixtureServer has four tools. read_note and show_picture are read only, send_note has no annotations, and
+// newFixtureServer has four tools. read_note and show_picture say they are read only, send_note has no annotations, and
 // delete_note says it is destructive. Each call is passed to record, so a test can tell whether a tool ran.
 func newFixtureServer(record func(string)) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "fixture", Version: "1"}, nil)
@@ -274,7 +274,9 @@ func TestAnMCPToolRunsInTheHarnessAndItsResultGoesBackToTheModel(t *testing.T) {
 	})
 	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, mcpConfigPath: configPath, lookupEnvironment: noEnvironment})
 	driver.send(startTaskLine("task-1", "read my note"))
-	// No tool_call line reaches the app for a server's tool, so the next line is the task's end.
+	// Both tools say they are read only, so each asks first. No tool_call line reaches the app for a server's tool.
+	driver.answerNextApproval(true, "once")
+	driver.answerNextApproval(true, "once")
 	driver.expectLine("task_finished")
 	if !driver.logsContain("1 server(s) connected, offering 4 tool(s)") {
 		t.Errorf("the log did not say the server connected: %v", driver.logs)
@@ -384,5 +386,20 @@ func TestAnHTTPServerIsReachedWithTheConfiguredHeaders(t *testing.T) {
 		if authorization != "Bearer abc" {
 			t.Errorf("a request carried Authorization %q", authorization)
 		}
+	}
+}
+
+func TestAnMCPResultKeepsOnlyImagesTheAgentCanSendOnEveryLaterTurn(t *testing.T) {
+	smallImage := &mcp.ImageContent{MIMEType: "image/png", Data: []byte("png")}
+	result := &mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.ImageContent{MIMEType: "image/png", Data: make([]byte, largestMCPResultImageBytes+1)},
+		smallImage, smallImage, smallImage, smallImage, smallImage,
+	}}
+	var kinds []string
+	for _, block := range mcpResultBlocks(result) {
+		kinds = append(kinds, block["type"].(string))
+	}
+	if got, want := strings.Join(kinds, ","), "text,image,image,image,image,text"; got != want {
+		t.Errorf("the blocks were %s, want %s", got, want)
 	}
 }

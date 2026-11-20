@@ -197,7 +197,7 @@ nonisolated struct DebugApprovalAnswer: Equatable {
 
 private let debugAnswerApprovalToolJSON: JSONValue = .object([
     "name": .string(VoiceToolDebugServer.answerApprovalToolName),
-    "description": .string("Debug only. Answers a task agent's approval request, which the app declines on its own after 30 seconds."),
+    "description": .string("Debug only. Answers a task agent's approval request, which the app declines on its own after 120 seconds."),
     "inputSchema": .object([
         "type": .string("object"),
         "properties": .object([

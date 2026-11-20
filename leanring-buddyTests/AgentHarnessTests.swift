@@ -232,6 +232,36 @@ struct AgentHarnessTests {
         #expect(HarnessApprovalDesk.defaultTimeoutSeconds == 120)
     }
 
+    @Test func aRequestForAnEndedTaskOrAnUnknownActionNeverWaitsForTheLearner() {
+        var answers: [(approvalID: String, approved: Bool)] = []
+        let desk = HarnessApprovalDesk { approvalID, approved, _ in answers.append((approvalID, approved)) }
+        desk.taskIsRunning = { taskID in taskID == self.firstTaskID }
+
+        desk.receive(anApprovalRequest("approval-ended", taskID: secondTaskID))
+        #expect(desk.waitingRequests.isEmpty, "a request that crossed a cancel is dropped")
+        #expect(answers.isEmpty, "the harness already abandoned it, so nothing is sent")
+
+        desk.receive(anApprovalRequest("approval-unknown", capability: .unknown("teleports")))
+        #expect(desk.waitingRequests.isEmpty)
+        #expect(answers.map(\.approvalID) == ["approval-unknown"])
+        #expect(answers.map(\.approved) == [false], "an action the app cannot name is declined at once")
+    }
+
+    @Test func aVoiceAnswerReachesOnlyARequestOnScreenBeforeThePressAndAReopenedListRestartsTheClickDelay() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let desk = HarnessApprovalDesk(currentDate: { now }) { _, _, _ in }
+
+        desk.receive(anApprovalRequest("approval-1"))
+        #expect(desk.oldestRequestID(shownBefore: now - 1) == nil, "a request that arrived after the press was never seen")
+        #expect(desk.oldestRequestID(shownBefore: now + 1) == "approval-1")
+
+        now += 5
+        desk.theListShowedTheOldestRequest()
+        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once), "a list that opened again needs its second first")
+        now += 1.1
+        #expect(desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once))
+    }
+
     @Test func aClickCountsOnlyASecondAfterTheRequestItAnswersCameOnScreen() {
         var now = Date(timeIntervalSince1970: 1_000)
         var answeredIDs: [String] = []
@@ -287,8 +317,11 @@ struct AgentHarnessTests {
     @Test func theHarnessDropsATasksRequestsWhenTheRouterEndsThatTask() {
         let harness = AgentHarness(workerBaseURL: "http://127.0.0.1:8787")
         _ = harness.taskRouter.register(taskID: firstTaskID)
+        _ = harness.taskRouter.register(taskID: secondTaskID)
         harness.approvalDesk.receive(anApprovalRequest("approval-1"))
         harness.approvalDesk.receive(anApprovalRequest("approval-2", taskID: secondTaskID))
+        // A request whose task the router does not run, such as one that crossed a cancel, never queues.
+        harness.approvalDesk.receive(anApprovalRequest("approval-3", taskID: UUID()))
 
         harness.taskRouter.end(taskID: firstTaskID)
 

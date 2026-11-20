@@ -275,6 +275,9 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    /// When the learner last pressed push-to-talk, or a rehearsal step stood in for a press. A voice answer to an approval
+    /// counts only for a request that was on screen before then.
+    private var lastPushToTalkPressedAt: Date?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
@@ -811,6 +814,7 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
+            lastPushToTalkPressedAt = Date()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
             cursorLoopController.pushToTalkWasPressed()
@@ -990,6 +994,7 @@ final class CompanionManager: ObservableObject {
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
+            lastPushToTalkPressedAt = Date()
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
@@ -2465,9 +2470,11 @@ final class CompanionManager: ObservableObject {
             recentActionLines: recentVoiceToolActionLines
         )
         var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
-        // A "yes" answers the request the learner could see when they spoke, never one that became the oldest while
-        // the model ran, such as after the shown one's task ended.
-        let approvalIDWaitingWhenTheCommandStarted = agentHarness.approvalDesk.oldestWaitingRequest?.approvalID
+        // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
+        // screen while they spoke or while the model ran, such as after the shown one's task ended.
+        let approvalIDWaitingWhenTheCommandStarted = lastPushToTalkPressedAt.flatMap { pushToTalkPressedAt in
+            agentHarness.approvalDesk.oldestRequestID(shownBefore: pushToTalkPressedAt)
+        }
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
         // When the third turn still needs the model, Clicky says the apology instead of going quiet.

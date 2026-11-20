@@ -59,13 +59,14 @@ var appToolCapabilities = map[toolName]capability{
 	writeNotionPageTool: capabilityNone,
 }
 
-// capability is what an MCP server's own annotations say about its tool, which is the best claim there is. A tool that
-// says it is read only runs freely. One that says it is destructive deletes. Anything else, including a tool with no
-// annotations, sends.
+// capability is what an MCP server's own annotations say about its tool, which is the best claim there is. No server tool
+// runs freely. A tool that says it is read only reads private data, since it can read the learner's files or mail, and
+// its input can carry what another tool read to a server that only claims to read. One that says it is destructive
+// deletes. Anything else, including a tool with no annotations, sends.
 func (tool mcpTool) capability() capability {
 	switch {
 	case tool.annotations != nil && tool.annotations.ReadOnlyHint:
-		return capabilityNone
+		return capabilityReadsPrivate
 	case tool.annotations != nil && tool.annotations.DestructiveHint != nil && *tool.annotations.DestructiveHint:
 		return capabilityDeletes
 	default:

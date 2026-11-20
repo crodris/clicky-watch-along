@@ -132,7 +132,7 @@ To add a screen, add a context with the state and tools the app would send, whic
 The tools come from `fixtures/brain-evals-tools.json`, one descriptor per tool in the app's order, filtered to the tools each context offers.
 The fixture's top-level `skills` list stands for the skills the app finds on disk (the bundled `flashcards`).
 `withSkills` adds them to `start_background_task` as `AppVoiceTool.descriptor(skills:)` does in the app: each skill as `name: description` in the description, and a `skill` enum in the input schema.
-The test `uses the sentences the app source holds` fails when the sentences in `withSkills` drift from `VoiceCommandTools.swift`.
+The test `uses the sentences the app source holds` fails when the sentences in `withSkills` differ from `VoiceCommandTools.swift`.
 Tool descriptions may be up to 4096 characters, as in the Worker.
 The descriptions in that catalog are copied from `VoiceCommandTools.swift` and `scene-tools.js`.
 When you change one, run `node bench/brainEvals.ts sync-tools`, which rewrites the catalog's descriptions, and the test `holds the description the app source holds` fails until you do.

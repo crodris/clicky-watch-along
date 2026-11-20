@@ -6,6 +6,7 @@
 //  shows the request, and the waiting state an agent shows. The queue's own rules are in AgentHarnessTests.
 //
 
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Clicky
@@ -46,6 +47,7 @@ struct VoiceApprovalTests {
         #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, what is this video about") == nil)
         #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "Yes please, go ahead and do it.") == yes)
         #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "always allow it") == always)
+        #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "Always.") == always, "a bare always is a yes")
         #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "yes") == nil, "always needs the learner to say always")
         // A no is always safe, so it needs no check.
         #expect(approvalVoiceAnswerTheLearnerSaid(no, transcript: "what is this") == no)
@@ -140,5 +142,19 @@ struct VoiceApprovalTests {
         let chipTexts = approvalWaitingChipTexts(agentName: "Hinata")
         #expect(chipTexts.primary == "Hinata needs your OK")
         #expect(chipTexts.secondary == "· say yes or no")
+    }
+
+    // MARK: - Where the list opens
+
+    @Test func theListOpensForARequestWhereItDoesNotCoverTheMouse() {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let panelSize = CGSize(width: 300, height: 360)
+        for mouseLocation in [CGPoint(x: 700, y: 450), CGPoint(x: 1430, y: 10), CGPoint(x: 10, y: 10), CGPoint(x: 1430, y: 890), CGPoint(x: 10, y: 890)] {
+            let anchorTopLeft = approvalListAnchorTopLeft(mouseLocation: mouseLocation, panelSize: panelSize, visibleFrame: visibleFrame, gapFromTheMouse: 12)
+            let panelOrigin = agentListPanelOrigin(anchorTopLeft: anchorTopLeft, panelSize: panelSize, visibleFrame: visibleFrame)
+            #expect(!CGRect(origin: panelOrigin, size: panelSize).contains(mouseLocation), "the list covered the mouse at \(mouseLocation)")
+        }
+        // In open space it opens below and to the right, as the list always has.
+        #expect(approvalListAnchorTopLeft(mouseLocation: CGPoint(x: 700, y: 450), panelSize: panelSize, visibleFrame: visibleFrame, gapFromTheMouse: 12) == CGPoint(x: 712, y: 438))
     }
 }

@@ -97,6 +97,10 @@ const (
 	longestMCPDescription = 1000
 	// A result goes into every later request, so it is cut like a long web page would be.
 	longestMCPResultText = 50_000
+	// An image goes into every later request too, and Anthropic refuses one over 5 MB of base64, which this many bytes
+	// becomes, so one too big would fail every turn after it.
+	largestMCPResultImageBytes = 3_750_000
+	mostMCPResultImages        = 4
 	// Starting a server can mean downloading it, so the wait is generous. A server that takes longer is skipped.
 	mcpConnectTimeout = 45 * time.Second
 	// One call of a server's tool.
@@ -457,17 +461,24 @@ func mcpResultBlocks(result *mcp.CallToolResult) []map[string]any {
 		textLeft -= len([]rune(text))
 		blocks = append(blocks, map[string]any{"type": "text", "text": text})
 	}
+	imagesKept := 0
 	for _, content := range result.Content {
 		switch block := content.(type) {
 		case *mcp.TextContent:
 			addText(block.Text)
 		case *mcp.ImageContent:
-			if supportedImageTypes[block.MIMEType] {
+			switch {
+			case !supportedImageTypes[block.MIMEType]:
+				addText(fmt.Sprintf("[the server returned an image of type %q, which the agent cannot read]", block.MIMEType))
+			case len(block.Data) > largestMCPResultImageBytes:
+				addText(fmt.Sprintf("[the server returned an image of %d bytes, over the %d the agent can read]", len(block.Data), largestMCPResultImageBytes))
+			case imagesKept == mostMCPResultImages:
+				addText(fmt.Sprintf("[the server returned more than %d images, and the rest were left out]", mostMCPResultImages))
+			default:
+				imagesKept++
 				blocks = append(blocks, map[string]any{"type": "image", "source": map[string]any{
 					"type": "base64", "media_type": block.MIMEType, "data": base64.StdEncoding.EncodeToString(block.Data),
 				}})
-			} else {
-				addText(fmt.Sprintf("[the server returned an image of type %q, which the agent cannot read]", block.MIMEType))
 			}
 		default:
 			addText(fmt.Sprintf("[the server returned a %T block, which the agent cannot read]", content))

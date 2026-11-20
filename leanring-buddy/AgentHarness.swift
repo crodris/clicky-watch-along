@@ -29,7 +29,7 @@ nonisolated enum HarnessTaskEvent: Equatable, Sendable {
 }
 
 /// What a tool may do, which decides whether the harness asks before running it. harness/approval.go is the other half.
-/// A capability this app does not know still parses, so the request gets an answer (no) and the task does not wait.
+/// A capability this app does not know still parses, so the desk can answer no at once and the task does not wait.
 nonisolated enum HarnessCapability: Equatable, Sendable {
     /// Puts something where others see it or changes a thing: a message, a page, a link with data in it, the clipboard.
     case sends
@@ -190,6 +190,8 @@ final class HarnessTaskRouter {
 
     var hasATaskRunning: Bool { !eventContinuationsByTaskID.isEmpty }
 
+    func isTracking(taskID: UUID) -> Bool { eventContinuationsByTaskID[taskID] != nil }
+
     /// The task's events, which end after finished or failed, or when the task is ended or the harness stops.
     func register(taskID: UUID) -> AsyncStream<HarnessTaskEvent> {
         let (eventStream, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
@@ -247,7 +249,7 @@ final class HarnessApprovalDesk: ObservableObject {
     nonisolated static let defaultTimeoutSeconds: Double = 120
 
     /// A click on the agent list's buttons counts only this long after the oldest request came on screen. The list opens
-    /// next to the mouse, so a click the learner meant for the page could otherwise land on Yes.
+    /// next to the mouse, so a click the learner meant for the page could otherwise be taken as Yes.
     nonisolated static let secondsBeforeAClickCounts: Double = 1
 
     /// Oldest first.
@@ -255,6 +257,9 @@ final class HarnessApprovalDesk: ObservableObject {
     /// When the oldest request, the one the agent list shows with its buttons, came on screen.
     private(set) var oldestRequestShownAt: Date?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
+    /// Whether a task still runs. A request can cross a cancel on its way from the harness, and a request for an ended
+    /// task would take the oldest spot, with buttons on an ended agent's row, until it timed out.
+    var taskIsRunning: (UUID) -> Bool = { _ in true }
     var onWaitingRequestsChanged: (([HarnessApprovalRequest]) -> Void)?
 
     private let timeoutSeconds: Double
@@ -277,6 +282,19 @@ final class HarnessApprovalDesk: ObservableObject {
         oldestRequestShownAt = waitingRequests.isEmpty ? nil : currentDate()
     }
 
+    /// The agent list opened, so the oldest request came on screen again, and its click delay starts over.
+    func theListShowedTheOldestRequest() {
+        guard !waitingRequests.isEmpty else { return }
+        oldestRequestShownAt = currentDate()
+    }
+
+    /// The oldest request, when it was on screen before `date`, such as the push-to-talk press that started a voice
+    /// answer. A request that came on screen while the learner spoke is one they never saw, so a yes cannot answer it.
+    func oldestRequestID(shownBefore date: Date) -> String? {
+        guard let oldestRequest = waitingRequests.first, let oldestRequestShownAt, oldestRequestShownAt <= date else { return nil }
+        return oldestRequest.approvalID
+    }
+
     /// The agent list's buttons answer through here. A click that comes too soon after the request showed is ignored,
     /// so the learner sees the request before a click can answer it. Returns false when the click did not count.
     @discardableResult
@@ -295,10 +313,21 @@ final class HarnessApprovalDesk: ObservableObject {
     func receive(_ request: HarnessApprovalRequest) {
         // A repeated ID would leave two entries for one answer.
         guard !waitingRequests.contains(where: { $0.approvalID == request.approvalID }) else { return }
+        guard taskIsRunning(request.taskID) else {
+            print("Agent harness: dropped approval \(request.approvalID), whose task already ended")
+            return
+        }
+        // The learner cannot judge an action the app cannot name, so it is declined without asking.
+        if case .unknown = request.capability {
+            print("Agent harness: declined approval \(request.approvalID) for a capability the app does not know")
+            sendAnswer(request.approvalID, false, .once)
+            return
+        }
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.append(request)
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
-        print("Agent harness: approval requested for \(request.capability): \(request.summary)")
+        // The summary can hold clipboard text or data from the screen, so the log names only the kind of action.
+        print("Agent harness: approval \(request.approvalID) requested for \(request.capability)")
         onRequestArrived?(request)
         onWaitingRequestsChanged?(waitingRequests)
         Task { [weak self, timeoutSeconds] in
@@ -386,9 +415,13 @@ final class AgentHarness {
     private let helperURL: URL
     let taskRouter = HarnessTaskRouter()
     /// Holds the requests the harness waits on until the learner answers them.
-    private(set) lazy var approvalDesk = HarnessApprovalDesk { [weak self] approvalID, approved, scope in
-        self?.write(.approvalResult(approvalID: approvalID, approved: approved, scope: scope))
-    }
+    private(set) lazy var approvalDesk: HarnessApprovalDesk = {
+        let approvalDesk = HarnessApprovalDesk { [weak self] approvalID, approved, scope in
+            self?.write(.approvalResult(approvalID: approvalID, approved: approved, scope: scope))
+        }
+        approvalDesk.taskIsRunning = { [weak self] taskID in self?.taskRouter.isTracking(taskID: taskID) ?? false }
+        return approvalDesk
+    }()
 
     private var runningProcess: Process?
     private var standardInputHandle: FileHandle?

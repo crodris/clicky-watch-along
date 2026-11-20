@@ -43,11 +43,11 @@ func TestAnMCPToolsCapabilityComesFromItsAnnotations(t *testing.T) {
 		want        capability
 	}{
 		{"no annotations", nil, capabilitySends},
-		{"read only", &mcp.ToolAnnotations{ReadOnlyHint: true}, capabilityNone},
+		{"read only", &mcp.ToolAnnotations{ReadOnlyHint: true}, capabilityReadsPrivate},
 		{"destructive", &mcp.ToolAnnotations{DestructiveHint: &yes}, capabilityDeletes},
 		{"explicitly not destructive", &mcp.ToolAnnotations{DestructiveHint: &no}, capabilitySends},
 		{"annotations that say nothing about it", &mcp.ToolAnnotations{Title: "A tool"}, capabilitySends},
-		{"read only wins over destructive", &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: &yes}, capabilityNone},
+		{"read only wins over destructive", &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: &yes}, capabilityReadsPrivate},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -463,7 +463,7 @@ func TestAPageSteeredReadAndSendAreStoppedWhenNoOneApproves(t *testing.T) {
 }
 
 // The gate covers a server's tools, and covers each by its own annotations.
-func TestAnMCPToolRunsOnlyAfterApprovalUnlessItIsReadOnly(t *testing.T) {
+func TestEveryMCPToolRunsOnlyAfterApprovalAtTheCapabilityItsAnnotationsGive(t *testing.T) {
 	configPath, ranToolsPath := fixtureMCPConfig(t)
 	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
 		if requestNumber == 1 {
@@ -479,6 +479,11 @@ func TestAnMCPToolRunsOnlyAfterApprovalUnlessItIsReadOnly(t *testing.T) {
 	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, mcpConfigPath: configPath, lookupEnvironment: noEnvironment})
 	driver.send(startTaskLine("task-1", "tidy the notes"))
 
+	// read_note says it is read only, so it reads private data. The learner approves it.
+	readRequest := driver.answerNextApproval(true, "once")
+	if !strings.Contains(readRequest, `"capability":"reads_private"`) || !strings.Contains(readRequest, "read_note") {
+		t.Errorf("the read request was %s", readRequest)
+	}
 	// send_note has no annotations, so it sends. The learner declines it.
 	sendRequest := driver.answerNextApproval(false, "once")
 	if !strings.Contains(sendRequest, `"capability":"sends"`) || !strings.Contains(sendRequest, "send_note") || !strings.Contains(sendRequest, "hello team") {
@@ -491,7 +496,7 @@ func TestAnMCPToolRunsOnlyAfterApprovalUnlessItIsReadOnly(t *testing.T) {
 	}
 	driver.expectLine("task_finished")
 
-	// The server's own record: the read only tool and the approved tool ran, and the declined one never did.
+	// The server's own record: the two approved tools ran, and the declined one never did.
 	ran := strings.Join(toolsTheFixtureRan(t, ranToolsPath), ",")
 	if ran != "read_note,delete_note" && ran != "delete_note,read_note" {
 		t.Errorf("the server ran %q, want read_note and delete_note only", ran)
@@ -538,7 +543,7 @@ func TestAToolOutsideTheTasksOfferedSetIsNeverDispatched(t *testing.T) {
 		if requestNumber == 1 {
 			writeStreamedMessage(writer, "tool_use",
 				toolUseBlock("toolu_shot", "take_screenshot", `{}`),
-				// A read only tool, so only the offered set stands between it and the server.
+				// A server tool the skill did not offer, so the harness refuses it before any approval.
 				toolUseBlock("toolu_note", "mcp__fixture__read_note", `{"text":"x"}`),
 			)
 			return

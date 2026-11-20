@@ -85,8 +85,10 @@ nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceA
         .map(String.init)
     let spacedTranscript = " " + transcriptWords.joined(separator: " ") + " "
     let saysNo = transcriptWords.contains(where: approvalNoWords.contains)
+    // A bare "always" is a yes too, when the model heard it as one.
     let saysYes = transcriptWords.contains(where: approvalYesWords.contains)
         || approvalYesPhrases.contains { spacedTranscript.contains(" \($0) ") }
+        || (modelAnswer.scope == .always && transcriptWords.contains("always"))
     let isAShortAnswer = transcriptWords.allSatisfy { approvalYesWords.contains($0) || approvalAnswerFillerWords.contains($0) }
     guard saysYes && !saysNo && isAShortAnswer else { return nil }
     if modelAnswer.scope == .always && !transcriptWords.contains("always") { return nil }

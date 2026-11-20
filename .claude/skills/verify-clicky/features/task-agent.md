@@ -42,7 +42,7 @@ Preconditions:
   The app log shows `Task agent: finished in N s after M turns`, `Task agent: wrote https://...`, and a teal-ringed token floats beside the notch meanwhile, with the reported steps in the agent list.
   Post `tools/call` for `hear_task_answer`, and Clicky speaks the answer.
 
-- **Approvals.** `take_screenshot`, `read_clipboard`, `write_clipboard`, `open_url`, and every MCP tool that is not read only wait for the learner.
+- **Approvals.** `take_screenshot`, `read_clipboard`, `write_clipboard`, `open_url`, and every MCP tool wait for the learner, since a tool that says it is read only reads private data.
   The app log shows `Agent harness: approval requested for ...: <summary>`, "Pop" plays, and the agent list opens next to the mouse with the agent's row expanded.
   The row shows the whole summary and the buttons Yes, Always, and No, the agent's wingman line says "Needs your OK", and the chip says "<agent> needs your OK · say yes or no".
   Click a button, and the log shows `Agent harness: approval approval-1 given (once)` or `declined`, and the tool runs or comes back as "The learner declined this action". Always lets that tool run again with no question until the harness stops.
