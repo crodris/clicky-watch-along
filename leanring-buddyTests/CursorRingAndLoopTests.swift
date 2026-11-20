@@ -145,12 +145,10 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTab?, polling polledSample: FrontTabSample = exampleSample()) async -> CursorLoopController {
     let controller = CursorLoopController(readTheMediaInTheFrontTab: { media }, readTheFrontTabSample: { polledSample })
     controller.pushToTalkWasReleased()
-    // The rect read runs as a task, so it has arrived once the task has had a turn.
-    try? await Task.sleep(for: .milliseconds(50))
+    // The rect read runs as a task, so wait for it instead of guessing how long it takes.
+    await controller.waitForTheMediaReadToFinish()
     return controller
 }
-
-private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2
 
 @Test @MainActor func anIdleThatLastsThroughTheRouterCallDoesNotEndATurnWaitingForItsHandOff() async {
     // After a push-to-talk request the dictation session's idle lands after the request set processing, and the router
@@ -158,7 +156,7 @@ private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldT
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    await controller.waitForTheIdleHoldToFinish()
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
 }
@@ -169,7 +167,7 @@ private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldT
     controller.requestBecameALookAtTheMedia()
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
     controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    await controller.waitForTheIdleHoldToFinish()
     #expect(controller.isShowingTheLoop)
 }
 
@@ -178,7 +176,18 @@ private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldT
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    await controller.waitForTheIdleHoldToFinish()
+    #expect(!controller.isShowingTheLoop)
+}
+
+@Test @MainActor func anIdleThatHoldsStillEndsTheLoopWhenTheMainActorIsBusyBeforeTheHoldStarts() async {
+    // A loaded runner can keep the main actor busy for longer than the hold, so the hold's task starts late. The result must
+    // not depend on how late, which a test that sleeps for a guessed time cannot promise.
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.requestBecameALookAtTheMedia()
+    Task { Thread.sleep(forTimeInterval: 0.4) }
+    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
+    await controller.waitForTheIdleHoldToFinish()
     #expect(!controller.isShowingTheLoop)
 }
 
@@ -186,7 +195,7 @@ private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldT
     // The learner switched tabs between the release and the hand-off, so the rect the loop would frame is stale.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia, polling: exampleSample(tabID: 99))
     controller.requestBecameALookAtTheMedia()
-    try? await Task.sleep(for: .milliseconds(200))
+    await controller.waitForThePollToEndTheLoop()
     #expect(!controller.isShowingTheLoop)
 }
 

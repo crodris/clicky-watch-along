@@ -120,6 +120,15 @@ final class CursorLoopController: ObservableObject {
         }
     }
 
+    // MARK: - Waiting for background work
+
+    /// Each returns once a task the controller started has finished, so a test reads the result when the work is done instead of
+    /// sleeping for a guessed time, which a loaded runner can outlast. A task that has not started yet is not waited for.
+    func waitForTheMediaReadToFinish() async { await mediaRectReadTask?.value }
+    func waitForTheIdleHoldToFinish() async { await idleMustHoldTask?.value }
+    /// Only returns when the poll ends the loop, since a poll whose samples match keeps sampling for as long as the loop shows.
+    func waitForThePollToEndTheLoop() async { await pollTask?.value }
+
     func end(because reason: CursorLoopEndReason) {
         guard state.loopIsShowing || state.turn != .notWaitingForALoop else { return }
         print("Cursor loop: ended because \(reason), \(state.loopIsShowing ? "with the loop showing" : "before any loop drew")")
