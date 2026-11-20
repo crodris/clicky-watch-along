@@ -254,9 +254,17 @@ final class HarnessApprovalDesk: ObservableObject {
 
     /// Oldest first.
     @Published private(set) var waitingRequests: [HarnessApprovalRequest] = []
-    /// When the oldest request, the one the agent list shows with its buttons, came on screen.
-    private(set) var oldestRequestShownAt: Date?
+    /// When each waiting request first showed in the open agent list as the oldest, the one with buttons. A voice yes
+    /// counts only for a request the learner could have read before they pressed push-to-talk.
+    private var firstShownAtByApprovalID: [String: Date] = [:]
+    /// When the open list last put the oldest request in front of the learner, or nil while it shows none. A click
+    /// counts only `secondsBeforeAClickCounts` after this.
+    private var clickDelayStartedAt: Date?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
+    /// Whether the agent list is open, so a request that becomes the oldest is on screen at once.
+    var listIsShowing: () -> Bool = { false }
+    /// A request became the oldest while the list was closed, so its summary is on no screen until the list opens.
+    var onOldestRequestNeedsShowing: ((HarnessApprovalRequest) -> Void)?
     /// Whether a task still runs. A request can cross a cancel on its way from the harness, and a request for an ended
     /// task would take the oldest spot, with buttons on an ended agent's row, until it timed out.
     var taskIsRunning: (UUID) -> Bool = { _ in true }
@@ -276,22 +284,37 @@ final class HarnessApprovalDesk: ObservableObject {
         self.sendAnswer = sendAnswer
     }
 
-    /// Sets when the oldest request came on screen, after any change to the queue that may have put a new one first.
+    /// After any change to the queue that may have put a new request first: the open list shows the new oldest at once,
+    /// and a closed list is asked to open, since until then the new oldest's summary is on no screen.
     private func noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: String?) {
         guard waitingRequests.first?.approvalID != oldestApprovalIDBefore else { return }
-        oldestRequestShownAt = waitingRequests.isEmpty ? nil : currentDate()
+        clickDelayStartedAt = nil
+        guard let oldestRequest = waitingRequests.first else { return }
+        if listIsShowing() {
+            theListShowedTheOldestRequest()
+        } else {
+            onOldestRequestNeedsShowing?(oldestRequest)
+        }
     }
 
-    /// The agent list opened, so the oldest request came on screen again, and its click delay starts over.
+    /// The open agent list shows the oldest request, after it opened or after a new request became the oldest. Its
+    /// click delay starts over, and the first time counts for a voice answer.
     func theListShowedTheOldestRequest() {
-        guard !waitingRequests.isEmpty else { return }
-        oldestRequestShownAt = currentDate()
+        guard let oldestRequest = waitingRequests.first else { return }
+        let now = currentDate()
+        clickDelayStartedAt = now
+        if firstShownAtByApprovalID[oldestRequest.approvalID] == nil {
+            firstShownAtByApprovalID[oldestRequest.approvalID] = now
+        }
     }
 
-    /// The oldest request, when it was on screen before `date`, such as the push-to-talk press that started a voice
-    /// answer. A request that came on screen while the learner spoke is one they never saw, so a yes cannot answer it.
+    /// The oldest request, when the list showed it before `date`, such as the push-to-talk press that started a voice
+    /// answer. A request no list has shown, or one that came on screen while the learner spoke, is one they never read,
+    /// so a yes cannot answer it.
     func oldestRequestID(shownBefore date: Date) -> String? {
-        guard let oldestRequest = waitingRequests.first, let oldestRequestShownAt, oldestRequestShownAt <= date else { return nil }
+        guard let oldestRequest = waitingRequests.first,
+              let firstShownAt = firstShownAtByApprovalID[oldestRequest.approvalID],
+              firstShownAt <= date else { return nil }
         return oldestRequest.approvalID
     }
 
@@ -299,8 +322,8 @@ final class HarnessApprovalDesk: ObservableObject {
     /// so the learner sees the request before a click can answer it. Returns false when the click did not count.
     @discardableResult
     func answerByClick(approvalID: String, approved: Bool, scope: HarnessApprovalScope) -> Bool {
-        guard let oldestRequestShownAt,
-              currentDate().timeIntervalSince(oldestRequestShownAt) >= Self.secondsBeforeAClickCounts else {
+        guard let clickDelayStartedAt,
+              currentDate().timeIntervalSince(clickDelayStartedAt) >= Self.secondsBeforeAClickCounts else {
             print("Agent harness: ignored a click on approval \(approvalID) that came within \(Self.secondsBeforeAClickCounts) s of the request showing")
             return false
         }
@@ -349,6 +372,7 @@ final class HarnessApprovalDesk: ObservableObject {
         guard let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else { return false }
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.remove(at: requestIndex)
+        firstShownAtByApprovalID[approvalID] = nil
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         print("Agent harness: approval \(approvalID) \(approved ? "given" : "declined") (\(scope.rawValue))")
         sendAnswer(approvalID, approved, scope)
@@ -360,6 +384,9 @@ final class HarnessApprovalDesk: ObservableObject {
     func dropRequests(forTaskID taskID: UUID) {
         let requestCountBefore = waitingRequests.count
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
+        for droppedRequest in waitingRequests where droppedRequest.taskID == taskID {
+            firstShownAtByApprovalID[droppedRequest.approvalID] = nil
+        }
         waitingRequests.removeAll { $0.taskID == taskID }
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         if waitingRequests.count != requestCountBefore {
@@ -541,7 +568,8 @@ final class AgentHarness {
             }
             taskRouter.route(message)
         } catch {
-            print("Agent harness: dropped a line it could not read (\(error)): \(outputLine.prefix(200))")
+            // A line can carry a summary or clipboard text, so the log gives only its length.
+            print("Agent harness: dropped a line of \(outputLine.count) characters it could not read (\(error))")
         }
     }
 

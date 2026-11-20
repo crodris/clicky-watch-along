@@ -158,7 +158,7 @@ func (serving *harness) startTask(start startTaskMessage) {
 		return
 	}
 	taskContext, cancel := context.WithCancel(serving.rootContext)
-	task := &runningTask{cancel: cancel, done: taskContext.Done(), toolResults: make(chan toolResultMessage, 32)}
+	task := &runningTask{cancel: cancel, done: taskContext.Done(), toolResults: make(chan toolResultMessage, 32), mcpImages: newImageByteBudget(mostMCPImageBytesPerTask)}
 	serving.tasks[start.TaskID] = task
 	serving.tasksMutex.Unlock()
 

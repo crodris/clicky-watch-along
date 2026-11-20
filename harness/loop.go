@@ -24,6 +24,8 @@ type runningTask struct {
 	cancel      context.CancelFunc
 	done        <-chan struct{}
 	toolResults chan toolResultMessage
+	// mcpImages is what is left of the bytes of MCP result images the task may keep in its history.
+	mcpImages *imageByteBudget
 }
 
 // taskRunner runs task agents. It holds no per-task state, so any number of tasks can run on one runner.
@@ -214,7 +216,7 @@ func (runner *taskRunner) runToolCalls(
 			return
 		}
 		go func() {
-			result := runner.mcp.call(taskContext, call.Name, input)
+			result := runner.mcp.call(taskContext, call.Name, input, task.mcpImages)
 			result.TaskID, result.ToolUseID = taskID, call.ID
 			serverResults <- result
 		}()

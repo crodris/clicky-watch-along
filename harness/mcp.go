@@ -101,6 +101,9 @@ const (
 	// becomes, so one too big would fail every turn after it.
 	largestMCPResultImageBytes = 3_750_000
 	mostMCPResultImages        = 4
+	// Every result stays in the history, and Anthropic refuses a request over 32 MB, so a task keeps at most this many
+	// bytes of server images in all, 16 MB once encoded, leaving room for the rest of the history.
+	mostMCPImageBytesPerTask = 12_000_000
 	// Starting a server can mean downloading it, so the wait is generous. A server that takes longer is skipped.
 	mcpConnectTimeout = 45 * time.Second
 	// One call of a server's tool.
@@ -421,7 +424,7 @@ func truncateText(text string, mostCharacters int) string {
 
 // call runs one tool and returns its result in the protocol's content shape: a string or an array of blocks. A
 // transport failure comes back as an error result, so the agent can work around it.
-func (hub *mcpHub) call(ctx context.Context, modelName toolName, input json.RawMessage) toolResultMessage {
+func (hub *mcpHub) call(ctx context.Context, modelName toolName, input json.RawMessage, taskImages *imageByteBudget) toolResultMessage {
 	tool, known := hub.toolsByName[modelName]
 	if !known {
 		return errorToolResult(fmt.Sprintf("%s is not a tool", modelName))
@@ -438,7 +441,28 @@ func (hub *mcpHub) call(ctx context.Context, modelName toolName, input json.RawM
 	if err != nil {
 		return errorToolResult(fmt.Sprintf("the call to the MCP server %q failed: %v", tool.serverName, err))
 	}
-	return toolResultMessage{Content: mustMarshal(mcpResultBlocks(result)), IsError: result.IsError}
+	return toolResultMessage{Content: mustMarshal(mcpResultBlocks(result, taskImages)), IsError: result.IsError}
+}
+
+// imageByteBudget is what is left of the image bytes one task may keep. Its server calls run at once, so it locks.
+type imageByteBudget struct {
+	mutex     sync.Mutex
+	bytesLeft int
+}
+
+func newImageByteBudget(bytes int) *imageByteBudget {
+	return &imageByteBudget{bytesLeft: bytes}
+}
+
+// take spends byteCount when that much is left, and reports whether it did.
+func (budget *imageByteBudget) take(byteCount int) bool {
+	budget.mutex.Lock()
+	defer budget.mutex.Unlock()
+	if byteCount > budget.bytesLeft {
+		return false
+	}
+	budget.bytesLeft -= byteCount
+	return true
 }
 
 func errorToolResult(message string) toolResultMessage {
@@ -450,7 +474,7 @@ var supportedImageTypes = map[string]bool{"image/jpeg": true, "image/png": true,
 
 // mcpResultBlocks turns a server's result into the protocol's content blocks, cutting long text. A block the model
 // cannot read is named in a text block, so it knows something was left out.
-func mcpResultBlocks(result *mcp.CallToolResult) []map[string]any {
+func mcpResultBlocks(result *mcp.CallToolResult, taskImages *imageByteBudget) []map[string]any {
 	var blocks []map[string]any
 	textLeft := longestMCPResultText
 	addText := func(text string) {
@@ -474,6 +498,8 @@ func mcpResultBlocks(result *mcp.CallToolResult) []map[string]any {
 				addText(fmt.Sprintf("[the server returned an image of %d bytes, over the %d the agent can read]", len(block.Data), largestMCPResultImageBytes))
 			case imagesKept == mostMCPResultImages:
 				addText(fmt.Sprintf("[the server returned more than %d images, and the rest were left out]", mostMCPResultImages))
+			case !taskImages.take(len(block.Data)):
+				addText("[the server returned an image, but this task already holds as many image bytes as the agent can send, so it was left out]")
 			default:
 				imagesKept++
 				blocks = append(blocks, map[string]any{"type": "image", "source": map[string]any{

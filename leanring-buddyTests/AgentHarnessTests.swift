@@ -247,25 +247,54 @@ struct AgentHarnessTests {
         #expect(answers.map(\.approved) == [false], "an action the app cannot name is declined at once")
     }
 
-    @Test func aVoiceAnswerReachesOnlyARequestOnScreenBeforeThePressAndAReopenedListRestartsTheClickDelay() {
+    @Test func aVoiceAnswerReachesOnlyARequestTheListShowedBeforeThePress() {
         var now = Date(timeIntervalSince1970: 1_000)
+        var listIsOpen = false
+        var requestsThatNeededShowing: [String] = []
         let desk = HarnessApprovalDesk(currentDate: { now }) { _, _, _ in }
+        desk.listIsShowing = { listIsOpen }
+        desk.onOldestRequestNeedsShowing = { requestsThatNeededShowing.append($0.approvalID) }
 
-        desk.receive(anApprovalRequest("approval-1"))
-        #expect(desk.oldestRequestID(shownBefore: now - 1) == nil, "a request that arrived after the press was never seen")
-        #expect(desk.oldestRequestID(shownBefore: now + 1) == "approval-1")
+        // A arrives with the list closed, so no screen shows it yet, and a yes cannot reach it.
+        desk.receive(anApprovalRequest("approval-A"))
+        #expect(requestsThatNeededShowing == ["approval-A"])
+        #expect(desk.oldestRequestID(shownBefore: now + 60) == nil)
 
-        now += 5
+        // The list opens and shows A. A press after that may answer it, and a press before it may not.
+        listIsOpen = true
         desk.theListShowedTheOldestRequest()
-        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once), "a list that opened again needs its second first")
-        now += 1.1
-        #expect(desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once))
+        let shownAt = now
+        #expect(desk.oldestRequestID(shownBefore: shownAt - 1) == nil, "a request that came on screen while the learner spoke was never read")
+        #expect(desk.oldestRequestID(shownBefore: shownAt) == "approval-A")
+
+        // The learner closes the list and presses push-to-talk. B arrives and the list opens again: A was read before
+        // the press, so the yes still reaches it, and the click delay starts over.
+        listIsOpen = false
+        now += 10
+        let pressedAt = now
+        now += 1
+        desk.receive(anApprovalRequest("approval-B", taskID: secondTaskID))
+        listIsOpen = true
+        desk.theListShowedTheOldestRequest()
+        #expect(desk.oldestRequestID(shownBefore: pressedAt) == "approval-A")
+        #expect(!desk.answerByClick(approvalID: "approval-A", approved: true, scope: .once), "a list that opened again needs its second first")
+
+        // A ends while the list is closed. B becomes the oldest with no screen showing its summary, so the list is asked
+        // to open, and a yes cannot reach B until it has.
+        listIsOpen = false
+        desk.dropRequests(forTaskID: firstTaskID)
+        #expect(requestsThatNeededShowing == ["approval-A", "approval-B"])
+        now += 5
+        #expect(desk.oldestRequestID(shownBefore: now) == nil, "B's row only said it waited its turn, so its summary was never read")
+        #expect(!desk.answerByClick(approvalID: "approval-B", approved: true, scope: .once))
     }
 
     @Test func aClickCountsOnlyASecondAfterTheRequestItAnswersCameOnScreen() {
         var now = Date(timeIntervalSince1970: 1_000)
         var answeredIDs: [String] = []
         let desk = HarnessApprovalDesk(currentDate: { now }) { approvalID, _, _ in answeredIDs.append(approvalID) }
+        // The list is open, so each request that becomes the oldest is on screen at once.
+        desk.listIsShowing = { true }
 
         desk.receive(anApprovalRequest("approval-1"))
         desk.receive(anApprovalRequest("approval-2"))

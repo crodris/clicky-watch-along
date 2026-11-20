@@ -158,8 +158,25 @@ final class CompanionManager: ObservableObject {
         agentHarness.approvalDesk.onWaitingRequestsChanged = { [weak self] waitingRequests in
             self?.syncTheApprovalWaitingState(waitingRequests)
         }
+        agentHarness.approvalDesk.listIsShowing = { [weak self] in
+            self?.agentListPanelController.isOpen ?? false
+        }
+        agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
+            self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+        }
         return agentHarness
     }()
+    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the agent list showed it
+    /// before the press. The router takes the command, offers `answer_approval`, and names the request's capability only
+    /// for this one, so a yes the app would refuse is never asked of the model.
+    private var approvalRequestAVoiceAnswerMayReach: HarnessApprovalRequest? {
+        guard let lastPushToTalkPressedAt,
+              let approvalID = agentHarness.approvalDesk.oldestRequestID(shownBefore: lastPushToTalkPressedAt) else { return nil }
+        return agentHarness.approvalDesk.oldestWaitingRequest.flatMap { oldestRequest in
+            oldestRequest.approvalID == approvalID ? oldestRequest : nil
+        }
+    }
+
     /// The text of the chip that says an agent needs the learner's OK, so answering hides that chip and never a newer one.
     private var approvalWaitingChipPrimaryText: String?
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
@@ -1099,7 +1116,7 @@ final class CompanionManager: ObservableObject {
             videoIsInFront: frontVideoState != nil,
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
-            approvalIsWaiting: agentHarness.approvalDesk.oldestWaitingRequest != nil,
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding,
             brainTakesEveryRequest: brainTakesEveryRequest
@@ -2446,7 +2463,7 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
-            approvalIsWaiting: agentHarness.approvalDesk.oldestWaitingRequest != nil
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil
         )
     }
 
@@ -2472,9 +2489,7 @@ final class CompanionManager: ObservableObject {
         var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
         // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
         // screen while they spoke or while the model ran, such as after the shown one's task ended.
-        let approvalIDWaitingWhenTheCommandStarted = lastPushToTalkPressedAt.flatMap { pushToTalkPressedAt in
-            agentHarness.approvalDesk.oldestRequestID(shownBefore: pushToTalkPressedAt)
-        }
+        let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
         // When the third turn still needs the model, Clicky says the apology instead of going quiet.
@@ -3520,7 +3535,7 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
         }
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
-        if let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: agentHarness.approvalDesk.oldestWaitingRequest) {
+        if let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
         }
         if let readyBackgroundScene {

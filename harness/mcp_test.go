@@ -233,7 +233,7 @@ func TestAServerCommandIsFoundOnTheServersOwnPath(t *testing.T) {
 }
 
 func TestAServersResultBecomesTextAndImageBlocksAndLongTextIsCut(t *testing.T) {
-	blocks := mcpResultBlocks(&mcp.CallToolResult{Content: []mcp.Content{
+	blocks := mcpResultBlocksWithAFullBudget(&mcp.CallToolResult{Content: []mcp.Content{
 		&mcp.TextContent{Text: "hello"},
 		&mcp.ImageContent{Data: fixtureImageBytes, MIMEType: "image/png"},
 		&mcp.ImageContent{Data: fixtureImageBytes, MIMEType: "image/bmp"},
@@ -251,7 +251,7 @@ func TestAServersResultBecomesTextAndImageBlocksAndLongTextIsCut(t *testing.T) {
 		}
 	}
 
-	long := mcpResultBlocks(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Repeat("a", longestMCPResultText+500)}}})
+	long := mcpResultBlocksWithAFullBudget(&mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: strings.Repeat("a", longestMCPResultText+500)}}})
 	if text := long[0]["text"].(string); len([]rune(text)) > longestMCPResultText+10 || !strings.HasSuffix(text, "(cut)") {
 		t.Errorf("long text was not cut: %d characters", len(text))
 	}
@@ -368,12 +368,12 @@ func TestAnHTTPServerIsReachedWithTheConfiguredHeaders(t *testing.T) {
 	if len(tools) != 4 || tools[0].modelName != "mcp__remote__delete_note" {
 		t.Fatalf("the http server's tools were %v", tools)
 	}
-	result := hub.call(context.Background(), "mcp__remote__read_note", json.RawMessage(`{"text":"x"}`))
+	result := hub.call(context.Background(), "mcp__remote__read_note", json.RawMessage(`{"text":"x"}`), newImageByteBudget(mostMCPImageBytesPerTask))
 	if result.IsError || !strings.Contains(string(result.Content), "the note says hello") {
 		t.Errorf("the call returned %s, error %v", result.Content, result.IsError)
 	}
 	// A tool that reports its own failure comes back as an error result the agent can read.
-	failure := hub.call(context.Background(), "mcp__remote__send_note", json.RawMessage(`{"text":"fail"}`))
+	failure := hub.call(context.Background(), "mcp__remote__send_note", json.RawMessage(`{"text":"fail"}`), newImageByteBudget(mostMCPImageBytesPerTask))
 	if !failure.IsError || !strings.Contains(string(failure.Content), "the team is offline") {
 		t.Errorf("a failing tool returned %s, error %v", failure.Content, failure.IsError)
 	}
@@ -396,10 +396,30 @@ func TestAnMCPResultKeepsOnlyImagesTheAgentCanSendOnEveryLaterTurn(t *testing.T)
 		smallImage, smallImage, smallImage, smallImage, smallImage,
 	}}
 	var kinds []string
-	for _, block := range mcpResultBlocks(result) {
+	for _, block := range mcpResultBlocksWithAFullBudget(result) {
 		kinds = append(kinds, block["type"].(string))
 	}
 	if got, want := strings.Join(kinds, ","), "text,image,image,image,image,text"; got != want {
+		t.Errorf("the blocks were %s, want %s", got, want)
+	}
+}
+
+// mcpResultBlocksWithAFullBudget reads one result as the first of a task, with the task's whole image budget left.
+func mcpResultBlocksWithAFullBudget(result *mcp.CallToolResult) []map[string]any {
+	return mcpResultBlocks(result, newImageByteBudget(mostMCPImageBytesPerTask))
+}
+
+func TestATaskStopsKeepingServerImagesOnceItHoldsAsManyBytesAsItCanSend(t *testing.T) {
+	taskImages := newImageByteBudget(mostMCPImageBytesPerTask)
+	bigImage := &mcp.ImageContent{MIMEType: "image/png", Data: make([]byte, largestMCPResultImageBytes)}
+	var kinds []string
+	for resultNumber := 0; resultNumber < 2; resultNumber++ {
+		for _, block := range mcpResultBlocks(&mcp.CallToolResult{Content: []mcp.Content{bigImage, bigImage}}, taskImages) {
+			kinds = append(kinds, block["type"].(string))
+		}
+	}
+	// 3 images of 3.75 MB fit in 12 MB, and the 4th would not, even though each result alone is under its own cap.
+	if got, want := strings.Join(kinds, ","), "image,image,image,text"; got != want {
 		t.Errorf("the blocks were %s, want %s", got, want)
 	}
 }
