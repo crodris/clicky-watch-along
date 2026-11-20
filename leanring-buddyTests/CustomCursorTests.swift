@@ -152,6 +152,25 @@ struct CustomCursorThemeTests {
         #expect(cornerAlpha < 0.05)
     }
 
+    @Test func anUprightCursorTurnsOnlyItsStreaksSoTheyTrailBehindItsMovement() throws {
+        let idea = replacingField(in: goodThemeIdea, at: ["motion", "turnsTowardMovement"], with: .bool(false))
+        let theme = try CustomTheme.parse(idea: idea, id: "idea-1", pictureIsAvailable: false)
+        func pixels(streakFacingDegrees: Double) throws -> NSBitmapImageRep {
+            try #require(renderedPixels(
+                of: CustomCursorView(customTheme: theme, picture: nil, streakOpacity: 1, streakFacingDegrees: streakFacingDegrees, voiceState: .idle, audioPowerLevel: 0),
+                side: 48
+            ))
+        }
+        // The 24 point box sits in the middle of the 48 point frame, so the middle streak runs from y 35.5 to 46 below the
+        // star when it faces up, and from y 12.5 to 2 above it when it faces down.
+        let facingUp = try pixels(streakFacingDegrees: 0)
+        #expect(try #require(facingUp.colorAt(x: 48, y: 80)).alphaComponent > 0.5)
+        #expect(try #require(facingUp.colorAt(x: 48, y: 8)).alphaComponent < 0.05)
+        let facingDown = try pixels(streakFacingDegrees: 180)
+        #expect(try #require(facingDown.colorAt(x: 48, y: 80)).alphaComponent < 0.05)
+        #expect(try #require(facingDown.colorAt(x: 48, y: 16)).alphaComponent > 0.5)
+    }
+
     @Test func aPictureCursorDrawsThePictureWithItsTintAndOutline() throws {
         let theme = try CustomTheme.parse(idea: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
         // A solid red 40 by 20 picture, so a 0.3 tint of #7DD3FC over it turns the middle visibly bluer than the red it started as.

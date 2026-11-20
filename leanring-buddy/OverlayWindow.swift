@@ -232,10 +232,16 @@ struct BlueCursorView: View {
         case .pointerAngle:
             return triangleRotationDegrees
         case .followsMouseMovement:
-            return buddyNavigationMode == .followingCursor ? volleyballFollowMotion.facingDegrees : triangleRotationDegrees
+            return directionOfTravelDegrees
         case .upright:
             return 0
         }
+    }
+
+    /// The way the cursor moves: the mouse's movement while it follows, and the flight's direction otherwise. A cursor that
+    /// faces its movement turns by this, and a custom cursor that stays upright turns only its streaks by it.
+    private var directionOfTravelDegrees: Double {
+        buddyNavigationMode == .followingCursor ? volleyballFollowMotion.facingDegrees : triangleRotationDegrees
     }
 
     /// The streaks of the volleyball and of a custom cursor show the mouse's speed while it follows, and the flight's size
@@ -416,6 +422,7 @@ struct BlueCursorView: View {
                         customTheme: customTheme,
                         picture: themeSettings.shownThemePicture,
                         streakOpacity: cursorStreakOpacity,
+                        streakFacingDegrees: themeSettings.shownTheme.cursorFacing == .upright ? directionOfTravelDegrees : 0,
                         voiceState: companionManager.voiceState,
                         audioPowerLevel: companionManager.currentAudioPowerLevel
                     )

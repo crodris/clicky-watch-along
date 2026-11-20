@@ -298,8 +298,8 @@ struct ThemeStudioCardTextTests {
         ]))
         quietIdea = replacingField(in: quietIdea, at: ["cursor", "shapes", "1"], with: .null)
         let tags = themeStudioTags(for: try CustomTheme.parse(idea: quietIdea, id: "idea-1", pictureIsAvailable: false))
-        // Streaks trail behind a cursor that turns, so a cursor that does not turn says nothing about them.
-        #expect(tags == ["cursor: 1 shape", "sounds: Purr, Glass, Pop"])
+        // A cursor that does not turn still trails streaks behind its movement, so they are listed.
+        #expect(tags == ["cursor: 1 shape", "2 trail streaks", "sounds: Purr, Glass, Pop"])
         let roundIdea = replacingField(in: goodPictureCursorThemeIdea, at: ["cursor", "picture"], with: .object([
             "fit": .string("circle"), "outline": .string("#FFFFFF"), "tint": .null, "tintStrength": .number(0),
         ]))

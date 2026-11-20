@@ -121,6 +121,9 @@ struct CustomCursorView: View {
     let picture: NSImage?
     /// 0 hides the streaks and 1 shows them fully, the same value the volleyball's streaks take.
     let streakOpacity: Double
+    /// How far the streaks alone are turned, so they trail behind the movement of a cursor that stays upright. The overlay
+    /// turns the whole cursor for one that faces its movement, and passes 0 here then, since its streaks turn with it.
+    var streakFacingDegrees: Double = 0
     let voiceState: CompanionVoiceState
     let audioPowerLevel: CGFloat
 
@@ -152,14 +155,15 @@ struct CustomCursorView: View {
         }
     }
 
-    /// Streaks trail behind a cursor that faces its movement. One that does not turn has no behind, so it draws none.
     @ViewBuilder private var streaks: some View {
-        if customTheme.motion.trailStreaks > 0, customTheme.motion.turnsTowardMovement, !reduceMotion {
+        if customTheme.motion.trailStreaks > 0, !reduceMotion {
             CursorFlightStreaks(lineCount: customTheme.motion.trailStreaks)
                 .stroke(Color(hex: customTheme.accentHex), style: StrokeStyle(lineWidth: streakLineWidth, lineCap: .round))
                 .frame(width: CursorDrawingBox.sideLength, height: CursorDrawingBox.sideLength)
                 // The streaks start below the 24 point box, so a taller picture pushes them down with its bottom edge.
                 .offset(y: (drawingSize.height - CursorDrawingBox.sideLength) / 2)
+                // Turned after the offset, so a picture's lower edge stays the streaks' starting point as they turn.
+                .rotationEffect(.degrees(streakFacingDegrees))
                 .opacity(min(max(streakOpacity, 0), 1))
         }
     }

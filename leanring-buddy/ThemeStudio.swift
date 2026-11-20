@@ -138,7 +138,7 @@ nonisolated func themeStudioTags(for idea: CustomTheme) -> [String] {
         tags.append(pictureTag)
     }
     if idea.motion.turnsTowardMovement { tags.append("turns as it moves") }
-    if idea.motion.trailStreaks > 0 && idea.motion.turnsTowardMovement {
+    if idea.motion.trailStreaks > 0 {
         tags.append(idea.motion.trailStreaks == 1 ? "1 trail streak" : "\(idea.motion.trailStreaks) trail streaks")
     }
     switch idea.motion.whileThinking {
