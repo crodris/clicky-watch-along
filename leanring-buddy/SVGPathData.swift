@@ -185,8 +185,14 @@ nonisolated struct SVGPathData: Equatable, Sendable {
         }
     }
 
+    /// What SVG allows between numbers and commands: space, tab, carriage return, line feed, form feed, and comma. The Worker's
+    /// tokenizer skips exactly these, so a path it accepts parses here. Anything else, a non-breaking space included, is refused.
+    private static let separatorScalars: Set<Unicode.Scalar> = [" ", "\t", "\r", "\n", "\u{0C}", ","]
+
     private static func skipSeparators(in characters: inout ArraySlice<Character>) {
-        while let character = characters.first, character == " " || character == "," {
+        // Swift reads a carriage return and line feed together as one Character, so a character is a separator when
+        // every scalar in it is one.
+        while let character = characters.first, character.unicodeScalars.allSatisfy({ separatorScalars.contains($0) }) {
             characters = characters.dropFirst()
         }
     }

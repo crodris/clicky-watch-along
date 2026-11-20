@@ -527,7 +527,7 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             guard let ideaNumber = numberInput("number"), let wholeNumber = Int(exactly: ideaNumber), (1...3).contains(wholeNumber) else { return nil }
             return "Trying idea \(wholeNumber)"
         case "save_theme":
-            return "Theme saved"
+            return themeSavedChipPhrase
         case "close_theme_studio":
             return "Kept your old theme"
         case "answer_approval":
@@ -872,8 +872,10 @@ nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
 /// takes the utterance (not a quiz answer, not a scene still building), there is none, since the model picks
 /// `animate_picture` and `build_simulation` itself.
 /// Once a scene is on screen, "let me try it" may mean a slider ("can I try 60 degrees"), which the router reads.
-/// "Change my theme" opens the studio only when it is closed and no quiz question is open. With the studio open, the router
-/// reads every word, since "two, but make the cursor a star" is a refinement and not a new request.
+/// "Change my theme" opens the studio only when it is closed and no quiz question is open. With the studio open there is no
+/// keyword branch at all, so the router reads every word: "two, but make the cursor a star" is a refinement and not a new
+/// request, and "let me try it" or "make it move" is for the router to decide, not a branch that starts an experiment or
+/// an animation under the open card.
 nonisolated func keywordBranchAheadOfTheRouter(
     for transcript: String,
     brainTakesEveryRequest: Bool,
@@ -890,8 +892,8 @@ nonisolated func keywordBranchAheadOfTheRouter(
         sceneIsBuilding: sceneIsBuilding,
         brainTakesEveryRequest: brainTakesEveryRequest
     )
-    if brainOwnsTheUtterance { return nil }
-    if !themeStudioIsOpen, !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
+    if brainOwnsTheUtterance || themeStudioIsOpen { return nil }
+    if !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
         return .designATheme(themeStudioRequest)
     }
     switch liveSceneKind(for: transcript) {
@@ -907,13 +909,17 @@ nonisolated func keywordBranchAheadOfTheRouter(
 /// What a failed router request does instead. With the brain flag on, "let me try it" skipped its keyword branch to
 /// reach the router, so a failed request starts the experiment here rather than answering the words as a question.
 /// Everything else takes the keyword path, which already pops out or animates from the words.
+/// With the Theme Studio open the words were a number, a change, or "save it", which the keyword path would answer as a
+/// question about the screen, so Clicky says `voiceCommandGaveUpLine` instead (`giveUp`).
 nonisolated enum RouterFailureFallback: Equatable {
     case startExperiment
     case designATheme(ThemeStudioRequest)
     case keywordPath(LiveSceneKind?)
+    case giveUp
 }
 
-nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: Bool) -> RouterFailureFallback {
+nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: Bool, themeStudioIsOpen: Bool = false) -> RouterFailureFallback {
+    if themeStudioIsOpen { return .giveUp }
     let skippedKeywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,
         brainTakesEveryRequest: false,

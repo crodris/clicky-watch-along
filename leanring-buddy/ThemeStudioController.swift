@@ -22,12 +22,26 @@ protocol ThemeStudioCardPresenting: AnyObject {
 
 extension ThemeStudioPanelController: ThemeStudioCardPresenting {}
 
+extension ThemeStudioController.SaveOutcome {
+    /// What the chip under the cursor says after a click on Save, or nil when there was nothing to save. The voice tool
+    /// reports its outcome to the router, which shows its own chip, so this is for the card's button alone.
+    nonisolated var chipPhraseAfterAClickOnSave: String? {
+        switch self {
+        case .saved: return themeSavedChipPhrase
+        case .nothingToSave: return nil
+        case .failed: return themeCouldNotBeSavedChipPhrase
+        }
+    }
+}
+
 @MainActor
 final class ThemeStudioController: ObservableObject {
     /// What the studio needs from the rest of the app, supplied by CompanionManager.
     struct Environment {
         /// Says a line aloud.
         let speak: (String) -> Void
+        /// Ends a line the studio is saying or has queued to say, so a closed card never keeps talking.
+        let stopSpeaking: () -> Void
         /// Plays a theme sound through the speakers.
         let playSound: (ThemeSound) -> Void
         /// A JPEG of the largest picture in Chrome's front tab, or nil when there is none.
@@ -180,12 +194,14 @@ final class ThemeStudioController: ObservableObject {
         }
     }
 
-    /// Closes the card and keeps the old theme. A design that is still running is cancelled.
+    /// Closes the card and keeps the old theme. A design that is still running is cancelled, and so is the line Clicky is
+    /// saying about the ideas, since nothing is left on the card for it to describe.
     func close() {
         designTask?.cancel()
         designTask = nil
         state = state.closing()
         themeSettings.clearPreview()
+        environment.stopSpeaking()
     }
 
     /// Escape closes an open studio before it does anything else. False when the studio is closed.

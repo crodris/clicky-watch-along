@@ -99,6 +99,14 @@ struct CustomCursorMotionTests {
         // A picture with no size yet still gets a drawable box.
         #expect(CustomCursorMotionRules.pictureSize(fit: .whole, imageSize: .zero) == CGSize(width: 32, height: 32))
     }
+
+    @Test func aBannerShapedPictureKeepsAShortSideOfTwelvePointsAndTheViewCropsItsCenter() {
+        // A 1280 by 40 banner fit whole would be 32 by 1 points, too thin to see.
+        #expect(CustomCursorMotionRules.pictureSize(fit: .whole, imageSize: CGSize(width: 1280, height: 40)) == CGSize(width: 32, height: 12))
+        #expect(CustomCursorMotionRules.pictureSize(fit: .whole, imageSize: CGSize(width: 40, height: 1280)) == CGSize(width: 12, height: 32))
+        // A picture whose short side is already above 12 points keeps its own shape.
+        #expect(CustomCursorMotionRules.pictureSize(fit: .whole, imageSize: CGSize(width: 320, height: 150)) == CGSize(width: 32, height: 15))
+    }
 }
 
 @MainActor

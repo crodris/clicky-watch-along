@@ -93,11 +93,14 @@ enum CustomCursorMotionRules {
 
     /// A picture cursor's long side. A whole wide photo at the 24 point box's size is too small to recognize.
     static let pictureLongSideInPoints: CGFloat = 32
+    /// The shortest a picture cursor's short side gets, so a banner shaped picture is still a shape the eye can follow.
+    static let pictureShortSideMinimumInPoints: CGFloat = 12
     static let pictureCornerRadiusInPoints: CGFloat = 4
     static let pictureOutlineWidthInPoints: CGFloat = 1.5
 
     /// The size a picture cursor draws at: a round crop is a square, and a whole picture keeps its shape with the long side
-    /// at 32 points.
+    /// at 32 points. A picture more than 32 by 12 in shape, such as a 1280 by 40 banner, gets a short side of 12 points,
+    /// and the view crops its center to fit, since it fills the box.
     static func pictureSize(fit: CursorPictureFit, imageSize: CGSize) -> CGSize {
         switch fit {
         case .circle:
@@ -107,7 +110,11 @@ enum CustomCursorMotionRules {
                 return CGSize(width: pictureLongSideInPoints, height: pictureLongSideInPoints)
             }
             let scale = pictureLongSideInPoints / max(imageSize.width, imageSize.height)
-            return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+            // The long side is 32, above the minimum, so only the short side can be raised.
+            return CGSize(
+                width: max(imageSize.width * scale, pictureShortSideMinimumInPoints),
+                height: max(imageSize.height * scale, pictureShortSideMinimumInPoints)
+            )
         }
     }
 }
@@ -217,7 +224,7 @@ private struct CustomCursorShapeView: View {
 }
 
 /// The learner's picture as a cursor: the whole image with 4 point corners, or a round crop of its center, with a 1.5 point
-/// outline and the tint mixed over it.
+/// outline and the tint mixed over it. An image shaped more than 32 by 12 is cropped to its center to fit that shape.
 private struct CustomCursorPictureView: View {
     let picture: NSImage
     let pictureStyle: CustomCursorPictureStyle

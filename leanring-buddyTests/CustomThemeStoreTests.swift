@@ -73,6 +73,29 @@ struct CustomThemeStoreTests {
         }
     }
 
+    @Test func writingIntoAFolderThatAlreadyExistsThrowsAndLeavesItsFilesUntouched() throws {
+        try withATemporaryThemeStore { store in
+            let existingTheme = try store.save(try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true), pictureJPEG: pictureBytes)
+            let existingFolderURL = store.themesDirectoryURL.appendingPathComponent(existingTheme.id, isDirectory: true)
+            let themeFileURL = existingFolderURL.appendingPathComponent(CustomThemeStore.themeFileName)
+            let themeFileBeforeTheWrite = try Data(contentsOf: themeFileURL)
+
+            // A folder made after the free-name check holds a theme of the same id, and a second write must not touch it.
+            let otherTheme = CustomTheme(
+                id: existingTheme.id, name: "Other", accentHex: existingTheme.accentHex, contrastHex: existingTheme.contrastHex,
+                agentColorHexes: existingTheme.agentColorHexes, cursor: existingTheme.cursor, motion: existingTheme.motion,
+                sounds: existingTheme.sounds, usesPicture: false
+            )
+            #expect(throws: (any Error).self) {
+                try store.write(otherTheme, pictureJPEG: nil)
+            }
+
+            #expect(try Data(contentsOf: themeFileURL) == themeFileBeforeTheWrite)
+            #expect(try Data(contentsOf: store.pictureURL(forThemeID: existingTheme.id)) == pictureBytes)
+            #expect(store.loadSavedThemes() == [existingTheme])
+        }
+    }
+
     @Test func twoThemesWithOneNameGetTwoFolders() throws {
         try withATemporaryThemeStore { store in
             let idea = try parsedThemeIdea()

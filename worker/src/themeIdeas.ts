@@ -34,7 +34,11 @@ const minimumContrastRatio = 3;
 const maximumAttemptCount = 2;
 /** Anthropic refuses an image over 5 MB, which is about this many base64 characters. */
 const maximumPictureBase64Length = 6_800_000;
-const maximumCurrentIdeasJSONLength = 12_000;
+/**
+ * The most the ideas on the card may take as JSON when the app sends them back for a refinement. Three valid ideas can each hold
+ * 6 shapes with paths of 600 characters, which is about 13,100 characters, so the cap leaves room above that worst case.
+ */
+const maximumCurrentIdeasJSONLength = 24_000;
 
 /** The macOS system sounds in /System/Library/Sounds, which the app plays by name. */
 const systemSoundNames = ["Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"] as const;
@@ -141,7 +145,8 @@ type ThemeIdeasRequest = z.infer<typeof themeIdeasRequestSchema>;
 const hexColorPattern = /^#[0-9A-Fa-f]{6}$/;
 
 function rgbOfHex(hexColor: string): [number, number, number] {
-  return [1, 3, 5].map((startIndex) => parseInt(hexColor.slice(startIndex, startIndex + 2), 16)) as [number, number, number];
+  const channelAt = (startIndex: number) => parseInt(hexColor.slice(startIndex, startIndex + 2), 16);
+  return [channelAt(1), channelAt(3), channelAt(5)];
 }
 
 /** WCAG 2.x relative luminance of an sRGB color. */
@@ -207,6 +212,8 @@ function agentColorProblem(hexColor: string): string | undefined {
 /** How many numbers each path command takes. The arc commands are left out on purpose, so a path with one is refused. */
 const numberCountByPathCommand: Record<string, number> = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, Z: 0 };
 const pathNumberPattern = /^-?(?:\d+\.?\d*|\.\d+)/;
+/** The only characters SVG allows between tokens: space, tab, CR, LF, form feed, and comma. The app's parser skips exactly these, so a path that passes here parses there. */
+const pathSeparatorPattern = /[ \t\r\n\f,]/;
 
 type PathToken = { kind: "command"; letter: string } | { kind: "number"; value: number };
 
@@ -215,7 +222,7 @@ function tokenizePath(pathData: string): { tokens: PathToken[] } | { problem: st
   let remainingPath = pathData;
   while (remainingPath.length > 0) {
     const nextCharacter = remainingPath[0];
-    if (/[\s,]/.test(nextCharacter)) {
+    if (pathSeparatorPattern.test(nextCharacter)) {
       remainingPath = remainingPath.slice(1);
       continue;
     }
@@ -351,7 +358,17 @@ const lengthProblem = (fieldName: string, text: string, maximumLength: number): 
     : undefined;
 
 function oneOf<Choice extends string>(choices: readonly Choice[], value: string): value is Choice {
-  return (choices as readonly string[]).includes(value);
+  return choices.some((choice) => choice === value);
+}
+
+/**
+ * A model-written value as a reason repeats it, in quotes and cut to 20 characters, so a long value in a bad reply cannot
+ * carry its text into the retry prompt.
+ */
+function quotedModelValue(modelValue: string): string {
+  const maximumQuotedLength = 20;
+  const characters = [...modelValue];
+  return JSON.stringify(characters.length > maximumQuotedLength ? `${characters.slice(0, maximumQuotedLength - 1).join("")}…` : modelValue);
 }
 
 /** The first broken rule in one idea as a plain sentence, or undefined when the idea is fine. */
@@ -361,25 +378,25 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
   const nameProblem = lengthProblem(`${where}'s name`, idea.name, maximumIdeaNameLength);
   if (nameProblem !== undefined) return nameProblem;
 
-  const colorFields: [string, string][] = [
+  // Every color the idea names, in the order a broken one is reported.
+  const colorFields: [fieldName: string, color: string][] = [
     ["accent", idea.accent],
     ["contrast", idea.contrast],
-    ...idea.agentColors.map((agentColor, colorIndex): [string, string] => [`agentColors[${colorIndex}]`, agentColor]),
-    ...idea.cursor.shapes.flatMap((shape, shapeIndex) =>
-      [["fill", shape.fill], ["stroke", shape.stroke]].flatMap(([fieldName, color]) =>
-        color === null ? [] : [[`shape ${shapeIndex + 1}'s ${fieldName}`, color] as [string, string]],
-      ),
-    ),
-    ...(idea.cursor.picture === null
-      ? []
-      : [
-          ["picture outline", idea.cursor.picture.outline] as [string, string],
-          ...(idea.cursor.picture.tint === null ? [] : [["picture tint", idea.cursor.picture.tint] as [string, string]]),
-        ]),
   ];
+  for (const [colorIndex, agentColor] of idea.agentColors.entries()) {
+    colorFields.push([`agentColors[${colorIndex}]`, agentColor]);
+  }
+  for (const [shapeIndex, shape] of idea.cursor.shapes.entries()) {
+    if (shape.fill !== null) colorFields.push([`shape ${shapeIndex + 1}'s fill`, shape.fill]);
+    if (shape.stroke !== null) colorFields.push([`shape ${shapeIndex + 1}'s stroke`, shape.stroke]);
+  }
+  if (idea.cursor.picture !== null) {
+    colorFields.push(["picture outline", idea.cursor.picture.outline]);
+    if (idea.cursor.picture.tint !== null) colorFields.push(["picture tint", idea.cursor.picture.tint]);
+  }
   for (const [fieldName, color] of colorFields) {
     if (!hexColorPattern.test(color)) {
-      return `${where}'s ${fieldName} is ${JSON.stringify(color)}, and every color must be #RRGGBB.`;
+      return `${where}'s ${fieldName} is ${quotedModelValue(color)}, and every color must be #RRGGBB.`;
     }
   }
 
@@ -404,7 +421,7 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
 
   const { shapes, picture: pictureCursor } = idea.cursor;
   if (!oneOf(cursorKinds, idea.cursor.kind)) {
-    return `${where}'s cursor kind is ${JSON.stringify(idea.cursor.kind)}, and it must be one of ${cursorKinds.join(", ")}.`;
+    return `${where}'s cursor kind is ${quotedModelValue(idea.cursor.kind)}, and it must be one of ${cursorKinds.join(", ")}.`;
   }
   if (idea.cursor.kind === "picture") {
     if (!requestHadAPicture) {
@@ -417,7 +434,7 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
       return `${where}'s cursor kind is picture, so its picture must be an object with fit, outline, tint, and tintStrength, not null.`;
     }
     if (!oneOf(pictureFits, pictureCursor.fit)) {
-      return `${where}'s picture fit is ${JSON.stringify(pictureCursor.fit)}, and it must be one of ${pictureFits.join(", ")}.`;
+      return `${where}'s picture fit is ${quotedModelValue(pictureCursor.fit)}, and it must be one of ${pictureFits.join(", ")}.`;
     }
     if (pictureCursor.tintStrength < 0 || pictureCursor.tintStrength > maximumTintStrength) {
       return `${where}'s picture tintStrength is ${pictureCursor.tintStrength}, and it must be 0 to ${maximumTintStrength}.`;
@@ -442,6 +459,9 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
     if (shape.strokeWidth < 0 || shape.strokeWidth > maximumStrokeWidth) {
       return `${shapeName}'s strokeWidth is ${shape.strokeWidth}, and it must be 0 to ${maximumStrokeWidth}.`;
     }
+    if (shape.fill === null && shape.strokeWidth === 0) {
+      return `${shapeName} has no fill and a strokeWidth of 0, so it draws nothing. Give it a fill, or a strokeWidth above 0.`;
+    }
   }
 
   const { motion } = idea;
@@ -449,15 +469,15 @@ function ideaProblem(idea: ModelIdea, ideaNumber: number, requestHadAPicture: bo
     return `${where}'s trailStreaks is ${motion.trailStreaks}, and it must be a whole number from 0 to ${maximumTrailStreaks}.`;
   }
   if (!oneOf(thinkingMotions, motion.whileThinking)) {
-    return `${where}'s whileThinking is ${JSON.stringify(motion.whileThinking)}, and it must be one of ${thinkingMotions.join(", ")}.`;
+    return `${where}'s whileThinking is ${quotedModelValue(motion.whileThinking)}, and it must be one of ${thinkingMotions.join(", ")}.`;
   }
   if (!oneOf(listeningMotions, motion.whileListening)) {
-    return `${where}'s whileListening is ${JSON.stringify(motion.whileListening)}, and it must be one of ${listeningMotions.join(", ")}.`;
+    return `${where}'s whileListening is ${quotedModelValue(motion.whileListening)}, and it must be one of ${listeningMotions.join(", ")}.`;
   }
 
   for (const [soundField, soundName] of Object.entries(idea.sounds)) {
     if (!oneOf(systemSoundNames, soundName)) {
-      return `${where}'s ${soundField} sound is ${JSON.stringify(soundName)}, and it must be one of the macOS system sounds: ${systemSoundNames.join(", ")}.`;
+      return `${where}'s ${soundField} sound is ${quotedModelValue(soundName)}, and it must be one of the macOS system sounds: ${systemSoundNames.join(", ")}.`;
     }
   }
 
@@ -517,7 +537,7 @@ export function checkThemeIdeas(unrepairedModelReply: ModelReply, requestHadAPic
         contrast: uppercased(idea.contrast),
         agentColors: idea.agentColors.map(uppercased),
         cursor: {
-          // The kind and the fit were checked above, which the type of a plain string cannot show.
+          // Cast because ideaProblem checked the kind above, and a plain string type cannot carry that check.
           kind: idea.cursor.kind as (typeof cursorKinds)[number],
           shapes: idea.cursor.shapes.map((shape) => ({
             d: shape.d,
@@ -529,6 +549,7 @@ export function checkThemeIdeas(unrepairedModelReply: ModelReply, requestHadAPic
             idea.cursor.picture === null
               ? null
               : {
+                  // Cast because ideaProblem checked the fit above, and a plain string type cannot carry that check.
                   fit: idea.cursor.picture.fit as (typeof pictureFits)[number],
                   outline: uppercased(idea.cursor.picture.outline),
                   tint: idea.cursor.picture.tint === null ? null : uppercased(idea.cursor.picture.tint),
@@ -538,7 +559,7 @@ export function checkThemeIdeas(unrepairedModelReply: ModelReply, requestHadAPic
         motion: {
           turnsTowardMovement: idea.motion.turnsTowardMovement,
           trailStreaks: idea.motion.trailStreaks,
-          // The motion names were checked above, which the type of a plain string cannot show.
+          // Cast because ideaProblem checked both motion names above, and a plain string type cannot carry that check.
           whileThinking: idea.motion.whileThinking as (typeof thinkingMotions)[number],
           whileListening: idea.motion.whileListening as (typeof listeningMotions)[number],
         },

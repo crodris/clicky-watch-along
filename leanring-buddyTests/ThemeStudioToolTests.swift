@@ -107,6 +107,13 @@ struct ThemeStudioRouterRuleTests {
         #expect(design.chipPhraseToShow(at: .afterTheCall(.handedOff), offeredToolNames: offeredToolNames) == nil)
     }
 
+    @Test func aClickOnSaveSaysWhatItDidWithTheChipTheVoiceToolUses() {
+        #expect(ThemeStudioController.SaveOutcome.saved(themeName: "Moonlit").chipPhraseAfterAClickOnSave == "Theme saved")
+        #expect(ThemeStudioController.SaveOutcome.saved(themeName: "Moonlit").chipPhraseAfterAClickOnSave == call("save_theme").chipPhrase)
+        #expect(ThemeStudioController.SaveOutcome.failed.chipPhraseAfterAClickOnSave == "Couldn't save the theme")
+        #expect(ThemeStudioController.SaveOutcome.nothingToSave.chipPhraseAfterAClickOnSave == nil)
+    }
+
     @Test func designingHandsOffSoTheRouterSaysNothingAfterIt() {
         let designCall = call("design_theme", ["request": .string("cozy")])
         #expect(voiceCommandNextStep(toolCalls: [designCall], outcomes: [.handedOff], replyText: "") == .finishSilently)
@@ -161,6 +168,27 @@ struct KeywordBranchForThemesTests {
             for: "what is this", brainTakesEveryRequest: false, sceneIsOnScreen: false,
             phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false, themeStudioIsOpen: false
         ) == nil)
+    }
+
+    @Test func noKeywordBranchRunsWhileTheStudioIsOpenSoTheRouterSeesEveryWord() {
+        for transcript in ["let me try it", "make it move", "animate this", "change my theme"] {
+            #expect(keywordBranchAheadOfTheRouter(
+                for: transcript, brainTakesEveryRequest: false, sceneIsOnScreen: false,
+                phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false, themeStudioIsOpen: true
+            ) == nil)
+        }
+        // The same words still take their branches once the studio is closed.
+        #expect(keywordBranchAheadOfTheRouter(
+            for: "make it move", brainTakesEveryRequest: false, sceneIsOnScreen: false,
+            phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false, themeStudioIsOpen: false
+        ) == .animatePicture)
+    }
+
+    @Test func aFailedRouterRequestWhileTheStudioIsOpenGivesUpInsteadOfAnsweringTheWordsAsAQuestion() {
+        for transcript in ["save it", "let me try it", "make it move", "change my theme"] {
+            #expect(routerFailureFallback(for: transcript, sceneIsOnScreen: false, themeStudioIsOpen: true) == .giveUp)
+        }
+        #expect(routerFailureFallback(for: "save it", sceneIsOnScreen: false, themeStudioIsOpen: false) == .keywordPath(nil))
     }
 
     @Test func aFailedRouterRequestOpensTheStudioWhenTheBrainFlagSkippedItsKeywordBranch() {

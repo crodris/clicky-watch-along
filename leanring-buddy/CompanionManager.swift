@@ -233,11 +233,16 @@ final class CompanionManager: ObservableObject {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
                 designIdeas: { themeIdeasRequest in try await themeIdeasClient.designIdeas(for: themeIdeasRequest) }
             ),
-            cardPresenter: ThemeStudioPanelController()
+            cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
+                // The voice tool's chip comes from the router, so only a click on Save needs its own.
+                guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
+                VoiceToolCallChip.shared.show(chipPhrase)
+            })
         )
     }()
     private var themeStudioSpeechTask: Task<Void, Never>?
@@ -2541,8 +2546,17 @@ final class CompanionManager: ObservableObject {
                     await speakLiveSceneLine(voiceCommandGaveUpLine)
                     break
                 }
-                print("Voice command: the router failed, so the keyword path takes it: \(error)")
-                switch routerFailureFallback(for: transcript, sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene) {
+                print("Voice command: the router failed, so its fallback takes it: \(error)")
+                switch routerFailureFallback(
+                    for: transcript,
+                    sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+                    themeStudioIsOpen: themeStudioController.isOpen
+                ) {
+                case .giveUp:
+                    await speakLiveSceneLine(voiceCommandGaveUpLine)
+                    guard !Task.isCancelled else { return }
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
                 case .startExperiment:
                     startTheExperimentInTheBackground(transcript: transcript)
                 case .designATheme(let themeStudioRequest):
@@ -2807,7 +2821,21 @@ final class CompanionManager: ObservableObject {
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
     private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
         currentResponseTask?.cancel()
+        liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
+        // A scene still building is cancelled whole, the way "let me try it" cancels it. Left in the building phase, the
+        // router would stay off for the studio's next command, and a video Clicky paused for the scene would stay paused.
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestGeneration += 1
+            let cancelledBuildGeneration = liveSceneRequestGeneration
+            liveScenePhase = .idle
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                // A newer scene request holds the pause for its own scene, so only the latest cancel resumes the video.
+                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
+                self.videoQuizSession.resumeVideoAfterRequestedScene()
+            }
+        }
         if pictureChoice == .captureAgain {
             theRequestBecameALookAtTheMedia()
         }
@@ -2823,12 +2851,16 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Says a studio line once the one Clicky is speaking ends, so a "no picture" line is not cut off by the ideas' own line.
+    /// Says a studio line once the one Clicky is speaking ends, so a "no picture" line is not cut off by the ideas' own line,
+    /// and once the learner is not holding push-to-talk, so it never plays over their voice.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
     private func speakAThemeStudioLine(_ line: String) {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = Task {
             await self.waitForClickyToFinishSpeaking()
+            while self.buddyDictationManager.isDictationInProgress && !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
             guard !Task.isCancelled else { return }
             await self.speakLiveSceneLine(line)
             await self.waitForClickyToFinishSpeaking()
@@ -2837,6 +2869,19 @@ final class CompanionManager: ObservableObject {
                 self.voiceState = .idle
             }
             self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Ends the studio's spoken line when the card closes. Cancelling the speech task also drops a line still waiting for
+    /// its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
+    /// runs once it is cancelled, so this does it.
+    private func stopTheThemeStudioSpeech() {
+        themeStudioSpeechTask?.cancel()
+        themeStudioSpeechTask = nil
+        elevenLabsTTSClient.stopPlayback()
+        if voiceState == .responding {
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
         }
     }
 
@@ -3497,7 +3542,8 @@ final class CompanionManager: ObservableObject {
         backgroundAgentStore.finish(agentID, with: result)
         switch result {
         case .notionPage(let pageURL):
-            // "Glass" belongs to quiz answers.
+            // The shown theme picks this done sound ("Tink" for a built-in theme), and a separate correct sound, "Glass" for a
+            // built-in theme, for quiz answers.
             themeSettings.shownTheme.sounds.done.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
             var secondaryChipText = "· say open my study guide"

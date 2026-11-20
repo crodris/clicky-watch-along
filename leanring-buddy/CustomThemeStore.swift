@@ -88,10 +88,22 @@ nonisolated struct CustomThemeStore: Sendable {
             sounds: idea.sounds,
             usesPicture: idea.usesPicture
         )
-        let themeDirectoryURL = themesDirectoryURL.appendingPathComponent(themeID, isDirectory: true)
-        try fileManager.createDirectory(at: themeDirectoryURL, withIntermediateDirectories: true)
+        try write(savedTheme, pictureJPEG: pictureJPEG)
+        return savedTheme
+    }
+
+    /// Creates the theme's own folder, which must not exist yet, and writes its files. The Themes folder is created first
+    /// with its parents, and the theme's folder after it with none: `createDirectory` with intermediate folders succeeds on a
+    /// folder that is already there, so a folder made between the free-name check and this call would be written into, and
+    /// the cleanup below would then delete it. This way an existing folder throws before any write, and the cleanup removes
+    /// only a folder this call created.
+    func write(_ savedTheme: CustomTheme, pictureJPEG: Data?) throws {
+        let fileManager = FileManager.default
+        let themeDirectoryURL = themesDirectoryURL.appendingPathComponent(savedTheme.id, isDirectory: true)
+        try fileManager.createDirectory(at: themesDirectoryURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: themeDirectoryURL, withIntermediateDirectories: false)
         do {
-            if idea.usesPicture, let pictureJPEG {
+            if savedTheme.usesPicture, let pictureJPEG {
                 try pictureJPEG.write(to: themeDirectoryURL.appendingPathComponent(Self.pictureFileName))
             }
             let encoder = JSONEncoder()
@@ -101,7 +113,6 @@ nonisolated struct CustomThemeStore: Sendable {
             try? fileManager.removeItem(at: themeDirectoryURL)
             throw error
         }
-        return savedTheme
     }
 
     /// Every theme that parses, sorted by name. Anything else in the folder is skipped with a log line.

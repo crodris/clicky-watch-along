@@ -24,10 +24,17 @@ final class ThemeStudioPanelController {
     /// Below the cursor overlay windows (one level above screen saver), so the previewed cursor is never under the card.
     private static let panelLevel = NSWindow.Level.screenSaver
 
+    /// Called with what a click on Save did, so the app can say so the way it does for the voice tool.
+    private let onSaveClicked: (ThemeStudioController.SaveOutcome) -> Void
+
     private var panel: NonKeyFloatingPanel?
     /// Where the card's top-left corner sits, fixed when it opens so a taller card grows downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
+
+    init(onSaveClicked: @escaping (ThemeStudioController.SaveOutcome) -> Void) {
+        self.onSaveClicked = onSaveClicked
+    }
 
     func show(studio: ThemeStudioController) {
         guard panel == nil else { return }
@@ -40,9 +47,13 @@ final class ThemeStudioPanelController {
             gapFromTheMouse: Self.gapFromTheMouse
         )
 
-        let cardView = ThemeStudioCardView(studio: studio) { [weak self] contentSize in
-            self?.resizePanel(to: contentSize)
-        }
+        let cardView = ThemeStudioCardView(
+            studio: studio,
+            onSaveClicked: onSaveClicked,
+            onContentSizeChange: { [weak self] contentSize in
+                self?.resizePanel(to: contentSize)
+            }
+        )
         let hostingView = FirstMouseHostingView(rootView: cardView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
@@ -94,6 +105,7 @@ private struct ThemeStudioCardSizePreferenceKey: PreferenceKey {
 
 struct ThemeStudioCardView: View {
     @ObservedObject var studio: ThemeStudioController
+    let onSaveClicked: (ThemeStudioController.SaveOutcome) -> Void
     let onContentSizeChange: (CGSize) -> Void
 
     private static let hint = "Say one, two, or three · or what to change · say save it"
@@ -187,7 +199,7 @@ struct ThemeStudioCardView: View {
                 style: .primary(accentHex: highlightedIdea?.accentHex),
                 isEnabled: studio.state.isShowingIdeas
             ) {
-                _ = studio.saveTheHighlightedIdea()
+                onSaveClicked(studio.saveTheHighlightedIdea())
             }
             ThemeStudioButton(title: "Close", style: .plain, isEnabled: true) {
                 studio.close()

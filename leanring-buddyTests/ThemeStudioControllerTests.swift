@@ -44,6 +44,7 @@ private final class StudioHarness {
     let themeSettings: CompanionThemeSettings
     let presenter = RecordingCardPresenter()
     var spokenLines: [String] = []
+    private(set) var stopSpeakingCount = 0
     var playedSounds: [ThemeSound] = []
     var requestsSentToTheWorker: [ThemeIdeasRequest] = []
     var picturesTheCaptureReturns: [ThemeStudioPicture?] = []
@@ -57,6 +58,7 @@ private final class StudioHarness {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [unowned self] line in self.spokenLines.append(line) },
+                stopSpeaking: { [unowned self] in self.stopSpeakingCount += 1 },
                 playSound: { [unowned self] sound in self.playedSounds.append(sound) },
                 captureThePicture: { [unowned self] in self.picturesTheCaptureReturns.isEmpty ? nil : self.picturesTheCaptureReturns.removeFirst() },
                 designIdeas: { [unowned self] request in
@@ -293,11 +295,31 @@ struct ThemeStudioControllerTests {
     @Test func escapeClosesAnOpenStudioAndLeavesAClosedOneToTheRestOfEscape() async throws {
         let harness = StudioHarness()
         #expect(!harness.studio.closeOnEscape())
+        #expect(harness.stopSpeakingCount == 0)
         harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
         harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
         await harness.studio.waitForTheDesign()
         #expect(harness.studio.closeOnEscape())
         #expect(harness.studio.state == .closed)
+    }
+
+    @Test func closingTheCardStopsTheLineClickyIsSayingAboutItsIdeas() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.spokenLines.count == 1)
+        #expect(harness.stopSpeakingCount == 0)
+
+        harness.studio.close()
+        #expect(harness.stopSpeakingCount == 1)
+
+        // Escape closes through the same path, so it stops the line too.
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
+        harness.studio.design(request: "cozy again", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.studio.closeOnEscape())
+        #expect(harness.stopSpeakingCount == 2)
     }
 
     @Test func ideasThatArriveAfterTheCardWasClosedAreDroppedAndNothingIsSpoken() async throws {

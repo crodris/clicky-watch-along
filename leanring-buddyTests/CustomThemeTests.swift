@@ -179,6 +179,25 @@ struct SVGPathDataTests {
         ])
     }
 
+    @Test func newlinesTabsAndFormFeedsSeparateTokensLikeSpaces() {
+        let expectedCommands: [SVGPathCommand] = [
+            .move(to: CGPoint(x: 2, y: 2)),
+            .line(to: CGPoint(x: 10, y: 2)),
+            .line(to: CGPoint(x: 10, y: 10)),
+            .close,
+        ]
+        #expect(commands("M2 2\nL10 2\tL10\r\n10\u{0C}Z") == expectedCommands)
+        // A carriage return and line feed together are one Character in Swift, and still a separator.
+        #expect(commands("M2\r\n2\r\nL10,\n2 L10 10 Z") == expectedCommands)
+    }
+
+    @Test func aNonBreakingSpaceOrVerticalTabIsNotASeparator() {
+        // The Worker refuses these characters too, so a path it accepted can never fail here for a separator.
+        #expect(SVGPathData(parsing: "M2 2\u{00A0}L10 10") == nil)
+        #expect(SVGPathData(parsing: "M2 2\u{0B}L10 10") == nil)
+        #expect(SVGPathData(parsing: "M2\u{00A0}2 L10 10") == nil)
+    }
+
     @Test func anArcIsRefused() {
         #expect(SVGPathData(parsing: "M2 2 A5 5 0 0 1 10 10") == nil)
         #expect(SVGPathData(parsing: "M2 2 a5 5 0 0 1 10 10") == nil)
@@ -372,6 +391,15 @@ struct CustomThemeParserTests {
         #expect(reasonAThemeIdeaIsRefused(strokeOnlyIdea) == nil)
         let thickStrokeIdea = replacingField(in: goodThemeIdea, at: ["cursor", "shapes", "0", "strokeWidth"], with: .number(3.5))
         #expect(reasonAThemeIdeaIsRefused(thickStrokeIdea)?.contains("strokeWidth") == true)
+    }
+
+    @Test func aShapeWithNoFillAndAStrokeWidthOfZeroDrawsNothingSoItIsRefused() {
+        let strokeOnlyIdea = replacingField(in: goodThemeIdea, at: ["cursor", "shapes", "0", "fill"], with: .null)
+        let invisibleIdea = replacingField(in: strokeOnlyIdea, at: ["cursor", "shapes", "0", "strokeWidth"], with: .number(0))
+        #expect(reasonAThemeIdeaIsRefused(invisibleIdea)?.contains("draws nothing") == true)
+        // A zero width is fine while a fill draws the shape.
+        let filledIdea = replacingField(in: goodThemeIdea, at: ["cursor", "shapes", "0", "strokeWidth"], with: .number(0))
+        #expect(reasonAThemeIdeaIsRefused(filledIdea) == nil)
     }
 
     @Test func motionRulesAreChecked() {

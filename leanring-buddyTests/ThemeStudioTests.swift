@@ -154,6 +154,18 @@ struct AsksToDesignAThemeTests {
         #expect(asksToDesignATheme("make a theme, this is great") == .fromWords)
     }
 
+    @Test func aQuestionAboutThePoemsOrPicturesThemeOpensNothing() {
+        // "new" sits within four words of "theme", but the learner asks what a theme is and wants none designed.
+        #expect(asksToDesignATheme("what's the main theme of this new poem") == nil)
+        #expect(asksToDesignATheme("explain the theme of this new picture") == nil)
+        // A request word that comes only after "theme" is not a request for one.
+        #expect(asksToDesignATheme("theme make") == nil)
+        // The matches still hold.
+        #expect(asksToDesignATheme("make a new theme") == .fromWords)
+        #expect(asksToDesignATheme("change my theme") == .fromWords)
+        #expect(asksToDesignATheme("design me a theme from this picture") == .fromThePicture)
+    }
+
     @Test func aThemeWithNoChangeWordNearbyOrNoThemeAtAllOpensNothing() {
         #expect(asksToDesignATheme("what is the theme of this video") == nil)
         #expect(asksToDesignATheme("change the playback speed") == nil)
@@ -195,6 +207,23 @@ struct ThemeIdeasRequestTests {
     @Test func aRequestOver500CharactersIsCutToTheWorkersLimit() throws {
         let themeIdeasRequest = try #require(ThemeIdeasRequest(request: String(repeating: "a", count: 600), currentIdeas: [], basedOnIdea: nil, picture: nil))
         #expect(themeIdeasRequest.request.count == 500)
+    }
+
+    @Test func aRequestIsCutByUTF16UnitsLikeTheWorkerCountsAndNeverSplitsACharacter() throws {
+        // A rocket is 1 Character and 2 UTF-16 units, so 400 of them are 800 units. Cutting by characters would keep 500
+        // characters, which the Worker counts as 1000 units and refuses.
+        let rockets = String(repeating: "🚀", count: 400)
+        let rocketRequest = try #require(ThemeIdeasRequest(request: rockets, currentIdeas: [], basedOnIdea: nil, picture: nil))
+        #expect(rocketRequest.request.utf16.count == 500)
+        #expect(rocketRequest.request.count == 250)
+        // With one unit used by a letter, the 250th rocket would end at 501, so it is left out whole instead of split.
+        let letterThenRockets = "a" + rockets
+        let oddRequest = try #require(ThemeIdeasRequest(request: letterThenRockets, currentIdeas: [], basedOnIdea: nil, picture: nil))
+        #expect(oddRequest.request.utf16.count == 499)
+        #expect(oddRequest.request == "a" + String(repeating: "🚀", count: 249))
+        // Text under the limit is untouched.
+        let shortRequest = try #require(ThemeIdeasRequest(request: "🚀 go", currentIdeas: [], basedOnIdea: nil, picture: nil))
+        #expect(shortRequest.request == "🚀 go")
     }
 
     @Test func aRefinementSendsTheCurrentIdeasInTheReplysIdeaShapeAndTheIdeaToChange() throws {

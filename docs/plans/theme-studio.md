@@ -29,8 +29,8 @@ Request body (the app sends this):
 }
 ```
 
-- `request`: the learner's words, 1 to 500 characters. Required.
-- `currentIdeas`: optional, 0 to 3 ideas. Present when the learner refines ideas already on the card.
+- `request`: the learner's words, 1 to 500 characters, counted in UTF-16 code units as JavaScript counts them, so the app cuts it by that count. Required.
+- `currentIdeas`: optional, 0 to 3 ideas, at most 24,000 characters of JSON. Present when the learner refines ideas already on the card. Three valid ideas at their largest (6 shapes of 600 characters each) are about 13,100 characters.
 - `basedOnIdea`: optional, 1 to 3, the idea the change applies to. Only valid with `currentIdeas`.
 - `picture`: optional. A JPEG of the picture the learner pointed at. Width and height are 1 to 4096.
 - A body over these limits gets a 400 before any model call.
@@ -64,7 +64,7 @@ Rules the Worker checks (`checkThemeIdeas`, pure, tested), and the reason it put
 - `accent` has a contrast ratio of at least 3 against `#101211` (WCAG relative luminance), so the cursor and ring read on the dark overlay surfaces.
 - `agentColors` has 3 to 6 colors, each with contrast at least 3 against `#101211`, and none is a saturated red (hue 340 to 20 degrees with HSL saturation over 0.35) or a saturated green (hue 95 to 165 degrees with saturation over 0.35), because red means failed and green means done.
   A light pastel (HSL lightness over 0.75), such as a light pink, passes the red and green rule, since it never reads as the failed red or the done green. The Worker drops a single agent color that breaks a color rule when 3 or more good ones remain, instead of asking the model again (changed on 2026-11-20, after two real replies failed on light pinks).
-- `cursor.shapes` has 1 to 6 shapes. `d` is 1 to 600 characters and uses only the commands `M L H V C S Q T Z` in either case, with numbers, spaces, commas, and minus signs. No `A` arcs. Every absolute coordinate the path reaches is from -2 to 26 (the box is 24 by 24). `fill` and `stroke` are a color or null, at least one of them is a color, and `strokeWidth` is 0 to 3.
+- `cursor.shapes` has 1 to 6 shapes. `d` is 1 to 600 characters and uses only the commands `M L H V C S Q T Z` in either case, with numbers, minus signs, and the separators SVG allows: space, tab, carriage return, line feed, form feed, and comma, and nothing else (a non-breaking space is refused, on the Worker and in the app). No `A` arcs. Every absolute coordinate the path reaches is from -2 to 26 (the box is 24 by 24). `fill` and `stroke` are a color or null, at least one of them is a color, `strokeWidth` is 0 to 3, and a shape with no `fill` needs a `strokeWidth` above 0, since it would draw nothing.
 - `motion.trailStreaks` is 0 to 3. `whileThinking` is `none`, `spin`, `pulse`, or `wobble`. `whileListening` is `none` or `pulse`.
 - Each sound is one of the macOS system sounds: `Basso Blow Bottle Frog Funk Glass Hero Morse Ping Pop Purr Sosumi Submarine Tink`.
 - `usesPicture` may be true only when the request had a `picture`.
@@ -97,7 +97,7 @@ The idea's `cursor` gains a `kind`, and both kinds always carry both fields, so 
 - The prompt says: when the learner asks for the picture, image, or photo itself as the cursor, idea 1 is a `picture` cursor with `fit` `whole`, and the other two may vary the fit, outline, or tint. A refinement such as "tint it blue" changes only those fields.
 
 In Swift, `CustomCursorDrawing` becomes an enum: `case shapes([CustomCursorShape])` and `case picture(CustomCursorPictureStyle)`, with `CustomCursorPictureStyle { fit: CursorPictureFit (whole, circle), outlineHex, tintHex: String?, tintStrength: Double }`.
-`CustomCursorView` draws a `picture` cursor from the theme's saved `picture.jpg` (or the studio's picture while previewing), with its long side 32 points, since a whole wide photo at 24 points is too small to recognize.
+`CustomCursorView` draws a `picture` cursor from the theme's saved `picture.jpg` (or the studio's picture while previewing), with its long side 32 points, since a whole wide photo at 24 points is too small to recognize, and its short side at least 12 points, so a banner shaped picture is cropped to its center instead of drawn as a 1 point line.
 Motion rules apply to both kinds. Reduce Motion still turns them off.
 Tests: the Worker check refuses a picture cursor without a picture, shapes with a picture kind, and a tint strength over 0.6. Swift parses both kinds and refuses the same cases.
 
@@ -187,8 +187,10 @@ The transitions are pure functions, tested one by one: open, ideas arrived, the 
 Flow:
 
 1. `asksToDesignATheme(_ transcript:) -> ThemeStudioRequest?` is a keyword branch ahead of the router, like "let me try it".
-   It matches "theme" with change, new, make, design, create, customize, or redo nearby, and returns `.fromThePicture` when the words also say this picture, this image, this photo, or match this, and `.fromWords` otherwise.
+   It matches "theme" with change, new, make, design, create, customize, or redo in the four words before it, unless "of" follows "theme" ("what's the main theme of this new poem" is a question), and returns `.fromThePicture` when the words also say this picture, this image, this photo, or match this, and `.fromWords` otherwise.
    It does not fire while a quiz question is open or while the studio is already open, since the router reads those.
+   With the studio open no keyword branch runs at all, so "let me try it" and "animate this" reach the router too, and a failed router request says "Sorry, I couldn't do that one." instead of falling back to the keyword path.
+   Starting a design cancels a scene still building, as "let me try it" does.
 2. Opening the studio shows the card at once in the designing state, with three placeholder tiles that shimmer (still with Reduce Motion), and nothing is spoken.
    For `.fromThePicture`, the request becomes a look at the media (`theRequestBecameALookAtTheMedia`), so the loop draws, and the app captures the largest visible media in Chrome's front tab the way the image pop-out does (`ChromeVideoTab.largestVisibleMediaInFrontTabOrNone` and `CompanionScreenCaptureUtility.captureScreenRectAsJPEG`).
    With no picture to capture, Clicky says "I don't see a picture in Chrome's front tab, so I'll go from your words." and designs from the words.
@@ -202,8 +204,11 @@ Flow:
    The scene state carries `themeStudio: { ideas: ["Ember", "Moonlit", "Forest"], highlighted: 2, designing: false }`.
    Chip phrases: pick says "Trying idea 2", save says "Theme saved", close says "Kept your old theme", and design_theme shows none.
 5. Saving writes the theme and its picture with `CustomThemeStore`, sets `themeSettings.theme = .custom(theme)`, clears `previewTheme`, closes the card, and plays the theme's done sound once.
+   A click on Save shows the "Theme saved" chip as the voice tool does, or "Couldn't save the theme" when the write fails.
+   The store creates the theme's folder with no intermediate folders, so an existing folder throws before any write.
 6. Escape closes the studio first when it is open, ahead of the scene behavior, and keeps the old theme.
    A push-to-talk press does not close it. A new `design_theme` cancels a design call still running.
+   Closing the card by Escape, the Close button, or `close_theme_studio` stops the line Clicky is saying about the ideas, and a studio line waits for push-to-talk to end before it plays.
 
 The card is a borderless nonactivating panel that never becomes key, like the agent list, placed at the first corner around the mouse where it does not cover the pointer (reuse `approvalListAnchorTopLeft`).
 It shows the title, three tiles (the idea's cursor drawn by `CustomCursorView`, its name, its accent and agent colors as swatches, and a small agent token in its first agent color with the picture face when it uses the picture), the highlighted tile's tags (shape motion in words, the sounds), and the hint line "Say one, two, or three · or what to change · say save it".
@@ -244,7 +249,7 @@ One runnable check per logic change:
 - `design_theme`'s `fromPicture` has three values: true captures the largest picture in Chrome's front tab again, false drops the card's picture, and a missing input keeps the card's picture.
 - A custom cursor that does not turn toward movement stays upright in every state, and its trail streaks, which the model still sets, turn with the movement so they trail behind it.
   `CursorFacing` (`pointerAngle`, `followsMouseMovement`, `upright`) replaces the volleyball check in the overlay's rotation.
-- The card sits one level below the cursor overlay windows, 64 points from the mouse, so the previewed cursor draws over it and the glyph that sits 35 points right of the pointer has room.
+- The card sits one level below the cursor overlay windows, 96 points from the mouse, so the previewed cursor draws over it and the glyph that sits 35 points right of the pointer has room.
   It has no click-outside close, since the learner clicks elsewhere while it is open, and it shares the agent list's panel class, hover-and-pointer view, and placement functions.
 - `bench/fixtures/brain-evals.json` has two new contexts, `themeStudioClosed` and `themeStudioIdeas`.
   The older contexts do not list `design_theme`, although the app offers it in all of them, since `fixtures/voice-command-video.json` is a real capture that a test compares them to.

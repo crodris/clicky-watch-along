@@ -304,6 +304,10 @@ nonisolated extension CustomTheme {
             throw CustomThemeParseError(reason: "\(shapeReader.location) needs a fill or a stroke")
         }
         let strokeWidth = try shapeReader.number("strokeWidth", range: 0...3)
+        // With no fill, the stroke is all there is to see, so a width of 0 would draw nothing.
+        guard fillHex != nil || strokeWidth > 0 else {
+            throw CustomThemeParseError(reason: "\(shapeReader.location) has no fill and a strokeWidth of 0, so it draws nothing")
+        }
         return CustomCursorShape(path: path, pathText: pathText, fillHex: fillHex, strokeHex: strokeHex, strokeWidth: strokeWidth)
     }
 

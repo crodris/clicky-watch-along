@@ -188,8 +188,9 @@ nonisolated enum ThemeStudioRequest: Equatable, Sendable {
 }
 
 /// A keyword branch ahead of the router, like "let me try it", since its words always mean the same thing: the word
-/// "theme" with change, new, make, design, create, customize, or redo within four words of it. The words "this picture",
-/// "this image", "this photo", or "match this" make it a request from the picture.
+/// "theme" with change, new, make, design, create, customize, or redo within the four words before it, and not followed by
+/// "of", so "what's the main theme of this new poem" is a question for the router and not a request. The words "this
+/// picture", "this image", "this photo", or "match this" make it a request from the picture.
 /// Whether the router sees the utterance instead, while the studio is already open, during a quiz question, or with the
 /// brain flag on, is decided by `keywordBranchAheadOfTheRouter`.
 nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest? {
@@ -200,8 +201,11 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
     let wordsThatMakeAThemeRequest: Set<String> = ["change", "new", "make", "design", "create", "customize", "customise", "redo"]
     let nearestWordsToCheck = 4
     let nameTheTheme = themeWordIndexes.contains { themeWordIndex in
-        let nearbyIndexes = max(0, themeWordIndex - nearestWordsToCheck)...min(words.count - 1, themeWordIndex + nearestWordsToCheck)
-        return nearbyIndexes.contains { wordsThatMakeAThemeRequest.contains(words[$0]) }
+        // "The theme of this poem" asks about a theme that already exists, whatever words come before it.
+        let wordAfterTheTheme = words.indices.contains(themeWordIndex + 1) ? words[themeWordIndex + 1] : nil
+        guard wordAfterTheTheme != "of" else { return false }
+        let wordIndexesBeforeTheTheme = max(0, themeWordIndex - nearestWordsToCheck)..<themeWordIndex
+        return wordIndexesBeforeTheTheme.contains { wordsThatMakeAThemeRequest.contains(words[$0]) }
     }
     guard nameTheTheme else { return nil }
 
@@ -211,6 +215,14 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
     }
     return pointsAtThePicture ? .fromThePicture : .fromWords
 }
+
+// MARK: - What a save says
+
+/// What the chip under the cursor says when a theme is saved, by the voice tool (`save_theme`) or by a click on Save.
+nonisolated let themeSavedChipPhrase = "Theme saved"
+
+/// What the chip says when a click on Save could not write the theme. The voice tool reports the same failure to the router.
+nonisolated let themeCouldNotBeSavedChipPhrase = "Couldn't save the theme"
 
 // MARK: - What the router reads
 
@@ -231,7 +243,9 @@ nonisolated func voiceCommandThemeStudioState(_ state: ThemeStudioState) -> JSON
 // MARK: - POST /theme-ideas
 
 /// The body of `POST /theme-ideas`, with the Worker's limits applied before it is sent, so a request the Worker would
-/// answer with a 400 never goes out.
+/// answer with a 400 never goes out. The Worker counts text in UTF-16 code units, as JavaScript does, so the request is cut
+/// by that count and never by characters. Three ideas that passed the parser stay under the Worker's 24,000 character cap on
+/// `currentIdeas`, since the parser limits their shapes and paths.
 nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
     static let longestRequestText = 500
 
@@ -241,12 +255,12 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
     let basedOnIdea: Int?
     let picture: ThemeStudioPicture?
 
-    /// Nil for an empty request. A request over 500 characters is cut, more than 3 current ideas are dropped, and a
+    /// Nil for an empty request. A request over 500 UTF-16 code units is cut, more than 3 current ideas are dropped, and a
     /// `basedOnIdea` outside the current ideas is left out.
     init?(request requestText: String, currentIdeas: [CustomTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?) {
         let trimmedRequest = requestText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRequest.isEmpty else { return nil }
-        request = String(trimmedRequest.prefix(Self.longestRequestText))
+        request = textCutToUTF16Count(trimmedRequest, longestUTF16Count: Self.longestRequestText)
         self.currentIdeas = Array(currentIdeas.prefix(3))
         if let basedOnIdea, self.currentIdeas.indices.contains(basedOnIdea - 1) {
             self.basedOnIdea = basedOnIdea
