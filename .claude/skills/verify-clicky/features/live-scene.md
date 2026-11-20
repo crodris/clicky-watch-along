@@ -41,7 +41,7 @@ Preconditions:
 - **OpenAI fallback.** Start a Worker with a key OpenAI refuses, run `$V worker-up 8787 -- --var OPENAI_API_KEY:sk-invalid`, with no `LIVE_SCENE_MODEL`, then post the same body with `$V post /live-scene "$RUN/scene-body.json"`.
   A key in `worker/.dev.vars` may win over `--var`, so if the log shows no 401, point the Worker at a copy of `.dev.vars` that holds the bad key.
   The Worker log shows `OpenAI API error 401`, then `[/live-scene] gpt-6.1-sol could not answer (HTTP 401), so the scene falls back to claude-sonnet-5-5`, then a `[/live-scene] usage` line, and the reply is HTTP 200 with a page.
-  The usage line carries Sonnet's token counts, with `output_tokens` under 16000.
+  The usage line has `"model":"claude-sonnet-5-5"`.
 - **Cost ceiling.** One `[/live-scene]` usage line per request.
   Two lines mean the reply failed the page checks once and the route retried, and the report names the retry.
   Each line has `output_tokens` under 14000, because Sonnet stops at 16000 and GPT at 14000, and a reply at the cap is a cut-off page.

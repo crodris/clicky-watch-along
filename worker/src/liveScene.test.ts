@@ -249,12 +249,16 @@ describe("handleLiveScene when OpenAI cannot answer", () => {
     const simulationPageWithoutSetControl = simulationModelReply.replace("setControl(name, value)", "adjustControl(name, value)");
     const { openAICalls, anthropicCalls } = stubOpenAIAndAnthropic(() => new Response("rate limited", { status: 429 }), simulationPageWithoutSetControl);
 
-    const response = await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), sceneKeys);
+    // LIVE_SCENE_EFFORT=high is a GPT effort here, so neither Sonnet attempt may take it.
+    const response = await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), { ...sceneKeys, LIVE_SCENE_EFFORT: "high" });
 
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: "The simulation page is missing setControl" });
     expect(openAICalls()).toHaveLength(1);
     expect(anthropicCalls()).toHaveLength(2);
+    for (const anthropicCall of anthropicCalls()) {
+      expect(JSON.parse(String(anthropicCall[1].body))).toMatchObject({ model: "claude-sonnet-5-5", output_config: { effort: "low" } });
+    }
   });
 
   it("never falls back under a gpt-* BENCH_MODEL, which measures one model", async () => {

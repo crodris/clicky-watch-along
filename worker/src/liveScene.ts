@@ -399,18 +399,22 @@ export async function handleLiveScene(
 
   // One retry, because a broken page leaves the learner with a voice and nothing on screen.
   let lastValidationReason = "The model reply could not be checked";
+  // The configured Claude model takes the configured effort. A model the request fell back to takes its own default, never
+  // GPT's effort or LIVE_SCENE_EFFORT, since the two vendors take different effort lists.
+  const requestClaudeSceneReply = (claudeSceneModel: keyof typeof claudeModelIDBySetting) =>
+    requestClaudeLiveSceneReply(
+      env.ANTHROPIC_API_KEY,
+      claudeModelIDBySetting[claudeSceneModel],
+      claudeSceneModel === liveSceneModel ? liveSceneEffort : defaultLiveSceneEffortByModel[claudeSceneModel],
+      sceneRequest,
+    );
   // Starts as the configured model and becomes "sonnet" once OpenAI cannot answer, so the retry never waits on OpenAI again.
   let sceneModelForThisRequest: LiveSceneModel = liveSceneModel;
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
     let modelResult =
       sceneModelForThisRequest === "gpt"
         ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, gptSceneModel, gptSceneEffort, sceneRequest)
-        : await requestClaudeLiveSceneReply(
-            env.ANTHROPIC_API_KEY,
-            claudeModelIDBySetting[sceneModelForThisRequest],
-            sceneModelForThisRequest === liveSceneModel ? liveSceneEffort : defaultLiveSceneEffortByModel[sceneModelForThisRequest],
-            sceneRequest,
-          );
+        : await requestClaudeSceneReply(sceneModelForThisRequest);
     // A benchmark override never falls back, since it measures one model.
     if (
       sceneModelForThisRequest === "gpt" &&
@@ -423,13 +427,7 @@ export async function handleLiveScene(
         `[/live-scene] ${gptSceneModel.model} could not answer (HTTP ${modelResult.status}), so the scene falls back to ${claudeModelIDBySetting.sonnet}`,
       );
       sceneModelForThisRequest = "sonnet";
-      // Sonnet's own default effort, never GPT's effort or LIVE_SCENE_EFFORT, since the two models take different effort lists.
-      modelResult = await requestClaudeLiveSceneReply(
-        env.ANTHROPIC_API_KEY,
-        claudeModelIDBySetting.sonnet,
-        defaultLiveSceneEffortByModel.sonnet,
-        sceneRequest,
-      );
+      modelResult = await requestClaudeSceneReply(sceneModelForThisRequest);
     }
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {
