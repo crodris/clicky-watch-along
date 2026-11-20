@@ -42,7 +42,7 @@ Steps:
   The screenshot shows a dark round plate under the mouse with Team at the top, Model and Agents on the right, Show and More on the left, the cursor glyph in the center, and the hint under the plate.
   Run `$V key dial-release` to cancel, since the pointer never left the center.
 - **Team fan and commit.** Hold, then move the pointer from the dial's center straight up 78 points onto Team, out to 135 points, and along the arc to a ball.
-  Run `$V shot dial-fan`: the Team token is filled with the team's color, the ball under the pointer is larger with its school's name above it, and the plate stays.
+  Run `$V shot dial-fan`: the Team token is filled with the team's color, the ball under the pointer is larger with its school's name on a dark pill on the ball's side away from the dial's center, and the plate stays.
   Run `$V key dial-release`, then `defaults read com.crodris.clicky-watch-along companionTheme`, which now names that school, such as `school:nekoma`.
   Write the original value back when done, since the key is shared with the everyday app.
 - **Agents.** Post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{}}}` to `http://127.0.0.1:8790/mcp`, then run `$V key agents-list` and `$V shot dial-agents-list`.
@@ -55,7 +55,8 @@ Steps:
 
 - Each rebuild can drop Clicky's Accessibility grant, and then the dial never opens, since the event tap needs it.
   Check that the app log says `accessibility: true` before the first `$V key dial-hold`.
-- The mouse must sit at least 260 points from the left and right screen edges and 210 points from the top, or the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
+- The mouse must sit at least 260 points from the left and right screen edges, 200 points below the bottom of the menu bar (about 224 points from the screen's top on a 24 point bar, or 237 on a notched display), and 160 points above the bottom of the visible frame (above the Dock).
+  Otherwise the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
 - The first-run hint shows once per Mac, so run `defaults delete com.crodris.clicky-watch-along settingsDialHintWasShown` before a run that photographs it.
 - A Team or Model commit writes `companionTheme` or `selectedClaudeModel`, and Show writes `isClickyCursorEnabled`, in the defaults the everyday Debug app shares.
   Write the original values back when the run ends, and delete `selectedClaudeModel`, `isClickyCursorEnabled`, and `settingsDialHintWasShown`, which did not exist before.
