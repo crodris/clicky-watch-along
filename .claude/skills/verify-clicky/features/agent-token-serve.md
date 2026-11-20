@@ -68,7 +68,7 @@ Preconditions:
 - The theme key is shared with the everyday Debug app.
   Write back the value it had before the run.
 - Every new Debug build loses the Accessibility grant, so a push-to-talk recipe needs Chris to grant it to that build first.
-  The log's `Permissions — accessibility: true` line says when it holds.
+  The log's `accessibility: true` line says when it holds.
 - `say` reaches the microphone only through the speakers, so a muted or headphone output gives `No speech detected`.
 - The flight is a Core Animation keyframe animation.
   A move on the main thread, such as the build's Apple Event reads, would have frozen a timer-driven token, so a frozen-then-jumping token in a recording is a regression.

@@ -12,6 +12,7 @@ import Testing
 
 @testable import Clicky
 
+@MainActor
 struct AgentTokenServeTests {
     private let cursorPoint = CGPoint(x: 700, y: 400)
     private let slotPoint = CGPoint(x: 900, y: 880)
@@ -122,6 +123,28 @@ struct AgentTokenServeTests {
         #expect(agentTokenServeDisplayID(containing: CGPoint(x: 400, y: 500), displayFrames: displayFramesByID) == 1)
         #expect(agentTokenServeDisplayID(containing: CGPoint(x: 2_000, y: 500), displayFrames: displayFramesByID) == 2)
         #expect(agentTokenServeDisplayID(containing: CGPoint(x: 5_000, y: 500), displayFrames: displayFramesByID) == nil)
+    }
+
+    @Test func aMouseOnTheTopRowOfADisplayStillGetsThatDisplay() async throws {
+        let displayFramesByID: [CGDirectDisplayID: CGRect] = [
+            1: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            2: CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+        ]
+        // The top row of the first display has y equal to its maxY of 982, which CGRect.contains leaves out.
+        #expect(agentTokenServeDisplayID(containing: CGPoint(x: 400, y: 982), displayFrames: displayFramesByID) == 1)
+        #expect(agentTokenServeDisplayID(containing: CGPoint(x: 2_000, y: 1_080), displayFrames: displayFramesByID) == 2)
+    }
+
+    @Test func aPointOnTheEdgeTwoDisplaysShareBelongsToTheDisplayItIsInsideOfWhicheverWayTheIDsAreAssigned() async throws {
+        // x 1,512 is the right display's minX and the left display's maxX. A dictionary's order depends on its keys, so the IDs go
+        // both ways round, and the answer must still be the right display.
+        for (leftDisplayID, rightDisplayID) in [(CGDirectDisplayID(1), CGDirectDisplayID(2)), (CGDirectDisplayID(2), CGDirectDisplayID(1))] {
+            let displayFramesByID: [CGDirectDisplayID: CGRect] = [
+                leftDisplayID: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+                rightDisplayID: CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+            ]
+            #expect(agentTokenServeDisplayID(containing: CGPoint(x: 1_512, y: 500), displayFrames: displayFramesByID) == rightDisplayID)
+        }
     }
 
     // MARK: - Which agents

@@ -115,5 +115,11 @@ func agentTokenServeStartPoint(mouseLocation: CGPoint) -> CGPoint {
 /// The display the token flies to: the one the mouse is on, which is where the learner is looking. Nil when the mouse is
 /// on none of them, which means no serve.
 func agentTokenServeDisplayID(containing mouseLocation: CGPoint, displayFrames: [CGDirectDisplayID: CGRect]) -> CGDirectDisplayID? {
-    displayFrames.first { $0.value.contains(mouseLocation) }?.key
+    if let displayID = displayFrames.first(where: { $0.value.contains(mouseLocation) })?.key { return displayID }
+    // The mouse on a display's top row has y equal to the frame's maxY, which `CGRect.contains` leaves out, so a mouse resting
+    // in the menu bar would get no serve. Edges count only after no display holds the point, so a point on the edge two
+    // displays share still goes to the display it is inside of.
+    return displayFrames.first { displayID, displayFrame in
+        (displayFrame.minX...displayFrame.maxX).contains(mouseLocation.x) && (displayFrame.minY...displayFrame.maxY).contains(mouseLocation.y)
+    }?.key
 }

@@ -5,7 +5,8 @@
 //  What an agent token looks like. Each background agent that runs, or whose result waits, is a 22 point disc beside
 //  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
 //  which is the team player's portrait or a triangle in the agent's color. A finished agent gets a green check mark, and a failed one
-//  a gray face in a red ring. The "+N" disc counts the agents with no position of their own.
+//  a gray face in a red ring. The "+N" disc counts the agents with no position of their own, and the open slot is the dashed
+//  outline a new agent's token flies to.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on high-refresh displays.
 //  The same triangle and progress view also draw the agent list's rows.
 //
