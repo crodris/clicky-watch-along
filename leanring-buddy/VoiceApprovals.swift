@@ -65,10 +65,15 @@ private let approvalYesWords: Set<String> = ["yes", "yeah", "yep", "yup", "sure"
 private let approvalYesPhrases = ["go ahead", "do it", "all right"]
 /// Words that say no. "Not" covers "do not" and "don't allow".
 private let approvalNoWords: Set<String> = ["no", "nope", "nah", "not", "don't", "dont", "stop", "cancel", "decline", "deny", "never"]
+/// The other words a short yes may hold, such as "yes please", "go ahead and do it", or "always allow that, thanks".
+private let approvalAnswerFillerWords: Set<String> = [
+    "go", "ahead", "do", "it", "that", "this", "one", "please", "always", "all", "right", "and", "thanks", "thank", "you", "hey", "clicky", "of", "course",
+]
 
 /// The model's answer when the learner's own words support it, or nil when they do not. The router model also reads
-/// text a page wrote, such as a video title, which could talk it into a yes, so a yes counts only when the transcript
-/// says yes and holds no word of no, and an "always" only when the learner said always. A no needs no check, since
+/// text a page wrote, such as a video title, which could talk it into a yes, so a yes counts only when the whole
+/// transcript is a short answer: it says yes, holds no word of no, and has no word outside the answer's vocabulary, so
+/// "okay, what is this video about" is not a yes. An "always" counts only when the learner said always. A no needs no check, since
 /// declining is always safe. The answer is refused rather than changed, so the chip, which reads the model's input,
 /// never names an answer the learner did not give.
 nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceAnswer, transcript: String) -> ApprovalVoiceAnswer? {
@@ -82,7 +87,8 @@ nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceA
     let saysNo = transcriptWords.contains(where: approvalNoWords.contains)
     let saysYes = transcriptWords.contains(where: approvalYesWords.contains)
         || approvalYesPhrases.contains { spacedTranscript.contains(" \($0) ") }
-    guard saysYes && !saysNo else { return nil }
+    let isAShortAnswer = transcriptWords.allSatisfy { approvalYesWords.contains($0) || approvalAnswerFillerWords.contains($0) }
+    guard saysYes && !saysNo && isAShortAnswer else { return nil }
     if modelAnswer.scope == .always && !transcriptWords.contains("always") { return nil }
     return modelAnswer
 }

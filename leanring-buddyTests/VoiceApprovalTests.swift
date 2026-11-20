@@ -42,6 +42,9 @@ struct VoiceApprovalTests {
         #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "pause the video") == nil)
         #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "don\u{2019}t do it") == nil)
         #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, no wait") == nil)
+        // A yes-word inside another request is not an answer.
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "okay, what is this video about") == nil)
+        #expect(approvalVoiceAnswerTheLearnerSaid(yes, transcript: "Yes please, go ahead and do it.") == yes)
         #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "always allow it") == always)
         #expect(approvalVoiceAnswerTheLearnerSaid(always, transcript: "yes") == nil, "always needs the learner to say always")
         // A no is always safe, so it needs no check.
