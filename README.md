@@ -301,6 +301,8 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   BackgroundTaskAgent.swift # The task agent's app tools and its Notion page
   AgentHarness.swift        # Launches the Go harness that runs the task agent's loop, and talks to it in JSON lines
   AgentTokenDock.swift           # The discs beside the notch that show running agents
+  AgentTokenServe.swift          # How a new agent's token flies from the cursor into its slot
+  AgentTokenFlight.swift         # The token in flight
   BackgroundAgentListPanel.swift # The agent list that a disc click or the settings dial's Agents slice opens
   SettingsDialModel.swift        # The settings dial's picking rules and edge placement
   SettingsDialPanel.swift        # The settings dial that Shift + Option opens

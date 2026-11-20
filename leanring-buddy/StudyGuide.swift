@@ -66,6 +66,15 @@ nonisolated enum StudyGuideJob: Equatable, Sendable {
         }
     }
 
+    /// A guide or a revision starts from a spoken request, so its token is served from the cursor. A refresh starts by
+    /// itself after a quiz miss, with no request and no spoken confirmation, so its token just appears beside the notch.
+    var isAskedForByTheLearner: Bool {
+        switch self {
+        case .write, .revise: return true
+        case .refresh: return false
+        }
+    }
+
     /// A revise or refresh reply means the Worker already wrote the new page and trashed the old one, so the reply is
     /// saved even when the agent was cancelled as it arrived, or the saved guide would point at a trashed page and the
     /// new page would be lost. A cancelled new guide keeps no record.
