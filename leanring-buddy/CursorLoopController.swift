@@ -235,7 +235,7 @@ final class CursorLoopController: ObservableObject {
         )
     }
 
-    /// The front tab's window, tab, URL, and media position from one Apple Event, for the poll. Nil when Chrome is not
+    /// The front tab's window, tab, URL, and media position from two Apple Events, for the poll. Nil when Chrome is not
     /// the front app, shows no media worth framing, or refuses the read.
     static func readTheFrontTabSample() -> FrontTabSample? {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == chromeBundleIdentifier,

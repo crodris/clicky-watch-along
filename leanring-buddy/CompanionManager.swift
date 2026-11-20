@@ -1405,7 +1405,7 @@ final class CompanionManager: ObservableObject {
         let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows
             ? Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
             : nil
-        // Idle during the tour so the triangle shows, while the narration is written in the background.
+        // Idle during the tour so no thinking dots show, while the narration is written in the background.
         voiceState = .idle
         await narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
         guard !Task.isCancelled else { return }
@@ -3280,6 +3280,8 @@ final class CompanionManager: ObservableObject {
             }
             return .changed(state: nil)
         }
+        // A tool call from this server is not a spoken request, so no media rect read for an earlier one may draw a loop for it.
+        cursorLoopController.end(because: .newPushToTalk)
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
         showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)

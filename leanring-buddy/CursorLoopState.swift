@@ -15,7 +15,7 @@ import SwiftUI
 // MARK: - The media the loop goes around
 
 /// What the poll reads from Chrome's front tab once a second: which tab it is, and where the window and the largest
-/// media sit in it. It needs one Apple Event, with no accessibility read, since the main actor also draws the spark.
+/// media sit in it. It needs two Apple Events, with no accessibility read, since the main actor also draws the spark.
 struct FrontTabSample: Equatable {
     let windowID: Int
     let tabID: Int
