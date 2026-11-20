@@ -9,7 +9,7 @@
  *   POST /v1/messages  → Anthropic Messages API (the body and stream pass through unchanged, for the agent harness's SDK)
  *   POST /tts          → ElevenLabs TTS API
  *   POST /transcribe-token → AssemblyAI streaming token API (a short-lived websocket token, only when Info.plist selects the assemblyai provider)
- *   POST /live-scene   → OpenAI Responses API (GPT-6.1 Sol for a model, GPT-6.2 Sol for a simulation), or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
+ *   POST /live-scene   → OpenAI Responses API (GPT-6.1 Sol for a model, GPT-6.2 Sol for a simulation), or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable, or Anthropic Messages API when OpenAI cannot answer (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → OpenAI Responses API (GPT-6.2 Sol), or Anthropic Messages API when OpenAI cannot answer (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)

@@ -38,9 +38,13 @@ Preconditions:
 - **Route alone.** Build a body from a fresh screenshot, then post it.
   Run `RUN="$(readlink .verify-clicky/current)" && screencapture -x -t jpg "$RUN/scene.jpg" && python3 -c "import base64,json,sys;print(json.dumps({'question':'show me the inside of a heart','screenshotBase64':base64.b64encode(open(sys.argv[1],'rb').read()).decode(),'screenshotMediaType':'image/jpeg'}))" "$RUN/scene.jpg" > "$RUN/scene-body.json"`, then `$V post /live-scene "$RUN/scene-body.json"`.
   The result is HTTP 200 with a page that imports `clicky-asset://three/three.module.js` and a quiz.
+- **OpenAI fallback.** Start a Worker with a key OpenAI refuses, run `$V worker-up 8787 -- --var OPENAI_API_KEY:sk-invalid`, with no `LIVE_SCENE_MODEL`, then post the same body with `$V post /live-scene "$RUN/scene-body.json"`.
+  A key in `worker/.dev.vars` may win over `--var`, so if the log shows no 401, point the Worker at a copy of `.dev.vars` that holds the bad key.
+  The Worker log shows `OpenAI API error 401`, then `[/live-scene] gpt-6.1-sol could not answer (HTTP 401), so the scene falls back to claude-sonnet-5-5`, then a `[/live-scene] usage` line, and the reply is HTTP 200 with a page.
+  The usage line has `"model":"claude-sonnet-5-5"`.
 - **Cost ceiling.** One `[/live-scene]` usage line per request.
   Two lines mean the reply failed the page checks once and the route retried, and the report names the retry.
-  Each line has `output_tokens` under 14000, because Sonnet stops at 16000 and GPT at 14000, and a reply at the cap is a cut-off page.
+  A GPT line has `output_tokens` under 14000 and a Sonnet line under 64000, because each model stops at that cap (`max_output_tokens` and `claudeLiveSceneMaxTokens` in `worker/src/liveScene.ts`), and a reply at the cap is a cut-off page.
   Sonnet runs at low effort and showed 0 thinking tokens with 4145 and 4884 output tokens on 2026-11-05.
 
 ## Gotchas
