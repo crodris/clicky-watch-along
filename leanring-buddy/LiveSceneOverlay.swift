@@ -255,6 +255,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     static let shared = LiveSceneOverlay()
 
     var onTourFinished: (() -> Void)?
+    /// A page began to play, so the loop Clicky drew around the media fades and the scene rises from its line.
+    var onASceneStartedToShow: (() -> Void)?
     /// The page posts "partTapped:<label>" when a label is clicked. The label is page text, so it is untrusted.
     var onPartTapped: ((String) -> Void)?
     /// A simulation page's run ended. The report is the page's own numbers, already cut to a short list.
@@ -376,6 +378,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         returnFallbackWorkItem?.cancel()
         returnFallbackWorkItem = nil
         overlayPhase = .showing(isFramePopout: isFramePopout)
+        onASceneStartedToShow?()
         releaseWaitersForReturnToFinish()
         discardThePreviousWebView()
         placeOverlay(on: overlayScreen)

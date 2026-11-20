@@ -59,3 +59,4 @@ It then uses exactly four H2 sections in this order.
 - [3D model agent](./three-d-model-agent.md) covers building a 3D model in the background while the video plays, beside other background agents, and showing it when it is ready.
 - [Task agent](./task-agent.md) covers the general background agent that works on any task with web search, the video's captions, and a Notion page.
 - [Team theme](./team-theme.md) covers the Haikyu!! team theme: the picker, the volleyball cursor, the player portrait tokens beside the notch, and the themed agent list.
+- [Cursor ring and loop](./cursor-ring-and-loop.md) covers the ring of ticks and dots around the cursor and the hand-drawn loop around the video or image a request looks at.

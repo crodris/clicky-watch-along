@@ -774,7 +774,7 @@ struct leanring_buddyTests {
         #expect(call("zoom", [:]).chipPhrase == nil)
         #expect(call("zoom", ["factor": .number(1)]).chipPhrase == nil)
         #expect(call("explode_view", [:]).chipPhrase == nil)
-        // A hand-off shows its own status line or spinner next, so its chip would repeat it.
+        // A hand-off shows its own status line or thinking dots next, so its chip would repeat it.
         #expect(call("pop_out", [:]).chipPhrase == nil)
         #expect(call("build_new_scene", ["asQuiz": .bool(false)]).chipPhrase == nil)
         #expect(call("answer_with_screen", [:]).chipPhrase == nil)

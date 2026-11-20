@@ -11,6 +11,16 @@ let appTargetSettings: [SwiftSetting] = [
     .enableUpcomingFeature("MemberImportVisibility"),
 ]
 
+// The Xcode test target sets no default isolation, so a test that calls main actor code must say `@MainActor` itself.
+// The tests here compile the same way, or a test that passes here would fail to compile in CI.
+let testTargetSettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v5),
+    .define("DEBUG"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("MemberImportVisibility"),
+]
+
 let package = Package(
     name: "ClickySwiftCheck",
     platforms: [.macOS("14.2")],
@@ -18,6 +28,6 @@ let package = Package(
         .target(name: "PostHog", swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(name: "Sparkle", swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(name: "Clicky", dependencies: ["PostHog", "Sparkle"], swiftSettings: appTargetSettings),
-        .testTarget(name: "ClickyTests", dependencies: ["Clicky"], swiftSettings: appTargetSettings),
+        .testTarget(name: "ClickyTests", dependencies: ["Clicky"], swiftSettings: testTargetSettings),
     ]
 )
