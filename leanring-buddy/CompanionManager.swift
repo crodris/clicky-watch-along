@@ -755,7 +755,7 @@ final class CompanionManager: ObservableObject {
             // An open agent list would sit under the dial, and its Agents slice opens it again.
             agentListPanelController.close()
             settingsDialController.open(snapshot: SettingsDialSnapshot(
-                theme: themeSettings.theme,
+                theme: themeSettings.shownTheme,
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
                 runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count
@@ -1473,7 +1473,7 @@ final class CompanionManager: ObservableObject {
 
         guard let framePopout,
               let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
-              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.theme),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
             await speakLiveSceneLine(failureLine)
@@ -1780,7 +1780,7 @@ final class CompanionManager: ObservableObject {
             if narrationStep == .sayTheChallengeOutcome, let challengeOutcome = runReport.challengeOutcome {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
-                    NSSound(named: NSSound.Name("Glass"))?.play()
+                    self.themeSettings.shownTheme.sounds.correct.play()
                 }
                 await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
             } else {
@@ -2060,7 +2060,7 @@ final class CompanionManager: ObservableObject {
         wrongAnswerCount: Int
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
-        LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
+        LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
         // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
         if !(grade == .wrong && wrongAnswerCount == 0) {
             releaseTheBuddyFromTheQuizQuestion()
@@ -2104,7 +2104,7 @@ final class CompanionManager: ObservableObject {
                 return
             }
             liveScenePhase = .allLabelsShowing
-            LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration)
+            LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
             await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false))
         case .repeatQuestion:
             await speakLiveSceneLine(quiz.question)
@@ -2241,7 +2241,7 @@ final class CompanionManager: ObservableObject {
         videoQuizQuestionIsActive = true
         if let framePopout,
            let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
-           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.theme),
+           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
            LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, isFramePopout: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
@@ -2902,7 +2902,7 @@ final class CompanionManager: ObservableObject {
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
     /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
-        NSSound(named: "Pop")?.play()
+        themeSettings.shownTheme.sounds.needsYourOK.play()
         agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
     }
 
@@ -3392,7 +3392,7 @@ final class CompanionManager: ObservableObject {
         switch result {
         case .notionPage(let pageURL):
             // "Glass" belongs to quiz answers.
-            NSSound(named: "Tink")?.play()
+            themeSettings.shownTheme.sounds.done.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
             var secondaryChipText = "· say open my study guide"
             if let replacingPageURL, loadThePageInTheTabOfThePageItReplaces(pageURL, replacingPageURL: replacingPageURL) {
@@ -3408,7 +3408,7 @@ final class CompanionManager: ObservableObject {
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         case .readyScene:
-            NSSound(named: "Tink")?.play()
+            themeSettings.shownTheme.sounds.done.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
@@ -3422,7 +3422,7 @@ final class CompanionManager: ObservableObject {
                 print("\(agentKind.displayName): the screen is busy, so it waits for \"\(agentKind.waitingPhrase)\"")
             }
         case .answer(_, let pageURL):
-            NSSound(named: "Tink")?.play()
+            themeSettings.shownTheme.sounds.done.play()
             // Like a guide's page, a task's page opens behind the video tab.
             if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID

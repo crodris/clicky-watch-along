@@ -343,18 +343,18 @@ private struct AgentListView: View {
 
     /// A school theme borders the panel in the team's color. Every other theme keeps today's thin gray border.
     private var panelBorderColor: Color {
-        if case .school(let school) = themeSettings.theme { return school.accentColor }
+        if case .school(let school) = themeSettings.shownTheme { return school.accentColor }
         return DS.Colors.borderSubtle
     }
 
     private var panelBorderWidth: CGFloat {
-        if case .school = themeSettings.theme { return 1.5 }
+        if case .school = themeSettings.shownTheme { return 1.5 }
         return 1
     }
 
     /// "Agents" with Clicky blue, the team's name after a small accent square for a school, or "Random lineup".
     @ViewBuilder private var headerTitle: some View {
-        switch themeSettings.theme {
+        switch themeSettings.shownTheme {
         case .clickyBlue:
             Text("Agents")
                 .font(.system(size: 13, weight: .semibold))
@@ -370,6 +370,21 @@ private struct AgentListView: View {
             Text("Random lineup")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
+        case .custom(let customTheme):
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color(hex: customTheme.accentHex))
+                .frame(width: 10, height: 10)
+            Text(customTheme.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+
+    /// "running" with Clicky blue or a custom theme, and "on court" for the volleyball themes.
+    private var runningAgentsWord: String {
+        switch themeSettings.shownTheme {
+        case .clickyBlue, .custom: return "running"
+        case .school, .random: return "on court"
         }
     }
 
@@ -378,7 +393,7 @@ private struct AgentListView: View {
             HStack(spacing: 8) {
                 headerTitle
                 Spacer()
-                Text("\(store.agents.filter(\.isRunning).count) \(themeSettings.theme == .clickyBlue ? "running" : "on court")")
+                Text("\(store.agents.filter(\.isRunning).count) \(runningAgentsWord)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }

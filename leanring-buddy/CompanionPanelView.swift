@@ -887,6 +887,11 @@ private struct TeamThemeSwatch: View {
                     school.accentColor
                     school.contrastColor
                 }
+            case .custom(let customTheme):
+                HStack(spacing: 0) {
+                    Color(hex: customTheme.accentHex)
+                    Color(hex: customTheme.contrastHex)
+                }
             case .random:
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {

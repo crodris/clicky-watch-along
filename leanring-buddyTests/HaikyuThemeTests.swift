@@ -29,14 +29,17 @@ struct SeededRandomNumberGenerator: RandomNumberGenerator {
     }
 }
 
+/// A store whose folder does not exist, so a test never reads the themes the developer saved on this Mac.
+let themeStoreWithNoSavedThemes = CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("clicky-tests-no-saved-themes", isDirectory: true))
+
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
-func makeThemeSettings(startingWith theme: CompanionTheme = .clickyBlue) -> CompanionThemeSettings {
+func makeThemeSettings(startingWith theme: CompanionTheme = .clickyBlue, customThemeStore: CustomThemeStore = themeStoreWithNoSavedThemes) -> CompanionThemeSettings {
     // One fixed suite for every test, since macOS keeps an empty preferences file for each suite even after its domain
     // is removed. Sharing it is safe because each test sets the theme right after this reads it and never reads the
     // saved value back. The name is a plain string UserDefaults accepts, so the optional is never nil.
     let testDefaults = UserDefaults(suiteName: "HaikyuThemeTests")!
-    let themeSettings = CompanionThemeSettings(userDefaults: testDefaults)
+    let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: customThemeStore)
     themeSettings.theme = theme
     return themeSettings
 }
@@ -120,9 +123,9 @@ struct HaikyuThemeTests {
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(CompanionThemeSettings(userDefaults: testDefaults).theme == .clickyBlue)
-        CompanionThemeSettings(userDefaults: testDefaults).theme = .school(.nekoma)
-        #expect(CompanionThemeSettings(userDefaults: testDefaults).theme == .school(.nekoma))
+        #expect(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: themeStoreWithNoSavedThemes).theme == .clickyBlue)
+        CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: themeStoreWithNoSavedThemes).theme = .school(.nekoma)
+        #expect(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: themeStoreWithNoSavedThemes).theme == .school(.nekoma))
     }
 
     @Test func onlyASchoolThemeTurnsTheCursorIntoAVolleyball() async throws {

@@ -227,7 +227,7 @@ struct BlueCursorView: View {
     /// The triangle keeps its pointer angle while it follows.
     private var buddyRotationDegrees: Double {
         let volleyballIsFollowingTheMouse = buddyNavigationMode == .followingCursor
-            && themeSettings.theme.cursorVolleyballColors != nil
+            && themeSettings.shownTheme.cursorVolleyballColors != nil
         return volleyballIsFollowingTheMouse ? volleyballFollowMotion.facingDegrees : triangleRotationDegrees
     }
 
@@ -275,13 +275,13 @@ struct BlueCursorView: View {
             if isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty {
                 Text(welcomeText)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(themeSettings.theme.cursorContrastColor)
+                    .foregroundColor(themeSettings.shownTheme.cursorContrastColor)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(themeSettings.theme.cursorColor)
-                            .shadow(color: themeSettings.theme.cursorColor.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .fill(themeSettings.shownTheme.cursorColor)
+                            .shadow(color: themeSettings.shownTheme.cursorColor.opacity(0.5), radius: 6, x: 0, y: 0)
                     )
                     .fixedSize()
                     .overlay(
@@ -319,13 +319,13 @@ struct BlueCursorView: View {
             if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
                 Text(companionManager.onboardingPromptText)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(themeSettings.theme.cursorContrastColor)
+                    .foregroundColor(themeSettings.shownTheme.cursorContrastColor)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(themeSettings.theme.cursorColor)
-                            .shadow(color: themeSettings.theme.cursorColor.opacity(0.5), radius: 6, x: 0, y: 0)
+                            .fill(themeSettings.shownTheme.cursorColor)
+                            .shadow(color: themeSettings.shownTheme.cursorColor.opacity(0.5), radius: 6, x: 0, y: 0)
                     )
                     .fixedSize()
                     .overlay(
@@ -349,7 +349,7 @@ struct BlueCursorView: View {
             if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
                 Text(navigationBubbleText)
                     .font(.system(size: navigationBubbleFontSize, weight: .medium))
-                    .foregroundColor(themeSettings.theme.cursorContrastColor)
+                    .foregroundColor(themeSettings.shownTheme.cursorContrastColor)
                     .multilineTextAlignment(.leading)
                     // A nil width leaves a short phrase on one line, as before.
                     .frame(width: navigationBubbleTextWrapWidth, alignment: .leading)
@@ -357,9 +357,9 @@ struct BlueCursorView: View {
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(themeSettings.theme.cursorColor)
+                            .fill(themeSettings.shownTheme.cursorColor)
                             .shadow(
-                                color: themeSettings.theme.cursorColor.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
+                                color: themeSettings.shownTheme.cursorColor.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
                                 radius: 6 + (1.0 - navigationBubbleScale) * 16,
                                 x: 0, y: 0
                             )
@@ -386,7 +386,7 @@ struct BlueCursorView: View {
 
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.
             if let loopToDraw = cursorLoopController.loopToDraw(onScreenWithFrame: screenFrame) {
-                CursorLoopView(loop: loopToDraw, cursorPosition: cursorPosition, color: themeSettings.theme.cursorColor)
+                CursorLoopView(loop: loopToDraw, cursorPosition: cursorPosition, color: themeSettings.shownTheme.cursorColor)
             }
 
             // Blue triangle cursor, or a school theme's volleyball. It stays visible through every voice state,
@@ -397,20 +397,20 @@ struct BlueCursorView: View {
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
             Group {
-                if let cursorVolleyballColors = themeSettings.theme.cursorVolleyballColors {
+                if let cursorVolleyballColors = themeSettings.shownTheme.cursorVolleyballColors {
                     VolleyballCursorView(
                         volleyballColors: cursorVolleyballColors,
-                        flightStreakColor: themeSettings.theme.cursorColor,
+                        flightStreakColor: themeSettings.shownTheme.cursorColor,
                         streakOpacity: volleyballStreakOpacity
                     )
                 } else {
                     Triangle()
-                        .fill(themeSettings.theme.cursorColor)
+                        .fill(themeSettings.shownTheme.cursorColor)
                         .frame(width: 16, height: 16)
                 }
             }
                 .rotationEffect(.degrees(buddyRotationDegrees))
-                .shadow(color: themeSettings.theme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
+                .shadow(color: themeSettings.shownTheme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy ? cursorOpacity : 0)
                 .position(cursorPosition)
@@ -435,7 +435,7 @@ struct BlueCursorView: View {
                     aStatusLabelIsShowing: statusLabelModel.isVisible
                 ),
                 audioPowerLevel: companionManager.currentAudioPowerLevel,
-                color: themeSettings.theme.cursorColor
+                color: themeSettings.shownTheme.cursorColor
             )
                 .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity : 0)
                 .position(cursorPosition)

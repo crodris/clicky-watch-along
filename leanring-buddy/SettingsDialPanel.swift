@@ -461,6 +461,12 @@ private struct SettingsDialThemeBall: View {
                 volleyballColors: .clickyBlueFanBall,
                 size: size
             )
+        case .custom(let customTheme):
+            // The fan lists only the built-in themes, so this is never on screen. A ball in the theme's two colors keeps the switch whole.
+            SettingsDialBall(
+                volleyballColors: VolleyballCursorColors(fillHex: customTheme.accentHex, outlineHex: "#1A1A1A", seamHex: customTheme.contrastHex),
+                size: size
+            )
         case .random:
             ZStack {
                 Circle().fill(DS.Colors.settingsDialRandomBall)
