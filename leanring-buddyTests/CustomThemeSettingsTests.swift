@@ -59,6 +59,15 @@ struct CustomThemeSettingsTests {
         #expect(CompanionTheme.allChoices.count == 12)
     }
 
+    @Test func theMenuBarPanelListsTheBuiltInThemesThenTheSavedCustomOnes() throws {
+        try withATemporaryThemeStore { store in
+            let themeSettings = makeThemeSettings(customThemeStore: store)
+            #expect(themeSettings.menuBarThemeChoices == CompanionTheme.allChoices)
+            let savedTheme = try themeSettings.saveAndApply(try customTheme(id: "idea-1"), pictureJPEG: nil)
+            #expect(themeSettings.menuBarThemeChoices == CompanionTheme.allChoices + [.custom(savedTheme)])
+        }
+    }
+
     @Test func aCustomThemesAgentsAreNotPlayers() throws {
         var randomNumberGenerator = SeededRandomNumberGenerator(seed: 1)
         let player = nextHaikyuPlayer(
