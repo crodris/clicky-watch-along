@@ -200,6 +200,20 @@ enum DS {
         /// The same blue as text, for the frame pop-out page, which cannot read a SwiftUI Color.
         static let overlayCursorBlueHex = "#3380ff"
 
+        // ── Settings Dial ────────────────────────────────────────────
+
+        /// The dial's plate and the first-run hint's background, a near-black blue.
+        static let settingsDialPlate = Color(hex: "#0a0c12")
+
+        /// An unselected token's fill, and the fill of a Model pill.
+        static let settingsDialToken = Color(hex: "#171b24")
+
+        /// Dark text on the agent count's white badge, and the Random ball's outline.
+        static let settingsDialDarkInk = Color(hex: "#111111")
+
+        /// The Random ball in the Team fan.
+        static let settingsDialRandomBall = Color(hex: "#374151")
+
         // ── Background Agents ────────────────────────────────────────
 
         /// The color of a study guide agent. Each new agent kind gets its own color here.

@@ -124,7 +124,7 @@ The drive primitives are:
 ```bash
 $V post <route> <body.json> [port]   # default port 8789, a Worker this script started
 $V shot <name>                       # one PNG per display
-$V key <escape|push-to-talk-tap|agents-list>     # a real key event through System Events
+$V key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>     # a real key event through System Events
 ```
 
 `post` saves the response body to the run and prints it.
@@ -155,8 +155,9 @@ app-launch "<steps>"      Launch the Debug app with --live-scene-rehearsal "<ste
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.
-key <escape|push-to-talk-tap|agents-list>
+key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>
                           Press that key through System Events, as the learner would, while the app runs.
+                          dial-hold and dial-release hold and let go of shift and option for the settings dial, and agents-list opens the agent list through the dial and puts the mouse back.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 ```
 

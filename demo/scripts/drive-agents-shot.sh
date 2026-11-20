@@ -4,7 +4,7 @@
 # the clip at video_start_seconds once the app launches, muted so its sound never covers Clicky, and pauses it 0.6
 # seconds before its end, so X's replay button never shows and the last frame stays up. When the learner asks what the
 # task agent found, it brings the agent's Notion page forward and scrolls through it while Clicky speaks. Once both
-# sub-agents run, it opens the agent list with shift + option, so the list shows "2 running", then glides the mouse out
+# sub-agents run, it opens the agent list through the settings dial, so the list shows "2 running", then glides the mouse out
 # and back, so both helper triangles are seen trailing the blue one in formation.
 # Usage, from the main checkout's root, started just before record-shot.sh:
 #   demo/scripts/drive-agents-shot.sh demo/public/agents.events.txt.raw [video_start_seconds] &
@@ -81,7 +81,7 @@ wait_for_log_line 'saying "build me' || exit 1
 sleep 1.6
 "$verify_script" key agents-list
 sleep 3.5
-"$verify_script" key agents-list
+"$verify_script" key escape
 # It starts and ends at record-shot.sh's default mouse point.
 sleep 0.6
 glide_mouse 1110 680 880 560

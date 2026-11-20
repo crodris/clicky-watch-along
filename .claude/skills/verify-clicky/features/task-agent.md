@@ -18,7 +18,7 @@ When it finishes, its page opens in a background tab, and the chip says "Task do
 ## How to get to it (user POV)
 
 - With a video in Chrome's front tab, hold ctrl+option and say "find out how this catch compares to the first booster catch, and make me a Notion page about it".
-- Hold shift + option to see its steps.
+- Hold shift + option, flick to Agents, and let go to see its steps.
 - When the chip says "say what did you find", say "what did you find".
 
 ## Driving it with verify-clicky.sh

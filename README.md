@@ -82,7 +82,9 @@ Say "build a 3D model of this", and the model rises out of the video once it's r
 For something bigger, like "find out how this catch compares to the first booster catch", a task agent searches the web and can write what it found to a Notion page.
 It tells you what it found when you say "what did you find".
 Each running agent floats as a small disc beside the notch, with a ring that fills as it works, and a finished result that is still waiting for you keeps its disc.
-Click a disc to open the agent list under it, or hold Shift + Option to see every agent and its steps, cancel one, or open its page.
+Click a disc to open the agent list under it, where you can see every agent and its steps, cancel one, or open its page.
+Hold Shift + Option for a moment to open a dial under the mouse, then flick toward a slice and let go to pick it.
+Team picks the cursor's team, Model picks Sonnet or Opus, Agents opens the list of every agent and its steps, Show turns the cursor on or off, and More opens the menu bar panel.
 
 **A loading label for each step.** Every step Clicky waits on has its own animated label next to your cursor, with its own colors and icon.
 That covers popping out an image, reading your screen, building a 3D scene or an experiment, reading a video's transcript, and picking quiz spots.
@@ -267,7 +269,7 @@ The app will appear in your menu bar (not the dock). Click the icon to open the 
 
 If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
 
-**Menu bar app** (no dock icon) with `NSPanel` windows for the control panel dropdown, the full-screen transparent cursor overlay, the agent list that Shift + Option opens, and the chips and labels next to the cursor. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
+**Menu bar app** (no dock icon) with `NSPanel` windows for the control panel dropdown, the full-screen transparent cursor overlay, the settings dial that Shift + Option opens, the agent list it leads to, and the chips and labels next to the cursor. Push-to-talk transcribes your speech with Apple's speech recognition in this fork (upstream Clicky streams it to AssemblyAI), sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All APIs are proxied through a Cloudflare Worker.
 
 ## Project structure
 
@@ -301,7 +303,9 @@ leanring-buddy/          # Swift source (yes, the typo stays)
   AgentTokenDock.swift           # The discs beside the notch that show running agents
   AgentTokenServe.swift          # How a new agent's token flies from the cursor into its slot
   AgentTokenFlight.swift         # The token in flight
-  BackgroundAgentListPanel.swift # The agent list that Shift + Option opens
+  BackgroundAgentListPanel.swift # The agent list that a disc click or the settings dial's Agents slice opens
+  SettingsDialModel.swift        # The settings dial's picking rules and edge placement
+  SettingsDialPanel.swift        # The settings dial that Shift + Option opens
 harness/                 # Go helper that runs the task agent's loop through the Worker's /v1/messages
 worker/                  # Cloudflare Worker proxy
   src/index.ts              # Routes: /chat, /tts, /transcribe-token, /live-scene, /judge-answer, /voice-command, /video-quiz-plan, /video-frame-parts, /landmark, /picture-flows, /study-guide, /study-guide-status, /v1/messages, /notion-page, /v1/3dtiles

@@ -30,7 +30,7 @@ TRAILING_SECONDS=6 demo/scripts/record-shot.sh earth "pop this out" "https://com
 The study guide clip and the quiz miss clip use 1 shot each, with the Worker's `NOTION_API_KEY` set.
 In the study guide shot, "pop this out" runs while the guide is written, so the guide finishes during the pop-out's tour.
 Its `&` step waits for the guide to finish before asking to open it.
-Start the driver just before that shot, so it glides the mouse right after the request, opens the agent list with shift + option while the pop-out builds, and once the page opens, scrolls to the key terms and clicks the timestamp of the term about the stator vanes or the compressor.
+Start the driver just before that shot, so it glides the mouse right after the request, opens the agent list through the settings dial while the pop-out builds, and once the page opens, scrolls to the key terms and clicks the timestamp of the term about the stator vanes or the compressor.
 The click is a real mouse event from `scripts/recorder/click-mouse.swift`, which needs the Accessibility permission for the app that runs the script.
 The quiz miss shot plays Science ABC's "How Submarines Work", a 2D illustration, which lifts out as a puffed-up drawing.
 It writes the guide first, which the edit leaves out, and answers the buoyancy question right.
