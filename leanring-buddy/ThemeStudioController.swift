@@ -28,6 +28,8 @@ final class ThemeStudioController: ObservableObject {
     struct Environment {
         /// Says a line aloud.
         let speak: (String) -> Void
+        /// Plays a theme sound through the speakers.
+        let playSound: (ThemeSound) -> Void
         /// A JPEG of the largest picture in Chrome's front tab, or nil when there is none.
         let captureThePicture: () async -> ThemeStudioPicture?
         /// Asks the Worker for ideas (`POST /theme-ideas`).
@@ -170,7 +172,7 @@ final class ThemeStudioController: ObservableObject {
         do {
             let savedTheme = try themeSettings.saveAndApply(ideas.highlightedIdea, pictureJPEG: ideas.picture?.jpegData)
             state = state.afterSaving()
-            savedTheme.sounds.done.play()
+            environment.playSound(savedTheme.sounds.done)
             return .saved(themeName: savedTheme.name)
         } catch {
             print("Theme studio: saving \(ideas.highlightedIdea.name) failed: \(error)")

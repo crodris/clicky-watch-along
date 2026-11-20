@@ -44,6 +44,7 @@ private final class StudioHarness {
     let themeSettings: CompanionThemeSettings
     let presenter = RecordingCardPresenter()
     var spokenLines: [String] = []
+    var playedSounds: [ThemeSound] = []
     var requestsSentToTheWorker: [ThemeIdeasRequest] = []
     var picturesTheCaptureReturns: [ThemeStudioPicture?] = []
     /// What the stubbed Worker does for each call, in order. A call past the end fails.
@@ -56,6 +57,7 @@ private final class StudioHarness {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [unowned self] line in self.spokenLines.append(line) },
+                playSound: { [unowned self] sound in self.playedSounds.append(sound) },
                 captureThePicture: { [unowned self] in self.picturesTheCaptureReturns.isEmpty ? nil : self.picturesTheCaptureReturns.removeFirst() },
                 designIdeas: { [unowned self] request in
                     self.requestsSentToTheWorker.append(request)
@@ -208,6 +210,7 @@ struct ThemeStudioControllerTests {
             #expect(harness.themeSettings.previewTheme == nil)
             guard case .custom(let savedTheme) = harness.themeSettings.theme else { Issue.record("not a custom theme"); return }
             #expect(savedTheme.name == "Moonlit")
+            #expect(harness.playedSounds == [savedTheme.sounds.done])
             #expect(savedTheme.id.hasPrefix("moonlit-"))
             #expect(store.loadSavedThemes() == [savedTheme])
         }

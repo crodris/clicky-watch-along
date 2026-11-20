@@ -233,6 +233,7 @@ final class CompanionManager: ObservableObject {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
                 designIdeas: { themeIdeasRequest in try await themeIdeasClient.designIdeas(for: themeIdeasRequest) }
             ),
