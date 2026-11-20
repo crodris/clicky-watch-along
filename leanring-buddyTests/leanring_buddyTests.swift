@@ -1060,6 +1060,7 @@ struct leanring_buddyTests {
         #expect(!availableTools.contains(.answerWithScreen))
         #expect(!availableTools.contains(.buildNewScene))
         #expect(!availableTools.contains(.popOut))
+        #expect(!availableTools.contains(.animatePicture))
         #expect(!availableTools.contains(.closeScene))
         #expect(!availableTools.contains(.explainPart))
         #expect(availableTools.contains(.seekRelative))
@@ -1162,6 +1163,93 @@ struct leanring_buddyTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, backgroundSceneIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
         #expect(voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, taskAnswerIsReady: true, phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: false))
+    }
+
+    @Test func theBrainFlagSendsAFirstUtteranceToTheRouterEvenWithNothingOnScreen() async throws {
+        let nothingLive = { (brainTakesEveryRequest: Bool, quizAnswerIsWaiting: Bool, sceneIsBuilding: Bool) in
+            voiceCommandRouterTakesTheTranscript(
+                sceneIsOnScreen: false,
+                videoIsInFront: false,
+                phaseIsWaitingForAQuizAnswer: quizAnswerIsWaiting,
+                sceneIsBuilding: sceneIsBuilding,
+                brainTakesEveryRequest: brainTakesEveryRequest
+            )
+        }
+        #expect(!nothingLive(false, false, false))
+        #expect(nothingLive(true, false, false))
+        // The judge and a scene still building keep their own paths, whatever the flag says.
+        #expect(!nothingLive(true, true, false))
+        #expect(!nothingLive(true, false, true))
+    }
+
+    @Test func theBrainFlagTurnsOffTheAnimateAndTryItKeywordBranchesOnlyWhereTheRouterTakesTheUtterance() async throws {
+        func branch(_ transcript: String, brain: Bool, sceneIsOnScreen: Bool = false, quizAnswerIsWaiting: Bool = false, sceneIsBuilding: Bool = false) -> KeywordBranchAheadOfTheRouter? {
+            keywordBranchAheadOfTheRouter(
+                for: transcript,
+                brainTakesEveryRequest: brain,
+                sceneIsOnScreen: sceneIsOnScreen,
+                phaseIsWaitingForAQuizAnswer: quizAnswerIsWaiting,
+                sceneIsBuilding: sceneIsBuilding
+            )
+        }
+        // The flag off is today's behavior.
+        #expect(branch("animate this", brain: false) == .animatePicture)
+        #expect(branch("let me try it", brain: false) == .startExperiment)
+        #expect(branch("let me try it", brain: false, sceneIsOnScreen: true) == nil)
+        #expect(branch("let me try it", brain: false, quizAnswerIsWaiting: true) == nil)
+        #expect(branch("what is this", brain: false) == nil)
+        // The flag on hands both to the router.
+        #expect(branch("animate this", brain: true) == nil)
+        #expect(branch("let me try it", brain: true) == nil)
+        // A scene still building and a quiz answer never reach the router, so the branches stay.
+        #expect(branch("animate this", brain: true, sceneIsBuilding: true) == .animatePicture)
+        #expect(branch("let me try it", brain: true, sceneIsBuilding: true) == .startExperiment)
+        #expect(branch("animate this", brain: true, quizAnswerIsWaiting: true) == .animatePicture)
+    }
+
+    @Test func theRouterStateNamesABackgroundBuildThatIsWaitingToBeShown() async throws {
+        #expect(readyToShowStateText(isExperiment: false, whatToBuild: "this jet engine") == "a 3D model of \"this jet engine\", built and waiting")
+        #expect(readyToShowStateText(isExperiment: true, whatToBuild: "let me try it") == "an experiment of \"let me try it\", built and waiting")
+        #expect(readyToShowStateText(isExperiment: false, whatToBuild: "  ") == "a 3D model, built and waiting")
+    }
+
+    @Test func aFailedRouterRequestStartsTheExperimentTheBrainFlagSkippedAndOtherwiseTakesTheKeywordPath() async throws {
+        #expect(routerFailureFallback(for: "let me try it", sceneIsOnScreen: false) == .startExperiment)
+        // Over a scene, "let me try it" may mean a slider, so it never starts a second experiment.
+        #expect(routerFailureFallback(for: "let me try it", sceneIsOnScreen: true) == .keywordPath(nil))
+        #expect(routerFailureFallback(for: "animate this", sceneIsOnScreen: false) == .keywordPath(.animatedFramePopout))
+        #expect(routerFailureFallback(for: "what is this", sceneIsOnScreen: false) == .keywordPath(nil))
+    }
+
+    @Test func theBrainFlagReadsTheSavedSettingAndOnlyADebugBuildReadsTheLaunchArgument() async throws {
+        let defaultsSuiteName = "BrainTakesEveryRequestTests-" + UUID().uuidString
+        let isolatedDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { isolatedDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        #expect(!BrainTakesEveryRequest.isOn(defaults: isolatedDefaults, launchArguments: []))
+        isolatedDefaults.set(true, forKey: BrainTakesEveryRequest.defaultsKey)
+        #expect(BrainTakesEveryRequest.isOn(defaults: isolatedDefaults, launchArguments: []))
+        isolatedDefaults.set(false, forKey: BrainTakesEveryRequest.defaultsKey)
+        #if DEBUG
+        #expect(BrainTakesEveryRequest.isOn(defaults: isolatedDefaults, launchArguments: ["Clicky", "--brain-takes-every-request"]))
+        #else
+        #expect(!BrainTakesEveryRequest.isOn(defaults: isolatedDefaults, launchArguments: ["Clicky", "--brain-takes-every-request"]))
+        #endif
+    }
+
+    @Test func everyRequestToolIsOfferedWithNothingOnScreenAndNoVideoInFront() async throws {
+        let nothingOnScreen = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
+        let offeredTools = AppVoiceTool.available(in: nothingOnScreen)
+
+        for requestTool in [AppVoiceTool.answerWithScreen, .buildNewScene, .buildSimulation, .popOut, .animatePicture, .startBackgroundTask] {
+            #expect(offeredTools.contains(requestTool))
+        }
+        // Tools that act on a video or a scene stay out, so the model never picks one that cannot work.
+        #expect(!offeredTools.contains(.pauseVideo))
+        #expect(!offeredTools.contains(.closeScene))
+        #expect(!offeredTools.contains(.buildModelInTheBackground))
+        // animate_picture hands off like pop_out, so its own status line follows and no chip shows.
+        #expect(VoiceToolCall(id: "a", name: "animate_picture", input: [:]).chipPhrase == nil)
     }
 
     @Test func findingAMomentPicksTheCaptionsThatSayTheQueryWords() async throws {

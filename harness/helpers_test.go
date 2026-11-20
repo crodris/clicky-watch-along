@@ -172,12 +172,18 @@ type protocolDriver struct {
 // startHarness runs the harness against a Worker URL and checks that it announces itself first.
 func startHarness(t *testing.T, workerURL string) *protocolDriver {
 	t.Helper()
+	return startHarnessWith(t, configuration{workerBaseURL: workerURL, appSecret: "test-secret"})
+}
+
+// startHarnessWith is startHarness with the rest of the configuration set, such as the skills directories.
+func startHarnessWith(t *testing.T, harnessConfiguration configuration) *protocolDriver {
+	t.Helper()
 	inputReader, inputWriter := io.Pipe()
 	outputReader, outputWriter := io.Pipe()
 	driver := &protocolDriver{t: t, input: inputWriter, lines: make(chan string, 256), runFinished: make(chan error, 1)}
 
 	go func() {
-		driver.runFinished <- run(context.Background(), inputReader, outputWriter, configuration{workerBaseURL: workerURL, appSecret: "test-secret"})
+		driver.runFinished <- run(context.Background(), inputReader, outputWriter, harnessConfiguration)
 		outputWriter.Close()
 	}()
 	go func() {
@@ -273,6 +279,24 @@ func (driver *protocolDriver) stop() {
 
 func startTaskLine(taskID string, goal string) string {
 	return fmt.Sprintf(`{"type":"start_task","taskID":%q,"goal":%q,"frontTabTitle":"SpaceX catch","frontTabURL":"https://www.youtube.com/watch?v=abc"}`, taskID, goal)
+}
+
+func approvalResultLine(approvalID string, approved bool, scope string) string {
+	return fmt.Sprintf(`{"type":"approval_result","approvalID":%q,"approved":%t,"scope":%q}`, approvalID, approved, scope)
+}
+
+// answerNextApproval expects the harness to ask for approval, answers it, and returns the request line.
+func (driver *protocolDriver) answerNextApproval(approved bool, scope string) string {
+	driver.t.Helper()
+	requestLine := driver.expectLine("approval_request")
+	var request struct {
+		ApprovalID string `json:"approvalID"`
+	}
+	if err := json.Unmarshal([]byte(requestLine), &request); err != nil || request.ApprovalID == "" {
+		driver.t.Fatalf("the approval request had no approvalID: %s", requestLine)
+	}
+	driver.send(approvalResultLine(request.ApprovalID, approved, scope))
+	return requestLine
 }
 
 func toolResultLine(taskID string, toolUseID string, contentJSON string, isError bool) string {

@@ -18,12 +18,14 @@ type inboundMessage interface {
 }
 
 // startTaskMessage starts a task agent on the learner's goal. frontTabTitle and frontTabURL describe the page the learner
-// is watching, which "this" in the goal refers to. Both are nil when no tab was found.
+// is watching, which "this" in the goal refers to. Both are nil when no tab was found. Skill, when present, names a
+// skill file (see skills.go) whose steps the task follows.
 type startTaskMessage struct {
 	TaskID        string  `json:"taskID"`
 	Goal          string  `json:"goal"`
 	FrontTabTitle *string `json:"frontTabTitle"`
 	FrontTabURL   *string `json:"frontTabURL"`
+	Skill         *string `json:"skill"`
 }
 
 // toolResultMessage answers one tool_call. Content is a JSON string or an array of content blocks, such as the image
@@ -40,9 +42,24 @@ type cancelTaskMessage struct {
 	TaskID string `json:"taskID"`
 }
 
-func (startTaskMessage) inboundMessage()  {}
-func (toolResultMessage) inboundMessage() {}
-func (cancelTaskMessage) inboundMessage() {}
+// approvalResultMessage answers one approval_request. It names the request by approvalID alone, since the harness made
+// the ID and it is unique across tasks. Scope is "once" (this call only) or "always" (this tool at this capability, for
+// the rest of the harness process). A "no" is never remembered, whatever its scope.
+type approvalResultMessage struct {
+	ApprovalID string `json:"approvalID"`
+	Approved   bool   `json:"approved"`
+	Scope      string `json:"scope"`
+}
+
+const (
+	approvalScopeOnce   = "once"
+	approvalScopeAlways = "always"
+)
+
+func (startTaskMessage) inboundMessage()      {}
+func (toolResultMessage) inboundMessage()     {}
+func (cancelTaskMessage) inboundMessage()     {}
+func (approvalResultMessage) inboundMessage() {}
 
 // parseInboundMessage checks one line from the app at the boundary and returns the typed message, or an error that
 // names what is wrong with the line.
@@ -82,6 +99,26 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 			return nil, fmt.Errorf("cancel_task needs a taskID")
 		}
 		return message, nil
+	case "approval_result":
+		var raw struct {
+			ApprovalID string  `json:"approvalID"`
+			Approved   *bool   `json:"approved"`
+			Scope      *string `json:"scope"`
+		}
+		if err := json.Unmarshal(line, &raw); err != nil {
+			return nil, fmt.Errorf("approval_result is malformed: %w", err)
+		}
+		if raw.ApprovalID == "" || raw.Approved == nil {
+			return nil, fmt.Errorf("approval_result needs an approvalID and approved")
+		}
+		scope := approvalScopeOnce
+		if raw.Scope != nil {
+			scope = *raw.Scope
+		}
+		if scope != approvalScopeOnce && scope != approvalScopeAlways {
+			return nil, fmt.Errorf("approval_result scope must be %q or %q, not %q", approvalScopeOnce, approvalScopeAlways, scope)
+		}
+		return approvalResultMessage{ApprovalID: raw.ApprovalID, Approved: *raw.Approved, Scope: scope}, nil
 	default:
 		return nil, fmt.Errorf("unknown message type %q", envelope.Type)
 	}
@@ -107,6 +144,17 @@ type toolCallMessage struct {
 	Input     json.RawMessage `json:"input"`
 }
 
+// approvalRequestMessage asks the app whether the learner allows one tool call, which waits until approval_result
+// arrives. Capability is "sends", "deletes", "spends", or "reads_private". Summary says in plain words what the call will
+// do, and the harness writes it from the call's own input.
+type approvalRequestMessage struct {
+	Type       string     `json:"type"`
+	TaskID     string     `json:"taskID"`
+	ApprovalID string     `json:"approvalID"`
+	Capability capability `json:"capability"`
+	Summary    string     `json:"summary"`
+}
+
 // taskFinishedMessage ends a task with the answer the agent would speak.
 type taskFinishedMessage struct {
 	Type          string `json:"type"`
@@ -127,11 +175,12 @@ type logMessage struct {
 	Message string `json:"message"`
 }
 
-func (readyMessage) outboundMessage()        {}
-func (toolCallMessage) outboundMessage()     {}
-func (taskFinishedMessage) outboundMessage() {}
-func (taskFailedMessage) outboundMessage()   {}
-func (logMessage) outboundMessage()          {}
+func (readyMessage) outboundMessage()           {}
+func (approvalRequestMessage) outboundMessage() {}
+func (toolCallMessage) outboundMessage()        {}
+func (taskFinishedMessage) outboundMessage()    {}
+func (taskFailedMessage) outboundMessage()      {}
+func (logMessage) outboundMessage()             {}
 
 func newReadyMessage() readyMessage {
 	return readyMessage{Type: "ready"}
@@ -139,6 +188,10 @@ func newReadyMessage() readyMessage {
 
 func newToolCallMessage(taskID string, toolUseID string, name toolName, input json.RawMessage) toolCallMessage {
 	return toolCallMessage{Type: "tool_call", TaskID: taskID, ToolUseID: toolUseID, Name: name, Input: input}
+}
+
+func newApprovalRequestMessage(taskID string, approvalID string, needed capability, summary string) approvalRequestMessage {
+	return approvalRequestMessage{Type: "approval_request", TaskID: taskID, ApprovalID: approvalID, Capability: needed, Summary: summary}
 }
 
 func newTaskFinishedMessage(taskID string, spokenSummary string) taskFinishedMessage {

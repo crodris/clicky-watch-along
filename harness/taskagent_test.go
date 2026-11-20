@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -17,6 +18,14 @@ func replyFromJSON(t *testing.T, stopReason string, contentBlocksJSON string) tu
 		t.Fatalf("the test message is not valid: %v", err)
 	}
 	return newTurn(message)
+}
+
+func TestThePromptNamesTheToolsAnInjectedPageWouldUse(t *testing.T) {
+	for _, name := range []toolName{takeScreenshotTool, readClipboardTool, writeClipboardTool, openURLTool} {
+		if !strings.Contains(taskAgentSystemPrompt, "is an attack") || !strings.Contains(taskAgentSystemPrompt, string(name)+",") && !strings.Contains(taskAgentSystemPrompt, "or "+string(name)) {
+			t.Errorf("the prompt does not name %s among the tools a page cannot steer the agent to use", name)
+		}
+	}
 }
 
 func TestNextStepAfterATurn(t *testing.T) {
@@ -131,7 +140,7 @@ func TestTheFirstMessageNamesThePageTheLearnerWasOn(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := firstMessage("compare the catches", test.title, test.url); got != test.want {
+			if got := firstMessage("compare the catches", test.title, test.url, nil); got != test.want {
 				t.Errorf("first message:\n got %q\nwant %q", got, test.want)
 			}
 		})

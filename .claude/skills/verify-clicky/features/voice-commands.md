@@ -13,7 +13,8 @@ A request that needs a new scene or a screenshot answer hands off to the old pat
   Explode and cutaway need a generated page that lists its `parts`.
 - `voice-video-tools` pauses, plays, seeks, and changes the speed of the largest video on the front tab's page, on any site, and finds a moment in the captions of a YouTube video. A video in a frame from another site cannot be reached.
   A voice pause or play drops Clicky's own pause record on that tab.
-- `voice-handoff` sends "show me a different model", "pop this out", and questions about the screen to the old path.
+- `voice-handoff` sends "show me a different model", "pop this out", "animate this" (`animate_picture`), and questions about the screen to the old path.
+- `voice-brain-flag` makes the router take every first utterance, with nothing on screen and no video in front, when `brainTakesEveryRequest` is on (`defaults write com.crodris.clicky-watch-along brainTakesEveryRequest -bool YES`, or `--brain-takes-every-request` on a Debug build). It is off by default. The "animate this" and "let me try it" keyword branches are skipped, and a quiz answer, a scene still building, "stop the quiz", and "put it back" keep their own code.
 - `voice-quiz-controls` lets the judge hear skip, repeat, a hint request, or a view command during a quiz question.
 - `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `answer_with_screen`, `show_ready_model`, `hear_task_answer`) whose own scene, speech, status line, or thinking dots follow.
 - `voice-give-up` says "Sorry, I couldn't do that one." when the third turn still needs the model, and never the model's own text, which it writes before a tool call runs and can claim a success that failed.
@@ -57,7 +58,8 @@ Preconditions:
 
 ## Gotchas
 
-- The router runs only while a scene is on screen or a video is in Chrome's front tab, so a command with neither goes through the old screenshot path.
+- The router runs only while a scene is on screen or a video is in Chrome's front tab, so a command with neither goes through the old screenshot path. With `brainTakesEveryRequest` on, the router runs for those too.
+  Check it on the Worker with the fixtures: with only `answer_with_screen`, `build_new_scene`, `build_simulation`, `pop_out`, `animate_picture`, and `start_background_task` offered and `{"page":"none"}` as the scene state, "what is this" picks `answer_with_screen`, "let me try it" `build_simulation`, "animate this" `animate_picture`, and "pop this out" `pop_out`.
 - A command during a scene still building goes to the old keyword path, which cancels the build for a plain question.
 - The model writes a short line of text next to its tool call, which is never spoken, so do not treat it as the confirmation.
 - Push-to-talk itself, the chip's look, and the debug switch in the panel cannot be driven by this skill, so report them as unverified unless Chris checks them by hand.

@@ -179,6 +179,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case buildNewScene = "build_new_scene"
     case buildSimulation = "build_simulation"
     case popOut = "pop_out"
+    case animatePicture = "animate_picture"
     case closeScene = "close_scene"
     case explainPart = "explain_part"
     case pauseVideo = "pause_video"
@@ -196,12 +197,13 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case startBackgroundTask = "start_background_task"
     case hearTaskAnswer = "hear_task_answer"
     case recordGuess = "record_guess"
+    case answerApproval = "answer_approval"
 
     /// Whether the tool turns the request into a look at the media on screen, which draws the loop around it.
     /// A turn that only runs tools, such as turning a model or seeking a video, never does.
     var handsOffToALookAtTheMedia: Bool {
         switch self {
-        case .answerWithScreen, .buildNewScene, .popOut:
+        case .answerWithScreen, .buildNewScene, .popOut, .animatePicture:
             return true
         default:
             return false
@@ -229,12 +231,16 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var simulationIsWaitingForAGuess = false
         /// An experiment is on screen, so another build would be a second paid build of the same topic.
         var simulationIsOnScreen = false
+        /// A task agent's tool waits for the learner to allow it, so "yes" and "no" answer it. See `HarnessApprovalDesk`.
+        var approvalIsWaiting = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
         allCases.filter { appVoiceTool in
             switch appVoiceTool {
-            case .answerWithScreen, .buildNewScene, .popOut:
+            // With the brain flag on, a first utterance reaches these with nothing on screen and no video in front, so none of them
+            // may depend on either. animate_picture runs the same path as pop_out, which lifts a picture or pops one out first.
+            case .answerWithScreen, .buildNewScene, .popOut, .animatePicture:
                 return !context.quizQuestionIsOpen
             // With an experiment on screen, set_control and run_simulation change it, and a second build costs a model call.
             case .buildSimulation:
@@ -271,6 +277,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.taskAnswerIsReady && !context.quizQuestionIsOpen
             case .recordGuess:
                 return context.simulationIsWaitingForAGuess && !context.quizQuestionIsOpen
+            // Offered only while a request waits, so a "yes" with nothing to allow never reaches it. A quiz question
+            // sends every utterance to the judge first, so the router never sees one while a question is open.
+            case .answerApproval:
+                return context.approvalIsWaiting
             }
         }
     }
@@ -281,7 +291,36 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     }
 
     var descriptor: VoiceToolDescriptor {
-        VoiceToolDescriptor(name: rawValue, description: toolDescription, inputSchema: inputSchema, readOnly: self == .findMoment)
+        descriptor(skills: [])
+    }
+
+    /// Only start_background_task changes with the skills on disk: it lists them, and takes a skill name when any exist.
+    /// With no skills it is the plain tool, so the model never sees a `skill` input it cannot fill.
+    func descriptor(skills: [TaskAgentSkillSummary]) -> VoiceToolDescriptor {
+        guard self == .startBackgroundTask, !skills.isEmpty else {
+            return VoiceToolDescriptor(name: rawValue, description: toolDescription, inputSchema: inputSchema, readOnly: self == .findMoment)
+        }
+        let skillLines = skills.map { skill in "\(skill.name): \(skill.description)" }.joined(separator: "\n")
+        let skillsDescription = toolDescription
+            + "\nSkills, each a fixed procedure for one kind of task:\n\(skillLines)\n"
+            + "Pass skill when the learner's request matches what one of these skills does, such as \"make flashcards from this video\". Leave skill out for any other task."
+        return VoiceToolDescriptor(
+            name: rawValue,
+            description: skillsDescription,
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "goal": .object(["type": .string("string"), "description": .string("The task in the learner's words, with what it refers to on screen.")]),
+                    "skill": .object([
+                        "type": .string("string"),
+                        "enum": .array(skills.map { .string($0.name) }),
+                        "description": .string("The skill to run. Leave it out when no skill matches the request."),
+                    ]),
+                ]),
+                "required": .array([.string("goal")]),
+            ]),
+            readOnly: false
+        )
     }
 
     private var toolDescription: String {
@@ -294,10 +333,12 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Build a playable experiment of what the video or screen shows, such as a ball launched at an angle, a lever, or a pendulum, with sliders and a Run button. It builds in the background for about 30 to 40 seconds while the video keeps playing, and then rises out of the video, or waits until the learner asks to see it if something else is on screen. Use it when the learner says let me try it, let me play with it, can I try it, or simulate this, and no simulation is on screen yet. When one is on screen, use set_control and run_simulation instead. Your confirmation is a few plain words that it has started, such as \"setting it up\", never that it is done."
         case .popOut:
             return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out."
+        case .animatePicture:
+            return "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
-            return "Say what one labeled part does, while the camera turns to it. label must be one of the scene state's labels."
+            return "Say what one labeled part does, while the camera turns to it. label must be one of the scene state's labels. Use it, not answer_with_screen, for a question about a labeled part, such as \"what does the valve do\" or \"what is the crankshaft for\"."
         case .pauseVideo:
             return "Pause the video in Chrome's front tab."
         case .playVideo:
@@ -321,11 +362,13 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .buildModelInTheBackground:
             return "Build a 3D model of what the video shows in the background, for about 20 seconds, while the video keeps playing. When it is ready it rises out of the video, or waits until the learner asks for it if something else is on screen. Use it when the learner asks to build, make, or create a 3D model, such as \"build me a 3D model of this engine\", or asks for one while they keep watching. Use build_new_scene instead when they ask to show, see, or render something in 3D right now, and for a famous real place, whose real 3D scan only build_new_scene shows. Put what to build in whatToBuild, in the learner's words. Your confirmation is a few plain words that it has started, such as \"starting the model\", never that it is done."
         case .showReadyModel:
-            return "Show the 3D model or experiment built in the background, which is ready and waiting. It pauses the video and rises out of it. Use it when the learner asks to see, show, or open the model or the experiment."
+            return "Show the 3D model or experiment built in the background, which is ready and waiting. It pauses the video and rises out of it. Use it, never a new build, when the learner asks to see, show, or open the model or the experiment, such as \"show me the model\" or \"let me see it\"."
         case .startBackgroundTask:
             return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
         case .hearTaskAnswer:
             return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
+        case .answerApproval:
+            return "Answer the request a background agent is waiting on, which asks the learner to allow one action. The scene state's approvalWaiting names the kind of action, never the action itself. Use it only when the learner answers that request: yes, sure, go ahead, or do it allows it (approved true), and no, don't, stop, or cancel declines it (approved false). Set always true only when they say always or always allow it. Do not use it for any other command. Your confirmation is two plain words, such as \"allowed it\" or \"declined it\"."
         case .recordGuess:
             return "Record the learner's guess to the simulation's prediction question, the scene state's predictionQuestion, which unlocks the Run button and the dashed path. Use it for any answer to that question, even a short or unsure one, such as \"60 goes farther\", \"they tie\", or \"the first one\". Do not use it for a command such as changing a control or running it. Put the guess in guess, in the learner's words. Your confirmation is a few plain words, such as \"got it, now try it\"."
         }
@@ -343,7 +386,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             .object(["type": .string("number"), "description": .string(description)])
         }
         switch self {
-        case .answerWithScreen, .buildSimulation, .popOut, .closeScene, .pauseVideo, .playVideo, .endQuiz:
+        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .closeScene, .pauseVideo, .playVideo, .endQuiz:
             return objectSchema([:], required: [])
         case .buildNewScene:
             return objectSchema(
@@ -362,6 +405,14 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema(["query": .object(["type": .string("string"), "description": .string("A few words that would be said at that moment.")])], required: ["query"])
         case .makeStudyGuide:
             return objectSchema(["focus": .object(["type": .string("string"), "description": .string("An extra wish for the guide, such as only the part about the engine. Leave it out when they made none.")])], required: [])
+        case .answerApproval:
+            return objectSchema(
+                [
+                    "approved": .object(["type": .string("boolean"), "description": .string("true to allow the action, false to decline it.")]),
+                    "always": .object(["type": .string("boolean"), "description": .string("true only when the learner said always, so the agent need not ask again for this tool. Never true when approved is false.")]),
+                ],
+                required: ["approved", "always"]
+            )
         case .recordGuess:
             return objectSchema(["guess": .object(["type": .string("string"), "description": .string("The learner's guess, in their words.")])], required: ["guess"])
         case .reviseStudyGuide:
@@ -433,6 +484,10 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Running it"
         case "record_guess":
             return "Got your guess"
+        case "answer_approval":
+            // A missing approved is refused by the app, so the chip says nothing for it.
+            guard let approvalAnswer = ApprovalVoiceAnswer(toolInput: inputWithoutConfirmation) else { return nil }
+            return approvalAnswer.chipPhrase
         case "set_labels":
             // The page shows labels only for a true visible, so the chip reads it the same way.
             return input["visible"]?.boolValue == true ? "Showing the labels" : "Hiding the labels"
@@ -473,8 +528,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case "start_background_task":
             return "Starting a task"
         default:
-            // pop_out, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
-            // its own status line, thinking dots, rising scene, or voice.
+            // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to
+            // a path with its own status line, thinking dots, rising scene, or voice.
             return nil
         }
     }
@@ -618,7 +673,7 @@ nonisolated let largestPageToolInputSchemaBytes = 2000
 
 /// The Worker refuses a request with two tools of one name, which would send every command to the keyword path, so a
 /// page that lists a name twice keeps its first entry.
-nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool]) -> [VoiceToolDescriptor] {
+nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], appTools: [AppVoiceTool], skills: [TaskAgentSkillSummary] = []) -> [VoiceToolDescriptor] {
     var pageToolNamesSeen: Set<String> = []
     let knownPageTools = pageTools
         .filter { pageTool in
@@ -634,7 +689,7 @@ nonisolated func voiceToolsOfferedToTheModel(pageTools: [VoiceToolDescriptor], a
                 readOnly: pageTool.readOnly
             )
         }
-    return knownPageTools + appTools.map(\.descriptor)
+    return knownPageTools + appTools.map { appTool in appTool.descriptor(skills: skills) }
 }
 
 /// Spoken text comes from the model, which reads page text, so it is cut to a length that fits a confirmation or one sentence.
@@ -694,6 +749,14 @@ nonisolated func voiceToolActionLine(toolCall: VoiceToolCall, outcome: VoiceTool
     return "\(toolCall.name) \(JSONValue.object(toolCall.inputWithoutConfirmation).compactJSONText) -> \(resultWord)"
 }
 
+/// What the router's scene state says while a background build waits to be shown. Without it the only sign is
+/// show_ready_model in the tool list, and "show me the model" went to a new build or a plain answer.
+nonisolated func readyToShowStateText(isExperiment: Bool, whatToBuild: String) -> String {
+    let trimmedRequest = String(whatToBuild.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+    let kindText = isExperiment ? "an experiment" : "a 3D model"
+    return trimmedRequest.isEmpty ? "\(kindText), built and waiting" : "\(kindText) of \"\(trimmedRequest)\", built and waiting"
+}
+
 /// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.
 nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSONValue, recentActionLines: [String]) -> String {
     let stateText = sceneState.compactJSONText.replacingOccurrences(of: "<", with: " ")
@@ -709,18 +772,101 @@ nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSO
 
 /// The router takes a command only when something is live to command: a scene on screen, a
 /// video in Chrome's front tab, on any site, a 3D model or experiment built in the background waiting to be shown, or a task answer
-/// waiting to be heard, since "what did you find" may come from the page the task agent opened.
+/// waiting to be heard, since "what did you find" may come from the page the task agent opened, or a task agent's tool
+/// waiting for the learner's "yes" or "no".
 /// A quiz answer goes to the judge, and a scene still building keeps its keyword path.
+/// With the brain flag on, it takes every first utterance that is not one of those two, even with nothing live.
 nonisolated func voiceCommandRouterTakesTheTranscript(
     sceneIsOnScreen: Bool,
     videoIsInFront: Bool,
     backgroundSceneIsReady: Bool = false,
     taskAnswerIsReady: Bool = false,
+    approvalIsWaiting: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
-    sceneIsBuilding: Bool
+    sceneIsBuilding: Bool,
+    brainTakesEveryRequest: Bool = false
 ) -> Bool {
     if phaseIsWaitingForAQuizAnswer || sceneIsBuilding { return false }
-    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady
+    if brainTakesEveryRequest { return true }
+    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting
+}
+
+/// The "one brain" switch. With it on, the voice command model picks the action for every first utterance, instead of
+/// the keyword branches and the "is anything on screen" check. Off by default, so it can be measured before it becomes
+/// the default. This is the one place that reads it.
+/// Turn it on with `defaults write com.crodris.clicky-watch-along brainTakesEveryRequest -bool YES`, or in a Debug build
+/// by launching with `--brain-takes-every-request`.
+nonisolated enum BrainTakesEveryRequest {
+    static let defaultsKey = "brainTakesEveryRequest"
+    static let debugLaunchArgument = "--brain-takes-every-request"
+
+    static func isOn(
+        defaults: UserDefaults = .standard,
+        launchArguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        #if DEBUG
+        if launchArguments.contains(debugLaunchArgument) { return true }
+        #endif
+        return defaults.bool(forKey: defaultsKey)
+    }
+}
+
+/// A keyword branch that runs ahead of the router, because its words always mean the same thing.
+nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
+    /// "Animate this" animates the pop-out on screen, or pops one out.
+    case animatePicture
+    /// "Let me try it" starts an experiment agent with no model call, so a demo never depends on the router.
+    case startExperiment
+}
+
+/// The keyword branch a transcript takes before the router sees it, or nil. When the brain flag is on and the router
+/// takes the utterance (not a quiz answer, not a scene still building), there is none, since the model picks
+/// `animate_picture` and `build_simulation` itself.
+/// Once a scene is on screen, "let me try it" may mean a slider ("can I try 60 degrees"), which the router reads.
+nonisolated func keywordBranchAheadOfTheRouter(
+    for transcript: String,
+    brainTakesEveryRequest: Bool,
+    sceneIsOnScreen: Bool,
+    phaseIsWaitingForAQuizAnswer: Bool,
+    sceneIsBuilding: Bool
+) -> KeywordBranchAheadOfTheRouter? {
+    // Nothing else is live to command here, so only the brain flag can make the router take the utterance.
+    let brainOwnsTheUtterance = voiceCommandRouterTakesTheTranscript(
+        sceneIsOnScreen: false,
+        videoIsInFront: false,
+        phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
+        sceneIsBuilding: sceneIsBuilding,
+        brainTakesEveryRequest: brainTakesEveryRequest
+    )
+    if brainOwnsTheUtterance { return nil }
+    switch liveSceneKind(for: transcript) {
+    case .animatedFramePopout:
+        return .animatePicture
+    case .simulation:
+        return sceneIsOnScreen || phaseIsWaitingForAQuizAnswer ? nil : .startExperiment
+    default:
+        return nil
+    }
+}
+
+/// What a failed router request does instead. With the brain flag on, "let me try it" skipped its keyword branch to
+/// reach the router, so a failed request starts the experiment here rather than answering the words as a question.
+/// Everything else takes the keyword path, which already pops out or animates from the words.
+nonisolated enum RouterFailureFallback: Equatable {
+    case startExperiment
+    case keywordPath(LiveSceneKind?)
+}
+
+nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: Bool) -> RouterFailureFallback {
+    let skippedKeywordBranch = keywordBranchAheadOfTheRouter(
+        for: transcript,
+        brainTakesEveryRequest: false,
+        sceneIsOnScreen: sceneIsOnScreen,
+        phaseIsWaitingForAQuizAnswer: false,
+        sceneIsBuilding: false
+    )
+    if skippedKeywordBranch == .startExperiment { return .startExperiment }
+    return .keywordPath(keywordPathSceneKind(for: transcript))
 }
 
 // MARK: - Finding a moment in the captions

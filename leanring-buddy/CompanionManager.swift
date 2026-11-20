@@ -150,7 +150,35 @@ final class CompanionManager: ObservableObject {
     private var readyBackgroundScene: ReadyBackgroundScene?
     private lazy var taskAgentClient = TaskAgentClient(workerBaseURL: Self.workerBaseURL)
     /// The Go helper process that runs every task agent's loop. The app answers the tools it asks for.
-    private lazy var agentHarness = AgentHarness(workerBaseURL: Self.workerBaseURL)
+    private lazy var agentHarness: AgentHarness = {
+        let agentHarness = AgentHarness(workerBaseURL: Self.workerBaseURL)
+        agentHarness.approvalDesk.onRequestArrived = { [weak self] approvalRequest in
+            self?.showTheApprovalRequest(approvalRequest)
+        }
+        agentHarness.approvalDesk.onWaitingRequestsChanged = { [weak self] waitingRequests in
+            self?.syncTheApprovalWaitingState(waitingRequests)
+        }
+        agentHarness.approvalDesk.listIsShowing = { [weak self] in
+            self?.agentListPanelController.isOpen ?? false
+        }
+        agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
+            self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+        }
+        return agentHarness
+    }()
+    /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the approval card had
+    /// shown its whole summary for a second at the press, and it is still waiting. The router takes the command, offers
+    /// `answer_approval`, and names the request's capability only for this one, so a yes the app would refuse is never
+    /// asked of the model.
+    private var approvalRequestAVoiceAnswerMayReach: HarnessApprovalRequest? {
+        guard let approvalIDTheLearnerHadSeenAtThePress else { return nil }
+        return agentHarness.approvalDesk.oldestWaitingRequest.flatMap { oldestRequest in
+            oldestRequest.approvalID == approvalIDTheLearnerHadSeenAtThePress ? oldestRequest : nil
+        }
+    }
+
+    /// The text of the chip that says an agent needs the learner's OK, so answering hides that chip and never a newer one.
+    private var approvalWaitingChipPrimaryText: String?
     /// What the newest finished task agent found. It is read aloud only when the learner asks, so it never talks over
     /// the video, and it stays so they can ask again.
     private var readyTaskAnswer: String?
@@ -176,6 +204,7 @@ final class CompanionManager: ObservableObject {
     private lazy var agentListPanelController = AgentListPanelController(
         store: backgroundAgentStore,
         themeSettings: themeSettings,
+        approvalDesk: agentHarness.approvalDesk,
         actions: AgentListActions(
             cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
             showReadyScene: { [weak self] in
@@ -185,6 +214,9 @@ final class CompanionManager: ObservableObject {
             hearTaskAnswer: { [weak self] in
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startSpeakingTheTaskAnswer()
+            },
+            answerApproval: { [weak self] approvalID, approved, scope in
+                self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
             }
         )
     )
@@ -206,6 +238,9 @@ final class CompanionManager: ObservableObject {
         callTool: { [weak self] toolName, toolInput in
             await self?.runVoiceToolFromTheDebugServer(toolName: toolName, toolInput: toolInput)
                 ?? .failed(error: "Clicky is shutting down", state: nil)
+        },
+        answerApproval: { [weak self] approvalID, approved, scope in
+            self?.agentHarness.answerApproval(approvalID: approvalID, approved: approved, scope: scope) ?? false
         }
     )
     #endif
@@ -257,6 +292,9 @@ final class CompanionManager: ObservableObject {
     private var currentResponseTask: Task<Void, Never>?
 
     private var shortcutTransitionCancellable: AnyCancellable?
+    /// The approval request whose whole summary the card had shown for a second when the learner last pressed
+    /// push-to-talk, or a rehearsal step stood in for a press. A voice answer can reach only this request.
+    private var approvalIDTheLearnerHadSeenAtThePress: String?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
@@ -793,6 +831,7 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
+            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
             cursorLoopController.pushToTalkWasPressed()
@@ -974,6 +1013,7 @@ final class CompanionManager: ObservableObject {
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
+            approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
@@ -1046,25 +1086,31 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
             return
         }
-        // "Animate this" has no voice tool, so its keyword path animates the pop-out on screen or pops one out.
-        if liveSceneKind(for: transcript) == .animatedFramePopout {
-            theRequestBecameALookAtTheMedia()
-            respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
-            return
-        }
-
-        // "Let me try it" always starts an experiment agent, with no model call to choose it, so a demo never depends on the router.
-        // Once a scene is on screen the same words may mean a slider ("can I try 60 degrees"), which the router reads.
-        if liveSceneKind(for: transcript) == .simulation,
-           !LiveSceneOverlay.shared.isShowingAScene,
-           !liveScenePhaseIsWaitingForAQuizAnswer {
-            startTheExperimentInTheBackground(transcript: transcript)
-            return
-        }
-
         let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
         if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
+        let brainTakesEveryRequest = BrainTakesEveryRequest.isOn()
+
+        // "Animate this" and "let me try it" keep their keyword branches ahead of the router, so a demo never depends on
+        // the model choosing them, unless the brain flag hands the utterance to the router.
+        switch keywordBranchAheadOfTheRouter(
+            for: transcript,
+            brainTakesEveryRequest: brainTakesEveryRequest,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
+            sceneIsBuilding: sceneIsBuilding
+        ) {
+        case .animatePicture:
+            theRequestBecameALookAtTheMedia()
+            respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
+            return
+        case .startExperiment:
+            startTheExperimentInTheBackground(transcript: transcript)
+            return
+        case nil:
+            break
+        }
+
         // Read once here and handed to the router, because each read is a round trip to Chrome.
         let frontVideoState = phaseIsWaitingForAQuizAnswer || sceneIsBuilding ? nil : videoQuizSession.frontVideoStateForVoiceCommands()
         let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
@@ -1072,8 +1118,10 @@ final class CompanionManager: ObservableObject {
             videoIsInFront: frontVideoState != nil,
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding
+            sceneIsBuilding: sceneIsBuilding,
+            brainTakesEveryRequest: brainTakesEveryRequest
         )
         if routerTakesTheTranscript {
             startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
@@ -2416,7 +2464,8 @@ final class CompanionManager: ObservableObject {
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
-            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene)
+            simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil
         )
     }
 
@@ -2432,7 +2481,7 @@ final class CompanionManager: ObservableObject {
             frontVideoState: frontVideoState,
             studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
         )
-        let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext))
+        let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
         let offeredToolNames = Set(tools.map(\.name))
         let userMessageText = voiceCommandUserMessageText(
             transcript: transcript,
@@ -2440,11 +2489,14 @@ final class CompanionManager: ObservableObject {
             recentActionLines: recentVoiceToolActionLines
         )
         var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
+        // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
+        // screen while they spoke or while the model ran, such as after the shown one's task ended.
+        let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
         // When the third turn still needs the model, Clicky says the apology instead of going quiet.
         var theTurnsRanOut = false
-        for _ in 0..<3 {
+        for turnIndex in 0..<3 {
             theTurnsRanOut = false
             let reply: VoiceCommandReply
             do {
@@ -2463,7 +2515,12 @@ final class CompanionManager: ObservableObject {
                     break
                 }
                 print("Voice command: the router failed, so the keyword path takes it: \(error)")
-                respondByTheKeywordPath(transcript: transcript)
+                switch routerFailureFallback(for: transcript, sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene) {
+                case .startExperiment:
+                    startTheExperimentInTheBackground(transcript: transcript)
+                case .keywordPath:
+                    respondByTheKeywordPath(transcript: transcript)
+                }
                 return
             }
             guard !Task.isCancelled else { return }
@@ -2476,7 +2533,14 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
                 showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
                 let toolStartedAt = Date()
-                let outcome = await runVoiceTool(toolCall, offeredToolNames: offeredToolNames, transcript: transcript)
+                let outcome = await runVoiceTool(
+                    toolCall,
+                    offeredToolNames: offeredToolNames,
+                    transcript: transcript,
+                    // Only the model's first reply to the learner's words may answer a request. A later turn has read
+                    // tool results, which can hold text a page or a server wrote.
+                    approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil
+                )
                 // A push-to-talk press during a slow call, like play_video's check, ends the command here, so its outcome is
                 // never shown or recorded. A hand-off cancels this task itself when it starts the new path, and runs with
                 // no await, so it goes on to show its chip and record its action.
@@ -2530,17 +2594,32 @@ final class CompanionManager: ObservableObject {
 
     /// Runs only a tool this turn offered, so a model, a page, or a debug caller cannot reach one the
     /// current state left out, such as a hand-off during a quiz question.
-    private func runVoiceTool(_ toolCall: VoiceToolCall, offeredToolNames: Set<String>, transcript: String) async -> VoiceToolOutcome {
+    private func runVoiceTool(
+        _ toolCall: VoiceToolCall,
+        offeredToolNames: Set<String>,
+        transcript: String,
+        approvalIDTheLearnerIsAnswering: String? = nil
+    ) async -> VoiceToolOutcome {
         guard offeredToolNames.contains(toolCall.name) else {
             return .failed(error: "\(toolCall.name) is not available right now", state: nil)
         }
         guard let appVoiceTool = AppVoiceTool(rawValue: toolCall.name) else {
             return await LiveSceneOverlay.shared.callPageVoiceTool(named: toolCall.name, input: toolCall.inputWithoutConfirmation)
         }
-        return await runAppVoiceTool(appVoiceTool, input: toolCall.inputWithoutConfirmation, transcript: transcript)
+        return await runAppVoiceTool(
+            appVoiceTool,
+            input: toolCall.inputWithoutConfirmation,
+            transcript: transcript,
+            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+        )
     }
 
-    private func runAppVoiceTool(_ appVoiceTool: AppVoiceTool, input: [String: JSONValue], transcript: String) async -> VoiceToolOutcome {
+    private func runAppVoiceTool(
+        _ appVoiceTool: AppVoiceTool,
+        input: [String: JSONValue],
+        transcript: String,
+        approvalIDTheLearnerIsAnswering: String?
+    ) async -> VoiceToolOutcome {
         if appVoiceTool.handsOffToALookAtTheMedia {
             theRequestBecameALookAtTheMedia()
         }
@@ -2563,6 +2642,10 @@ final class CompanionManager: ObservableObject {
             }
         case .popOut:
             respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
+            return .handedOff
+        case .animatePicture:
+            theRequestBecameALookAtTheMedia()
+            respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
             return .handedOff
         case .closeScene:
             closeTheSceneByVoice()
@@ -2646,12 +2729,19 @@ final class CompanionManager: ObservableObject {
             guard let goal = input["goal"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty else {
                 return .failed(error: "goal must say what the task is", state: nil)
             }
-            return startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)))
+            // The catalog is read again, so a skill file removed since the router built its tools is dropped here.
+            let skillChoice = TaskAgentSkillCatalog.skillNameToRun(requestedName: input["skill"]?.stringValue, catalog: TaskAgentSkillCatalog.currentSkills())
+            if skillChoice.skillWasDropped {
+                print("Task agent: the skill \(input["skill"]?.stringValue ?? "") is not in the catalog, so the task runs with no skill")
+            }
+            return startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name)
         case .hearTaskAnswer:
             startSpeakingTheTaskAnswer()
             return .handedOff
         case .recordGuess:
             return await recordTheSimulationGuess(input["guess"]?.stringValue ?? "")
+        case .answerApproval:
+            return answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript)
         }
     }
 
@@ -2659,24 +2749,30 @@ final class CompanionManager: ObservableObject {
 
     /// Starts a general agent on the learner's task and returns at once, so the router speaks its confirmation and the
     /// video keeps playing.
-    private func startTheTaskAgent(goal: String) -> VoiceToolOutcome {
+    private func startTheTaskAgent(goal: String, skillName: String? = nil) -> VoiceToolOutcome {
         let agentID = backgroundAgentStore.start(kind: .task)
         agentTokenDockController.startServingTheToken(of: agentID)
         backgroundAgentStore.setSubject(goal, for: agentID)
+        if let skillName {
+            // The first step line, before the agent reports its own, so the learner sees which skill runs.
+            backgroundAgentStore.reportStep(TaskAgentSkillCatalog.startingStepText(skillName: skillName), for: agentID)
+        }
         runInTheBackground(agentID) {
-            await self.runTheTaskAgent(goal: goal, agentID: agentID)
+            await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
         }
         return .changed(state: .object(["task": .string("started")]))
     }
 
     /// Starts the task on the agent harness, which runs Claude's loop, and answers each tool it asks for until the task
     /// finishes or fails. Nothing is spoken while it runs. Cancelling this task stops the task in the harness.
-    private func runTheTaskAgent(goal: String, agentID: UUID) async {
+    private func runTheTaskAgent(goal: String, skillName: String? = nil, agentID: UUID) async {
         let startedAt = Date()
+        // The screenshots the agent took, which only this task's tools needed.
+        defer { TaskAgentWorkspace.removeFolder(taskID: agentID) }
         let frontTab = videoQuizSession.frontTabTitleAndURLOfTheFrontWindow()
         var writtenPageURL: URL?
         do {
-            let taskEvents = try agentHarness.startTask(taskID: agentID, goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url)
+            let taskEvents = try agentHarness.startTask(taskID: agentID, goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url, skill: skillName)
             for await taskEvent in taskEvents {
                 try Task.checkCancellation()
                 switch taskEvent {
@@ -2758,8 +2854,11 @@ final class CompanionManager: ObservableObject {
                 print("Task agent: the Notion page failed: \(error)")
                 return errorResult("The page could not be written: \(error)")
             }
+        case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
+            let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
+            return (generalToolRun.content, generalToolRun.isError, nil)
         case nil:
-            // The harness asks only for the four tools, so this is a harness newer than the app.
+            // The harness asks only for the tools above, so this is a harness newer than the app.
             return errorResult("\(toolCall.toolName) is not a tool")
         }
     }
@@ -2796,6 +2895,55 @@ final class CompanionManager: ObservableObject {
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
         }
+    }
+
+    // MARK: - Task Agent Approvals
+
+    /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
+    /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
+    private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
+        NSSound(named: "Pop")?.play()
+        agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+    }
+
+    /// Keeps the chip in step with the approval desk, after each arrival and answer.
+    private func syncTheApprovalWaitingState(_ waitingRequests: [HarnessApprovalRequest]) {
+        if let previousChipText = approvalWaitingChipPrimaryText {
+            VoiceToolCallChip.shared.hide(ifShowing: previousChipText)
+            approvalWaitingChipPrimaryText = nil
+        }
+        guard let oldestRequest = waitingRequests.first,
+              let waitingAgent = backgroundAgentStore.agents.first(where: { $0.id == oldestRequest.taskID }) else { return }
+        let chipTexts = approvalWaitingChipTexts(agentName: waitingAgent.player?.displayName ?? waitingAgent.kind.displayName)
+        approvalWaitingChipPrimaryText = chipTexts.primary
+        VoiceToolCallChip.shared.show(
+            chipTexts.primary,
+            sender: chipSender(forAgent: waitingAgent.id, kind: waitingAgent.kind),
+            secondaryChipText: chipTexts.secondary,
+            secondsOnScreen: HarnessApprovalDesk.defaultTimeoutSeconds
+        )
+    }
+
+    /// The router's `answer_approval` answers the request that was oldest when the learner spoke, the one the agent
+    /// list showed, and only as far as the learner's own words say yes.
+    private func answerTheApproval(
+        _ approvalIDTheLearnerIsAnswering: String?,
+        byVoiceInput input: [String: JSONValue],
+        transcript: String
+    ) -> VoiceToolOutcome {
+        guard let modelAnswer = ApprovalVoiceAnswer(toolInput: input) else {
+            return .failed(error: "approved must be true or false", state: nil)
+        }
+        guard let approvalIDTheLearnerIsAnswering else {
+            return .failed(error: "Only your first reply to the learner's words can answer a request", state: nil)
+        }
+        guard let learnerAnswer = approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript) else {
+            return .failed(error: "The learner's words did not give that answer, so nothing was allowed", state: nil)
+        }
+        guard agentHarness.approvalDesk.answer(approvalID: approvalIDTheLearnerIsAnswering, approved: learnerAnswer.approved, scope: learnerAnswer.scope) else {
+            return .failed(error: "That request is no longer waiting", state: nil)
+        }
+        return .changed(state: .object(["approval": .string(learnerAnswer.approved ? "allowed" : "declined")]))
     }
 
     // MARK: - Background Scene Agents (3D model and experiment)
@@ -3320,7 +3468,7 @@ final class CompanionManager: ObservableObject {
             studyGuideExistsForTheFrontVideo: await studyGuideExistsForTheFrontVideo(frontVideoState: debugFrontVideoState)
         )
         let appTools = AppVoiceTool.available(in: appToolContext).filter { !$0.needsTheSpokenRequest }
-        return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools)
+        return voiceToolsOfferedToTheModel(pageTools: await LiveSceneOverlay.shared.pageVoiceTools(), appTools: appTools, skills: TaskAgentSkillCatalog.currentSkills())
     }
 
     /// Not listed by tools/list, since it is for screenshots and demo takes, not for the model.
@@ -3405,6 +3553,16 @@ final class CompanionManager: ObservableObject {
         }
         if case .simulation = liveScenePageOnScreen, let simulationLesson {
             sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
+        }
+        // Only the capability word, never the summary, which a web page or an MCP server may have written.
+        if let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
+            sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
+        }
+        if let readyBackgroundScene {
+            sceneStateFields["readyToShow"] = .string(readyToShowStateText(
+                isExperiment: readyBackgroundScene.agentKind == .experiment,
+                whatToBuild: readyBackgroundScene.whatToBuild
+            ))
         }
         return .object(sceneStateFields)
     }

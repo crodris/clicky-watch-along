@@ -54,6 +54,16 @@
       "readOnly": false
     },
     {
+      "name": "animate_picture",
+      "description": "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
       "name": "pause_video",
       "description": "Pause the video in Chrome's front tab.",
       "inputSchema": {

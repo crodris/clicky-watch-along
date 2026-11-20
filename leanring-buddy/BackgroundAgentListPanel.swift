@@ -21,6 +21,36 @@ func agentListPanelOrigin(anchorTopLeft: CGPoint, panelSize: CGSize, visibleFram
     return CGPoint(x: originX, y: originY)
 }
 
+/// Where the list opens for an approval request: the first corner around the mouse whose panel, at its tallest and
+/// after it is kept on screen, does not cover the pointer, so a click the learner aimed at the page cannot be taken as
+/// Yes. It returns the panel's top-left corner, the anchor `agentListPanelOrigin` takes.
+func approvalListAnchorTopLeft(mouseLocation: CGPoint, panelSize: CGSize, visibleFrame: CGRect, gapFromTheMouse: CGFloat) -> CGPoint {
+    let leftOfTheMouse = mouseLocation.x - gapFromTheMouse - panelSize.width
+    let rightOfTheMouse = mouseLocation.x + gapFromTheMouse
+    let belowTheMouse = mouseLocation.y - gapFromTheMouse
+    let aboveTheMouse = mouseLocation.y + gapFromTheMouse + panelSize.height
+    let candidateAnchors = [
+        CGPoint(x: rightOfTheMouse, y: belowTheMouse),
+        CGPoint(x: leftOfTheMouse, y: belowTheMouse),
+        CGPoint(x: rightOfTheMouse, y: aboveTheMouse),
+        CGPoint(x: leftOfTheMouse, y: aboveTheMouse),
+    ]
+    for candidateAnchor in candidateAnchors {
+        let origin = agentListPanelOrigin(anchorTopLeft: candidateAnchor, panelSize: panelSize, visibleFrame: visibleFrame)
+        if !CGRect(origin: origin, size: panelSize).contains(mouseLocation) {
+            return candidateAnchor
+        }
+    }
+    return candidateAnchors[0]
+}
+
+/// Whether the approval card's summary shows down to its last line: the bottom of the summary text, in the scroll
+/// area's own coordinates, is inside the area's height. A summary that does not fit counts only once it is scrolled to
+/// its end. A learner who drags straight to the end skips the middle, which this does not catch.
+func approvalSummaryShowsToItsEnd(summaryBottom: CGFloat, scrollAreaHeight: CGFloat) -> Bool {
+    summaryBottom <= scrollAreaHeight + 1
+}
+
 // MARK: - Panel
 
 private final class AgentListPanel: NSPanel {
@@ -47,12 +77,22 @@ struct AgentListActions {
     let showReadyScene: () -> Void
     /// Speaks the task answer that is waiting to be heard.
     let hearTaskAnswer: () -> Void
+    /// Answers a task agent's approval request from the Yes, Always, and No buttons. The desk ignores a click that comes
+    /// too soon after the request showed (`HarnessApprovalDesk.answerByClick`).
+    let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
 }
 
 @MainActor
 final class AgentListPanelController {
     static let panelWidth: CGFloat = 300
     static let maximumPanelHeight: CGFloat = 360
+    /// The approval card's summary scrolls past this height, so a long one cannot push the rows off the screen.
+    static let maximumApprovalSummaryHeight: CGFloat = 200
+    /// The rest of the approval card around its summary: the title line, the buttons, the hint, the padding, and the line
+    /// under the card.
+    static let approvalCardHeightOutsideTheSummary: CGFloat = 110
+    /// The list's tallest, with an approval card above the rows.
+    static let maximumPanelHeightWithAnApprovalCard: CGFloat = maximumPanelHeight + maximumApprovalSummaryHeight + approvalCardHeightOutsideTheSummary
     private static let gapFromTheMouse: CGFloat = 12
     /// One level above the cursor overlay windows, so the list is never under the cursor.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
@@ -60,6 +100,8 @@ final class AgentListPanelController {
     private let store: BackgroundAgentStore
     private let themeSettings: CompanionThemeSettings
     private let actions: AgentListActions
+    /// The queue of requests the learner answers with the Yes, Always, and No buttons of the approval card.
+    private let approvalDesk: HarnessApprovalDesk
     private var panel: AgentListPanel?
     private var clickOutsideMonitor: Any?
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
@@ -68,9 +110,10 @@ final class AgentListPanelController {
     /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
 
-    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, actions: AgentListActions) {
+    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, approvalDesk: HarnessApprovalDesk, actions: AgentListActions) {
         self.store = store
         self.themeSettings = themeSettings
+        self.approvalDesk = approvalDesk
         self.actions = actions
     }
 
@@ -120,6 +163,7 @@ final class AgentListPanelController {
         let agentListView = AgentListView(
             store: store,
             themeSettings: themeSettings,
+            approvalDesk: approvalDesk,
             actions: actions,
             initiallyExpandedAgentID: initiallyExpandedAgentID
         ) { [weak self] contentSize in
@@ -128,7 +172,7 @@ final class AgentListPanelController {
         let hostingView = AgentListHostingView(rootView: agentListView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
-        let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeight))
+        let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeightWithAnApprovalCard))
 
         let agentListPanel = AgentListPanel(
             contentRect: CGRect(origin: .zero, size: initialSize),
@@ -152,8 +196,27 @@ final class AgentListPanelController {
         installClickOutsideMonitor()
     }
 
+    /// An approval request arrived: open the list next to the mouse with the requesting agent's row expanded. An open
+    /// list stays where it is, since its approval card shows the oldest request by itself.
+    func openForAnApprovalRequest(fromAgentID agentID: UUID) {
+        guard !isOpen else { return }
+        let mouseLocation = NSEvent.mouseLocation
+        let visibleFrame = screenUnderTheMouseCursor()?.visibleFrame ?? .zero
+        open(
+            anchorTopLeft: approvalListAnchorTopLeft(
+                mouseLocation: mouseLocation,
+                panelSize: CGSize(width: Self.panelWidth, height: Self.maximumPanelHeightWithAnApprovalCard),
+                visibleFrame: visibleFrame,
+                gapFromTheMouse: Self.gapFromTheMouse
+            ),
+            visibleFrame: visibleFrame,
+            initiallyExpandedAgentID: agentID
+        )
+    }
+
     func close() {
         discTheListWasOpenedFrom = nil
+        approvalDesk.theCardStoppedShowingTheWholeSummary()
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
@@ -166,7 +229,7 @@ final class AgentListPanelController {
 
     private func resizePanel(to contentSize: CGSize) {
         guard let panel else { return }
-        let panelSize = CGSize(width: Self.panelWidth, height: min(contentSize.height, Self.maximumPanelHeight))
+        let panelSize = CGSize(width: Self.panelWidth, height: min(contentSize.height, Self.maximumPanelHeightWithAnApprovalCard))
         let panelOrigin = agentListPanelOrigin(anchorTopLeft: anchorTopLeft, panelSize: panelSize, visibleFrame: visibleFrame)
         panel.setFrame(CGRect(origin: panelOrigin, size: panelSize), display: true)
     }
@@ -255,6 +318,7 @@ private struct AgentListView: View {
     @ObservedObject var store: BackgroundAgentStore
     @ObservedObject var themeSettings: CompanionThemeSettings
     let actions: AgentListActions
+    @ObservedObject var approvalDesk: HarnessApprovalDesk
     let onContentSizeChange: (CGSize) -> Void
 
     @State private var expandedAgentID: UUID?
@@ -264,12 +328,14 @@ private struct AgentListView: View {
     init(
         store: BackgroundAgentStore,
         themeSettings: CompanionThemeSettings,
+        approvalDesk: HarnessApprovalDesk,
         actions: AgentListActions,
         initiallyExpandedAgentID: UUID?,
         onContentSizeChange: @escaping (CGSize) -> Void
     ) {
         self.store = store
         self.themeSettings = themeSettings
+        self.approvalDesk = approvalDesk
         self.actions = actions
         self.onContentSizeChange = onContentSizeChange
         _expandedAgentID = State(initialValue: initiallyExpandedAgentID)
@@ -323,6 +389,28 @@ private struct AgentListView: View {
                 .fill(DS.Colors.borderSubtle)
                 .frame(height: 1)
 
+            // The oldest request sits above the rows, so no scroll position can hide it.
+            if let oldestRequest = approvalDesk.oldestWaitingRequest {
+                ApprovalCardView(
+                    approvalRequest: oldestRequest,
+                    agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map { agent in agent.player?.displayName ?? agent.kind.displayName } ?? "An agent",
+                    answerApproval: actions.answerApproval,
+                    wholeSummaryIsShowing: { wholeSummaryIsShowing in
+                        if wholeSummaryIsShowing {
+                            approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: oldestRequest.approvalID)
+                        } else {
+                            approvalDesk.theCardStoppedShowingTheWholeSummary()
+                        }
+                    }
+                )
+                // A new request gets a new card, so its summary is measured from the top.
+                .id(oldestRequest.approvalID)
+
+                Rectangle()
+                    .fill(DS.Colors.borderSubtle)
+                    .frame(height: 1)
+            }
+
             if store.agents.isEmpty {
                 Text("No agents yet. Ask for a study guide while a video plays.")
                     .font(.system(size: 12))
@@ -334,10 +422,12 @@ private struct AgentListView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(store.agents) { agent in
+                            let approvalState = agentListApprovalState(forAgentID: agent.id, waitingRequests: approvalDesk.waitingRequests)
                             AgentRowView(
                                 agent: agent,
                                 resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
                                 isExpanded: expandedAgentID == agent.id,
+                                approvalState: approvalState,
                                 onToggle: { expandedAgentID = expandedAgentID == agent.id ? nil : agent.id },
                                 actions: actions
                             )
@@ -370,6 +460,7 @@ private struct AgentRowView: View {
     /// False while a video quiz question is open, when the Show and Hear buttons wait (`agentListMayDeliverAWaitingResult`).
     let resultsMayBeDeliveredNow: Bool
     let isExpanded: Bool
+    let approvalState: AgentListApprovalState
     let onToggle: () -> Void
     let actions: AgentListActions
 
@@ -399,6 +490,12 @@ private struct AgentRowView: View {
                                 .foregroundColor(DS.Colors.textSecondary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
+                            if let approvalStatusText = approvalState.rowStatusText {
+                                Text(approvalStatusText)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(DS.Colors.warningText)
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer(minLength: 8)
                         elapsedTimeText
@@ -545,6 +642,7 @@ extension AgentRowView {
             }
         }
     }
+
 }
 
 private struct AgentActionButton: View {
@@ -610,3 +708,97 @@ func agentListPortraitBorderColor(phase: BackgroundAgentPhase, school: HaikyuSch
     case .cancelled: return DS.Colors.textTertiary
     }
 }
+
+// MARK: - Approval card
+
+private struct ApprovalSummaryBottomPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = .infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ApprovalSummaryScrollAreaHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// The oldest approval request, pinned above the agent rows: the harness's summary shown whole as plain text, which a
+/// web page or an MCP server may have written, and the Yes, Always, and No buttons. The summary scrolls inside the card
+/// when it is long, and the card tells the desk whether all of it is showing, since an answer counts only after it has.
+private struct ApprovalCardView: View {
+    let approvalRequest: HarnessApprovalRequest
+    let agentName: String
+    let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
+    let wholeSummaryIsShowing: (Bool) -> Void
+
+    @State private var summaryBottom: CGFloat = .infinity
+    @State private var scrollAreaHeight: CGFloat = 0
+
+    private static let scrollAreaCoordinateSpaceName = "approvalSummaryScrollArea"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: "\(agentName) needs your OK. Allow this?")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(DS.Colors.warningText)
+            ScrollView {
+                Text(verbatim: approvalRequest.summary)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(
+                        GeometryReader { summaryProxy in
+                            Color.clear.preference(
+                                key: ApprovalSummaryBottomPreferenceKey.self,
+                                value: summaryProxy.frame(in: .named(Self.scrollAreaCoordinateSpaceName)).maxY
+                            )
+                        }
+                    )
+            }
+            .frame(maxHeight: AgentListPanelController.maximumApprovalSummaryHeight)
+            .fixedSize(horizontal: false, vertical: true)
+            .coordinateSpace(name: Self.scrollAreaCoordinateSpaceName)
+            .background(
+                GeometryReader { scrollAreaProxy in
+                    Color.clear.preference(key: ApprovalSummaryScrollAreaHeightPreferenceKey.self, value: scrollAreaProxy.size.height)
+                }
+            )
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(DS.Colors.surface2))
+            .onPreferenceChange(ApprovalSummaryBottomPreferenceKey.self) { newSummaryBottom in
+                summaryBottom = newSummaryBottom
+                reportWhetherTheWholeSummaryShows()
+            }
+            .onPreferenceChange(ApprovalSummaryScrollAreaHeightPreferenceKey.self) { newScrollAreaHeight in
+                scrollAreaHeight = newScrollAreaHeight
+                reportWhetherTheWholeSummaryShows()
+            }
+            HStack(spacing: 6) {
+                AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {
+                    answerApproval(approvalRequest.approvalID, true, .once)
+                }
+                AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
+                    answerApproval(approvalRequest.approvalID, true, .always)
+                }
+                AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
+                    answerApproval(approvalRequest.approvalID, false, .once)
+                }
+            }
+            Text(verbatim: "Or say yes or no.")
+                .font(.system(size: 10))
+                .foregroundColor(DS.Colors.textSecondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func reportWhetherTheWholeSummaryShows() {
+        guard scrollAreaHeight > 0 else { return }
+        wholeSummaryIsShowing(approvalSummaryShowsToItsEnd(summaryBottom: summaryBottom, scrollAreaHeight: scrollAreaHeight))
+    }
+}
+
