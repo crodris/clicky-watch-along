@@ -11,6 +11,7 @@
 
 import Combine
 import Foundation
+import os
 
 // MARK: - Messages from the harness
 
@@ -491,6 +492,35 @@ nonisolated func agentHarnessEnvironment(
 /// None of these is a credential. The harness copies them to a stdio MCP server, never the Worker's secret.
 nonisolated let harnessInheritedVariableNames = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "SHELL"]
 
+/// Writes the app's lines to the harness's stdin on one serial queue, so lines never interleave and a large tool
+/// result, such as a screenshot, never blocks the main thread on a full pipe. It is not on the main actor, because a
+/// voice command's cancel handler runs wherever the cancel happens and writes its line here too
+/// (`HarnessVoiceCommandLines`).
+nonisolated final class HarnessStandardInputWriter: Sendable {
+    /// The stdin of the harness that runs now, or nil while none does.
+    private let standardInputHandle = OSAllocatedUnfairLock<FileHandle?>(initialState: nil)
+    private let writeQueue = DispatchQueue(label: "com.crodris.clicky-watch-along.agent-harness-stdin")
+
+    func attach(_ handle: FileHandle?) {
+        standardInputHandle.withLock { attachedHandle in attachedHandle = handle }
+    }
+
+    func write(_ command: HarnessCommand) {
+        guard let handle = standardInputHandle.withLock({ attachedHandle in attachedHandle }) else {
+            print("Agent harness: dropped a \(command.json["type"]?.stringValue ?? "message") because the harness is not running")
+            return
+        }
+        let commandLine = command.line
+        writeQueue.async {
+            do {
+                try handle.write(contentsOf: commandLine)
+            } catch {
+                print("Agent harness: could not write to the harness: \(error)")
+            }
+        }
+    }
+}
+
 enum AgentHarnessError: Error, Equatable {
     case helperIsMissing(path: String)
     case helperCouldNotStart(String)
@@ -514,11 +544,9 @@ final class AgentHarness {
     }()
 
     private var runningProcess: Process?
-    private var standardInputHandle: FileHandle?
     private var standardOutputReaderTask: Task<Void, Never>?
-    /// Every write goes through this one queue, so lines never interleave and a large tool result, such as a screenshot,
-    /// never blocks the main thread on a full pipe.
-    private let standardInputWriteQueue = DispatchQueue(label: "com.crodris.clicky-watch-along.agent-harness-stdin")
+    /// Every write goes through this one writer and its one queue, from the main actor or a voice command's cancel handler.
+    let standardInputWriter = HarnessStandardInputWriter()
 
     /// `helperURL` is where Xcode's "Build Agent Harness" phase puts the binary, unless a test points at another build.
     init(
@@ -558,6 +586,31 @@ final class AgentHarness {
     func cancelTask(taskID: UUID) {
         taskRouter.end(taskID: taskID)
         write(.cancelTask(taskID: taskID))
+    }
+
+    /// Starts a voice command on the brain. The stream ends after voice_command_finished or task_failed, when the harness
+    /// stops, or when `endVoiceCommand` ends it. The command's tool results and its cancel go out through
+    /// `HarnessVoiceCommandLines`, never through `sendToolResult` or `cancelTask`.
+    func startVoiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, recentActions: [String], tools: [VoiceToolDescriptor]) throws -> AsyncStream<HarnessTaskEvent> {
+        try launchTheHarnessIfItIsNotRunning()
+        let commandEvents = taskRouter.register(taskID: taskID)
+        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, recentActions: recentActions, tools: tools))
+        return commandEvents
+    }
+
+    /// Stops routing a voice command's events, after one last event when there is one, and writes nothing, since the
+    /// command's own lines say whether the harness is told to cancel it.
+    func endVoiceCommand(taskID: UUID, lastEvent: HarnessTaskEvent? = nil) {
+        taskRouter.end(taskID: taskID, lastEvent: lastEvent)
+    }
+
+    /// Launches the harness now, at app start, so the first voice command on the brain does not wait for the process.
+    func prewarm() {
+        do {
+            try launchTheHarnessIfItIsNotRunning()
+        } catch {
+            print("Agent harness: could not start it ahead of the first voice command: \(error)")
+        }
     }
 
     private func launchTheHarnessIfItIsNotRunning() throws {
@@ -608,7 +661,7 @@ final class AgentHarness {
         }
 
         runningProcess = process
-        standardInputHandle = standardInputPipe.fileHandleForWriting
+        standardInputWriter.attach(standardInputPipe.fileHandleForWriting)
         let standardOutputHandle = standardOutputPipe.fileHandleForReading
         standardOutputReaderTask = Task { [weak self] in
             do {
@@ -646,7 +699,7 @@ final class AgentHarness {
     /// Every task the harness had is lost with it, so each one fails and the next task launches a fresh harness.
     private func forgetTheHarnessThatExited(_ exitedProcess: Process) {
         runningProcess = nil
-        standardInputHandle = nil
+        standardInputWriter.attach(nil)
         standardOutputReaderTask?.cancel()
         standardOutputReaderTask = nil
         approvalDesk.dropAllRequests()
@@ -654,17 +707,6 @@ final class AgentHarness {
     }
 
     private func write(_ command: HarnessCommand) {
-        guard let standardInputHandle else {
-            print("Agent harness: dropped a \(command.json["type"]?.stringValue ?? "message") because the harness is not running")
-            return
-        }
-        let commandLine = command.line
-        standardInputWriteQueue.async {
-            do {
-                try standardInputHandle.write(contentsOf: commandLine)
-            } catch {
-                print("Agent harness: could not write to the harness: \(error)")
-            }
-        }
+        standardInputWriter.write(command)
     }
 }

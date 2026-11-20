@@ -1,0 +1,153 @@
+//
+//  HarnessVoiceCommandTests.swift
+//  leanring-buddyTests
+//
+//  A voice command on the brain, from the app's side: which approval ID each call carries, and which lines the command
+//  writes back to the harness when a hand-off or a push-to-talk press cancels it. The harness's own rules are tested
+//  in harness/brainloop_test.go.
+//
+
+import Foundation
+import os
+import Testing
+@testable import Clicky
+
+/// Keeps every line a command writes, in order, as AgentHarness's stdin queue would send them.
+private final class HarnessLineRecorder: Sendable {
+    private let recordedLines = OSAllocatedUnfairLock<[HarnessCommand]>(initialState: [])
+
+    var lines: [HarnessCommand] { recordedLines.withLock { lines in lines } }
+
+    func record(_ harnessCommand: HarnessCommand) {
+        recordedLines.withLock { lines in lines.append(harnessCommand) }
+    }
+}
+
+@MainActor
+struct HarnessVoiceCommandTests {
+    private let commandID = UUID(uuidString: "E621E1F8-C36C-495A-93FC-0C247A3E6E5F")!
+
+    private func approvalCall(toolUseID: String, turnIndex: Int?) -> HarnessTaskEvent {
+        .toolCall(HarnessToolCall(toolUseID: toolUseID, toolName: "answer_approval", input: ["approved": .bool(true), "always": .bool(false)], turnIndex: turnIndex))
+    }
+
+    @Test func onlyACallFromTheFirstTurnCarriesTheApprovalIDTheLearnerHadSeenAtThePress() async {
+        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        eventContinuation.yield(approvalCall(toolUseID: "toolu_first_turn", turnIndex: 0))
+        eventContinuation.yield(approvalCall(toolUseID: "toolu_second_turn", turnIndex: 1))
+        eventContinuation.yield(approvalCall(toolUseID: "toolu_no_turn", turnIndex: nil))
+        eventContinuation.yield(.voiceCommandFinished(spokenLine: "allowed it", gaveUp: false))
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+
+        var approvalIDsTheCallsCarried: [String?] = []
+        let commandEnding = await runTheVoiceCommandEvents(
+            commandEvents,
+            lines: commandLines,
+            approvalIDWaitingWhenTheCommandStarted: "approval-seen-at-the-press",
+            whenNoEventArrivesInTime: {},
+            runTool: { _, approvalIDTheLearnerIsAnswering in
+                approvalIDsTheCallsCarried.append(approvalIDTheLearnerIsAnswering)
+                return .changed(state: nil)
+            }
+        )
+
+        #expect(commandEnding == .finished(spokenLine: "allowed it", gaveUp: false))
+        // A later turn has read tool results, which a page or a server may have written, so its yes reaches no request.
+        #expect(approvalIDsTheCallsCarried == ["approval-seen-at-the-press", nil, nil])
+        #expect(recorder.lines == [
+            .voiceToolResult(taskID: commandID, toolUseID: "toolu_first_turn", outcome: .changed(state: nil)),
+            .voiceToolResult(taskID: commandID, toolUseID: "toolu_second_turn", outcome: .changed(state: nil)),
+            .voiceToolResult(taskID: commandID, toolUseID: "toolu_no_turn", outcome: .changed(state: nil)),
+        ])
+    }
+
+    @Test func aPopOutWritesOneHandedOffResultAndNoCancel() async {
+        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_pop", toolName: "pop_out", input: [:], turnIndex: 0)))
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+
+        let commandTask = Task { @MainActor in
+            await runTheVoiceCommandEvents(
+                commandEvents,
+                lines: commandLines,
+                approvalIDWaitingWhenTheCommandStarted: nil,
+                whenNoEventArrivesInTime: {},
+                runTool: { _, _ in
+                    // What runAppVoiceTool's pop_out branch does: the mark, then respondToTranscript, whose first line
+                    // cancels currentResponseTask, which is this command's task, before .handedOff is returned.
+                    commandLines.handOffHasStarted()
+                    withUnsafeCurrentTask { commandTaskItself in commandTaskItself?.cancel() }
+                    return .handedOff
+                }
+            )
+        }
+
+        #expect(await commandTask.value == .cancelled)
+        #expect(recorder.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_pop", outcome: .handedOff)])
+    }
+
+    @Test func aCancelJustBeforeTheHandOffMarkSendsCancelAndOneJustAfterSendsOnlyTheHandedOffResult() {
+        let cancelledBeforeTheMark = HarnessLineRecorder()
+        let linesCancelledBeforeTheMark = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledBeforeTheMark.record(harnessCommand) })
+        linesCancelledBeforeTheMark.callStarted(toolUseID: "toolu_pop")
+        linesCancelledBeforeTheMark.commandWasCancelled()
+        linesCancelledBeforeTheMark.handOffHasStarted()
+        linesCancelledBeforeTheMark.sendTheResult(of: .handedOff)
+        #expect(cancelledBeforeTheMark.lines == [.cancelTask(taskID: commandID)])
+
+        let cancelledAfterTheMark = HarnessLineRecorder()
+        let linesCancelledAfterTheMark = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledAfterTheMark.record(harnessCommand) })
+        linesCancelledAfterTheMark.callStarted(toolUseID: "toolu_pop")
+        linesCancelledAfterTheMark.handOffHasStarted()
+        linesCancelledAfterTheMark.commandWasCancelled()
+        linesCancelledAfterTheMark.sendTheResult(of: .handedOff)
+        // A second cancel, such as a press during the hand-off's reply, sends nothing either.
+        linesCancelledAfterTheMark.commandWasCancelled()
+        #expect(cancelledAfterTheMark.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_pop", outcome: .handedOff)])
+    }
+
+    @Test func theWaitForAnEventStopsWhileAToolRunsAndFailsTheCommandWhenNothingComes() async {
+        final class DeadlineRecord {
+            var toolIsRunning = false
+            var deadlinePassedWhileAToolRan = false
+            var deadlinesPassed = 0
+        }
+        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_play", toolName: "play_video", input: [:], turnIndex: 0)))
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+        let deadlineRecord = DeadlineRecord()
+
+        let commandEnding = await runTheVoiceCommandEvents(
+            commandEvents,
+            lines: commandLines,
+            approvalIDWaitingWhenTheCommandStarted: nil,
+            secondsToWaitForAnEvent: 0.1,
+            whenNoEventArrivesInTime: {
+                deadlineRecord.deadlinesPassed += 1
+                deadlineRecord.deadlinePassedWhileAToolRan = deadlineRecord.deadlinePassedWhileAToolRan || deadlineRecord.toolIsRunning
+                // What CompanionManager does: tell the harness, and end the stream with the failure.
+                commandLines.commandWasCancelled()
+                eventContinuation.yield(.failed(reason: "the agent harness sent nothing for 10 seconds"))
+                eventContinuation.finish()
+            },
+            runTool: { _, _ in
+                // play_video checks for about 1.6 seconds, longer than the wait for an event.
+                deadlineRecord.toolIsRunning = true
+                try? await Task.sleep(for: .milliseconds(300))
+                deadlineRecord.toolIsRunning = false
+                return .changed(state: nil)
+            }
+        )
+
+        #expect(commandEnding == .failed(reason: "the agent harness sent nothing for 10 seconds"))
+        #expect(deadlineRecord.deadlinesPassed == 1)
+        #expect(!deadlineRecord.deadlinePassedWhileAToolRan)
+        #expect(recorder.lines == [
+            .voiceToolResult(taskID: commandID, toolUseID: "toolu_play", outcome: .changed(state: nil)),
+            .cancelTask(taskID: commandID),
+        ])
+    }
+}

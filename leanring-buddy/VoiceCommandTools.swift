@@ -811,6 +811,27 @@ nonisolated enum BrainTakesEveryRequest {
     }
 }
 
+/// The harness flag. With it on, the voice command router runs in the Go agent harness (harness/brainloop.go) instead
+/// of calling POST /voice-command, with the same Haiku loop. It decides where the router runs, and
+/// `BrainTakesEveryRequest` decides when it takes a transcript. Off by default until the harness brain is measured
+/// against the Worker route. This is the one place that reads it.
+/// Turn it on with `defaults write com.crodris.clicky-watch-along brainRunsInTheHarness -bool YES`, or in a Debug build
+/// by launching with `--brain-runs-in-the-harness`.
+nonisolated enum BrainRunsInTheHarness {
+    static let defaultsKey = "brainRunsInTheHarness"
+    static let debugLaunchArgument = "--brain-runs-in-the-harness"
+
+    static func isOn(
+        defaults: UserDefaults = .standard,
+        launchArguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        #if DEBUG
+        if launchArguments.contains(debugLaunchArgument) { return true }
+        #endif
+        return defaults.bool(forKey: defaultsKey)
+    }
+}
+
 /// A keyword branch that runs ahead of the router, because its words always mean the same thing.
 nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
     /// "Animate this" animates the pop-out on screen, or pops one out.
