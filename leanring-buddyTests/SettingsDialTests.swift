@@ -213,3 +213,81 @@ struct SettingsDialPlacementTests {
         #expect(windowMiddleY == tinyFrame.midY)
     }
 }
+
+// MARK: - Labels
+
+/// The distance from a point to a rectangle, zero when the point is inside it.
+private func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+    let nearestX = min(max(point.x, rect.minX), rect.maxX)
+    let nearestY = min(max(point.y, rect.minY), rect.maxY)
+    return hypot(point.x - nearestX, point.y - nearestY)
+}
+
+private func rect(centeredAt center: CGPoint, size: CGSize) -> CGRect {
+    CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+}
+
+/// The window around the dial's center, as offsets from the center with y growing down.
+private var dialWindowOffsets: CGRect {
+    CGRect(
+        x: -SettingsDialPlacement.reachLeft,
+        y: -SettingsDialPlacement.reachAbove,
+        width: SettingsDialPlacement.reachLeft + SettingsDialPlacement.reachRight,
+        height: SettingsDialPlacement.reachAbove + SettingsDialPlacement.reachBelow
+    )
+}
+
+struct SettingsDialLabelTests {
+
+    private func teamFanBallCenter(itemIndex: Int) -> CGPoint {
+        let angleInRadians = (SettingsDialSlice.team.fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0) * .pi / 180
+        return CGPoint(
+            x: cos(angleInRadians) * SettingsDialGeometry.fanRadius,
+            y: sin(angleInRadians) * SettingsDialGeometry.fanRadius
+        )
+    }
+
+    @Test func everyTeamFanLabelFitsInsideTheWindowAndCoversNoBall() {
+        let emphasizedBallRadius: CGFloat = 15
+        let otherBallRadius: CGFloat = 10.5
+        let ballCenters = CompanionTheme.allChoices.indices.map(teamFanBallCenter(itemIndex:))
+        for (itemIndex, theme) in CompanionTheme.allChoices.enumerated() {
+            let pillSize = SettingsDialLabel.pillSize(forText: theme.displayName)
+            let pillCenter = SettingsDialLabel.fanLabelCenterOffset(
+                ballCenterOffset: ballCenters[itemIndex],
+                ballRadius: emphasizedBallRadius,
+                labelPillSize: pillSize
+            )
+            let pillRect = rect(centeredAt: pillCenter, size: pillSize)
+
+            // "Shiratorizawa", "Aoba Johsai", and "Clicky blue" are the long ones.
+            #expect(dialWindowOffsets.contains(pillRect), "\(theme.displayName) sticks out of the dial's window")
+            #expect(distance(from: ballCenters[itemIndex], to: pillRect) >= emphasizedBallRadius, "\(theme.displayName) covers its own ball")
+            for (otherIndex, otherBallCenter) in ballCenters.enumerated() where otherIndex != itemIndex {
+                #expect(distance(from: otherBallCenter, to: pillRect) >= otherBallRadius, "\(theme.displayName) covers the ball at \(otherIndex)")
+            }
+        }
+    }
+
+    @Test func everyTokenLabelFitsInsideTheWindowAndCoversNoToken() {
+        let tokenCenters = Dictionary(uniqueKeysWithValues: SettingsDialSlice.allCases.map { slice -> (SettingsDialSlice, CGPoint) in
+            let angleInRadians = slice.angleDegrees * .pi / 180
+            return (slice, CGPoint(
+                x: cos(angleInRadians) * SettingsDialGeometry.tokenRingRadius,
+                y: sin(angleInRadians) * SettingsDialGeometry.tokenRingRadius
+            ))
+        })
+        let titles: [SettingsDialSlice: String] = [.team: "Team", .model: "Model", .agents: "Agents", .show: "Show", .more: "More"]
+        for slice in SettingsDialSlice.allCases {
+            let pillSize = SettingsDialLabel.pillSize(forText: titles[slice] ?? "")
+            let offsetY = SettingsDialLabel.tokenLabelCenterOffsetY(for: slice, labelPillHeight: pillSize.height)
+            let pillRect = rect(centeredAt: CGPoint(x: tokenCenters[slice]!.x, y: tokenCenters[slice]!.y + offsetY), size: pillSize)
+
+            #expect(dialWindowOffsets.contains(pillRect), "\(slice) label sticks out of the dial's window")
+            #expect((offsetY < 0) == (slice == .team), "\(slice) label is on the wrong side of its token")
+            for (tokenSlice, tokenCenter) in tokenCenters {
+                #expect(distance(from: tokenCenter, to: pillRect) >= SettingsDialGeometry.tokenDiameter / 2, "\(slice) label covers the \(tokenSlice) token")
+            }
+        }
+    }
+}
