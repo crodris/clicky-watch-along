@@ -408,10 +408,13 @@ final class BackgroundAgentStore: ObservableObject {
     #if DEBUG
     /// For a take that needs several running agents of one kind, such as three task agents with three colors
     /// (`debug_seed_agents` with `kinds`): one running agent for each kind named, in order.
-    func seedRunningAgentsForScreenshots(kinds: [BackgroundAgentKind]) {
-        for kind in kinds {
+    /// Returns the new agents' ids in order, so a take can serve their tokens from the cursor.
+    @discardableResult
+    func seedRunningAgentsForScreenshots(kinds: [BackgroundAgentKind]) -> [UUID] {
+        kinds.map { kind in
             let agentID = start(kind: kind)
             setSubject("A seeded \(kind.displayName.lowercased()) agent", for: agentID)
+            return agentID
         }
     }
     #endif
