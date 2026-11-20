@@ -145,7 +145,7 @@ struct BlueCursorView: View {
     /// The loop around the video or image Clicky is looking at. It is the thinking light while it shows, so it is
     /// observed here to redraw the ring and the loop together.
     @ObservedObject private var cursorLoopController: CursorLoopController
-    /// While a status line shows, its icon stands in for the triangle, spinner, and waveform.
+    /// While a status line shows, its icon stands in for the triangle, and the ring hides.
     @ObservedObject private var statusLabelModel = LiveSceneStatusLabel.shared.statusLabelModel
 
     /// True when the status icon takes the triangle's spot: the label shows, the screen's edge did not
@@ -431,7 +431,7 @@ struct BlueCursorView: View {
             CursorRingView(
                 cue: cursorCue(
                     voiceState: companionManager.voiceState,
-                    loopIsShowing: cursorLoopController.isShowingTheLoop,
+                    loopIsShowing: cursorLoopController.isShowingTheLoop(onScreenWithFrame: screenFrame),
                     aStatusLabelIsShowing: statusLabelModel.isVisible
                 ),
                 audioPowerLevel: companionManager.currentAudioPowerLevel,

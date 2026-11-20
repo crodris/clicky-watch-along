@@ -750,7 +750,7 @@ final class CompanionManager: ObservableObject {
             elevenLabsTTSClient.stopPlayback()
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
-            // dictation binding never replaces responding, so the listening waveform would not show.
+            // dictation binding never replaces responding, so the listening ring would not show.
             if voiceState == .responding {
                 voiceState = .idle
             }
@@ -774,7 +774,7 @@ final class CompanionManager: ObservableObject {
                 await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
                     currentDraftText: "",
                     updateDraftText: { _ in
-                        // Partial transcripts are hidden (waveform-only UI)
+                        // Partial transcripts are hidden (the ring shows the voice, not the words)
                     },
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
@@ -788,7 +788,7 @@ final class CompanionManager: ObservableObject {
             // Cancel the pending start task in case the user released the shortcut
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
-            // leaves the waveform overlay stuck on screen indefinitely.
+            // leaves the listening ring stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
             // The media rect is read beside the router call. It draws a loop only if the request becomes a look at it.
             cursorLoopController.pushToTalkWasReleased()
@@ -973,7 +973,7 @@ final class CompanionManager: ObservableObject {
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
     /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
-    /// the spinner/processing state until TTS audio begins playing.
+    /// the thinking dots (processing state) until TTS audio begins playing.
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
@@ -1036,9 +1036,10 @@ final class CompanionManager: ObservableObject {
     /// The request became a look at the video or image Clicky sees, so the loop draws around it once its rect is in hand.
     /// Nothing draws while a scene covers the media or a quiz question is open, since the loop would frame the wrong thing.
     private func theRequestBecameALookAtTheMedia() {
-        guard !LiveSceneOverlay.shared.isShowingAScene,
-              !liveScenePhaseIsWaitingForAQuizAnswer,
-              !videoQuizQuestionIsActive else {
+        guard requestMayDrawALoop(
+            aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
+        ) else {
             return
         }
         cursorLoopController.requestBecameALookAtTheMedia()
@@ -1167,7 +1168,7 @@ final class CompanionManager: ObservableObject {
         }
 
         currentResponseTask = Task {
-            // Stay in processing (spinner) state — no streaming text displayed
+            // Stay in processing state with the thinking dots, and show no streaming text
             voiceState = .processing
 
             do {
@@ -1195,7 +1196,7 @@ final class CompanionManager: ObservableObject {
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
                     onTextChunk: { _ in
-                        // No streaming text display — spinner stays until TTS plays
+                        // No streaming text display, the thinking dots stay until TTS plays
                     }
                 )
 
@@ -1206,9 +1207,8 @@ final class CompanionManager: ObservableObject {
                 let spokenText = parseResult.spokenText
 
                 // Handle element pointing if Claude returned coordinates.
-                // Switch to idle BEFORE setting the location so the triangle
-                // becomes visible and can fly to the target. Without this, the
-                // spinner hides the triangle and the flight animation is invisible.
+                // Switch to idle BEFORE setting the location so the thinking dots
+                // stop, and do not follow the triangle as it flies to the target.
                 let hasPointCoordinate = parseResult.coordinate != nil
                 if hasPointCoordinate {
                     voiceState = .idle
@@ -1276,7 +1276,7 @@ final class CompanionManager: ObservableObject {
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
 
-                // Play the response via TTS. Keep the spinner (processing state)
+                // Play the response via TTS. Keep the thinking dots (processing state)
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
@@ -2327,6 +2327,9 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
         voiceState = .processing
         currentResponseTask = Task {
+            // The dictation session's own idle reaches voiceState after this call returns, so the state is set again
+            // here, the way respondToTranscript's task does, or the thinking dots vanish for the whole router call.
+            self.voiceState = .processing
             await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
         }
     }
@@ -2432,7 +2435,7 @@ final class CompanionManager: ObservableObject {
             switch voiceCommandNextStep(toolCalls: reply.toolCalls, outcomes: outcomes, replyText: reply.text) {
             case .finishSilently:
                 // A hand-off that started its own reply cancelled this task. One that did nothing, such as
-                // closing a scene with no video to resume, leaves the spinner up unless this clears it.
+                // closing a scene with no video to resume, leaves the thinking dots up unless this clears it.
                 guard !Task.isCancelled else { return }
                 voiceState = .idle
                 scheduleTransientHideIfNeeded()

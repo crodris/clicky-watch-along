@@ -474,7 +474,7 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Starting a task"
         default:
             // pop_out, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to a path with
-            // its own status line, spinner, rising scene, or voice.
+            // its own status line, thinking dots, rising scene, or voice.
             return nil
         }
     }

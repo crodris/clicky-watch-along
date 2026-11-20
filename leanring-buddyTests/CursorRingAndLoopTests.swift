@@ -12,11 +12,22 @@ import SwiftUI
 import Testing
 @testable import Clicky
 
+private func exampleGeometry(left: Double = 94, devicePixelRatio: Double = 2) -> ChromePageGeometry {
+    ChromePageGeometry(
+        screenX: 0, screenY: 0, outerWidth: 1400, outerHeight: 900, innerWidth: 1400, innerHeight: 800,
+        devicePixelRatio: devicePixelRatio, left: left, top: 120, width: 600, height: 338, imageSourceURL: nil
+    )
+}
+
+private let exampleTabURL = "https://www.youtube.com/watch?v=example"
+
+private func exampleSample(tabID: Int = 42, tabURL: String = exampleTabURL, left: Double = 94, devicePixelRatio: Double = 2) -> FrontTabSample {
+    FrontTabSample(windowID: 7, tabID: tabID, tabURL: tabURL, pageGeometry: exampleGeometry(left: left, devicePixelRatio: devicePixelRatio))
+}
+
 private let exampleMedia = MediaOnTheFrontTab(
     screenRect: ScreenRectInChromeCoordinates(rectX: 100, rectY: 120, rectWidth: 600, rectHeight: 338),
-    windowID: 7,
-    tabID: 42,
-    tabURL: "https://www.youtube.com/watch?v=example"
+    sample: exampleSample()
 )
 
 /// A turn that reached the hand-off with the rect already back, which draws the loop at `now`.
@@ -120,6 +131,7 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 
 @Test func theVoiceStateEndsALoopOnlyWhenClickyStopsThinkingOrSpeaksAnAnswer() {
     #expect(cursorLoopEndReason(forVoiceState: .processing, aStatusLabelIsShowing: false) == nil)
+    #expect(cursorLoopEndReason(forVoiceState: .listening, aStatusLabelIsShowing: false) == .newPushToTalk)
     #expect(cursorLoopEndReason(forVoiceState: .idle, aStatusLabelIsShowing: false) == .thinkingStopped)
     #expect(cursorLoopEndReason(forVoiceState: .responding, aStatusLabelIsShowing: false) == .speechStarted)
     // "Sure, let me build that for you" is spoken under the loop, which stays through the build.
@@ -127,33 +139,61 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 }
 
 /// A controller that reads `media` from the front tab instead of Chrome, with a turn waiting for a loop.
+/// `polledSample` is what the poll sees, and it matches the media's own sample unless a test says the tab changed.
 @MainActor
-private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTab?) async -> CursorLoopController {
-    let controller = CursorLoopController(readTheMediaInTheFrontTab: { media })
+private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTab?, polling polledSample: FrontTabSample = exampleSample()) async -> CursorLoopController {
+    let controller = CursorLoopController(readTheMediaInTheFrontTab: { media }, readTheFrontTabSample: { polledSample })
     controller.pushToTalkWasReleased()
     // The rect read runs as a task, so it has arrived once the task has had a turn.
     try? await Task.sleep(for: .milliseconds(50))
     return controller
 }
 
-@Test func anIdleThatLastsOnlyAMomentDoesNotEndATurnWaitingForALoop() async {
-    // The dictation session finishes and sets idle right after a request is submitted, before the request
-    // sets processing, so a loop that is about to draw must survive that blip.
+private let secondsToLetAnIdleHold = CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2
+
+@Test @MainActor func anIdleThatLastsThroughTheRouterCallDoesNotEndATurnWaitingForItsHandOff() async {
+    // After a push-to-talk request the dictation session's idle lands after the request set processing, and the router
+    // call that follows takes about a second before it hands off, so a turn still waiting for that hand-off must survive.
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
-    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
     controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2))
+    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
+    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
 }
 
-@Test func anIdleThatHoldsEndsALoopThatIsShowing() async {
+@Test @MainActor func anIdleThatLastsOnlyAMomentDoesNotEndALoopThatIsShowing() async {
+    // A plain keyword path request draws its loop at once, and the dictation session's idle lands just after.
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
+    controller.requestBecameALookAtTheMedia()
+    controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
+    controller.voiceStateChanged(to: .processing, aStatusLabelIsShowing: false)
+    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
+    #expect(controller.isShowingTheLoop)
+}
+
+@Test @MainActor func anIdleThatHoldsEndsALoopThatIsShowing() async {
     let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia)
     controller.requestBecameALookAtTheMedia()
     #expect(controller.isShowingTheLoop)
     controller.voiceStateChanged(to: .idle, aStatusLabelIsShowing: false)
-    try? await Task.sleep(for: .seconds(CursorLoopController.secondsAnIdleMustHoldToEndTheLoop + 0.2))
+    try? await Task.sleep(for: .seconds(secondsToLetAnIdleHold))
     #expect(!controller.isShowingTheLoop)
+}
+
+@Test @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
+    // The learner switched tabs between the release and the hand-off, so the rect the loop would frame is stale.
+    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia, polling: exampleSample(tabID: 99))
+    controller.requestBecameALookAtTheMedia()
+    try? await Task.sleep(for: .milliseconds(200))
+    #expect(!controller.isShowingTheLoop)
+}
+
+@Test func aRequestDrawsALoopOnlyWhenNoSceneOrQuizQuestionOwnsTheScreen() {
+    #expect(requestMayDrawALoop(aSceneIsOnScreen: false, aQuizQuestionIsOpen: false))
+    #expect(!requestMayDrawALoop(aSceneIsOnScreen: true, aQuizQuestionIsOpen: false))
+    #expect(!requestMayDrawALoop(aSceneIsOnScreen: false, aQuizQuestionIsOpen: true))
+    #expect(!requestMayDrawALoop(aSceneIsOnScreen: true, aQuizQuestionIsOpen: true))
 }
 
 // MARK: - The spark under a build
@@ -209,6 +249,8 @@ private let exampleMediaRects = [
     CGRect(x: 94, y: 120, width: 600, height: 338),
     CGRect(x: 40, y: 60, width: 160, height: 90),
     CGRect(x: 300, y: 200, width: 1280, height: 720),
+    // A tall portrait image, narrower than the offsets where a loop's line starts and its overshoot ends.
+    CGRect(x: 40, y: 60, width: 40, height: 400),
 ]
 
 @Test(arguments: exampleMediaRects)
@@ -249,8 +291,13 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
     let (start, end) = startAndEnd(of: CursorLoopOutline.path(along: lineRect, seed: CursorLoopOutline.seed(for: mediaRect)))
     // It starts on the top edge, runs clockwise, and ends on the top edge again, past where it started.
     #expect(abs(start.y - lineRect.minY) <= 1.5)
-    #expect(start.x == lineRect.minX + CursorLoopOutline.startOffsetFromTheLeftEdgeInPoints)
-    #expect(end.x - start.x == CursorLoopOutline.overshootEndOffsetFromTheLeftEdgeInPoints - CursorLoopOutline.startOffsetFromTheLeftEdgeInPoints)
+    let startOffset = CursorLoopOutline.startOffsetFromTheLeftEdge(forLineWidth: lineRect.width)
+    let overshootEndOffset = CursorLoopOutline.overshootEndOffsetFromTheLeftEdge(forLineWidth: lineRect.width)
+    // A Path keeps single precision points, so these compare to within a thousandth of a point.
+    #expect(abs(start.x - (lineRect.minX + startOffset)) < 0.001)
+    #expect(abs((end.x - start.x) - (overshootEndOffset - startOffset)) < 0.001)
+    // On a narrow media the overshoot still ends inside the line instead of sticking out of its right edge.
+    #expect(end.x < lineRect.maxX)
     // The overshoot drifts about 2.8 points toward the media, never as far as the media's edge.
     #expect(end.y > lineRect.minY + 1)
     #expect(end.y < lineRect.minY + CursorLoopOutline.gapFromTheMediaInPoints)
@@ -261,8 +308,8 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
     let lineRect = mediaRect.insetBy(dx: -4, dy: -4)
     let seed = CursorLoopOutline.seed(for: mediaRect)
     #expect(CursorLoopOutline.path(along: lineRect, seed: seed) == CursorLoopOutline.path(along: lineRect, seed: seed))
-    #expect(CursorLoopOutline.seed(for: mediaRect) == CursorLoopOutline.seed(for: mediaRect))
-    #expect(CursorLoopOutline.seed(for: mediaRect) != CursorLoopOutline.seed(for: exampleMediaRects[1]))
+    #expect(CursorLoopOutline.seed(for: mediaRect) == seed)
+    #expect(seed != CursorLoopOutline.seed(for: exampleMediaRects[1]))
 }
 
 @Test func aPageNumberThatIsNotFiniteCannotCrashTheSeed() {
@@ -299,18 +346,12 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
 }
 
 @Test func theFrontTabPollIgnoresAPointOrTwoOfLayoutShiftAndNothingMore() {
-    func media(rectX: Double = 100, tabID: Int = 42, tabURL: String = "https://www.youtube.com/watch?v=example") -> MediaOnTheFrontTab {
-        MediaOnTheFrontTab(
-            screenRect: ScreenRectInChromeCoordinates(rectX: rectX, rectY: 120, rectWidth: 600, rectHeight: 338),
-            windowID: 7,
-            tabID: tabID,
-            tabURL: tabURL
-        )
-    }
-    #expect(media().isTheSameMediaInTheSameTab(as: media(rectX: 101.5)))
-    #expect(!media().isTheSameMediaInTheSameTab(as: media(rectX: 103)))
-    #expect(!media().isTheSameMediaInTheSameTab(as: media(tabID: 43)))
-    #expect(!media().isTheSameMediaInTheSameTab(as: media(tabURL: "https://www.youtube.com/watch?v=another")))
+    #expect(exampleMedia.isTheSameMediaInTheSameTab(as: exampleSample(left: 95.5)))
+    #expect(!exampleMedia.isTheSameMediaInTheSameTab(as: exampleSample(left: 97)))
+    #expect(!exampleMedia.isTheSameMediaInTheSameTab(as: exampleSample(tabID: 43)))
+    #expect(!exampleMedia.isTheSameMediaInTheSameTab(as: exampleSample(tabURL: "https://www.youtube.com/watch?v=another")))
+    // A different page zoom moves everything, whatever the numbers add up to.
+    #expect(!exampleMedia.isTheSameMediaInTheSameTab(as: exampleSample(devicePixelRatio: 3)))
 }
 
 // MARK: - The ring

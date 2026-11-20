@@ -4,7 +4,7 @@
 //
 //  Runs the loop around the media Clicky is looking at. It reads the front tab's media rect when
 //  push-to-talk is released, feeds `CursorLoopState` the events that draw and clear the loop, and while a
-//  loop shows it re-reads the front tab once a second and clears the loop when anything differs.
+//  loop shows it samples the front tab as the loop starts and once a second after, and clears the loop when anything differs.
 //
 
 import AppKit
@@ -21,8 +21,10 @@ final class CursorLoopController: ObservableObject {
     private var appActivationObserver: NSObjectProtocol?
     private var idleMustHoldTask: Task<Void, Never>?
     private var latestVoiceState = CompanionVoiceState.idle
-    /// Reads Chrome's front tab. Tests pass their own, since the real one drives Chrome.
+    /// Read Chrome's front tab: the full media read at release, and the cheap sample the poll takes. Tests pass
+    /// their own, since the real ones drive Chrome.
     private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
+    private let readTheFrontTabSample: () -> FrontTabSample?
 
     private static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
@@ -30,8 +32,12 @@ final class CursorLoopController: ObservableObject {
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
     private static let chromeBundleIdentifier = "com.google.Chrome"
 
-    init(readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab) {
+    init(
+        readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
+        readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample
+    ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
+        self.readTheFrontTabSample = readTheFrontTabSample
         // The front app changing is a system event, so a notification is the only way to hear it.
         appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -55,6 +61,12 @@ final class CursorLoopController: ObservableObject {
     }
 
     var isShowingTheLoop: Bool { state.loopIsShowing }
+
+    /// Whether the loop shows on the screen with this frame. The cursor's cue asks per screen, since the loop's spark
+    /// lights the thinking only where the loop is, and the screen under the cursor needs the dots when it has none.
+    func isShowingTheLoop(onScreenWithFrame screenFrame: CGRect) -> Bool {
+        state.loopIsShowing && loopToDraw(onScreenWithFrame: screenFrame) != nil
+    }
 
     // MARK: - Events
 
@@ -101,7 +113,9 @@ final class CursorLoopController: ObservableObject {
         idleMustHoldTask?.cancel()
         idleMustHoldTask = Task {
             try? await Task.sleep(for: .seconds(Self.secondsAnIdleMustHoldToEndTheLoop))
-            guard !Task.isCancelled, latestVoiceState == .idle else { return }
+            // A request that has not handed off yet may sit idle for its whole router call, so only a loop that
+            // is showing ends here. A cancelled request never hands off, and the next press ends its turn.
+            guard !Task.isCancelled, latestVoiceState == .idle, state.loopIsShowing else { return }
             end(because: .thinkingStopped)
         }
     }
@@ -161,19 +175,21 @@ final class CursorLoopController: ObservableObject {
         }
     }
 
-    /// While a loop shows, the front tab's window, tab, URL, and media rect are read once a second, and any
-    /// difference, or a read that fails, clears the loop. That also covers a window move and a switch to a duplicate tab.
+    /// While a loop shows, the front tab's window, tab, URL, and media position are sampled as the loop starts and once
+    /// a second after, and any difference, or a sample that fails, clears the loop. The first sample catches a tab switch
+    /// or window move between the release and the hand-off. This also covers a switch to a duplicate tab.
     private func startPollingTheFrontTab() {
         pollTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.secondsBetweenFrontTabPolls))
-                guard !Task.isCancelled, let mediaTheLoopIsAround = state.mediaTheLoopIsAround else { return }
-                let mediaNow = readTheMediaInTheFrontTab()
+                guard let mediaTheLoopIsAround = state.mediaTheLoopIsAround else { return }
+                let sampleNow = readTheFrontTabSample()
                 guard !Task.isCancelled else { return }
-                if mediaNow?.isTheSameMediaInTheSameTab(as: mediaTheLoopIsAround) != true {
-                    end(because: .tabOrMediaChanged)
-                    return
+                if let sampleNow, mediaTheLoopIsAround.isTheSameMediaInTheSameTab(as: sampleNow) {
+                    try? await Task.sleep(for: .seconds(Self.secondsBetweenFrontTabPolls))
+                    continue
                 }
+                end(because: .tabOrMediaChanged)
+                return
             }
         }
     }
@@ -210,9 +226,23 @@ final class CursorLoopController: ObservableObject {
         }
         return MediaOnTheFrontTab(
             screenRect: largestMedia.screenRect,
-            windowID: frontTab.windowId,
-            tabID: frontTab.tabId,
-            tabURL: frontTab.url
+            sample: FrontTabSample(
+                windowID: frontTab.windowId,
+                tabID: frontTab.tabId,
+                tabURL: frontTab.url,
+                pageGeometry: largestMedia.pageGeometry
+            )
         )
+    }
+
+    /// The front tab's window, tab, URL, and media position from one Apple Event, for the poll. Nil when Chrome is not
+    /// the front app, shows no media worth framing, or refuses the read.
+    static func readTheFrontTabSample() -> FrontTabSample? {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == chromeBundleIdentifier,
+              let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
+              let pageGeometry = try? ChromeVideoTab.pageGeometryOfTheLargestVisibleMediaInFrontTab() else {
+            return nil
+        }
+        return FrontTabSample(windowID: frontTab.windowId, tabID: frontTab.tabId, tabURL: frontTab.url, pageGeometry: pageGeometry)
     }
 }

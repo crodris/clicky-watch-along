@@ -14,27 +14,33 @@ import SwiftUI
 
 // MARK: - The media the loop goes around
 
-/// The largest video or image in Chrome's front tab as Clicky read it, and which tab it was in.
-/// The loop clears when a later read of the front tab differs from this one.
-struct MediaOnTheFrontTab: Equatable {
-    let screenRect: ScreenRectInChromeCoordinates
+/// What the poll reads from Chrome's front tab once a second: which tab it is, and where the window and the largest
+/// media sit in it. It needs one Apple Event, with no accessibility read, since the main actor also draws the spark.
+struct FrontTabSample: Equatable {
     let windowID: Int
     let tabID: Int
     let tabURL: String
+    let pageGeometry: ChromePageGeometry
+}
 
-    /// Page layout can move an element by a point or two without anything the learner would call a change,
-    /// such as a scrollbar appearing, so a rect within this many points on every side counts as the same.
-    static let rectToleranceInPoints = 2.0
+/// The largest video or image in Chrome's front tab as Clicky read it, and the tab sample it was read with.
+/// The loop clears when a later sample of the front tab differs from this one.
+struct MediaOnTheFrontTab: Equatable {
+    let screenRect: ScreenRectInChromeCoordinates
+    let sample: FrontTabSample
 
-    func isTheSameMediaInTheSameTab(as laterRead: MediaOnTheFrontTab) -> Bool {
-        windowID == laterRead.windowID
-            && tabID == laterRead.tabID
-            && tabURL == laterRead.tabURL
-            && abs(screenRect.rectX - laterRead.screenRect.rectX) <= Self.rectToleranceInPoints
-            && abs(screenRect.rectY - laterRead.screenRect.rectY) <= Self.rectToleranceInPoints
-            && abs(screenRect.rectWidth - laterRead.screenRect.rectWidth) <= Self.rectToleranceInPoints
-            && abs(screenRect.rectHeight - laterRead.screenRect.rectHeight) <= Self.rectToleranceInPoints
+    func isTheSameMediaInTheSameTab(as laterSample: FrontTabSample) -> Bool {
+        sample.windowID == laterSample.windowID
+            && sample.tabID == laterSample.tabID
+            && sample.tabURL == laterSample.tabURL
+            && sample.pageGeometry.isCloseTo(laterSample.pageGeometry)
     }
+}
+
+/// A request that became a look at the media draws a loop only when nothing else owns the screen: a scene on screen
+/// covers the media, and a quiz question waiting on its answer belongs to the question.
+func requestMayDrawALoop(aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool) -> Bool {
+    !aSceneIsOnScreen && !aQuizQuestionIsOpen
 }
 
 /// A loop around a whole screen frames nothing, so media that covers nearly all of a screen gets none.
@@ -207,6 +213,18 @@ enum CursorLoopOutline {
     /// Where along the top edge the line starts and where its overshoot ends, from the outline's left edge.
     static let startOffsetFromTheLeftEdgeInPoints: CGFloat = 30
     static let overshootEndOffsetFromTheLeftEdgeInPoints: CGFloat = 58
+    /// On a narrow media, such as a tall portrait image, those offsets would run past the top edge, so they shrink
+    /// to these shares of the outline's width, which keeps the start left of the first corner and the overshoot inside the line.
+    private static let startOffsetShareOfTheWidth: CGFloat = 0.2
+    private static let overshootEndOffsetShareOfTheWidth: CGFloat = 0.4
+
+    static func startOffsetFromTheLeftEdge(forLineWidth lineWidth: CGFloat) -> CGFloat {
+        min(startOffsetFromTheLeftEdgeInPoints, lineWidth * startOffsetShareOfTheWidth)
+    }
+
+    static func overshootEndOffsetFromTheLeftEdge(forLineWidth lineWidth: CGFloat) -> CGFloat {
+        min(overshootEndOffsetFromTheLeftEdgeInPoints, lineWidth * overshootEndOffsetShareOfTheWidth)
+    }
     /// How far inside the top edge the overshoot ends. It stays under the 4 point gap, so it never reaches the media.
     static let overshootDriftInsideInPoints: CGFloat = 2.8
     /// A loop never runs closer than this to a screen edge, so a letterboxed full screen video keeps its whole line.
@@ -244,7 +262,7 @@ enum CursorLoopOutline {
         let right = lineRect.maxX
         let top = lineRect.minY
         let bottom = lineRect.maxY
-        let startX = left + startOffsetFromTheLeftEdgeInPoints
+        let startX = left + startOffsetFromTheLeftEdge(forLineWidth: lineRect.width)
 
         /// Two control points a third and two thirds of the way along a straight edge, each pushed off it by the wobble.
         func edgeControlPoints(from start: CGPoint, to end: CGPoint) -> (CGPoint, CGPoint) {
@@ -287,7 +305,7 @@ enum CursorLoopOutline {
         // Top left corner, past the start, and a short overshoot that drifts inside the line.
         let closingPoint = CGPoint(x: left + cornerRadius + 1, y: top + wobble())
         path.addQuadCurve(to: closingPoint, control: CGPoint(x: left + wobble(), y: top + wobble()))
-        path.addLine(to: CGPoint(x: left + overshootEndOffsetFromTheLeftEdgeInPoints, y: top + overshootDriftInsideInPoints + wobble()))
+        path.addLine(to: CGPoint(x: left + overshootEndOffsetFromTheLeftEdge(forLineWidth: lineRect.width), y: top + overshootDriftInsideInPoints + wobble()))
         return path
     }
 
