@@ -50,6 +50,7 @@ The three approval follow-ups go first, because the cutover PR moves the approva
 
 | Order | PR | Piece | Estimate | Ships behind the flag |
 |---|---|---|---|---|
+| 0 | `/live-scene` falls back to Sonnet 5.5 | Credits | 3 hours | No flag, it changes the Worker now |
 | 1 | "Always" lasts for one task | F4 | 2 hours | No flag, it changes approvals for task agents now |
 | 2 | Notion sources must come from the task's research | F2 | 3 hours | No flag |
 | 3 | The approval card counts only a summary scrolled through | F36 | 4 hours | No flag |
@@ -60,12 +61,68 @@ The three approval follow-ups go first, because the cutover PR moves the approva
 | 8 | Approval rules move into the harness, and the harness flag turns on | Piece 4 | 1 day | The flag's default turns on |
 | 9 | Delete the old path | Cleanup | 2 hours | Chris decides when |
 
-Total: about 5.5 days of agent work, close to the 4 to 5 day estimate, plus the three approval items.
+Total: about 5.5 days of agent work for the brain, close to the 4 to 5 day estimate, plus about 1.5 days for PR 0 and the three approval items.
+PR 0 has no dependency on any other PR, so it can merge first or in parallel.
 
 The prompt moves in PR 4, not PR 8, because the brain cannot answer without it.
 PR 4 copies it word for word, with a test that it matches the Worker's copy, so the two paths stay comparable until PR 7 changes it on purpose.
 
 ---
+
+## PR 0: `/live-scene` falls back to Sonnet 5.5
+
+**Problem.** Chris wants Anthropic API credits to be the default for everything, without topping up OpenAI.
+Today, when the OpenAI key is out of credit, rate limited, refused, or OpenAI is down, `requestGPTLiveSceneReply` in `worker/src/liveScene.ts` returns OpenAI's status as an `upstream` failure.
+3D models and experiments then end in "Sorry, I couldn't build that one."
+Only `/video-quiz-plan` falls back to Sonnet today, through `requestAnthropicMessage`'s OpenAI path in `worker/src/anthropic.ts`.
+
+**Fix.** When the GPT request for a 3D model or an experiment gets a 401, 403, 404, 429, or 5xx, `handleLiveScene` builds the same page on Sonnet 5.5 with the existing Claude request (`requestClaudeLiveSceneReply`, which `LIVE_SCENE_MODEL=sonnet` already selects).
+
+- Reuse the status rule: export `openAICannotAnswerNow` from `anthropic.ts` instead of copying the status list.
+- The fallback uses Sonnet's own default effort (`low` in `defaultLiveSceneEffortByModel`), not GPT's `medium`, since the two models take different effort lists.
+- Once a request has fallen back, its retry also goes to Sonnet, so a learner never waits on OpenAI twice.
+- The page check (`checkLiveSceneModelReply`) and the retry once in `liveSceneReply.ts` apply to the Sonnet reply unchanged.
+- A 400 or 422 from OpenAI is about the request, so it still returns the error with no fallback.
+- A benchmark override (`BENCH_MODEL`) never falls back, as in `requestAnthropicMessage`, since it measures one model.
+- The log says `[/live-scene] gpt-6.1-sol could not answer (HTTP 429), so the scene falls back to claude-sonnet-5-5`, and the usage line names the model that answered.
+
+**Why Sonnet 5.5.** Round one of the render bakeoff (`bench/README.md` "Render bakeoff", `renderRound1` in `bench/graphics/bakeoff-data.js`), judged against the shipped GPT-6.1 Sol render:
+
+| Model | Wins against GPT-6.1 Sol | Cost per render | Median time | Pages that worked |
+|---|---|---|---|---|
+| Sonnet 5.5 | 2 to 4 | $0.07 | 36 s | 3 of 3 |
+| Opus 5.5 | 2 to 4 | $0.18 | 78 s | |
+| Fable 5.2 | 2 to 0, on the 2 pages it finished | $0.83 | 160 s | Timed out on the heart |
+| Haiku 5.5 | 1 to 5 | | | |
+| GPT-6.1 Sol (ships) | | $0.41 | 19 s | |
+
+Sonnet loses to GPT-6.1 Sol on quality but ties Opus at less than half its cost and time, and every page it built worked.
+
+**Files.** `worker/src/liveScene.ts`, `worker/src/anthropic.ts` (export the status rule), `worker/src/liveScene.test.ts`, `AGENTS.md` (the `/live-scene` route row and the Live Scene section), `.claude/skills/verify-clicky/features/live-scene.md` and `simulation.md`.
+
+**Protocol.** No change for the app: the reply is the same `{ html, quiz }`.
+
+**Tests.**
+
+- One test per status that falls back (401, 403, 404, 429, and 500 or 503) with a stubbed `fetch`: OpenAI answers that status, Anthropic answers a valid page, and the route returns 200 with Sonnet's page.
+- One test for a status that does not fall back (400): the route returns OpenAI's 400, and Anthropic is never called.
+- One test that the Sonnet reply goes through the same page checks: a Sonnet simulation page that lacks `setControl` is retried on Sonnet, not on OpenAI, and ends in 422.
+
+**Verify.**
+
+- Start a local Worker with a bad OpenAI key, for example `$V worker-up 8787 -- --var OPENAI_API_KEY:sk-invalid`, then `$V post /live-scene` with the existing scene fixture.
+  Check that the log shows a 401 from OpenAI first, since a key in `worker/.dev.vars` may win over `--var`; if it does, use a copy of `.dev.vars` with the bad key.
+  The Worker log shows the fallback line and a `[/live-scene] usage` line naming `claude-sonnet-5-5`, and the reply holds a page.
+- With that Worker, `$V app-launch "show me this in 3D"` on a video with one clear object, and `$V app-launch "let me try it"` on a physics video.
+  Both rise out of the video, and neither says "Sorry, I couldn't build that one."
+
+**Risks.**
+
+- **The app's 60 second timeout.** `LiveSceneClient` gives `/live-scene` 60 seconds, and Sonnet's median render is 36 s, so a fallback plus its one retry can pass it.
+  The two background agents, the 3D model and the experiment, are not waited on by the learner, so their requests can take 120 seconds with no visible cost.
+  Measure the fallback's p95 in the verify run, and raise the timeout for the background builds only if the p95 passes 60 s.
+- **Experiments on Sonnet are not measured.** The bakeoff judged 3D renders.
+  Run the bench's simulation cases on `LIVE_SCENE_MODEL=sonnet` once in this PR, and report how many pages pass the simulation checks.
 
 ## PR 1: "Always" lasts for one task (F4)
 
@@ -413,4 +470,5 @@ Check Haiku 5.5's minimum with the `claude-api` reference before PR 6 relies on 
    Recommendation: wait for an eval case that needs it.
 3. **"Always" scope (PR 1).** One task (recommended), or a narrower per-tool target such as a link's host.
 4. **Deleting the old path (PR 9).** After how many days of use, or keep `/voice-command` as a bench baseline.
-5. **PR 7 if Haiku passes the planning cases.** Skip the planner tool and ship only the turn budget rule, or build both.
+5. **PR 0's timeout.** Raise the app's `/live-scene` timeout for the background builds if the Sonnet fallback's p95 passes 60 seconds, or keep 60 and accept a failure on a slow fallback.
+6. **PR 7 if Haiku passes the planning cases.** Skip the planner tool and ship only the turn budget rule, or build both.
