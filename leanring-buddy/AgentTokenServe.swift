@@ -114,14 +114,20 @@ func agentTokenServeStartPoint(mouseLocation: CGPoint) -> CGPoint {
 
 /// The display the token flies to: the one the mouse is on, which is where the learner is looking. Nil when the mouse is
 /// on none of them, which means no serve.
+func agentTokenServeDisplayID(containing mouseLocation: CGPoint, displayFrames: [CGDirectDisplayID: CGRect]) -> CGDirectDisplayID? {
+    displayFrames.first { _, displayFrame in
+        agentTokenServeDisplayFrame(displayFrame, holdsTheMouseAt: mouseLocation)
+    }?.key
+}
+
+/// Whether a mouse at `mouseLocation` is on the display with `displayFrame`.
 ///
 /// AppKit's y grows upward, so the rows a mouse can reach on a display run from just above its `minY` up to its `maxY`: the
 /// top row has y equal to `maxY`, and a bottom row never has y equal to `minY`. That is the reverse of `CGRect.contains`, which
 /// would send a mouse in the top row to no display, or, with a display stacked above, to the display above. The left edge
-/// belongs to a display and the right edge to the display beside it.
-func agentTokenServeDisplayID(containing mouseLocation: CGPoint, displayFrames: [CGDirectDisplayID: CGRect]) -> CGDirectDisplayID? {
-    displayFrames.first { _, displayFrame in
-        displayFrame.minX <= mouseLocation.x && mouseLocation.x < displayFrame.maxX
-            && displayFrame.minY < mouseLocation.y && mouseLocation.y <= displayFrame.maxY
-    }?.key
+/// belongs to a display and the right edge to the display beside it. The frames of two displays never share a row or a column
+/// by this rule, so exactly one display holds a mouse, whatever order the displays are visited in.
+func agentTokenServeDisplayFrame(_ displayFrame: CGRect, holdsTheMouseAt mouseLocation: CGPoint) -> Bool {
+    displayFrame.minX <= mouseLocation.x && mouseLocation.x < displayFrame.maxX
+        && displayFrame.minY < mouseLocation.y && mouseLocation.y <= displayFrame.maxY
 }

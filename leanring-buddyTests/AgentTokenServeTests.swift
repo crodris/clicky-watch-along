@@ -135,41 +135,34 @@ struct AgentTokenServeTests {
         #expect(agentTokenServeDisplayID(containing: CGPoint(x: 2_000, y: 1_080), displayFrames: displayFramesByID) == 2)
     }
 
-    /// Two displays in every arrangement a dictionary can iterate them in. A dictionary's order depends on its keys, and on
-    /// the order they went in when two keys land in one bucket, so a rule that matches both displays would pass in some
-    /// arrangements by luck. Each arrangement names which display ID the first frame has and which the second has.
-    private func everyArrangementOfTwoDisplays(_ firstFrame: CGRect, _ secondFrame: CGRect) -> [(firstDisplayID: CGDirectDisplayID, secondDisplayID: CGDirectDisplayID, displayFramesByID: [CGDirectDisplayID: CGRect])] {
-        let idPairs: [(CGDirectDisplayID, CGDirectDisplayID)] = [(1, 2), (2, 1)]
-        return idPairs.flatMap { firstDisplayID, secondDisplayID in
-            let framesInInsertionOrder = [(firstDisplayID, firstFrame), (secondDisplayID, secondFrame)]
-            return [framesInInsertionOrder, framesInInsertionOrder.reversed()].map { orderedFrames in
-                (firstDisplayID, secondDisplayID, Dictionary(uniqueKeysWithValues: orderedFrames))
-            }
-        }
+    @Test func aDisplayHoldsTheRowsAndColumnsAMouseCanReachAndNeitherEdgeItSharesWithANeighbor() async throws {
+        // These check one frame at a time, so they do not depend on the order a dictionary lists the displays in.
+        let laptopFrame = CGRect(x: 0, y: 0, width: 1_512, height: 982)
+        #expect(agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 400, y: 500)))
+        // The top row has y equal to maxY, and the bottom row never has y equal to minY.
+        #expect(agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 400, y: 982)))
+        #expect(!agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 400, y: 0)))
+        #expect(agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 400, y: 0.5)))
+        // The left column has x equal to minX, and x equal to maxX belongs to the display on the right.
+        #expect(agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 0, y: 500)))
+        #expect(!agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 1_512, y: 500)))
+        #expect(agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 1_511.5, y: 500)))
     }
 
-    @Test func aMouseOnTheTopRowOfADisplayWithAnotherStackedAboveItStaysOnThatDisplay() async throws {
-        // The laptop is 982 high and the external display sits right above it, so y 982 is the laptop's top row and the
-        // external display's bottom edge, which the mouse never rests on.
-        let arrangements = everyArrangementOfTwoDisplays(
-            CGRect(x: 0, y: 0, width: 1_512, height: 982),
-            CGRect(x: 0, y: 982, width: 1_920, height: 1_080)
-        )
-        for (laptopDisplayID, externalDisplayID, displayFramesByID) in arrangements {
-            #expect(agentTokenServeDisplayID(containing: CGPoint(x: 400, y: 982), displayFrames: displayFramesByID) == laptopDisplayID)
-            #expect(agentTokenServeDisplayID(containing: CGPoint(x: 400, y: 983), displayFrames: displayFramesByID) == externalDisplayID)
-        }
-    }
+    @Test func aMouseOnTheRowWhereTwoStackedDisplaysMeetBelongsToTheLowerOneAndTheNeighborBesideItBelongsToTheRightOne() async throws {
+        // The external display sits right above the laptop, so y 982 is the laptop's top row and the external display's
+        // bottom edge, which the mouse never rests on.
+        let laptopFrame = CGRect(x: 0, y: 0, width: 1_512, height: 982)
+        let externalFrameAbove = CGRect(x: 0, y: 982, width: 1_920, height: 1_080)
+        #expect(agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 400, y: 982)))
+        #expect(!agentTokenServeDisplayFrame(externalFrameAbove, holdsTheMouseAt: CGPoint(x: 400, y: 982)))
+        #expect(agentTokenServeDisplayFrame(externalFrameAbove, holdsTheMouseAt: CGPoint(x: 400, y: 983)))
+        #expect(!agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 400, y: 983)))
 
-    @Test func aPointOnTheEdgeTwoDisplaysShareBelongsToTheDisplayItIsInsideOf() async throws {
-        // x 1,512 is the right display's minX and the left display's maxX.
-        let arrangements = everyArrangementOfTwoDisplays(
-            CGRect(x: 0, y: 0, width: 1_512, height: 982),
-            CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080)
-        )
-        for (_, rightDisplayID, displayFramesByID) in arrangements {
-            #expect(agentTokenServeDisplayID(containing: CGPoint(x: 1_512, y: 500), displayFrames: displayFramesByID) == rightDisplayID)
-        }
+        // A display on the right starts at x 1,512, which the laptop on its left does not hold.
+        let displayOnTheRight = CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080)
+        #expect(agentTokenServeDisplayFrame(displayOnTheRight, holdsTheMouseAt: CGPoint(x: 1_512, y: 500)))
+        #expect(!agentTokenServeDisplayFrame(laptopFrame, holdsTheMouseAt: CGPoint(x: 1_512, y: 500)))
     }
 
     // MARK: - Which agents
