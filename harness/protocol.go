@@ -10,7 +10,9 @@ import (
 
 // The protocol between the Clicky app and this harness is one JSON object per line on stdin and stdout. Every message
 // has a "type" string, and every task message carries the task's ID, which is the UUID string of the agent in the
-// app's BackgroundAgentStore. The Swift side of it is leanring-buddy/AgentHarness.swift.
+// app's BackgroundAgentStore. A voice command reuses the task messages (tool_call, tool_result, cancel_task, task_failed)
+// with the command's own UUID in taskID, and adds voice_command and voice_command_finished. The Swift side of it is
+// leanring-buddy/AgentHarness.swift.
 
 // inboundMessage is a message the app sends, already parsed and checked.
 type inboundMessage interface {
@@ -29,12 +31,56 @@ type startTaskMessage struct {
 }
 
 // toolResultMessage answers one tool_call. Content is a JSON string or an array of content blocks, such as the image
-// block look_at_video returns.
+// block look_at_video returns. Outcome says what a voice command's tool did, and a task's result leaves it out.
 type toolResultMessage struct {
-	TaskID    string          `json:"taskID"`
-	ToolUseID string          `json:"toolUseID"`
-	Content   json.RawMessage `json:"content"`
-	IsError   bool            `json:"isError"`
+	TaskID    string           `json:"taskID"`
+	ToolUseID string           `json:"toolUseID"`
+	Content   json.RawMessage  `json:"content"`
+	IsError   bool             `json:"isError"`
+	Outcome   voiceToolOutcome `json:"outcome"`
+}
+
+// voiceToolOutcome is what one of a voice command's tools did in the app, which decides what the brain does next (see
+// nextVoiceStep in brain.go). It is the Swift VoiceToolOutcome's wire name.
+type voiceToolOutcome string
+
+const (
+	// voiceToolChanged: the screen or the video changed.
+	voiceToolChanged voiceToolOutcome = "changed"
+	// voiceToolLookedUp: a lookup the model reads before it acts again, such as find_moment.
+	voiceToolLookedUp voiceToolOutcome = "lookedUp"
+	// voiceToolHandedOff: a slow path, such as a pop-out or an answer about the screen, took over and owns what Clicky
+	// says next, so the command is complete.
+	voiceToolHandedOff voiceToolOutcome = "handedOff"
+	voiceToolFailed    voiceToolOutcome = "failed"
+)
+
+func (outcome voiceToolOutcome) isKnown() bool {
+	switch outcome {
+	case voiceToolChanged, voiceToolLookedUp, voiceToolHandedOff, voiceToolFailed:
+		return true
+	}
+	return false
+}
+
+// voiceCommandMessage starts one voice command on the brain. SceneState is the JSON object the app builds of what is
+// on screen, RecentActions are the app's lines for its last few tool calls, and Tools are the tools this command may
+// call, already filtered by the app.
+type voiceCommandMessage struct {
+	TaskID        string           `json:"taskID"`
+	Transcript    string           `json:"transcript"`
+	SceneState    json.RawMessage  `json:"sceneState"`
+	RecentActions []string         `json:"recentActions"`
+	Tools         []voiceToolOffer `json:"tools"`
+}
+
+// voiceToolOffer is one tool in the WebMCP and MCP shape, as the app offers it. ReadOnly marks a lookup, whose call
+// needs no spoken confirmation.
+type voiceToolOffer struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+	ReadOnly    bool            `json:"readOnly"`
 }
 
 // cancelTaskMessage stops a task. The harness sends nothing more for it.
@@ -60,6 +106,7 @@ func (startTaskMessage) inboundMessage()      {}
 func (toolResultMessage) inboundMessage()     {}
 func (cancelTaskMessage) inboundMessage()     {}
 func (approvalResultMessage) inboundMessage() {}
+func (voiceCommandMessage) inboundMessage()   {}
 
 // parseInboundMessage checks one line from the app at the boundary and returns the typed message, or an error that
 // names what is wrong with the line.
@@ -88,6 +135,18 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		}
 		if message.TaskID == "" || message.ToolUseID == "" {
 			return nil, fmt.Errorf("tool_result needs a taskID and a toolUseID")
+		}
+		if message.Outcome != "" && !message.Outcome.isKnown() {
+			return nil, fmt.Errorf("tool_result outcome %q is not changed, lookedUp, handedOff, or failed", message.Outcome)
+		}
+		return message, nil
+	case "voice_command":
+		var message voiceCommandMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil, fmt.Errorf("voice_command is malformed: %w", err)
+		}
+		if message.TaskID == "" || message.Transcript == "" || len(message.Tools) == 0 {
+			return nil, fmt.Errorf("voice_command needs a taskID, a transcript, and at least one tool")
 		}
 		return message, nil
 	case "cancel_task":
@@ -135,13 +194,15 @@ type readyMessage struct {
 	Type string `json:"type"`
 }
 
-// toolCallMessage asks the app to run one of the app's tools. Input is the model's JSON object for the tool.
+// toolCallMessage asks the app to run one of the app's tools. Input is the model's JSON object for the tool. TurnIndex,
+// counted from 0, is set only for a voice command's call, since the app lets only the first turn answer an approval.
 type toolCallMessage struct {
 	Type      string          `json:"type"`
 	TaskID    string          `json:"taskID"`
 	ToolUseID string          `json:"toolUseID"`
 	Name      toolName        `json:"name"`
 	Input     json.RawMessage `json:"input"`
+	TurnIndex *int            `json:"turnIndex,omitempty"`
 }
 
 // approvalRequestMessage asks the app whether the learner allows one tool call, which waits until approval_result
@@ -169,18 +230,28 @@ type taskFailedMessage struct {
 	Reason string `json:"reason"`
 }
 
+// voiceCommandFinishedMessage ends a voice command. SpokenLine is what Clicky says, which may be empty, and GaveUp is
+// true when the last turn still needed the model, so Clicky says its apology instead.
+type voiceCommandFinishedMessage struct {
+	Type       string `json:"type"`
+	TaskID     string `json:"taskID"`
+	SpokenLine string `json:"spokenLine"`
+	GaveUp     bool   `json:"gaveUp"`
+}
+
 // logMessage is a line the app prints, since stdout carries only protocol lines.
 type logMessage struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
 }
 
-func (readyMessage) outboundMessage()           {}
-func (approvalRequestMessage) outboundMessage() {}
-func (toolCallMessage) outboundMessage()        {}
-func (taskFinishedMessage) outboundMessage()    {}
-func (taskFailedMessage) outboundMessage()      {}
-func (logMessage) outboundMessage()             {}
+func (readyMessage) outboundMessage()                {}
+func (approvalRequestMessage) outboundMessage()      {}
+func (toolCallMessage) outboundMessage()             {}
+func (taskFinishedMessage) outboundMessage()         {}
+func (taskFailedMessage) outboundMessage()           {}
+func (logMessage) outboundMessage()                  {}
+func (voiceCommandFinishedMessage) outboundMessage() {}
 
 func newReadyMessage() readyMessage {
 	return readyMessage{Type: "ready"}
@@ -188,6 +259,17 @@ func newReadyMessage() readyMessage {
 
 func newToolCallMessage(taskID string, toolUseID string, name toolName, input json.RawMessage) toolCallMessage {
 	return toolCallMessage{Type: "tool_call", TaskID: taskID, ToolUseID: toolUseID, Name: name, Input: input}
+}
+
+// newVoiceToolCallMessage is a voice command's tool_call, which carries the turn it came from.
+func newVoiceToolCallMessage(taskID string, toolUseID string, name toolName, input json.RawMessage, turnIndex int) toolCallMessage {
+	message := newToolCallMessage(taskID, toolUseID, name, input)
+	message.TurnIndex = &turnIndex
+	return message
+}
+
+func newVoiceCommandFinishedMessage(taskID string, spokenLine string, gaveUp bool) voiceCommandFinishedMessage {
+	return voiceCommandFinishedMessage{Type: "voice_command_finished", TaskID: taskID, SpokenLine: spokenLine, GaveUp: gaveUp}
 }
 
 func newApprovalRequestMessage(taskID string, approvalID string, needed capability, summary string) approvalRequestMessage {

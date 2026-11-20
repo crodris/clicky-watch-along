@@ -3,9 +3,10 @@
 //  leanring-buddy
 //
 //  The task agent's loop runs in a Go helper process, harness/ in the repo, bundled at Contents/Helpers/
-//  clicky-agent-harness. The app and the harness talk in JSON lines on the harness's stdin and stdout. The harness
-//  runs Claude through the Worker's /v1/messages passthrough and asks the app only for the tools that touch the Mac
-//  or Notion. harness/protocol.go is the other half of the messages in this file.
+//  clicky-agent-harness. With the brainRunsInTheHarness flag on, the voice command loop runs there too. The app and
+//  the harness talk in JSON lines on the harness's stdin and stdout. The harness runs Claude through the Worker's
+//  /v1/messages passthrough and asks the app only for the tools that touch the Mac or Notion. harness/protocol.go is
+//  the other half of the messages in this file.
 //
 
 import Combine
@@ -13,19 +14,32 @@ import Foundation
 
 // MARK: - Messages from the harness
 
-/// One tool call of a task agent's turn. The name stays text, so a name this app does not know still reaches the task
-/// loop, which answers it with an error instead of leaving the agent waiting.
+/// One tool call of a task agent's turn, or of a voice command's. The name stays text, so a name this app does not know
+/// still reaches the task loop, which answers it with an error instead of leaving the agent waiting.
 nonisolated struct HarnessToolCall: Equatable, Sendable {
     let toolUseID: String
     let toolName: String
     let input: [String: JSONValue]
+    /// The turn of a voice command the call came from, counted from 0, since only the first may answer an approval.
+    /// Nil for a task's call.
+    let turnIndex: Int?
+
+    init(toolUseID: String, toolName: String, input: [String: JSONValue], turnIndex: Int? = nil) {
+        self.toolUseID = toolUseID
+        self.toolName = toolName
+        self.input = input
+        self.turnIndex = turnIndex
+    }
 }
 
-/// What the app hears from the harness for one task. The stream of events ends after finished or failed.
+/// What the app hears from the harness for one task or voice command. The stream of events ends after finished,
+/// failed, or voiceCommandFinished.
 nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case toolCall(HarnessToolCall)
     case finished(spokenSummary: String)
     case failed(reason: String)
+    /// A voice command ended. spokenLine may be empty, and gaveUp says its last turn still needed the model.
+    case voiceCommandFinished(spokenLine: String, gaveUp: Bool)
 }
 
 /// What a tool may do, which decides whether the harness asks before running it. harness/approval.go is the other half.
@@ -72,6 +86,7 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case toolCall(taskID: UUID, HarnessToolCall)
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
+    case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
     case log(message: String)
 
     enum ParseError: Error, Equatable {
@@ -116,12 +131,22 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
             }
             self = .toolCall(
                 taskID: try requiredTaskID(),
-                HarnessToolCall(toolUseID: try requiredText("toolUseID"), toolName: try requiredText("name"), input: input)
+                HarnessToolCall(
+                    toolUseID: try requiredText("toolUseID"),
+                    toolName: try requiredText("name"),
+                    input: input,
+                    turnIndex: messageJSON["turnIndex"]?.numberValue.flatMap { turnIndex in Int(exactly: turnIndex) }
+                )
             )
         case "task_finished":
             self = .taskFinished(taskID: try requiredTaskID(), spokenSummary: try requiredText("spokenSummary"))
         case "task_failed":
             self = .taskFailed(taskID: try requiredTaskID(), reason: try requiredText("reason"))
+        case "voice_command_finished":
+            guard let gaveUp = messageJSON["gaveUp"]?.boolValue else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "gaveUp")
+            }
+            self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
         case "log":
             self = .log(message: try requiredText("message"))
         default:
@@ -140,6 +165,12 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     case cancelTask(taskID: UUID)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
+    /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, `recentActions` the
+    /// `voiceToolActionLine` strings, and `tools` the list after `voiceToolsOfferedToTheModel`.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, recentActions: [String], tools: [VoiceToolDescriptor])
+    /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
+    /// model again, or stop for a hand-off.
+    case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
 
     var json: JSONValue {
         switch self {
@@ -169,12 +200,42 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
+        case .voiceCommand(let taskID, let transcript, let sceneState, let recentActions, let tools):
+            return .object([
+                "type": .string("voice_command"),
+                "taskID": .string(taskID.uuidString),
+                "transcript": .string(transcript),
+                "sceneState": sceneState,
+                "recentActions": .array(recentActions.map(JSONValue.string)),
+                "tools": .array(tools.map(\.workerRequestJSON)),
+            ])
+        case .voiceToolResult(let taskID, let toolUseID, let outcome):
+            return .object([
+                "type": .string("tool_result"),
+                "taskID": .string(taskID.uuidString),
+                "toolUseID": .string(toolUseID),
+                "content": .string(outcome.toolResultText),
+                "isError": .bool(outcome.isFailure),
+                "outcome": .string(outcome.harnessWireName),
+            ])
         }
     }
 
     /// One line, since JSON text escapes every newline inside a string.
     var line: Data {
         Data((json.compactJSONText + "\n").utf8)
+    }
+}
+
+extension VoiceToolOutcome {
+    /// The name harness/protocol.go's voiceToolOutcome reads.
+    nonisolated var harnessWireName: String {
+        switch self {
+        case .changed: return "changed"
+        case .lookedUp: return "lookedUp"
+        case .failed: return "failed"
+        case .handedOff: return "handedOff"
+        }
     }
 }
 
@@ -214,6 +275,8 @@ final class HarnessTaskRouter {
             end(taskID: taskID, lastEvent: .finished(spokenSummary: spokenSummary))
         case .taskFailed(let taskID, let reason):
             end(taskID: taskID, lastEvent: .failed(reason: reason))
+        case .voiceCommandFinished(let taskID, let spokenLine, let gaveUp):
+            end(taskID: taskID, lastEvent: .voiceCommandFinished(spokenLine: spokenLine, gaveUp: gaveUp))
         }
     }
 

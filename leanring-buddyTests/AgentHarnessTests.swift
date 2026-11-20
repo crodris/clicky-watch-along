@@ -112,6 +112,78 @@ struct AgentHarnessTests {
         ]))
     }
 
+    // MARK: - Voice commands on the brain
+
+    @Test func aVoiceCommandsFinishedLineAndATurnIndexParse() throws {
+        // The lines harness/brainloop_test.go asserts the harness writes.
+        let finishedLine = #"{"type":"voice_command_finished","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","spokenLine":"turned it left zoomed in","gaveUp":false}"#
+        #expect(try HarnessMessage(line: finishedLine) == .voiceCommandFinished(taskID: firstTaskID, spokenLine: "turned it left zoomed in", gaveUp: false))
+        let gaveUpLine = #"{"type":"voice_command_finished","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","spokenLine":"","gaveUp":true}"#
+        #expect(try HarnessMessage(line: gaveUpLine) == .voiceCommandFinished(taskID: firstTaskID, spokenLine: "", gaveUp: true))
+        #expect(throws: HarnessMessage.ParseError.missingField(messageType: "voice_command_finished", fieldName: "gaveUp")) {
+            try HarnessMessage(line: #"{"type":"voice_command_finished","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","spokenLine":""}"#)
+        }
+
+        let secondTurnCallLine = #"{"type":"tool_call","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","toolUseID":"toolu_seek","name":"seek_to_time","input":{"seconds":95},"turnIndex":1}"#
+        #expect(try HarnessMessage(line: secondTurnCallLine) == .toolCall(
+            taskID: firstTaskID,
+            HarnessToolCall(toolUseID: "toolu_seek", toolName: "seek_to_time", input: ["seconds": .number(95)], turnIndex: 1)
+        ))
+        // A task's call carries no turn.
+        let taskCallLine = #"{"type":"tool_call","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","toolUseID":"toolu_look","name":"look_at_video","input":{}}"#
+        guard case .toolCall(_, let taskCall) = try HarnessMessage(line: taskCallLine) else {
+            Issue.record("the task's call did not parse")
+            return
+        }
+        #expect(taskCall.turnIndex == nil)
+    }
+
+    @Test func theRouterEndsAVoiceCommandsStreamWithItsFinishedLine() async {
+        let router = HarnessTaskRouter()
+        let commandEvents = router.register(taskID: firstTaskID)
+        router.route(.voiceCommandFinished(taskID: firstTaskID, spokenLine: "zoomed in", gaveUp: false))
+
+        var events: [HarnessTaskEvent] = []
+        for await event in commandEvents { events.append(event) }
+        #expect(events == [.voiceCommandFinished(spokenLine: "zoomed in", gaveUp: false)])
+        #expect(!router.isTracking(taskID: firstTaskID))
+    }
+
+    @Test func aVoiceCommandAndItsToolResultAreEachOneLineWithTheFieldsTheBrainReads() throws {
+        let rotateTool = VoiceToolDescriptor(
+            name: "rotate_model",
+            description: "Turns it.",
+            inputSchema: .object(["type": .string("object"), "properties": .object(["yawDegrees": .object(["type": .string("number")])])]),
+            readOnly: false
+        )
+        let voiceCommand = HarnessCommand.voiceCommand(
+            taskID: firstTaskID,
+            transcript: "turn it left",
+            sceneState: .object(["page": .string("framePopout")]),
+            recentActions: [#"zoom {"factor":1.3} -> ok"#],
+            tools: [rotateTool]
+        )
+        #expect(try decodedJSON(of: voiceCommand.line) == .object([
+            "type": .string("voice_command"),
+            "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),
+            "transcript": .string("turn it left"),
+            "sceneState": .object(["page": .string("framePopout")]),
+            "recentActions": .array([.string(#"zoom {"factor":1.3} -> ok"#)]),
+            "tools": .array([rotateTool.workerRequestJSON]),
+        ]))
+        #expect(String(decoding: voiceCommand.line, as: UTF8.self).dropLast().contains("\n") == false)
+
+        // harness/protocol_test.go parses this exact line.
+        let handedOffResult = HarnessCommand.voiceToolResult(taskID: firstTaskID, toolUseID: "toolu_pop", outcome: .handedOff)
+        #expect(String(decoding: handedOffResult.line, as: UTF8.self)
+            == #"{"content":"{\"ok\":true}","isError":false,"outcome":"handedOff","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","toolUseID":"toolu_pop","type":"tool_result"}"# + "\n")
+        let failedResult = HarnessCommand.voiceToolResult(taskID: firstTaskID, toolUseID: "toolu_seek", outcome: .failed(error: "no video", state: nil))
+        #expect(try decodedJSON(of: failedResult.line)["outcome"] == .string("failed"))
+        #expect(try decodedJSON(of: failedResult.line)["isError"] == .bool(true))
+        #expect(try decodedJSON(of: HarnessCommand.voiceToolResult(taskID: firstTaskID, toolUseID: "t", outcome: .changed(state: nil)).line)["outcome"] == .string("changed"))
+        #expect(try decodedJSON(of: HarnessCommand.voiceToolResult(taskID: firstTaskID, toolUseID: "t", outcome: .lookedUp(result: .null)).line)["outcome"] == .string("lookedUp"))
+    }
+
     @Test func aCommandWithNewlinesInItsTextStillTakesOneLine() {
         let command = HarnessCommand.toolResult(taskID: firstTaskID, toolUseID: "toolu_captions", content: .string("[0:01] first\n[0:05] second\r\n"), isError: false)
         let lineText = String(decoding: command.line, as: UTF8.self)

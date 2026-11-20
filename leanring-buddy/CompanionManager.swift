@@ -2786,6 +2786,9 @@ final class CompanionManager: ObservableObject {
                     return
                 case .failed(let reason):
                     throw TaskAgentError.harnessReportedFailure(reason: reason)
+                case .voiceCommandFinished:
+                    // Only a voice command ends this way, so a task never hears it.
+                    throw TaskAgentError.harnessEndedWithNoResult
                 }
             }
             // The stream also ends when this task is cancelled, which is not a failure.
