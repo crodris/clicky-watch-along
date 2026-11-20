@@ -282,6 +282,49 @@ struct CustomThemeParserTests {
         #expect(reasonAThemeIdeaIsRefused(greenAgentIdea)?.contains("red or green") == true)
     }
 
+    /// `#RRGGBB` for a bright color at `hueDegrees`, with HSL saturation 0.9 and lightness 0.6, so it reads on the dark surface.
+    private func hex(atHue hueDegrees: Double) -> String {
+        let saturation = 0.9
+        let lightness = 0.6
+        let chroma = (1 - abs(2 * lightness - 1)) * saturation
+        let huePart = hueDegrees / 60
+        let secondLargest = chroma * (1 - abs(huePart.truncatingRemainder(dividingBy: 2) - 1))
+        let (red, green, blue): (Double, Double, Double)
+        switch huePart {
+        case ..<1: (red, green, blue) = (chroma, secondLargest, 0)
+        case ..<2: (red, green, blue) = (secondLargest, chroma, 0)
+        case ..<3: (red, green, blue) = (0, chroma, secondLargest)
+        case ..<4: (red, green, blue) = (0, secondLargest, chroma)
+        case ..<5: (red, green, blue) = (secondLargest, 0, chroma)
+        default: (red, green, blue) = (chroma, 0, secondLargest)
+        }
+        let lightnessMatch = lightness - chroma / 2
+        func byte(_ value: Double) -> Int { Int(((value + lightnessMatch) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(red), byte(green), byte(blue))
+    }
+
+    @Test func theRedAndGreenHueRangesStartAndEndWhereTheWorkerSays() throws {
+        func looksLikeAStateColor(atHue hueDegrees: Double) throws -> Bool {
+            let themeColor = try #require(ThemeRGBColor(hex: hex(atHue: hueDegrees)))
+            #expect(abs(themeColor.hueDegrees - hueDegrees) < 1.5, "the test color for hue \(hueDegrees) came out at \(themeColor.hueDegrees)")
+            return themeColor.looksLikeAStateColor
+        }
+        // Red runs from 340 through 0 to 20 degrees, and green from 95 to 165.
+        #expect(try looksLikeAStateColor(atHue: 345))
+        #expect(try looksLikeAStateColor(atHue: 5))
+        #expect(try looksLikeAStateColor(atHue: 18))
+        #expect(try !looksLikeAStateColor(atHue: 336))
+        #expect(try !looksLikeAStateColor(atHue: 24))
+        #expect(try looksLikeAStateColor(atHue: 100))
+        #expect(try looksLikeAStateColor(atHue: 160))
+        #expect(try !looksLikeAStateColor(atHue: 90))
+        #expect(try !looksLikeAStateColor(atHue: 170))
+        // Orange, cyan, and violet are fine.
+        #expect(try !looksLikeAStateColor(atHue: 35))
+        #expect(try !looksLikeAStateColor(atHue: 190))
+        #expect(try !looksLikeAStateColor(atHue: 270))
+    }
+
     @Test func aPaleOrGrayColorIsNotAStateColorEvenWithARedOrGreenHue() throws {
         // Saturation 0.35 and under reads as pastel or gray, so a soft pink stays allowed.
         let palePinkIdea = replacingField(in: goodThemeIdea, at: ["agentColors", "1"], with: .string("#E5D0D0"))
