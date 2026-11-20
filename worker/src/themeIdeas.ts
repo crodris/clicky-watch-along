@@ -556,7 +556,7 @@ const themeIdeasSystemPrompt = [
   "Reply with JSON only.",
   "",
   `ideas always holds exactly ${requiredIdeaCount} ideas. title is a short plain title for the set, up to ${maximumTitleLength} characters. spokenLine is one or two short sentences Clicky says aloud when the ideas appear, up to ${maximumSpokenLineLength} characters, and it ends by telling the learner they can say one, two, or three, or tell you what to change.`,
-  `name is the idea's name, up to ${maximumIdeaNameLength} characters.`,
+  `name is the idea's name, up to ${maximumIdeaNameLength} characters, and it names what the cursor shows, so an idea named Crescent Moon draws a crescent moon, not a star.`,
   "",
   "The cursor:",
   `- cursor.kind is shapes or picture. A shapes cursor has 1 to ${maximumShapeCount} shapes and picture is null. A picture cursor is the learner's attached picture itself, with shapes empty and picture set, and it is allowed only when a picture is attached.`,

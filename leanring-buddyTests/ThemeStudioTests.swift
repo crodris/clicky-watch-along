@@ -278,10 +278,9 @@ struct ThemeIdeasReplyTests {
 // MARK: - The card's words and colors
 
 struct ThemeStudioCardTextTests {
-    @Test func theTagsSayTheCursorTheMotionAndTheSounds() throws {
+    @Test func theTagsSayTheMotionAndTheSoundsOfADrawnCursor() throws {
         let tags = themeStudioTags(for: try themeIdea(named: "Moonlit"))
         #expect(tags == [
-            "cursor: 1 shape",
             "turns as it moves",
             "3 trail streaks",
             "spins while thinking",
@@ -299,7 +298,7 @@ struct ThemeStudioCardTextTests {
         quietIdea = replacingField(in: quietIdea, at: ["cursor", "shapes", "1"], with: .null)
         let tags = themeStudioTags(for: try CustomTheme.parse(idea: quietIdea, id: "idea-1", pictureIsAvailable: false))
         // A cursor that does not turn still trails streaks behind its movement, so they are listed.
-        #expect(tags == ["cursor: 1 shape", "2 trail streaks", "sounds: Purr, Glass, Pop"])
+        #expect(tags == ["2 trail streaks", "sounds: Purr, Glass, Pop"])
         let roundIdea = replacingField(in: goodPictureCursorThemeIdea, at: ["cursor", "picture"], with: .object([
             "fit": .string("circle"), "outline": .string("#FFFFFF"), "tint": .null, "tintStrength": .number(0),
         ]))

@@ -125,13 +125,11 @@ nonisolated enum ThemeStudioState: Equatable, Sendable {
 
 // MARK: - Tags
 
-/// What the card says about the highlighted idea, in words, as short tags: the cursor, how it moves, and the sounds.
+/// What the card says about the highlighted idea, in words, as short tags: a picture cursor's look, how it moves, and the sounds.
 nonisolated func themeStudioTags(for idea: CustomTheme) -> [String] {
     var tags: [String] = []
-    switch idea.cursor {
-    case .shapes(let shapes):
-        tags.append(shapes.count == 1 ? "cursor: 1 shape" : "cursor: \(shapes.count) shapes")
-    case .picture(let style):
+    // A drawn cursor shows itself on the tile, so only a picture cursor gets a tag, since its fit and tint are easy to miss.
+    if case .picture(let style) = idea.cursor {
         var pictureTag = "cursor: your picture"
         if style.fit == .circle { pictureTag += ", round" }
         if style.tintHex != nil && style.tintStrength > 0 { pictureTag += ", tinted" }
