@@ -63,6 +63,7 @@ Rules the Worker checks (`checkThemeIdeas`, pure, tested), and the reason it put
 - Every color is `#RRGGBB`. The Worker uppercases them.
 - `accent` has a contrast ratio of at least 3 against `#101211` (WCAG relative luminance), so the cursor and ring read on the dark overlay surfaces.
 - `agentColors` has 3 to 6 colors, each with contrast at least 3 against `#101211`, and none is a saturated red (hue 340 to 20 degrees with HSL saturation over 0.35) or a saturated green (hue 95 to 165 degrees with saturation over 0.35), because red means failed and green means done.
+  A light pastel (HSL lightness over 0.75), such as a light pink, passes the red and green rule, since it never reads as the failed red or the done green. The Worker drops a single agent color that breaks a color rule when 3 or more good ones remain, instead of asking the model again (changed on 2026-11-20, after two real replies failed on light pinks).
 - `cursor.shapes` has 1 to 6 shapes. `d` is 1 to 600 characters and uses only the commands `M L H V C S Q T Z` in either case, with numbers, spaces, commas, and minus signs. No `A` arcs. Every absolute coordinate the path reaches is from -2 to 26 (the box is 24 by 24). `fill` and `stroke` are a color or null, at least one of them is a color, and `strokeWidth` is 0 to 3.
 - `motion.trailStreaks` is 0 to 3. `whileThinking` is `none`, `spin`, `pulse`, or `wobble`. `whileListening` is `none` or `pulse`.
 - Each sound is one of the macOS system sounds: `Basso Blow Bottle Frog Funk Glass Hero Morse Ping Pop Purr Sosumi Submarine Tink`.
