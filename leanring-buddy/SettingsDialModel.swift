@@ -8,7 +8,6 @@
 //  SettingsDialPanel.swift draws the dial and turns the real mouse into these offsets.
 //
 
-import AppKit
 import CoreGraphics
 import Foundation
 
@@ -216,32 +215,6 @@ struct SettingsDialPicker {
             pointerHasMovedSinceOpening = true
         }
         selection = selection.afterPointerMoved(to: pointerOffset)
-    }
-}
-
-// MARK: - Lost release
-
-/// Closes a dial whose release never arrived. The event tap can lose a modifier release while the dial is open, such
-/// as when macOS cuts the tap off, and then nothing else would close the dial. The controller feeds this the real
-/// modifier keys on every tick. A normal release reaches the dial within milliseconds and commits first, so this only
-/// acts when shift and option have both been missing for longer than any normal release takes.
-struct SettingsDialChordWatch {
-    static let secondsWithoutTheChordBeforeTheDialCancels: TimeInterval = 0.5
-
-    private var chordWasLastHeldAt: TimeInterval
-
-    init(openedAt time: TimeInterval) {
-        chordWasLastHeldAt = time
-    }
-
-    /// True once the dial should close without committing.
-    mutating func shouldCancel(modifierFlags: NSEvent.ModifierFlags, at time: TimeInterval) -> Bool {
-        let modifiersThatMatter = modifierFlags.intersection([.shift, .option, .control, .command])
-        if modifiersThatMatter == [.shift, .option] {
-            chordWasLastHeldAt = time
-            return false
-        }
-        return time - chordWasLastHeldAt > Self.secondsWithoutTheChordBeforeTheDialCancels
     }
 }
 

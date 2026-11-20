@@ -83,6 +83,14 @@ struct SettingsDialShortcutRecognizer {
         return .opened
     }
 
+    /// The event tap stopped, was cut off by macOS, or lost its Accessibility grant, so the release or press the dial is
+    /// waiting for may never arrive. An open dial is cancelled, and every state is forgotten, so the next hold starts fresh.
+    mutating func eventTapStopped() -> Event? {
+        let dialWasOpen = state == .dialOpen
+        self = SettingsDialShortcutRecognizer()
+        return dialWasOpen ? .cancelled : nil
+    }
+
     private mutating func modifiersChangedWhileTheDialIsOpen() -> Event? {
         if heldModifiers == [.shift, .option] { return nil }
         if heldModifiers.isSubset(of: [.shift, .option]) {

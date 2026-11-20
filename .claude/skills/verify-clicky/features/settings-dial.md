@@ -14,6 +14,7 @@ Team and Model fan their choices on an outer arc, Agents opens the agent list, S
 - `dial-fan-travel` keeps a fan open while the pointer travels outward past the plate, even across another slice's angle, and changes the slice only when the pointer comes back inside the plate.
 - `dial-commit` applies the highlighted item on release: a Team item sets the theme, a Model item sets the voice model, Agents opens the agent list at the mouse, Show toggles Show Clicky, and More opens the menu bar panel.
 - `dial-cancel` commits nothing when the keys are released in the center, on Team or Model with no item highlighted, or far past the fan, and when Escape or another key is pressed.
+  It also closes an open dial when the event tap stops or macOS cuts it off, which this skill cannot drive and reports as unverified on the real app.
 - `dial-edge` shifts the dial and its fans inward near a screen edge, so nothing is cut off, and picks nothing until the pointer has moved 10 points.
 - `dial-passthrough` lets every click reach the app under the dial, and never takes the keyboard.
 
@@ -55,6 +56,6 @@ Steps:
 - The mouse must sit at least 250 points from every screen edge, or the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
 - The first-run hint shows once per Mac, so run `defaults delete com.crodris.clicky-watch-along settingsDialHintWasShown` before a run that photographs it.
 - A Team or Model commit writes `companionTheme` or `selectedClaudeModel`, and Show writes `isClickyCursorEnabled`, in the defaults the everyday Debug app shares.
-  Write the original values back when the run ends, and delete the two keys that did not exist before.
+  Write the original values back when the run ends, and delete `selectedClaudeModel`, `isClickyCursorEnabled`, and `settingsDialHintWasShown`, which did not exist before.
 - `$V key dial-hold` leaves shift and option down until `$V key dial-release`, so release them even when a step in between fails.
 - Shift + option + a key is how some apps type special characters, so pressing any key while the dial is open cancels it, as Escape does.

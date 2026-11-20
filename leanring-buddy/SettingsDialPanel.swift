@@ -61,7 +61,6 @@ final class SettingsDialController {
     /// The dial's center in AppKit screen coordinates, fixed when it opens.
     private var dialCenter: CGPoint = .zero
     private var pointerReadTimer: Timer?
-    private var chordWatch = SettingsDialChordWatch(openedAt: 0)
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -81,7 +80,6 @@ final class SettingsDialController {
         let viewModel = SettingsDialViewModel(snapshot: snapshot, showsTheFirstRunHint: showsTheFirstRunHint, reduceMotion: reduceMotion)
         self.viewModel = viewModel
         picker = SettingsDialPicker(pointerOffsetWhenOpened: pointerOffsetFromTheDialCenter(for: mouseLocation))
-        chordWatch = SettingsDialChordWatch(openedAt: ProcessInfo.processInfo.systemUptime)
 
         let panelSize = SettingsDialPlacement.panelSize
         let hostingView = NSHostingView(rootView: SettingsDialView(viewModel: viewModel))
@@ -142,17 +140,8 @@ final class SettingsDialController {
     private func startReadingThePointer() {
         pointerReadTimer = Timer.scheduledTimer(withTimeInterval: Self.secondsBetweenPointerReads, repeats: true) { [weak self] _ in
             // The timer fires on the main run loop, where this class lives.
-            MainActor.assumeIsolated { self?.tickWhileOpen() }
+            MainActor.assumeIsolated { self?.readThePointer() }
         }
-    }
-
-    /// Closes the dial when its release was lost, then follows the pointer.
-    private func tickWhileOpen() {
-        if chordWatch.shouldCancel(modifierFlags: NSEvent.modifierFlags, at: ProcessInfo.processInfo.systemUptime) {
-            close()
-            return
-        }
-        readThePointer()
     }
 
     private func readThePointer() {
@@ -287,7 +276,7 @@ struct SettingsDialView: View {
             // Clicky blue and Random have no school ball, so the token shows a light ball with blue seams.
             SettingsDialBall(
                 volleyballColors: theme.cursorVolleyballColors
-                    ?? VolleyballCursorColors(fillHex: "#e5e7eb", outlineHex: "#111111", seamHex: DS.Colors.overlayCursorBlueHex),
+                    ?? .lightTokenBall,
                 size: 22
             )
         case .model:
@@ -446,7 +435,7 @@ private struct SettingsDialThemeBall: View {
             SettingsDialBall(volleyballColors: school.volleyballColors, size: size)
         case .clickyBlue:
             SettingsDialBall(
-                volleyballColors: VolleyballCursorColors(fillHex: DS.Colors.overlayCursorBlueHex, outlineHex: "#1A1A1A", seamHex: "#FFFFFF"),
+                volleyballColors: .clickyBlueFanBall,
                 size: size
             )
         case .random:

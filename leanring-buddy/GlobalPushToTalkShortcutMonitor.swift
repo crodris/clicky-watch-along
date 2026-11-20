@@ -102,9 +102,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
     func stop() {
         isShortcutCurrentlyPressed = false
-        settingsDialHoldTimer?.invalidate()
-        settingsDialHoldTimer = nil
-        settingsDialShortcutRecognizer = SettingsDialShortcutRecognizer()
+        cancelTheSettingsDialBecauseTheEventTapStopped()
 
         if let globalEventTapRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
@@ -122,6 +120,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
         if eventType == .tapDisabledByTimeout || eventType == .tapDisabledByUserInput {
+            // Events were dropped while the tap was off, so an open dial may never see its release.
+            cancelTheSettingsDialBecauseTheEventTapStopped()
             if let globalEventTap {
                 CGEvent.tapEnable(tap: globalEventTap, enable: true)
             }
@@ -159,6 +159,14 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func cancelTheSettingsDialBecauseTheEventTapStopped() {
+        settingsDialHoldTimer?.invalidate()
+        settingsDialHoldTimer = nil
+        if let cancelledEvent = settingsDialShortcutRecognizer.eventTapStopped() {
+            settingsDialEventPublisher.send(cancelledEvent)
+        }
     }
 
     private func feedTheSettingsDialShortcutRecognizer(eventType: CGEventType, event: CGEvent) {

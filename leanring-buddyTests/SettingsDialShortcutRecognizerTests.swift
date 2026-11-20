@@ -148,36 +148,27 @@ struct SettingsDialShortcutRecognizerTests {
     }
 }
 
-struct SettingsDialChordWatchTests {
+struct SettingsDialShortcutRecognizerTapStopTests {
 
-    @Test func aDialWhoseReleaseWasLostClosesOnlyAfterTheChordHasBeenGoneForHalfASecond() {
-        var chordWatch = SettingsDialChordWatch(openedAt: 100)
-        let whileHeld = chordWatch.shouldCancel(modifierFlags: [.shift, .option], at: 100.2)
-        // A normal release is handled by the shortcut within milliseconds, long before this fires.
-        let justAfterTheRelease = chordWatch.shouldCancel(modifierFlags: [], at: 100.4)
-        let atHalfASecond = chordWatch.shouldCancel(modifierFlags: [], at: 100.7)
-        let pastHalfASecond = chordWatch.shouldCancel(modifierFlags: [], at: 100.71)
-        #expect(!whileHeld)
-        #expect(!justAfterTheRelease)
-        #expect(!atHalfASecond)
-        #expect(pastHalfASecond)
+    @Test func theEventTapStoppingCancelsAnOpenDialAndTheNextHoldStartsFresh() {
+        var recognizer = SettingsDialShortcutRecognizer()
+        _ = recognizer.modifiersChanged([.shift, .option], at: 10)
+        #expect(recognizer.timeAdvanced(to: 10.3) == .opened)
+        #expect(recognizer.eventTapStopped() == .cancelled)
+
+        // The release that was lost is not a commit when it finally arrives, and a new hold opens a new dial.
+        #expect(recognizer.modifiersChanged([], at: 12) == nil)
+        _ = recognizer.modifiersChanged([.shift, .option], at: 13)
+        #expect(recognizer.timeAdvanced(to: 13.3) == .opened)
     }
 
-    @Test func holdingTheChordAgainOrExtraModifiersAreCountedFromTheLastTimeTheChordWasHeld() {
-        var chordWatch = SettingsDialChordWatch(openedAt: 100)
-        // Shift alone, or the chord with control added, is not the chord.
-        let shiftAlone = chordWatch.shouldCancel(modifierFlags: [.shift], at: 100.3)
-        let withControlAdded = chordWatch.shouldCancel(modifierFlags: [.shift, .option, .control], at: 100.6)
-        #expect(!shiftAlone)
-        #expect(withControlAdded)
+    @Test func theEventTapStoppingDuringAHoldOrWithNothingHeldCancelsNothingAndForgetsTheHold() {
+        var holdingRecognizer = SettingsDialShortcutRecognizer()
+        _ = holdingRecognizer.modifiersChanged([.shift, .option], at: 10)
+        #expect(holdingRecognizer.eventTapStopped() == nil)
+        #expect(holdingRecognizer.timeAdvanced(to: 10.3) == nil)
 
-        var steadyChordWatch = SettingsDialChordWatch(openedAt: 100)
-        let heldForFiveSeconds = steadyChordWatch.shouldCancel(modifierFlags: [.shift, .option], at: 105)
-        // Held for 5 seconds, so the half second is measured from then.
-        let soonAfter = steadyChordWatch.shouldCancel(modifierFlags: [], at: 105.4)
-        let longAfter = steadyChordWatch.shouldCancel(modifierFlags: [], at: 105.6)
-        #expect(!heldForFiveSeconds)
-        #expect(!soonAfter)
-        #expect(longAfter)
+        var idleRecognizer = SettingsDialShortcutRecognizer()
+        #expect(idleRecognizer.eventTapStopped() == nil)
     }
 }

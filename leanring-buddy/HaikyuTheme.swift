@@ -2,7 +2,7 @@
 //  HaikyuTheme.swift
 //  leanring-buddy
 //
-//  An optional Haikyu!! team theme. Picking a school in the menu bar panel recolors Clicky's cursor, and every
+//  An optional Haikyu!! team theme. Picking a school in the menu bar panel or the settings dial recolors Clicky's cursor, and every
 //  background agent that starts becomes one of that team's players, shown as a round portrait in its token beside
 //  the notch and in the agent list. This file holds the data (schools, rosters, the theme and its saved setting),
 //  the rule that picks the next player, and the portrait loading. The views that draw a theme read it from here.
@@ -246,9 +246,17 @@ enum HaikyuSchool: String, CaseIterable {
     }
 }
 
+/// The balls the settings dial draws for the themes that have no school ball.
+extension VolleyballCursorColors {
+    /// Clicky blue's ball in the Team fan.
+    static let clickyBlueFanBall = VolleyballCursorColors(fillHex: DS.Colors.overlayCursorBlueHex, outlineHex: "#1A1A1A", seamHex: "#FFFFFF")
+    /// The Team token's ball while the theme is Clicky blue or Random: a light ball with blue seams.
+    static let lightTokenBall = VolleyballCursorColors(fillHex: "#e5e7eb", outlineHex: "#111111", seamHex: DS.Colors.overlayCursorBlueHex)
+}
+
 // MARK: - Theme
 
-/// What the learner picked in the menu bar panel's "Team theme" section.
+/// What the learner picked in the menu bar panel's "Team theme" section or the settings dial's Team fan.
 enum CompanionTheme: Equatable {
     case clickyBlue
     case school(HaikyuSchool)
