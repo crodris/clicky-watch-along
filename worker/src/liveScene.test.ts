@@ -183,6 +183,97 @@ describe("handleLiveScene with a benchmark BENCH_MODEL", () => {
   });
 });
 
+describe("handleLiveScene when OpenAI cannot answer", () => {
+  // Answers OpenAI with the given failure and Anthropic with the given reply, and records every call by vendor.
+  function stubOpenAIAndAnthropic(openAIAnswer: () => Response, anthropicReplyText: string) {
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) =>
+      url.startsWith("https://api.openai.com") ? openAIAnswer() : verdictReply(anthropicReplyText),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return {
+      fetchMock,
+      openAICalls: () => fetchMock.mock.calls.filter((call) => call[0].startsWith("https://api.openai.com")),
+      anthropicCalls: () => fetchMock.mock.calls.filter((call) => call[0].startsWith("https://api.anthropic.com")),
+    };
+  }
+
+  function silenceConsole() {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    return vi.spyOn(console, "error").mockImplementation(() => {});
+  }
+
+  it.each([401, 403, 404, 429, 503])("builds the scene on Sonnet at its default effort when OpenAI answers %i", async (openAIStatus) => {
+    const consoleErrorSpy = silenceConsole();
+    const { anthropicCalls } = stubOpenAIAndAnthropic(() => new Response("nope", { status: openAIStatus }), sceneModelReply);
+
+    // LIVE_SCENE_EFFORT=high is a GPT effort here, so the fallback must ignore it.
+    const response = await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_EFFORT: "high" });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ quiz: { answerLabel: "Valve" } });
+    expect(anthropicCalls()).toHaveLength(1);
+    expect(JSON.parse(String(anthropicCalls()[0]?.[1].body))).toMatchObject({ model: "claude-sonnet-5-5", output_config: { effort: "low" } });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      `[/live-scene] gpt-6.1-sol could not answer (HTTP ${openAIStatus}), so the scene falls back to claude-sonnet-5-5`,
+    );
+  });
+
+  it("builds the scene on Sonnet when the fetch to OpenAI throws", async () => {
+    silenceConsole();
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) => {
+      if (url.startsWith("https://api.openai.com")) {
+        throw new TypeError("fetch failed");
+      }
+      return verdictReply(sceneModelReply);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1].body))).toMatchObject({ model: "claude-sonnet-5-5" });
+  });
+
+  it("returns OpenAI's 400 and never calls Anthropic, since a 400 is about the request", async () => {
+    silenceConsole();
+    const { anthropicCalls } = stubOpenAIAndAnthropic(() => new Response("bad request", { status: 400 }), sceneModelReply);
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+
+    expect(response.status).toBe(400);
+    expect(anthropicCalls()).toHaveLength(0);
+  });
+
+  it("checks the Sonnet page like any other, and retries on Sonnet, never on OpenAI, before a 422", async () => {
+    silenceConsole();
+    const simulationPageWithoutSetControl = simulationModelReply.replace("setControl(name, value)", "adjustControl(name, value)");
+    const { openAICalls, anthropicCalls } = stubOpenAIAndAnthropic(() => new Response("rate limited", { status: 429 }), simulationPageWithoutSetControl);
+
+    // LIVE_SCENE_EFFORT=high is a GPT effort here, so neither Sonnet attempt may take it.
+    const response = await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), { ...sceneKeys, LIVE_SCENE_EFFORT: "high" });
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "The simulation page is missing setControl" });
+    expect(openAICalls()).toHaveLength(1);
+    expect(anthropicCalls()).toHaveLength(2);
+    for (const anthropicCall of anthropicCalls()) {
+      expect(JSON.parse(String(anthropicCall[1].body))).toMatchObject({ model: "claude-sonnet-5-5", output_config: { effort: "low" } });
+    }
+  });
+
+  it("never falls back under a gpt-* BENCH_MODEL, which measures one model", async () => {
+    silenceConsole();
+    configureBenchModelOverride({ BENCH_MODEL: "gpt-6.2-astra", OPENAI_API_KEY: "openai-key" });
+    const { fetchMock } = stubOpenAIAndAnthropic(() => new Response("rate limited", { status: 429 }), sceneModelReply);
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), sceneKeys);
+
+    // A gpt-* override sends every request to OpenAI, so a fallback shows as a second call, not as an Anthropic one.
+    expect(response.status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("handleLiveScene model setting", () => {
   it("asks GPT when LIVE_SCENE_MODEL is not set and logs its token usage", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
