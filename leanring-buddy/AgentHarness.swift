@@ -255,9 +255,8 @@ final class HarnessApprovalDesk: ObservableObject {
 
     /// Oldest first.
     @Published private(set) var waitingRequests: [HarnessApprovalRequest] = []
-    /// When the approval card at the top of the open agent list last showed the oldest request's whole summary, or nil
-    /// while no card shows all of it: the list is closed, the summary is scrolled away from its end, or a new request
-    /// just became the oldest.
+    /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
+    /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest.
     private var oldestRequestVisibleSince: Date?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
     /// Whether the agent list is open, so a request that becomes the oldest shows in its card.
@@ -292,14 +291,15 @@ final class HarnessApprovalDesk: ObservableObject {
         onOldestRequestNeedsShowing?(oldestRequest)
     }
 
-    /// The approval card shows the whole summary of this request, after the list opened, after the request became the
-    /// oldest, or after the learner scrolled the summary to its end.
+    /// The approval card has now shown the whole summary of this request, from top to bottom: at once when it fits, or
+    /// once the learner has scrolled through all of it. The clock starts at the first report and runs until the list
+    /// closes or another request becomes the oldest.
     func theCardShowedTheWholeSummary(ofApprovalID approvalID: String) {
         guard waitingRequests.first?.approvalID == approvalID, oldestRequestVisibleSince == nil else { return }
         oldestRequestVisibleSince = currentDate()
     }
 
-    /// The card stopped showing the whole summary: the list closed, or the summary scrolled away from its end.
+    /// The card has not shown the whole summary, or the list closed, which discards what the card had seen.
     func theCardStoppedShowingTheWholeSummary() {
         oldestRequestVisibleSince = nil
     }

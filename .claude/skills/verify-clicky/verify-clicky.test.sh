@@ -50,4 +50,9 @@ fake_process_ids="$fake_process_ids $fake_app_id"
 sleep 0.5
 # A real Clicky on this Mac is listed too, so the check looks for the fake app's id among the ids.
 check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids | grep -cx "$fake_app_id" || true)" "1"
+# The usage text is how a driver learns the scroll primitive, and a bad value must stop before any event is posted.
+check "usage lists the scroll command" "$(usage | grep -c 'scroll <points>')" "1"
+# The function exits on a bad value, which ends only the command substitution, so its failure status is tolerated outside it.
+scroll_error="$(command_scroll "not-a-number" 2>&1)" || true
+check "scroll refuses a value that is not a whole number" "$scroll_error" "scroll takes a whole number of points, positive to scroll down"
 echo "ok: verify-clicky build freshness and running-app detection"
