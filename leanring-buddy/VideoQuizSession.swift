@@ -1253,6 +1253,17 @@ struct ChromeVideoTab {
         try runAppleScript(appleScriptSource)
     }
 
+    /// What the page reports about its window and its largest visible video or image, from one Apple Event with no
+    /// accessibility read. Nil when no media is big enough. The loop's poll compares these once a second.
+    static func pageGeometryOfTheLargestVisibleMediaInFrontTab() throws -> ChromePageGeometry? {
+        let javaScriptResult = try runAppleScript("""
+        with timeout of 2 seconds
+        tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
+        end timeout
+        """)
+        return try? JSONDecoder().decode(ChromePageGeometry.self, from: Data(javaScriptResult.utf8))
+    }
+
     /// Where the media to rise from sits on screen, or nil for any failure: no Chrome, an AppleScript error,
     /// or no media big enough. The learner may be looking at anything, so this never throws.
     static func screenRectOfTheLargestVisibleMediaInFrontTab() -> ScreenRectInChromeCoordinates? {
@@ -1268,12 +1279,7 @@ struct ChromeVideoTab {
     /// from Apple Events being off. Nil when no media is big enough. The front tab can be any busy site, so the read
     /// gets the voice tools' 2 second timeout instead of freezing the main actor.
     static func largestVisibleMediaInFrontTabOrNone() throws -> LargestVisibleMediaInFrontTab? {
-        let javaScriptResult = try runAppleScript("""
-        with timeout of 2 seconds
-        tell application "Google Chrome" to execute (active tab of front window) javascript "\(largestVisibleMediaJavaScript)"
-        end timeout
-        """)
-        guard let pageGeometry = try? JSONDecoder().decode(ChromePageGeometry.self, from: Data(javaScriptResult.utf8)) else {
+        guard let pageGeometry = try pageGeometryOfTheLargestVisibleMediaInFrontTab() else {
             return nil
         }
         // The web area of Chrome's window says where the viewport sits, which the page geometry cannot when a
@@ -1283,7 +1289,7 @@ struct ChromeVideoTab {
             matchingWebAreaFrames: ChromeWebArea.webAreaFramesOfChromesFocusedWindow()
         ) {
             print("Media rect: placed from Chrome's accessibility web area")
-            return LargestVisibleMediaInFrontTab(screenRect: rectFromWebArea, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
+            return LargestVisibleMediaInFrontTab(screenRect: rectFromWebArea, pageGeometry: pageGeometry, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
         }
         let rectFromPageGeometry = screenRectInChromeCoordinates(
             from: pageGeometry,
@@ -1291,7 +1297,7 @@ struct ChromeVideoTab {
         )
         print("Media rect: no matching web area, \(rectFromPageGeometry == nil ? "the page geometry gave no rect either" : "placed from the page geometry")")
         return rectFromPageGeometry.map { screenRect in
-            LargestVisibleMediaInFrontTab(screenRect: screenRect, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
+            LargestVisibleMediaInFrontTab(screenRect: screenRect, pageGeometry: pageGeometry, imageSourceURL: pageGeometry.imageSourceURL.flatMap(URL.init(string:)))
         }
     }
 

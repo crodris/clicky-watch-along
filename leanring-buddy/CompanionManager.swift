@@ -169,6 +169,8 @@ final class CompanionManager: ObservableObject {
     private var studyGuideRefreshesBeingChecked = 0
     /// The Haikyu!! team theme the learner picked in the menu bar panel or the settings dial, the one source of truth for it.
     let themeSettings = CompanionThemeSettings()
+    /// The loop around the video or image a request looks at, which the cursor overlay draws.
+    let cursorLoopController = CursorLoopController()
     /// What Clicky works on in the background, shown as tokens beside the notch and in the agent list.
     private(set) lazy var backgroundAgentStore = BackgroundAgentStore(themeSettings: themeSettings)
     private lazy var agentListPanelController = AgentListPanelController(
@@ -258,6 +260,8 @@ final class CompanionManager: ObservableObject {
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
+    private var scrollWheelCancellable: AnyCancellable?
+    private var cursorLoopVoiceStateCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
@@ -356,6 +360,9 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.onTourFinished = { [weak self] in
             self?.handleLiveSceneTourFinished()
         }
+        LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
+            self?.cursorLoopController.end(because: .aSceneStartedToShow)
+        }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
         }
@@ -379,6 +386,7 @@ final class CompanionManager: ObservableObject {
         bindPinchToLiveSceneZoom()
         bindEscapeToCloseLiveScene()
         bindShiftOptionHoldToTheSettingsDial()
+        bindTheCursorLoopToVoiceStateAndScrolling()
         // Eagerly touch the Claude API so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
         _ = claudeAPI
@@ -739,6 +747,25 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// The loop around the media ends when Clicky stops thinking or starts to speak, and when the page scrolls.
+    /// The label is part of the pair because Clicky speaks while a build runs, and the loop stays through that.
+    private func bindTheCursorLoopToVoiceStateAndScrolling() {
+        cursorLoopVoiceStateCancellable = Publishers.CombineLatest(
+            $voiceState,
+            LiveSceneStatusLabel.shared.statusLabelModel.$isVisible
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] voiceState, aStatusLabelIsShowing in
+            self?.cursorLoopController.voiceStateChanged(to: voiceState, aStatusLabelIsShowing: aStatusLabelIsShowing)
+        }
+        scrollWheelCancellable = globalPushToTalkShortcutMonitor
+            .scrollWheelPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.cursorLoopController.end(because: .scrolled)
+            }
+    }
+
     private func bindPinchToLiveSceneZoom() {
         pinchCancellable = globalPushToTalkShortcutMonitor
             .pinchMagnificationPublisher
@@ -766,8 +793,9 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
-            // A new press starts a new request, so the label from the last build is out of date.
+            // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
+            cursorLoopController.pushToTalkWasPressed()
 
             showTheCursorOverlayForThisInteraction()
 
@@ -779,7 +807,7 @@ final class CompanionManager: ObservableObject {
             elevenLabsTTSClient.stopPlayback()
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
-            // dictation binding never replaces responding, so the listening waveform would not show.
+            // dictation binding never replaces responding, so the listening ring would not show.
             if voiceState == .responding {
                 voiceState = .idle
             }
@@ -803,7 +831,7 @@ final class CompanionManager: ObservableObject {
                 await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
                     currentDraftText: "",
                     updateDraftText: { _ in
-                        // Partial transcripts are hidden (waveform-only UI)
+                        // Partial transcripts are hidden (the ring shows the voice, not the words)
                     },
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
@@ -817,8 +845,10 @@ final class CompanionManager: ObservableObject {
             // Cancel the pending start task in case the user released the shortcut
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
-            // leaves the waveform overlay stuck on screen indefinitely.
+            // leaves the listening ring stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
+            // The media rect is read beside the router call. It draws a loop only if the request becomes a look at it.
+            cursorLoopController.pushToTalkWasReleased()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
             buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
@@ -941,6 +971,9 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
+            // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
+            cursorLoopController.pushToTalkWasPressed()
+            cursorLoopController.pushToTalkWasReleased()
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
             if nextStepInterruptsThisOne {
                 try? await Task.sleep(nanoseconds: 6_000_000_000)
@@ -997,7 +1030,7 @@ final class CompanionManager: ObservableObject {
 
     /// Captures a screenshot, sends it along with the transcript to Claude,
     /// and plays the response aloud via ElevenLabs TTS. The cursor stays in
-    /// the spinner/processing state until TTS audio begins playing.
+    /// the thinking dots (processing state) until TTS audio begins playing.
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
@@ -1013,6 +1046,7 @@ final class CompanionManager: ObservableObject {
         }
         // "Animate this" has no voice tool, so its keyword path animates the pop-out on screen or pops one out.
         if liveSceneKind(for: transcript) == .animatedFramePopout {
+            theRequestBecameALookAtTheMedia()
             respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
             return
         }
@@ -1043,7 +1077,29 @@ final class CompanionManager: ObservableObject {
             startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
             return
         }
-        respondToTranscript(transcript: transcript, requestedSceneKind: keywordPathSceneKind(for: transcript))
+        respondByTheKeywordPath(transcript: transcript)
+    }
+
+    /// The keyword path: a scene, a pop-out, or an answer about the screen. A scene or a pop-out is a look at the media,
+    /// so it draws the loop. A plain answer does not, since no router decided that the request is about the media.
+    private func respondByTheKeywordPath(transcript: String) {
+        let requestedSceneKind = keywordPathSceneKind(for: transcript)
+        if requestedSceneKind != nil {
+            theRequestBecameALookAtTheMedia()
+        }
+        respondToTranscript(transcript: transcript, requestedSceneKind: requestedSceneKind)
+    }
+
+    /// The request became a look at the video or image Clicky sees, so the loop draws around it once its rect is in hand.
+    /// Nothing draws while a scene covers the media or a quiz question is open, since the loop would frame the wrong thing.
+    private func theRequestBecameALookAtTheMedia() {
+        guard requestMayDrawALoop(
+            aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
+        ) else {
+            return
+        }
+        cursorLoopController.requestBecameALookAtTheMedia()
     }
 
     private var liveScenePhaseIsWaitingForAQuizAnswer: Bool {
@@ -1169,7 +1225,7 @@ final class CompanionManager: ObservableObject {
         }
 
         currentResponseTask = Task {
-            // Stay in processing (spinner) state — no streaming text displayed
+            // Stay in processing state with the thinking dots, and show no streaming text
             voiceState = .processing
 
             do {
@@ -1197,7 +1253,7 @@ final class CompanionManager: ObservableObject {
                     conversationHistory: historyForAPI,
                     userPrompt: transcript,
                     onTextChunk: { _ in
-                        // No streaming text display — spinner stays until TTS plays
+                        // No streaming text display, the thinking dots stay until TTS plays
                     }
                 )
 
@@ -1208,9 +1264,8 @@ final class CompanionManager: ObservableObject {
                 let spokenText = parseResult.spokenText
 
                 // Handle element pointing if Claude returned coordinates.
-                // Switch to idle BEFORE setting the location so the triangle
-                // becomes visible and can fly to the target. Without this, the
-                // spinner hides the triangle and the flight animation is invisible.
+                // Switch to idle BEFORE setting the location so the thinking dots
+                // stop, and do not follow the triangle as it flies to the target.
                 let hasPointCoordinate = parseResult.coordinate != nil
                 if hasPointCoordinate {
                     voiceState = .idle
@@ -1278,7 +1333,7 @@ final class CompanionManager: ObservableObject {
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
 
-                // Play the response via TTS. Keep the spinner (processing state)
+                // Play the response via TTS. Keep the thinking dots (processing state)
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
@@ -1390,7 +1445,7 @@ final class CompanionManager: ObservableObject {
         let pictureFlowsTask: Task<PictureFlowsOutcome, Never>? = animatesWhatFlows
             ? Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
             : nil
-        // Idle during the tour so the triangle shows, while the narration is written in the background.
+        // Idle during the tour so no thinking dots show, while the narration is written in the background.
         voiceState = .idle
         await narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
         guard !Task.isCancelled else { return }
@@ -2334,6 +2389,9 @@ final class CompanionManager: ObservableObject {
         elevenLabsTTSClient.stopPlayback()
         voiceState = .processing
         currentResponseTask = Task {
+            // The dictation session's own idle reaches voiceState after this call returns, so the state is set again
+            // here, the way respondToTranscript's task does, or the thinking dots vanish for the whole router call.
+            self.voiceState = .processing
             await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
         }
     }
@@ -2403,7 +2461,7 @@ final class CompanionManager: ObservableObject {
                     break
                 }
                 print("Voice command: the router failed, so the keyword path takes it: \(error)")
-                respondToTranscript(transcript: transcript, requestedSceneKind: keywordPathSceneKind(for: transcript))
+                respondByTheKeywordPath(transcript: transcript)
                 return
             }
             guard !Task.isCancelled else { return }
@@ -2439,7 +2497,7 @@ final class CompanionManager: ObservableObject {
             switch voiceCommandNextStep(toolCalls: reply.toolCalls, outcomes: outcomes, replyText: reply.text) {
             case .finishSilently:
                 // A hand-off that started its own reply cancelled this task. One that did nothing, such as
-                // closing a scene with no video to resume, leaves the spinner up unless this clears it.
+                // closing a scene with no video to resume, leaves the thinking dots up unless this clears it.
                 guard !Task.isCancelled else { return }
                 voiceState = .idle
                 scheduleTransientHideIfNeeded()
@@ -2478,6 +2536,9 @@ final class CompanionManager: ObservableObject {
     }
 
     private func runAppVoiceTool(_ appVoiceTool: AppVoiceTool, input: [String: JSONValue], transcript: String) async -> VoiceToolOutcome {
+        if appVoiceTool.handsOffToALookAtTheMedia {
+            theRequestBecameALookAtTheMedia()
+        }
         switch appVoiceTool {
         case .answerWithScreen:
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
@@ -3264,6 +3325,8 @@ final class CompanionManager: ObservableObject {
             }
             return .changed(state: nil)
         }
+        // A tool call from this server is not a spoken request, so no media rect read for an earlier one may draw a loop for it.
+        cursorLoopController.end(because: .newPushToTalk)
         let toolCall = VoiceToolCall(id: "debug", name: toolName, input: toolInput)
         let offeredToolNames = Set(await voiceToolsForTheDebugServer().map(\.name))
         showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)

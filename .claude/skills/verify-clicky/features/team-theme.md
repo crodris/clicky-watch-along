@@ -7,7 +7,7 @@ A school turns the cursor into a volleyball in the team's colors, and turns ever
 
 - `theme-picker` saves the pick under `companionTheme` in UserDefaults and applies it at once, with no relaunch.
   The menu bar panel's buttons and the settings dial's Team fan set the same value.
-- `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the spinner, the waveform, and the navigation bubble in the school's accent.
+- `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the ring's ticks and dots, the loop, and the navigation bubble in the school's accent.
   Nekoma's ball is red with a black outline and white seams, and Inarizaki's is black with white lines.
   Three streaks in the team color trail the ball while it flies to a part and back, and while it follows a fast-moving mouse, turned toward the movement.
   Random and Clicky blue keep the blue triangle.

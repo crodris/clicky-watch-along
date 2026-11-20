@@ -353,11 +353,31 @@ struct ChromePageGeometry: Decodable, Equatable {
     let height: Double
     /// The image's URL when it sits wholly inside the viewport, stretched to its box. Nil for a video.
     let imageSourceURL: String?
+
+    /// Page layout can move an element by a point or two without anything the learner would call a change, such as a
+    /// scrollbar appearing, so numbers within this many points count as the same. The page zoom must match closely.
+    static let toleranceInPoints = 2.0
+    private static let devicePixelRatioTolerance = 0.001
+
+    /// Whether the window and the element sit where they sat in `other`. The image's URL is left out, since it
+    /// is not where anything is.
+    func isCloseTo(_ other: ChromePageGeometry) -> Bool {
+        let pointDifferences = [
+            screenX - other.screenX, screenY - other.screenY,
+            outerWidth - other.outerWidth, outerHeight - other.outerHeight,
+            innerWidth - other.innerWidth, innerHeight - other.innerHeight,
+            left - other.left, top - other.top, width - other.width, height - other.height,
+        ]
+        return pointDifferences.allSatisfy { abs($0) <= Self.toleranceInPoints }
+            && abs(devicePixelRatio - other.devicePixelRatio) <= Self.devicePixelRatioTolerance
+    }
 }
 
 /// The largest visible video or image in Chrome's front tab.
 struct LargestVisibleMediaInFrontTab {
     let screenRect: ScreenRectInChromeCoordinates
+    /// What the page reported, which the loop's poll compares without another accessibility read.
+    let pageGeometry: ChromePageGeometry
     /// Set only for an image whose own frames line up with a capture of `screenRect`.
     let imageSourceURL: URL?
 }
@@ -399,14 +419,25 @@ func screenRectInChromeCoordinates(from pageGeometry: ChromePageGeometry, backin
 /// A screen rectangle in the overlay page's coordinates. Chrome's screen origin
 /// is the top left of the main display, and AppKit's is the bottom left.
 func rectInOverlayPage(of screenRect: ScreenRectInChromeCoordinates, overlayScreen: NSScreen) -> [String: Double] {
+    let rectInOverlay = rectInOverlayCoordinates(of: screenRect, overlayScreen: overlayScreen)
+    return [
+        "x": rectInOverlay.minX,
+        "y": rectInOverlay.minY,
+        "width": rectInOverlay.width,
+        "height": rectInOverlay.height,
+    ]
+}
+
+/// The same rectangle as a CGRect, for the SwiftUI overlay, where the origin is the overlay's top left.
+func rectInOverlayCoordinates(of screenRect: ScreenRectInChromeCoordinates, overlayScreen: NSScreen) -> CGRect {
     let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? overlayScreen.frame.height
     let overlayTopInChromeCoordinates = mainDisplayHeight - overlayScreen.frame.maxY
-    return [
-        "x": screenRect.rectX - overlayScreen.frame.minX,
-        "y": screenRect.rectY - overlayTopInChromeCoordinates,
-        "width": screenRect.rectWidth,
-        "height": screenRect.rectHeight,
-    ]
+    return CGRect(
+        x: screenRect.rectX - overlayScreen.frame.minX,
+        y: screenRect.rectY - overlayTopInChromeCoordinates,
+        width: screenRect.rectWidth,
+        height: screenRect.rectHeight
+    )
 }
 
 /// The video's place on screen in the overlay page's coordinates.

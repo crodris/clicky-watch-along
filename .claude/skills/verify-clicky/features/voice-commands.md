@@ -15,7 +15,7 @@ A request that needs a new scene or a screenshot answer hands off to the old pat
   A voice pause or play drops Clicky's own pause record on that tab.
 - `voice-handoff` sends "show me a different model", "pop this out", and questions about the screen to the old path.
 - `voice-quiz-controls` lets the judge hear skip, repeat, a hint request, or a view command during a quiz question.
-- `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `answer_with_screen`, `show_ready_model`, `hear_task_answer`) whose own scene, speech, status line, or spinner follows.
+- `voice-chip` shows each call under the cursor in plain words for 1.4 seconds, with a fade only, and no chip for a hand-off (`pop_out`, `build_new_scene`, `answer_with_screen`, `show_ready_model`, `hear_task_answer`) whose own scene, speech, status line, or thinking dots follow.
 - `voice-give-up` says "Sorry, I couldn't do that one." when the third turn still needs the model, and never the model's own text, which it writes before a tool call runs and can claim a success that failed.
 - `voice-chrome-timeout` gives every script Clicky runs in a Chrome tab a 2 second Apple Event timeout, and a frame grab 5 seconds, so a page that shows an `alert()` fails the call instead of freezing Clicky for about 2 minutes.
 - `voice-page-tool-limits` keeps the first of a page tool name listed twice, cuts each page tool description to 1,000 characters, drops a page tool whose schema encodes to over 2,000 bytes, and shows no chip for a tool the turn did not offer.

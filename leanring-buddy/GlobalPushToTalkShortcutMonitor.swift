@@ -16,6 +16,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
     let pinchMagnificationPublisher = PassthroughSubject<Double, Never>()
     let escapeKeyPressPublisher = PassthroughSubject<Void, Never>()
+    /// Sends for each scroll wheel or trackpad scroll event that moves something, which clears the loop around the media.
+    let scrollWheelPublisher = PassthroughSubject<Void, Never>()
     /// Sends the settings dial's shift + option chord: opened after a 0.3 second hold with nothing else pressed,
     /// then released or cancelled. See SettingsDialShortcutRecognizer for when each one fires.
     let settingsDialEventPublisher = PassthroughSubject<SettingsDialShortcutRecognizer.Event, Never>()
@@ -47,11 +49,11 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     func start() {
         // If the event tap is already running, don't restart it.
         // Restarting resets isShortcutCurrentlyPressed, which would kill
-        // the waveform overlay mid-press when the permission poller calls
+        // the listening ring mid-press when the permission poller calls
         // refreshAllPermissions → start() every few seconds.
         guard globalEventTap == nil else { return }
 
-        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp] + SettingsDialShortcutRecognizer.pressEventTypesThatBreakAHold
+        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown, .keyUp, .scrollWheel] + SettingsDialShortcutRecognizer.pressEventTypesThatBreakAHold
         let eventMask = monitoredEventTypes.reduce(CGEventMask(1) << Self.gestureEventTypeRawValue) { currentMask, eventType in
             currentMask | (CGEventMask(1) << eventType.rawValue)
         }
@@ -131,6 +133,16 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         if eventType.rawValue == Self.gestureEventTypeRawValue {
             if event.getIntegerValueField(Self.gestureKindField) == Self.gestureKindZoom {
                 pinchMagnificationPublisher.send(event.getDoubleValueField(Self.gestureZoomAmountField))
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        if eventType == .scrollWheel {
+            // A scroll that moves nothing, such as the end of a momentum scroll, leaves the loop alone.
+            let scrolledByLines = event.getIntegerValueField(.scrollWheelEventDeltaAxis1) != 0 || event.getIntegerValueField(.scrollWheelEventDeltaAxis2) != 0
+            let scrolledByPixels = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) != 0 || event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2) != 0
+            if scrolledByLines || scrolledByPixels {
+                scrollWheelPublisher.send()
             }
             return Unmanaged.passUnretained(event)
         }

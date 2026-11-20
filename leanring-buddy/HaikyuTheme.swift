@@ -296,7 +296,7 @@ enum CompanionTheme: Equatable {
         }
     }
 
-    /// The color of the cursor triangle, glow, spinner, waveform, and navigation bubble.
+    /// The color of the cursor triangle, glow, ring, loop, and navigation bubble.
     var cursorColor: Color {
         switch self {
         case .clickyBlue, .random: return DS.Colors.overlayCursorBlue

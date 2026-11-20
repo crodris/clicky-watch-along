@@ -130,9 +130,11 @@ enum BuddyPointingHold: Equatable {
 // SwiftUI view for the blue glowing cursor pointer.
 // Each screen gets its own BlueCursorView. The view checks whether
 // the cursor is currently on THIS screen and only shows the buddy
-// triangle when it is. During voice interaction, the triangle is
-// replaced by a waveform (listening), spinner (processing), or
-// streaming text bubble (responding).
+// triangle when it is. During voice interaction, a ring around the
+// triangle shows ticks that follow the voice (listening) or three
+// orbiting dots (processing), and the streaming text bubble shows
+// while Clicky responds. A loop around the media Clicky is looking
+// at takes over the thinking light from the dots.
 struct BlueCursorView: View {
     let screenFrame: CGRect
     let isFirstAppearance: Bool
@@ -140,7 +142,10 @@ struct BlueCursorView: View {
     /// The team theme, which sets the cursor's color. Observed here because it is its own object, so a change in the
     /// menu bar panel redraws the cursor at once.
     @ObservedObject private var themeSettings: CompanionThemeSettings
-    /// While a status line shows, its icon stands in for the triangle, spinner, and waveform.
+    /// The loop around the video or image Clicky is looking at. It is the thinking light while it shows, so it is
+    /// observed here to redraw the ring and the loop together.
+    @ObservedObject private var cursorLoopController: CursorLoopController
+    /// While a status line shows, its icon stands in for the triangle, and the ring hides.
     @ObservedObject private var statusLabelModel = LiveSceneStatusLabel.shared.statusLabelModel
 
     /// True when the status icon takes the triangle's spot: the label shows, the screen's edge did not
@@ -160,6 +165,7 @@ struct BlueCursorView: View {
         self.isFirstAppearance = isFirstAppearance
         self.companionManager = companionManager
         self.themeSettings = companionManager.themeSettings
+        self.cursorLoopController = companionManager.cursorLoopController
 
         // Seed the cursor position from the current mouse location so the
         // buddy doesn't flash at (0,0) before onAppear fires.
@@ -378,10 +384,14 @@ struct BlueCursorView: View {
                     }
             }
 
-            // Blue triangle cursor, or a school theme's volleyball, shown when idle or while TTS is playing (responding).
-            // All three states (triangle, waveform, spinner) stay in the view tree
-            // permanently and cross-fade via opacity so SwiftUI doesn't remove/re-insert
-            // them (which caused a visible cursor "pop").
+            // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.
+            if let loopToDraw = cursorLoopController.loopToDraw(onScreenWithFrame: screenFrame) {
+                CursorLoopView(loop: loopToDraw, cursorPosition: cursorPosition, color: themeSettings.theme.cursorColor)
+            }
+
+            // Blue triangle cursor, or a school theme's volleyball. It stays visible through every voice state,
+            // with the ring around it, and stays in the view tree so SwiftUI doesn't remove/re-insert it
+            // (which caused a visible cursor "pop").
             //
             // During cursor following: fast spring animation for snappy tracking.
             // During navigation: NO implicit animation — the frame-by-frame bezier
@@ -402,7 +412,7 @@ struct BlueCursorView: View {
                 .rotationEffect(.degrees(buddyRotationDegrees))
                 .shadow(color: themeSettings.theme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
-                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy && (companionManager.voiceState == .idle || companionManager.voiceState == .responding) ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy ? cursorOpacity : 0)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -410,26 +420,31 @@ struct BlueCursorView: View {
                         : nil,
                     value: cursorPosition
                 )
-                .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
                 .animation(.easeOut(duration: 0.2), value: statusIconReplacesTheBuddy)
                 .animation(
                     buddyNavigationMode == .navigatingToTarget ? nil : .easeInOut(duration: 0.3),
                     value: triangleRotationDegrees
                 )
 
-            // Blue waveform — replaces the triangle while listening
-            BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel, color: themeSettings.theme.cursorColor)
-                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy && companionManager.voiceState == .listening ? cursorOpacity : 0)
+            // The ring around the cursor: ticks that follow the voice while listening, and three orbiting dots
+            // while thinking. It follows the cursor like the triangle, and hides under a status label.
+            CursorRingView(
+                cue: cursorCue(
+                    voiceState: companionManager.voiceState,
+                    loopIsShowing: cursorLoopController.isShowingTheLoop(onScreenWithFrame: screenFrame),
+                    aStatusLabelIsShowing: statusLabelModel.isVisible
+                ),
+                audioPowerLevel: companionManager.currentAudioPowerLevel,
+                color: themeSettings.theme.cursorColor
+            )
+                .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity : 0)
                 .position(cursorPosition)
-                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
-
-            // Blue spinner — shown while the AI is processing (transcription + Claude + waiting for TTS)
-            BlueCursorSpinnerView(color: themeSettings.theme.cursorColor)
-                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy && companionManager.voiceState == .processing ? cursorOpacity : 0)
-                .position(cursorPosition)
-                .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
+                .animation(
+                    buddyNavigationMode == .followingCursor
+                        ? .spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0)
+                        : nil,
+                    value: cursorPosition
+                )
         }
         .frame(width: screenFrame.width, height: screenFrame.height)
         .ignoresSafeArea()
@@ -886,79 +901,6 @@ struct BlueCursorView: View {
             self.welcomeText.append(self.fullWelcomeMessage[index])
             currentIndex += 1
         }
-    }
-}
-
-// MARK: - Blue Cursor Waveform
-
-/// A small blue waveform that replaces the triangle cursor while
-/// the user is holding the push-to-talk shortcut and speaking.
-private struct BlueCursorWaveformView: View {
-    let audioPowerLevel: CGFloat
-    let color: Color
-
-    private let barCount = 5
-    private let listeningBarProfile: [CGFloat] = [0.4, 0.7, 1.0, 0.7, 0.4]
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 36.0)) { timelineContext in
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(0..<barCount, id: \.self) { barIndex in
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(color)
-                        .frame(
-                            width: 2,
-                            height: barHeight(
-                                for: barIndex,
-                                timelineDate: timelineContext.date
-                            )
-                        )
-                }
-            }
-            .shadow(color: color.opacity(0.6), radius: 6, x: 0, y: 0)
-            .animation(.linear(duration: 0.08), value: audioPowerLevel)
-        }
-    }
-
-    private func barHeight(for barIndex: Int, timelineDate: Date) -> CGFloat {
-        let animationPhase = CGFloat(timelineDate.timeIntervalSinceReferenceDate * 3.6) + CGFloat(barIndex) * 0.35
-        let normalizedAudioPowerLevel = max(audioPowerLevel - 0.008, 0)
-        let easedAudioPowerLevel = pow(min(normalizedAudioPowerLevel * 2.85, 1), 0.76)
-        let reactiveHeight = easedAudioPowerLevel * 10 * listeningBarProfile[barIndex]
-        let idlePulse = (sin(animationPhase) + 1) / 2 * 1.5
-        return 3 + reactiveHeight + idlePulse
-    }
-}
-
-// MARK: - Blue Cursor Spinner
-
-/// A small blue spinning indicator that replaces the triangle cursor
-/// while the AI is processing a voice input.
-private struct BlueCursorSpinnerView: View {
-    let color: Color
-    @State private var isSpinning = false
-
-    var body: some View {
-        Circle()
-            .trim(from: 0.15, to: 0.85)
-            .stroke(
-                AngularGradient(
-                    colors: [
-                        color.opacity(0.0),
-                        color
-                    ],
-                    center: .center
-                ),
-                style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
-            )
-            .frame(width: 14, height: 14)
-            .rotationEffect(.degrees(isSpinning ? 360 : 0))
-            .shadow(color: color.opacity(0.6), radius: 6, x: 0, y: 0)
-            .onAppear {
-                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
-                    isSpinning = true
-                }
-            }
     }
 }
 
