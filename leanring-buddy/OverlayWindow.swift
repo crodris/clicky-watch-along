@@ -218,21 +218,29 @@ struct BlueCursorView: View {
     /// divide by it, so they show fully at the middle and fade out as the ball lands.
     private let buddyFlightPeakExtraScale: CGFloat = 0.3
 
-    /// While a school theme's volleyball follows the mouse, it turns toward the mouse's movement and shows streaks at speed.
-    /// It advances under every theme, so switching to a school theme never shows an old facing or old streaks.
+    /// While a school theme's volleyball, or a custom cursor that turns toward movement, follows the mouse, it turns toward
+    /// the mouse's movement and shows streaks at speed. It advances under every theme, so switching themes never shows an
+    /// old facing or old streaks.
     @State private var volleyballFollowMotion = VolleyballFollowMotion.atRest
 
 
-    /// The volleyball faces the mouse's movement while it follows, and its flight direction otherwise.
-    /// The triangle keeps its pointer angle while it follows.
+    /// A cursor that follows the mouse's movement (the volleyball, or a custom cursor that turns) faces it while it follows,
+    /// and its flight direction otherwise. The triangle keeps its pointer angle while it follows. A custom cursor that does
+    /// not turn stays upright.
     private var buddyRotationDegrees: Double {
-        let volleyballIsFollowingTheMouse = buddyNavigationMode == .followingCursor
-            && themeSettings.shownTheme.cursorVolleyballColors != nil
-        return volleyballIsFollowingTheMouse ? volleyballFollowMotion.facingDegrees : triangleRotationDegrees
+        switch themeSettings.shownTheme.cursorFacing {
+        case .pointerAngle:
+            return triangleRotationDegrees
+        case .followsMouseMovement:
+            return buddyNavigationMode == .followingCursor ? volleyballFollowMotion.facingDegrees : triangleRotationDegrees
+        case .upright:
+            return 0
+        }
     }
 
-    /// The volleyball's streaks show the mouse's speed while it follows, and the flight's size pulse while it flies.
-    private var volleyballStreakOpacity: Double {
+    /// The streaks of the volleyball and of a custom cursor show the mouse's speed while it follows, and the flight's size
+    /// pulse while it flies.
+    private var cursorStreakOpacity: Double {
         buddyNavigationMode == .followingCursor
             ? volleyballFollowMotion.streakStrength
             : (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
@@ -389,7 +397,7 @@ struct BlueCursorView: View {
                 CursorLoopView(loop: loopToDraw, cursorPosition: cursorPosition, color: themeSettings.shownTheme.cursorColor)
             }
 
-            // Blue triangle cursor, or a school theme's volleyball. It stays visible through every voice state,
+            // Blue triangle cursor, a school theme's volleyball, or a custom theme's cursor. It stays visible through every voice state,
             // with the ring around it, and stays in the view tree so SwiftUI doesn't remove/re-insert it
             // (which caused a visible cursor "pop").
             //
@@ -401,7 +409,15 @@ struct BlueCursorView: View {
                     VolleyballCursorView(
                         volleyballColors: cursorVolleyballColors,
                         flightStreakColor: themeSettings.shownTheme.cursorColor,
-                        streakOpacity: volleyballStreakOpacity
+                        streakOpacity: cursorStreakOpacity
+                    )
+                } else if case .custom(let customTheme) = themeSettings.shownTheme {
+                    CustomCursorView(
+                        customTheme: customTheme,
+                        picture: themeSettings.shownThemePicture,
+                        streakOpacity: cursorStreakOpacity,
+                        voiceState: companionManager.voiceState,
+                        audioPowerLevel: companionManager.currentAudioPowerLevel
                     )
                 } else {
                     Triangle()
@@ -559,7 +575,7 @@ struct BlueCursorView: View {
             let buddyX = swiftUIPosition.x + 35
             let buddyY = swiftUIPosition.y + 25
             let nextCursorPosition = CGPoint(x: buddyX, y: buddyY)
-            // Reduce Motion keeps the following ball still: no turning toward the mouse and no streaks.
+            // Reduce Motion keeps the following ball or custom cursor still: no turning toward the mouse and no streaks.
             // It is read from the system on each tick, because this timer closure holds a copy of the view
             // made when it appeared, and an @Environment value in that copy never updates.
             if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
