@@ -220,6 +220,13 @@ struct HaikyuThemeTests {
         #expect(agentListPortraitBorderColor(phase: .cancelled, school: .nekoma) == DS.Colors.textTertiary)
     }
 
+    @Test func theChipsIconTileFollowsTheIconsShapeSoNoWhiteCornersShowAroundAPortrait() async throws {
+        let player = try #require(HaikyuSchool.karasuno.roster.first)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, player: player).iconShape == .circularPortrait)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, player: nil).iconShape == .roundedSquareTile)
+        #expect(VoiceToolCallChipSender.voiceToolCall.iconShape == .roundedSquareTile)
+    }
+
     @Test func theChipSitsUnderTheCursorAndStaysInsideTheScreen() async throws {
         let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
         let chipOriginInTheMiddle = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 500), screenFrame: screenFrame)
