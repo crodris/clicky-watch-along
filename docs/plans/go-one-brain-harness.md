@@ -295,6 +295,9 @@ Each command appends to it, so "undo the first turn" or "go back to where we wer
   One learner means one session.
 - **Each command appends** a user message (the scene state for this moment and the learner's words), the model's turns, and the tool results.
   Each tool result in the history is cut to 2,000 characters.
+- **Only the newest image stays.** Every image kept in the history is paid for again on every later command, at the full input price on a cache miss.
+  No brain tool returns an image today, so this PR builds nothing for it.
+  When a brain tool first returns one, the session keeps only the newest image and replaces each older one with a one-line text note, such as "Screenshot of the YouTube tab, replaced", and that PR adds the test.
 - **Cancel rolls back.** A cancelled command removes its messages from the session, back to where it started, since a turn whose tool calls never got results cannot go back to Anthropic.
   The action lines of the calls that did finish go into the next command's user message as one "Interrupted before:" line, so the brain still knows what changed on screen.
 - **Hand-off stays.** A command that handed off stays in the session, with a result such as "Handed off: Clicky answers out loud".
