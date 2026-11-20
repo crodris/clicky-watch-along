@@ -68,6 +68,7 @@ Preconditions:
   The gap between their millisecond times is about 8 seconds, the brain's turn timeout, and under 10.
   The app log shows `Voice command: the router failed, so the keyword path takes it` once, and Clicky answers the question by voice.
   Stop the stub with `kill %1` and the second Worker with `$V worker-down 8788`.
+  `worker-down` takes a port here because without one it stops every Worker this script started, the one on 8788 included.
 - **Cost ceiling.** One `[/voice-command]` usage line per model turn, `claude-haiku-5-5`, `thinking_tokens` 0, and under 200 output tokens.
   After the first call within 5 minutes, `cache_read_input_tokens` is above 1000, because the tool list and the system prompt are cached.
 

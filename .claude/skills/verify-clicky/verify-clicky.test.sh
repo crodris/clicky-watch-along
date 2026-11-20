@@ -1,7 +1,7 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
 # running_clicky_pids, which `app-launch` uses to refuse a second Clicky, and parse_app_launch_arguments, which reads
-# `app-launch`'s flags.
+# `app-launch`'s flags, and command_worker_down, which stops one Worker when given its port.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -24,6 +24,16 @@ check() {
     exit 1
   }
 }
+
+state_root="$test_directory/state"
+mkdir -p "$state_root"
+# Two Worker records whose processes are gone, so worker-down only removes the records.
+echo 999999 >"$state_root/worker-8787.pid"
+echo 999999 >"$state_root/worker-8788.pid"
+command_worker_down 8787 >/dev/null 2>&1
+check "worker-down with a port leaves the other Worker's record" "$(ls "$state_root" | tr '\n' ' ')" "worker-8788.pid "
+command_worker_down >/dev/null 2>&1
+check "worker-down with no port removes every Worker's record" "$(ls "$state_root" | tr '\n' ' ')" ""
 
 check "an app newer than every source is current" "$(first_source_newer_than "$dylib_path" "$test_directory/sources")" ""
 touch -t 202601030000 "$test_directory/sources/frame-popout.html"

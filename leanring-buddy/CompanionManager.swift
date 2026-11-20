@@ -2816,13 +2816,13 @@ final class CompanionManager: ObservableObject {
         if appVoiceTool.handsOffToALookAtTheMedia {
             theRequestBecameALookAtTheMedia()
         }
-        let appVoiceToolStep = await appVoiceToolStep(
+        let toolStep = await appVoiceToolStep(
             appVoiceTool,
             input: input,
             transcript: transcript,
             approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
         )
-        return voiceToolOutcome(of: appVoiceToolStep, handOffMark: handOffMark)
+        return voiceToolOutcome(of: toolStep, handOffMark: handOffMark)
     }
 
     /// What one app tool does. A hand-off returns its new path as `.handOff` and never starts it here, and every other

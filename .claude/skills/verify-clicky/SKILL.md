@@ -155,7 +155,7 @@ build                     Build this checkout's Debug app in Xcode itself (never
 doctor                    Health check of the Worker ports, the Debug app, and Chrome. Removes only PID records whose process is gone.
 worker-up [port] [-- wrangler args]
                           Start wrangler dev from this checkout (default port 8789).
-worker-down               Stop the Workers this script started.
+worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
 app-launch [--brain] [--harness-brain] "<steps>"

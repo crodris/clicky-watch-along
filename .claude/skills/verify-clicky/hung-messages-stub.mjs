@@ -35,7 +35,9 @@ const server = http.createServer((request, response) => {
   );
   upstreamRequest.on("error", (error) => {
     console.log(`${Date.now()} upstream failed for ${requestPath}: ${error.message}`);
-    response.writeHead(502).end();
+    // A failure after the headers went out can only cut the reply off, since writeHead would throw.
+    if (response.headersSent) response.destroy();
+    else response.writeHead(502).end();
   });
   request.pipe(upstreamRequest);
 });

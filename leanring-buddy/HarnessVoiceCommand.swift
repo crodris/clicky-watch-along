@@ -95,6 +95,7 @@ nonisolated final class HarnessVoiceCommandLines: Sendable {
 /// new path, so no branch can hand off without the harness command's mark.
 enum AppVoiceToolStep {
     /// The tool ran, or refused, and this is its outcome. It is never `.handedOff`, which only `.handOff` produces.
+    /// A branch that starts a path taking over the reply, such as one that calls respondToTranscript, returns `.handOff` instead.
     case outcome(VoiceToolOutcome)
     /// Start this path, such as respondToTranscript, which takes over what Clicky says next.
     case handOff(startTheNewPath: () -> Void)

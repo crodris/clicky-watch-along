@@ -19,7 +19,7 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-up [port] [-- wrangler args]
                             Start wrangler dev from this checkout (default port 8789).
                             Pass 8787 only when nothing listens there and the app must use it.
-  worker-down               Stop the Workers this script started.
+  worker-down [port]        Stop the Workers this script started, or only the one on that port.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
   app-launch [--brain] [--harness-brain] "<steps>"
@@ -440,9 +440,17 @@ command_worker_up() {
   exit 1
 }
 
+# With a port, stops only the Worker on that port, so a recipe can swap one Worker for a stub and keep another running.
 command_worker_down() {
+  local only_port="${1:-}"
+  if [[ -n "$only_port" && ! "$only_port" =~ ^[0-9]+$ ]]; then
+    echo "worker-down takes an optional numeric port, as in: worker-down 8787" >&2
+    exit 1
+  fi
   local record_file
-  for record_file in "$state_root"/worker-*.pid; do
+  local record_pattern="worker-*.pid"
+  [[ -n "$only_port" ]] && record_pattern="worker-$only_port.pid"
+  for record_file in "$state_root"/$record_pattern; do
     [[ -f "$record_file" ]] || continue
     local port="${record_file##*/worker-}"
     port="${port%.pid}"
@@ -691,7 +699,7 @@ main() {
     build) command_build ;;
     doctor) command_doctor ;;
     worker-up) command_worker_up "$@" ;;
-    worker-down) command_worker_down ;;
+    worker-down) command_worker_down "${1:-}" ;;
     post) command_post "${1:?route}" "${2:?body file}" "${3:-}" ;;
     app-launch) command_app_launch "$@" ;;
     app-wait) command_app_wait "${1:-240}" ;;
