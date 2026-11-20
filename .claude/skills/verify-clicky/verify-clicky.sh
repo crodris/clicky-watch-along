@@ -227,7 +227,7 @@ per_launch_files=("app log" "app err" "app usage.log" "app rejections.log" "rehe
 # `open --stdout` appends, so without this app-wait would match the earlier launch's "Live scene rehearsal: done" line
 # and return before this launch's steps ran, and the permission check would read the earlier launch's start line. The
 # usage, rejection, and steps files are rewritten on each launch, so they move too, and each launch keeps its evidence.
-move_the_previous_app_log_aside() {
+move_the_previous_launch_files_aside() {
   local run_dir="$1" launch_number=1 per_launch_file file_name file_extension slot_is_taken
   while :; do
     slot_is_taken=false
@@ -562,7 +562,7 @@ command_app_launch() {
   fi
   local run_dir
   run_dir="$(current_run_dir)"
-  move_the_previous_app_log_aside "$run_dir"
+  move_the_previous_launch_files_aside "$run_dir"
   echo "$rehearsal_steps" >"$run_dir/rehearsal-steps.txt"
   worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
   # The Worker's Notion routes need the app's secret, which the app reads from its defaults. It is copied from
