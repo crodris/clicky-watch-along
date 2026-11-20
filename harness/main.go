@@ -1,7 +1,8 @@
 // Command clicky-agent-harness runs Clicky's task agent and, behind the app's brainRunsInTheHarness flag, its voice
-// command brain. The Clicky app starts it as a helper process and talks to it in JSON lines on stdin and stdout (see
-// protocol.go). The harness runs Claude's tool loop through the Worker's /v1/messages passthrough, and the app answers
-// only the tools that touch the Mac or Notion.
+// command brain (brain.go, brainloop.go). The Clicky app starts it as a helper process and talks to it in JSON lines on
+// stdin and stdout (see protocol.go). The harness runs Claude's tool loop through the Worker's /v1/messages
+// passthrough. The app answers the task agent's tools that touch the Mac or Notion, and a voice command's scene, video,
+// and agent tools.
 package main
 
 import (
@@ -140,6 +141,11 @@ func (serving *harness) handle(line []byte) {
 	message, err := parseInboundMessage(line)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "harness: dropped a line from the app: %v\n", err)
+		// The app waits on a voice command's events, so a command dropped here would hold the router failure fallback
+		// for the app's whole wait. task_failed for its ID starts the fallback at once, as the old path's 400 did.
+		if commandID := voiceCommandIDOfARefusedLine(line); commandID != "" {
+			serving.brain.writer.send(newTaskFailedMessage(commandID, err.Error()))
+		}
 		return
 	}
 	switch message := message.(type) {

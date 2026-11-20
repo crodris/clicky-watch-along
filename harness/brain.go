@@ -28,10 +28,6 @@ const (
 	// A turn with no reply by then fails the command, so the app's router failure fallback starts within this long of
 	// the turn's request, as the old path's per-request timeout gave. Haiku answers in about a second.
 	brainTurnTimeout = 8 * time.Second
-
-	// Spoken text comes from the model, which reads page text, so it is cut to a length that fits a confirmation or
-	// one sentence. The app's longestSpokenVoiceCommandLine is the same.
-	longestSpokenBrainLine = 300
 )
 
 // brainSystemPrompt is word for word the old path's voiceCommandSystemPrompt in worker/src/voiceCommand.ts, which a test
@@ -232,21 +228,13 @@ func voiceToolFailureText(errorText string) string {
 	return string(mustMarshal(map[string]any{"ok": false, "error": errorText, "state": nil}))
 }
 
-// cutToSpokenLength keeps the first longestSpokenBrainLine characters.
-func cutToSpokenLength(text string) string {
-	runes := []rune(text)
-	if len(runes) <= longestSpokenBrainLine {
-		return text
-	}
-	return string(runes[:longestSpokenBrainLine])
-}
-
 // voiceStep is what the brain does after a turn's calls have run.
 type voiceStep interface {
 	voiceStep()
 }
 
-// speakAndFinish: say this line, which may be empty, and end the command.
+// speakAndFinish: say this line, which may be empty, and end the command. The line goes out whole, and the app cuts it
+// to its longestSpokenVoiceCommandLine, since only Swift counts characters as the speech does.
 type speakAndFinish struct {
 	spokenLine string
 }
@@ -269,7 +257,7 @@ func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText stri
 		return finishSilently{}
 	}
 	if len(calls) == 0 {
-		return speakAndFinish{spokenLine: cutToSpokenLength(replyText)}
+		return speakAndFinish{spokenLine: replyText}
 	}
 	if slices.Contains(outcomes, voiceToolLookedUp) || slices.Contains(outcomes, voiceToolFailed) {
 		return askTheModelAgain{}
@@ -280,7 +268,7 @@ func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText stri
 			confirmations = append(confirmations, confirmation)
 		}
 	}
-	return speakAndFinish{spokenLine: cutToSpokenLength(strings.Join(confirmations, " "))}
+	return speakAndFinish{spokenLine: strings.Join(confirmations, " ")}
 }
 
 // brainUsageLine is the token line of one turn, which the app prints, since the Worker logs no usage for /v1/messages.

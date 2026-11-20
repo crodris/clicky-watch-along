@@ -2678,8 +2678,15 @@ final class CompanionManager: ObservableObject {
                 )
             },
             runTool: { toolCall, approvalIDTheLearnerIsAnswering in
+                // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
+                // the call it sends is what the switch can show.
+                self.logVoiceCommandJSONIfEnabled("tool call from the harness", [.object([
+                    "id": .string(toolCall.id),
+                    "name": .string(toolCall.name),
+                    "input": .object(toolCall.input),
+                ])])
                 // A command the harness ended, or the press cancelled, leaves its outcome unshown and unrecorded.
-                await self.runOneVoiceToolCall(
+                return await self.runOneVoiceToolCall(
                     toolCall,
                     offeredToolNames: offeredToolNames,
                     transcript: transcript,
@@ -2700,7 +2707,8 @@ final class CompanionManager: ObservableObject {
             await runTheRouterFailureFallback(transcript: transcript, failureDescription: reason)
         case .finished(let spokenLine, let gaveUp):
             guard !Task.isCancelled else { return }
-            // The harness cuts it too, and the app keeps its own limit, since the line comes from another process.
+            // The harness sends the line whole, and this is the one cut, since only Swift counts characters as the
+            // speech does, by grapheme cluster.
             let lineToSpeak = String(spokenLine.prefix(longestSpokenVoiceCommandLine))
             if !lineToSpeak.isEmpty {
                 // An agent the command started serves its token from the cursor first, and the line plays after it lands.
@@ -2795,9 +2803,9 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    /// Each branch that returns `.handedOff` calls `handOffMark?.handOffHasStarted()` right before its side effect,
-    /// which may cancel the harness command's own task (see `HarnessVoiceCommandLines`). The old path and the debug
-    /// server pass no mark.
+    /// Runs one app tool. Every hand-off goes through `voiceToolOutcome(of:handOffMark:)`, which sets the harness
+    /// command's mark before the new path starts (see `HarnessVoiceCommandLines`). The old path and the debug server
+    /// pass no mark.
     private func runAppVoiceTool(
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
@@ -2808,53 +2816,59 @@ final class CompanionManager: ObservableObject {
         if appVoiceTool.handsOffToALookAtTheMedia {
             theRequestBecameALookAtTheMedia()
         }
+        let appVoiceToolStep = await appVoiceToolStep(
+            appVoiceTool,
+            input: input,
+            transcript: transcript,
+            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+        )
+        return voiceToolOutcome(of: appVoiceToolStep, handOffMark: handOffMark)
+    }
+
+    /// What one app tool does. A hand-off returns its new path as `.handOff` and never starts it here, and every other
+    /// branch returns its outcome.
+    private func appVoiceToolStep(
+        _ appVoiceTool: AppVoiceTool,
+        input: [String: JSONValue],
+        transcript: String,
+        approvalIDTheLearnerIsAnswering: String?
+    ) async -> AppVoiceToolStep {
         switch appVoiceTool {
         case .answerWithScreen:
-            handOffMark?.handOffHasStarted()
-            respondToTranscript(transcript: transcript, requestedSceneKind: nil)
-            return .handedOff
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: nil) }
         case .buildNewScene:
-            handOffMark?.handOffHasStarted()
-            respondToTranscript(transcript: transcript, requestedSceneKind: input["asQuiz"]?.boolValue == true ? .quiz : .explore)
-            return .handedOff
+            let requestedSceneKind: LiveSceneKind = input["asQuiz"]?.boolValue == true ? .quiz : .explore
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: requestedSceneKind) }
         case .buildSimulation:
             switch currentExperimentRequestStep {
             case .showTheReadyExperiment:
-                handOffMark?.handOffHasStarted()
-                startShowingTheReadyBackgroundScene()
-                return .handedOff
+                return .handOff { self.startShowingTheReadyBackgroundScene() }
             case .sayItIsStillBuilding:
-                return .failed(error: "The experiment is still building, so wait for it", state: nil)
+                return .outcome(.failed(error: "The experiment is still building, so wait for it", state: nil))
             case .startBuilding:
-                return startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+                return .outcome(startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment))
             }
         case .popOut:
-            handOffMark?.handOffHasStarted()
-            respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
-            return .handedOff
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout) }
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
-            handOffMark?.handOffHasStarted()
-            respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
-            return .handedOff
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout) }
         case .closeScene:
-            handOffMark?.handOffHasStarted()
-            closeTheSceneByVoice()
-            return .handedOff
+            return .handOff { self.closeTheSceneByVoice() }
         case .explainPart:
             let requestedLabel = input["label"]?.stringValue ?? ""
-            handOffMark?.handOffHasStarted()
-            if partLabelToExplain(untrustedTappedLabel: requestedLabel, pageOnScreen: liveScenePageOnScreen, liveScenePhase: liveScenePhase) != nil {
-                explainTheTappedPart(untrustedTappedLabel: requestedLabel)
-            } else {
-                respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
+            return .handOff {
+                if partLabelToExplain(untrustedTappedLabel: requestedLabel, pageOnScreen: self.liveScenePageOnScreen, liveScenePhase: self.liveScenePhase) != nil {
+                    self.explainTheTappedPart(untrustedTappedLabel: requestedLabel)
+                } else {
+                    self.respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
+                }
             }
-            return .handedOff
         case .pauseVideo:
-            return runLearnerVideoCommand(.pause)
+            return .outcome(runLearnerVideoCommand(.pause))
         case .playVideo:
             let playOutcome = runLearnerVideoCommand(.play)
-            guard case .changed = playOutcome else { return playOutcome }
+            guard case .changed = playOutcome else { return .outcome(playOutcome) }
             // play() only asks. Chrome may refuse it, and a video that loads its data only now needs a moment,
             // so the state is read a few times over about 1.6 seconds before a play counts as failed.
             var videoStateAfterPlay: JSONValue?
@@ -2863,80 +2877,74 @@ final class CompanionManager: ObservableObject {
                 videoStateAfterPlay = videoQuizSession.frontVideoStateForVoiceCommands()
                 if videoStateAfterPlay?["playing"]?.boolValue == true { break }
             }
-            return learnerVideoPlayOutcome(videoStateAfterPlay: videoStateAfterPlay)
+            return .outcome(learnerVideoPlayOutcome(videoStateAfterPlay: videoStateAfterPlay))
         case .seekRelative:
-            guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
-            return runLearnerVideoCommand(.seekBy(seconds: seconds))
+            guard let seconds = input["seconds"]?.numberValue else { return .outcome(.failed(error: "seconds must be a number", state: nil)) }
+            return .outcome(runLearnerVideoCommand(.seekBy(seconds: seconds)))
         case .seekToTime:
-            guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
-            return runLearnerVideoCommand(.seekTo(seconds: seconds))
+            guard let seconds = input["seconds"]?.numberValue else { return .outcome(.failed(error: "seconds must be a number", state: nil)) }
+            return .outcome(runLearnerVideoCommand(.seekTo(seconds: seconds)))
         case .setSpeed:
-            guard let playbackRate = input["rate"]?.numberValue else { return .failed(error: "rate must be a number", state: nil) }
-            return runLearnerVideoCommand(.setPlaybackRate(playbackRate))
+            guard let playbackRate = input["rate"]?.numberValue else { return .outcome(.failed(error: "rate must be a number", state: nil)) }
+            return .outcome(runLearnerVideoCommand(.setPlaybackRate(playbackRate)))
         case .findMoment:
             do {
                 let captionMoments = try await videoQuizSession.captionMomentsInTheFrontVideo(matching: input["query"]?.stringValue ?? "")
-                return .lookedUp(result: .array(captionMoments.map { captionMoment in
+                return .outcome(.lookedUp(result: .array(captionMoments.map { captionMoment in
                     .object(["seconds": .number(captionMoment.seconds), "captions": .string(captionMoment.text)])
-                }))
+                })))
             } catch {
-                return .failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil)
+                return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil))
             }
         case .endQuiz:
-            handOffMark?.handOffHasStarted()
-            handleVideoQuizVoiceCommand(.stop)
-            return .handedOff
+            return .handOff { self.handleVideoQuizVoiceCommand(.stop) }
         case .makeStudyGuide:
-            return startWritingTheStudyGuide(.write(focus: studyGuideWish(fromModelText: input["focus"]?.stringValue)))
+            return .outcome(startWritingTheStudyGuide(.write(focus: studyGuideWish(fromModelText: input["focus"]?.stringValue))))
         case .reviseStudyGuide:
             guard let instruction = studyGuideWish(fromModelText: input["instruction"]?.stringValue) else {
-                return .failed(error: "instruction must say what to change", state: nil)
+                return .outcome(.failed(error: "instruction must say what to change", state: nil))
             }
-            return startWritingTheStudyGuide(.revise(instruction: instruction))
+            return .outcome(startWritingTheStudyGuide(.revise(instruction: instruction)))
         case .openStudyGuide:
             guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
-                return .failed(error: "No study guide has been written for this video yet", state: nil)
+                return .outcome(.failed(error: "No study guide has been written for this video yet", state: nil))
             }
             // Checked again here, since the learner may have trashed the page since the tools were offered.
             guard let studyGuideRecord = await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: true) else {
-                return .failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil)
+                return .outcome(.failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil))
             }
             let pageURL = studyGuideRecord.pageURL
             if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
-                return .changed(state: nil)
+                return .outcome(.changed(state: nil))
             }
             // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
             guard pageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
-                return .failed(error: "The study guide page would not open", state: nil)
+                return .outcome(.failed(error: "The study guide page would not open", state: nil))
             }
-            return .changed(state: nil)
+            return .outcome(.changed(state: nil))
         case .buildModelInTheBackground:
             guard let whatToBuild = input["whatToBuild"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !whatToBuild.isEmpty else {
-                return .failed(error: "whatToBuild must say what to build", state: nil)
+                return .outcome(.failed(error: "whatToBuild must say what to build", state: nil))
             }
-            return startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: .threeDModel)
+            return .outcome(startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: .threeDModel))
         case .showReadyModel:
-            handOffMark?.handOffHasStarted()
-            startShowingTheReadyBackgroundScene()
-            return .handedOff
+            return .handOff { self.startShowingTheReadyBackgroundScene() }
         case .startBackgroundTask:
             guard let goal = input["goal"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty else {
-                return .failed(error: "goal must say what the task is", state: nil)
+                return .outcome(.failed(error: "goal must say what the task is", state: nil))
             }
             // The catalog is read again, so a skill file removed since the router built its tools is dropped here.
             let skillChoice = TaskAgentSkillCatalog.skillNameToRun(requestedName: input["skill"]?.stringValue, catalog: TaskAgentSkillCatalog.currentSkills())
             if skillChoice.skillWasDropped {
                 print("Task agent: the skill \(input["skill"]?.stringValue ?? "") is not in the catalog, so the task runs with no skill")
             }
-            return startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name)
+            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name))
         case .hearTaskAnswer:
-            handOffMark?.handOffHasStarted()
-            startSpeakingTheTaskAnswer()
-            return .handedOff
+            return .handOff { self.startSpeakingTheTaskAnswer() }
         case .recordGuess:
-            return await recordTheSimulationGuess(input["guess"]?.stringValue ?? "")
+            return .outcome(await recordTheSimulationGuess(input["guess"]?.stringValue ?? ""))
         case .answerApproval:
-            return answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript)
+            return .outcome(answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
         }
     }
 

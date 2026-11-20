@@ -183,6 +183,19 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 	}
 }
 
+// voiceCommandIDOfARefusedLine is the taskID of a voice_command line that parseInboundMessage refused, or "" when the
+// line is some other message or its taskID cannot be read.
+func voiceCommandIDOfARefusedLine(line []byte) string {
+	var envelope struct {
+		Type   string `json:"type"`
+		TaskID string `json:"taskID"`
+	}
+	if json.Unmarshal(line, &envelope) != nil || envelope.Type != "voice_command" {
+		return ""
+	}
+	return envelope.TaskID
+}
+
 // outboundMessage is a message this harness sends to the app. Build one with its new...Message function, which sets
 // the "type" the app switches on.
 type outboundMessage interface {

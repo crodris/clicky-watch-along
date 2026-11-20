@@ -133,7 +133,8 @@ func TestNextVoiceStepSpeaksTheConfirmationsOnlyWhenEveryToolChangedTheScreen(t 
 		{"no call speaks the reply text", nil, nil, "I can't do that one.", speakAndFinish{spokenLine: "I can't do that one."}},
 		// The text written next to a failed call is never what ends the command, since it was written before the call ran.
 		{"a failed seek never speaks the text next to it", []toolCall{seekCall}, []voiceToolOutcome{voiceToolFailed}, "Jumping there.", askTheModelAgain{}},
-		{"spoken text is cut to 300 characters", nil, nil, strings.Repeat("a", 400), speakAndFinish{spokenLine: strings.Repeat("a", 300)}},
+		// The app is the one place that cuts a spoken line, by grapheme cluster, so the harness sends it whole.
+		{"spoken text goes out whole for the app to cut", nil, nil, strings.Repeat("👍🏽", 400), speakAndFinish{spokenLine: strings.Repeat("👍🏽", 400)}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

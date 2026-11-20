@@ -372,3 +372,20 @@ func TestANewCommandCancelsTheOneStillRunning(t *testing.T) {
 		t.Fatalf("finished: %s", got)
 	}
 }
+
+func TestAMalformedVoiceCommandFailsAtOnceAndAMalformedTaskLineIsDropped(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, _ int) {
+		t.Error("a malformed command must not reach the Worker")
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	// A refused line of a task is dropped as before, since a task_failed would end a task the line never reached.
+	driver.send(`{"type":"tool_result","taskID":"task-running"}`)
+	driver.expectNoLineFor(200 * time.Millisecond)
+
+	// No tools: the app waits on this command's events, so the harness answers for its ID instead of dropping the line.
+	driver.send(`{"type":"voice_command","taskID":"command-malformed","transcript":"turn it left","tools":[]}`)
+	if got, want := driver.expectLine("task_failed"), `{"type":"task_failed","taskID":"command-malformed","reason":"voice_command needs a taskID, a transcript, and at least one tool"}`; got != want {
+		t.Fatalf("got %s\nwant %s", got, want)
+	}
+}

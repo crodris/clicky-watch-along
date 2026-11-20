@@ -2,8 +2,9 @@
 //  HarnessVoiceCommandTests.swift
 //  leanring-buddyTests
 //
-//  A voice command on the brain, from the app's side: which approval ID each call carries, and which lines the command
-//  writes back to the harness when a hand-off or a push-to-talk press cancels it. The harness's own rules are tested
+//  A voice command on the brain, from the app's side: which approval ID each call carries, which lines the command
+//  writes back to the harness when a hand-off or a push-to-talk press cancels it, how a hand-off ends the command, and
+//  what a call queued behind the passed deadline does. The harness's own rules are tested
 //  in harness/brainloop_test.go.
 //
 
@@ -84,8 +85,83 @@ struct HarnessVoiceCommandTests {
             )
         }
 
-        #expect(await commandTask.value == .cancelled)
+        // The hand-off's own reply owns what Clicky says, and CompanionManager says nothing for a cancelled task.
+        #expect(await commandTask.value == .finished(spokenLine: "", gaveUp: false))
         #expect(recorder.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_pop", outcome: .handedOff)])
+    }
+
+    @Test func aHandOffThatLeavesTheCommandRunningFinishesItWithoutWaitingForTheHarness() async {
+        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_close", toolName: "close_scene", input: [:], turnIndex: 0)))
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+
+        let commandEnding = await runTheVoiceCommandEvents(
+            commandEvents,
+            lines: commandLines,
+            approvalIDWaitingWhenTheCommandStarted: nil,
+            secondsToWaitForAnEvent: 0.05,
+            whenNoEventArrivesInTime: {
+                // A harness that stalls after the result: the fallback must not answer a request close_scene took.
+                eventContinuation.yield(.failed(reason: "the agent harness sent nothing for 10 seconds"))
+                eventContinuation.finish()
+            },
+            runTool: { _, _ in
+                // close_scene hands off without cancelling the command's task.
+                .handedOff
+            }
+        )
+
+        #expect(commandEnding == .finished(spokenLine: "", gaveUp: false))
+        #expect(recorder.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_close", outcome: .handedOff)])
+    }
+
+    @Test func aHandOffStepSetsTheMarkBeforeItsNewPathStarts() {
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+        commandLines.callStarted(toolUseID: "toolu_pop")
+        var newPathStarted = false
+
+        let outcome = voiceToolOutcome(of: .handOff(startTheNewPath: {
+            // What respondToTranscript does first: cancel currentResponseTask, which is the command's own task.
+            commandLines.commandWasCancelled()
+            newPathStarted = true
+        }), handOffMark: commandLines)
+
+        #expect(outcome == .handedOff)
+        #expect(newPathStarted)
+        // With the mark set first, the cancel answers the call as handed off instead of cancelling the command.
+        #expect(recorder.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_pop", outcome: .handedOff)])
+    }
+
+    @Test func aToolCallQueuedWhenTheWaitRunsOutNeverRuns() async {
+        let (commandEvents, eventContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+        var toolCallsThatRan = 0
+
+        let commandEnding = await runTheVoiceCommandEvents(
+            commandEvents,
+            lines: commandLines,
+            approvalIDWaitingWhenTheCommandStarted: nil,
+            secondsToWaitForAnEvent: 0.05,
+            whenNoEventArrivesInTime: {
+                // The harness's call reached the stream just as the wait ran out, ahead of the failure that ends it.
+                eventContinuation.yield(.toolCall(HarnessToolCall(toolUseID: "toolu_rotate", toolName: "rotate_model", input: [:], turnIndex: 0)))
+                commandLines.commandWasCancelled()
+                eventContinuation.yield(.failed(reason: "the agent harness sent nothing for 10 seconds"))
+                eventContinuation.finish()
+            },
+            runTool: { _, _ in
+                toolCallsThatRan += 1
+                return .changed(state: nil)
+            }
+        )
+
+        // The router failure fallback runs, so the late call must not run as well.
+        if case .failed = commandEnding {} else { Issue.record("expected the command to fail, got \(commandEnding)") }
+        #expect(toolCallsThatRan == 0)
+        #expect(recorder.lines == [.cancelTask(taskID: commandID)])
     }
 
     @Test func aCancelJustBeforeTheHandOffMarkSendsCancelAndOneJustAfterSendsOnlyTheHandedOffResult() {
