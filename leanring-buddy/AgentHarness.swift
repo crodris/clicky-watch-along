@@ -248,9 +248,10 @@ final class HarnessApprovalDesk: ObservableObject {
     /// agent waiting for good. harness/approval.go waits as long as the task lives.
     nonisolated static let defaultTimeoutSeconds: Double = 120
 
-    /// A yes, by voice or by click, counts only once the approval card has shown the oldest request's whole summary
-    /// this long without a break. The list opens next to the mouse, so a click the learner meant for the page could
-    /// otherwise be taken as Yes, and a summary on screen for an instant is one nobody read.
+    /// A yes, by voice or by click, counts only once the card has shown the oldest request's whole summary, scrolled
+    /// through from top to bottom, and this long has passed since it did. Scrolling away afterward does not stop the
+    /// clock. The list opens next to the mouse, so a click the learner meant for the page could otherwise be taken as
+    /// Yes, and a summary on screen for an instant is one nobody read.
     nonisolated static let secondsTheCardShowsBeforeAnAnswerCounts: Double = 1
 
     /// Oldest first.
@@ -299,8 +300,8 @@ final class HarnessApprovalDesk: ObservableObject {
         oldestRequestVisibleSince = currentDate()
     }
 
-    /// The card has not shown the whole summary, or the list closed, which discards what the card had seen.
-    func theCardStoppedShowingTheWholeSummary() {
+    /// The card has not yet shown the whole summary, or the list closed, which discards what the card had seen.
+    func theCardHasNotShownTheWholeSummary() {
         oldestRequestVisibleSince = nil
     }
 

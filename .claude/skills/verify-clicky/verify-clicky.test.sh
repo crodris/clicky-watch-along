@@ -1,6 +1,7 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
-# and running_clicky_pids, which `app-launch` uses to refuse a second Clicky.
+# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, and the scroll command's usage line and refusal
+# of a value that is not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -54,5 +55,11 @@ check "a process started from the app's binary is a running Clicky" "$(running_c
 check "usage lists the scroll command" "$(usage | grep -c 'scroll <points>')" "1"
 # The function exits on a bad value, which ends only the command substitution, so its failure status is tolerated outside it.
 scroll_error="$(command_scroll "not-a-number" 2>&1)" || true
-check "scroll refuses a value that is not a whole number" "$scroll_error" "scroll takes a whole number of points, positive to scroll down"
-echo "ok: verify-clicky build freshness and running-app detection"
+scroll_refusal="scroll takes a whole number of points up to 6 digits, positive to scroll down"
+check "scroll refuses a value that is not a whole number" "$scroll_error" "$scroll_refusal"
+# Int32.min passes Int32(...) but traps when scroll.swift negates it, so the digit cap must stop it here.
+scroll_error="$(command_scroll "-2147483648" 2>&1)" || true
+check "scroll refuses a value of more than 6 digits" "$scroll_error" "$scroll_refusal"
+scroll_error="$(command_scroll "1000000" 2>&1)" || true
+check "scroll refuses a positive value of 7 digits" "$scroll_error" "$scroll_refusal"
+echo "ok: verify-clicky build freshness, running-app detection, and scroll usage and argument checks"

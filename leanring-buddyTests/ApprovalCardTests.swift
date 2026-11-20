@@ -29,6 +29,7 @@ struct ApprovalCardTests {
     @Test func aSliverOfLayoutRoundingCountsAsCoveredButARealGapDoesNot() {
         #expect(approvalSummaryWasShownWhole(seenRanges: [0...200, 200.5...400], summaryHeight: 400), "half a point between ranges is rounding")
         #expect(approvalSummaryWasShownWhole(seenRanges: [0.5...399.5], summaryHeight: 400), "half a point short at either end is rounding")
+        #expect(!approvalSummaryWasShownWhole(seenRanges: [0...200, 201.5...400], summaryHeight: 400), "a gap of 1.5 points is past the 1 point tolerance")
         #expect(!approvalSummaryWasShownWhole(seenRanges: [0...200, 203...400], summaryHeight: 400), "three points is a line's top or bottom edge unseen")
         #expect(!approvalSummaryWasShownWhole(seenRanges: [3...400], summaryHeight: 400), "the first lines never showed")
         #expect(!approvalSummaryWasShownWhole(seenRanges: [0...397], summaryHeight: 400), "the last lines never showed")

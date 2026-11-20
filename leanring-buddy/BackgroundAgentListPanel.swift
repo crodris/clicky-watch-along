@@ -261,7 +261,7 @@ final class AgentListPanelController {
 
     func close() {
         discTheListWasOpenedFrom = nil
-        approvalDesk.theCardStoppedShowingTheWholeSummary()
+        approvalDesk.theCardHasNotShownTheWholeSummary()
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
@@ -440,11 +440,11 @@ private struct AgentListView: View {
                     approvalRequest: oldestRequest,
                     agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map { agent in agent.player?.displayName ?? agent.kind.displayName } ?? "An agent",
                     answerApproval: actions.answerApproval,
-                    wholeSummaryIsShowing: { wholeSummaryIsShowing in
-                        if wholeSummaryIsShowing {
+                    summaryWasShownWhole: { summaryWasShownWhole in
+                        if summaryWasShownWhole {
                             approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: oldestRequest.approvalID)
                         } else {
-                            approvalDesk.theCardStoppedShowingTheWholeSummary()
+                            approvalDesk.theCardHasNotShownTheWholeSummary()
                         }
                     }
                 )
@@ -784,7 +784,7 @@ private struct ApprovalCardView: View {
     let approvalRequest: HarnessApprovalRequest
     let agentName: String
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
-    let wholeSummaryIsShowing: (Bool) -> Void
+    let summaryWasShownWhole: (Bool) -> Void
 
     @State private var summaryFrame = ApprovalSummaryFrame(minY: 0, height: 0)
     @State private var scrollAreaHeight: CGFloat = 0
@@ -860,7 +860,7 @@ private struct ApprovalCardView: View {
                   scrollAreaHeight: scrollAreaHeight
               ) else { return }
         seenRanges.record(rangeInView, forApprovalID: approvalRequest.approvalID)
-        wholeSummaryIsShowing(approvalSummaryWasShownWhole(seenRanges: seenRanges.ranges, summaryHeight: summaryFrame.height))
+        summaryWasShownWhole(approvalSummaryWasShownWhole(seenRanges: seenRanges.ranges, summaryHeight: summaryFrame.height))
     }
 }
 
