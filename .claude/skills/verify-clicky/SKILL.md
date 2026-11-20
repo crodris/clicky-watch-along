@@ -187,6 +187,7 @@ Escape and a push-to-talk tap with no words can be driven: `$V key escape` and `
 Proof goes in `.verify-clicky/runs/<timestamp>-<name>/` in the checkout, which git ignores.
 A run folder holds what its commands wrote: `worker-<port>.log`, `response-*.json` with matching `*.usage.log`, `rehearsal-steps.txt`, `app.log`, `app.err`, `app.usage.log`, and `<name>-display<N>.png`.
 A `*.rejections.log` or `app.rejections.log` file appears only when a route rejected a model reply.
+A second `app-launch` in the same run moves the earlier launch's `app.log` and `app.err` to `app-<N>.log` and `app-<N>.err`, so `app-wait` reads only the current launch.
 
 Proof standards:
 

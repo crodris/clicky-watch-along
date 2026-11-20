@@ -219,6 +219,19 @@ stop_process_tree() {
   kill -KILL $tree_pids 2>/dev/null || true
 }
 
+# Moves an earlier launch's app.log and app.err in this run to app-<N>.log and app-<N>.err. `open --stdout` appends, so
+# without this app-wait would match the earlier launch's "Live scene rehearsal: done" line and return before this launch's
+# steps ran, and the permission check would read the earlier launch's start line.
+move_the_previous_app_log_aside() {
+  local run_dir="$1" launch_number=1
+  [[ -e "$run_dir/app.log" || -e "$run_dir/app.err" ]] || return 0
+  while [[ -e "$run_dir/app-$launch_number.log" || -e "$run_dir/app-$launch_number.err" ]]; do
+    launch_number=$((launch_number + 1))
+  done
+  if [[ -e "$run_dir/app.log" ]]; then mv "$run_dir/app.log" "$run_dir/app-$launch_number.log"; fi
+  if [[ -e "$run_dir/app.err" ]]; then mv "$run_dir/app.err" "$run_dir/app-$launch_number.err"; fi
+}
+
 # The first Swift file under source_directory that is newer than dylib_path, or nothing when the app is at least as new
 # as every Swift file. Only Swift code is linked into the dylib, so an edited page, script, or asset never makes it
 # stale. A find error, such as a file deleted during the walk, counts as fresh, since the next build would not fix it.
@@ -546,6 +559,7 @@ command_app_launch() {
     bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
     defaults write "$bundle_id" clickyAppSecret -string "$app_secret"
   fi
+  move_the_previous_app_log_aside "$run_dir"
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
     --args --voice-tool-debug-server ${brain_launch_arguments[@]+"${brain_launch_arguments[@]}"} --live-scene-rehearsal "$rehearsal_steps"

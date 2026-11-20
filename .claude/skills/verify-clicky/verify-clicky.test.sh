@@ -1,6 +1,7 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
-# and running_clicky_pids, which `app-launch` uses to refuse a second Clicky.
+# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, and move_the_previous_app_log_aside, which keeps
+# an earlier launch's log lines away from app-wait.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -50,4 +51,16 @@ fake_process_ids="$fake_process_ids $fake_app_id"
 sleep 0.5
 # A real Clicky on this Mac is listed too, so the check looks for the fake app's id among the ids.
 check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids | grep -cx "$fake_app_id" || true)" "1"
-echo "ok: verify-clicky build freshness and running-app detection"
+# A second launch in the same run must not leave the first launch's lines where app-wait reads.
+run_directory="$test_directory/run"
+mkdir -p "$run_directory"
+echo "Live scene rehearsal: done" >"$run_directory/app.log"
+echo "first launch" >"$run_directory/app.err"
+move_the_previous_app_log_aside "$run_directory"
+check "an earlier launch's log moves aside" "$(cat "$run_directory/app-1.log")" "Live scene rehearsal: done"
+check "an earlier launch's error log moves aside" "$(cat "$run_directory/app-1.err")" "first launch"
+check "the next launch starts with no app.log" "$([[ -e "$run_directory/app.log" ]] && echo present || echo absent)" "absent"
+echo "second launch" >"$run_directory/app.log"
+move_the_previous_app_log_aside "$run_directory"
+check "a third launch keeps the second launch's log under the next number" "$(cat "$run_directory/app-2.log")" "second launch"
+echo "ok: verify-clicky build freshness, running-app detection, and app log rotation"
