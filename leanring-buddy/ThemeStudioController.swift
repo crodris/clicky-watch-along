@@ -34,16 +34,6 @@ final class ThemeStudioController: ObservableObject {
         let designIdeas: (ThemeIdeasRequest) async throws -> ThemeIdeasReply
     }
 
-    /// Where the picture for a design comes from.
-    enum PictureChoice: Equatable {
-        /// No picture: design from the words alone.
-        case none
-        /// The picture the card already has, so a refinement keeps designing from it.
-        case keepTheCardsPicture
-        /// The largest picture in Chrome's front tab now, or the card's own picture when there is none to capture.
-        case captureAgain
-    }
-
     enum SaveOutcome: Equatable {
         case saved(themeName: String)
         case nothingToSave
@@ -80,7 +70,7 @@ final class ThemeStudioController: ObservableObject {
 
     /// Opens the card, or dims the ideas on it, and asks the Worker for three new ideas. It returns at once. A design that is
     /// still running is cancelled, so only the newest one's ideas arrive. `basedOnIdea` counts from 1.
-    func design(request requestText: String, basedOnIdea: Int?, pictureChoice: PictureChoice) {
+    func design(request requestText: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
         designTask?.cancel()
         let ideasThatWereOnTheCard = state.ideasOnTheCard
         state = state.startingADesign()
@@ -102,7 +92,7 @@ final class ThemeStudioController: ObservableObject {
     private func runTheDesign(
         requestText: String,
         basedOnIdea: Int?,
-        pictureChoice: PictureChoice,
+        pictureChoice: ThemeStudioPictureChoice,
         ideasThatWereOnTheCard: ThemeStudioIdeas?
     ) async {
         let picture: ThemeStudioPicture?

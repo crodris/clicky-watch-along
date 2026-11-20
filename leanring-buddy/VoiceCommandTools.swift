@@ -198,6 +198,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case hearTaskAnswer = "hear_task_answer"
     case recordGuess = "record_guess"
     case answerApproval = "answer_approval"
+    case designTheme = "design_theme"
+    case pickThemeIdea = "pick_theme_idea"
+    case saveTheme = "save_theme"
+    case closeThemeStudio = "close_theme_studio"
 
     /// Whether the tool turns the request into a look at the media on screen, which draws the loop around it.
     /// A turn that only runs tools, such as turning a model or seeking a video, never does.
@@ -233,6 +237,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var simulationIsOnScreen = false
         /// A task agent's tool waits for the learner to allow it, so "yes" and "no" answer it. See `HarnessApprovalDesk`.
         var approvalIsWaiting = false
+        /// The Theme Studio card is open, whether it is designing or showing ideas.
+        var themeStudioIsOpen = false
+        /// The Theme Studio card shows ideas, so one can be picked and the highlighted one saved.
+        var themeStudioShowsIdeas = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -281,6 +289,15 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             // sends every utterance to the judge first, so the router never sees one while a question is open.
             case .answerApproval:
                 return context.approvalIsWaiting
+            // The studio opens from the keyword branch or this tool, so the brain flag can open it too. A question's own
+            // answers are the learner's to give, so a design waits until they answer or skip.
+            case .designTheme:
+                return !context.quizQuestionIsOpen
+            // A number or "save it" means something only while ideas are on the card.
+            case .pickThemeIdea, .saveTheme:
+                return context.themeStudioShowsIdeas
+            case .closeThemeStudio:
+                return context.themeStudioIsOpen
             }
         }
     }
@@ -369,6 +386,14 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
         case .answerApproval:
             return "Answer the request a background agent is waiting on, which asks the learner to allow one action. The scene state's approvalWaiting names the kind of action, never the action itself. Use it only when the learner answers that request: yes, sure, go ahead, or do it allows it (approved true), and no, don't, stop, or cancel declines it (approved false). Set always true only when they say always or always allow it. Do not use it for any other command. Your confirmation is two plain words, such as \"allowed it\" or \"declined it\"."
+        case .designTheme:
+            return "Open the Theme Studio, a card with three whole theme ideas, or change the ideas already on it. A theme is a cursor, its colors, its agent token colors, and its sounds, and it can use the picture the learner points at. Use it when the learner asks to change, make, design, or customize their theme, and for any wish about how the cursor looks, moves, or sounds while the card is open, such as \"two, but make the cursor a star that spins while it thinks\". Put the wish in request, in the learner's words. Set basedOnIdea, from 1 to 3, when they name one idea on the card to change. Set fromPicture true when they say this picture, this image, or this photo, or false when they drop the picture, and leave it out otherwise. It takes several seconds, and the card and a spoken line say the result, so a confirmation is never spoken. Never use it to pick, save, or close."
+        case .pickThemeIdea:
+            return "Highlight one of the ideas on the Theme Studio card and try it on the real cursor. Use it when the learner says just a number or names an idea, such as \"two\" or \"the star one\". number is the idea's number on the card, from 1 to 3. Your confirmation is a few plain words, such as \"trying two\"."
+        case .saveTheme:
+            return "Save the highlighted idea on the Theme Studio card as the learner's theme and apply it. Use it when they say save it, use it, I'll take it, or perfect. When they name an idea with it, such as \"save two\", call pick_theme_idea first. Your confirmation is a few plain words, such as \"saved it\"."
+        case .closeThemeStudio:
+            return "Close the Theme Studio card and keep the old theme. Use it for never mind, cancel, close it, or forget it while the card is open. Your confirmation is a few plain words, such as \"kept your old theme\"."
         case .recordGuess:
             return "Record the learner's guess to the simulation's prediction question, the scene state's predictionQuestion, which unlocks the Run button and the dashed path. Use it for any answer to that question, even a short or unsure one, such as \"60 goes farther\", \"they tie\", or \"the first one\". Do not use it for a command such as changing a control or running it. Put the guess in guess, in the learner's words. Your confirmation is a few plain words, such as \"got it, now try it\"."
         }
@@ -415,6 +440,19 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             )
         case .recordGuess:
             return objectSchema(["guess": .object(["type": .string("string"), "description": .string("The learner's guess, in their words.")])], required: ["guess"])
+        case .designTheme:
+            return objectSchema(
+                [
+                    "request": .object(["type": .string("string"), "description": .string("What the learner wants, in their words, such as something cozy for night.")]),
+                    "basedOnIdea": numberProperty("The idea on the card the change applies to, from 1 to 3. Leave it out when no one idea is named."),
+                    "fromPicture": .object(["type": .string("boolean"), "description": .string("true to design from the largest picture in Chrome's front tab, false to drop the picture the card has. Leave it out otherwise.")]),
+                ],
+                required: ["request"]
+            )
+        case .pickThemeIdea:
+            return objectSchema(["number": numberProperty("The idea's number on the card, from 1 to 3.")], required: ["number"])
+        case .saveTheme, .closeThemeStudio:
+            return objectSchema([:], required: [])
         case .reviseStudyGuide:
             return objectSchema(["instruction": .object(["type": .string("string"), "description": .string("What to change about the guide, in the learner's words.")])], required: ["instruction"])
         case .openStudyGuide, .showReadyModel, .hearTaskAnswer:
@@ -484,6 +522,14 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Running it"
         case "record_guess":
             return "Got your guess"
+        case "pick_theme_idea":
+            // The app refuses a missing or out-of-range number, so the chip says nothing for it either.
+            guard let ideaNumber = numberInput("number"), let wholeNumber = Int(exactly: ideaNumber), (1...3).contains(wholeNumber) else { return nil }
+            return "Trying idea \(wholeNumber)"
+        case "save_theme":
+            return "Theme saved"
+        case "close_theme_studio":
+            return "Kept your old theme"
         case "answer_approval":
             // A missing approved is refused by the app, so the chip says nothing for it.
             guard let approvalAnswer = ApprovalVoiceAnswer(toolInput: inputWithoutConfirmation) else { return nil }
@@ -773,7 +819,7 @@ nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSO
 /// The router takes a command only when something is live to command: a scene on screen, a
 /// video in Chrome's front tab, on any site, a 3D model or experiment built in the background waiting to be shown, or a task answer
 /// waiting to be heard, since "what did you find" may come from the page the task agent opened, or a task agent's tool
-/// waiting for the learner's "yes" or "no".
+/// waiting for the learner's "yes" or "no", or the Theme Studio card, where every spoken word is a number, a change, or "save it".
 /// A quiz answer goes to the judge, and a scene still building keeps its keyword path.
 /// With the brain flag on, it takes every first utterance that is not one of those two, even with nothing live.
 nonisolated func voiceCommandRouterTakesTheTranscript(
@@ -782,13 +828,14 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     backgroundSceneIsReady: Bool = false,
     taskAnswerIsReady: Bool = false,
     approvalIsWaiting: Bool = false,
+    themeStudioIsOpen: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool,
     brainTakesEveryRequest: Bool = false
 ) -> Bool {
     if phaseIsWaitingForAQuizAnswer || sceneIsBuilding { return false }
     if brainTakesEveryRequest { return true }
-    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting
+    return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting || themeStudioIsOpen
 }
 
 /// The "one brain" switch. With it on, the voice command model picks the action for every first utterance, instead of
@@ -817,18 +864,23 @@ nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
     case animatePicture
     /// "Let me try it" starts an experiment agent with no model call, so a demo never depends on the router.
     case startExperiment
+    /// "Change my theme" opens the Theme Studio with no model call to pick the tool.
+    case designATheme(ThemeStudioRequest)
 }
 
 /// The keyword branch a transcript takes before the router sees it, or nil. When the brain flag is on and the router
 /// takes the utterance (not a quiz answer, not a scene still building), there is none, since the model picks
 /// `animate_picture` and `build_simulation` itself.
 /// Once a scene is on screen, "let me try it" may mean a slider ("can I try 60 degrees"), which the router reads.
+/// "Change my theme" opens the studio only when it is closed and no quiz question is open. With the studio open, the router
+/// reads every word, since "two, but make the cursor a star" is a refinement and not a new request.
 nonisolated func keywordBranchAheadOfTheRouter(
     for transcript: String,
     brainTakesEveryRequest: Bool,
     sceneIsOnScreen: Bool,
     phaseIsWaitingForAQuizAnswer: Bool,
-    sceneIsBuilding: Bool
+    sceneIsBuilding: Bool,
+    themeStudioIsOpen: Bool = false
 ) -> KeywordBranchAheadOfTheRouter? {
     // Nothing else is live to command here, so only the brain flag can make the router take the utterance.
     let brainOwnsTheUtterance = voiceCommandRouterTakesTheTranscript(
@@ -839,6 +891,9 @@ nonisolated func keywordBranchAheadOfTheRouter(
         brainTakesEveryRequest: brainTakesEveryRequest
     )
     if brainOwnsTheUtterance { return nil }
+    if !themeStudioIsOpen, !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
+        return .designATheme(themeStudioRequest)
+    }
     switch liveSceneKind(for: transcript) {
     case .animatedFramePopout:
         return .animatePicture
@@ -854,6 +909,7 @@ nonisolated func keywordBranchAheadOfTheRouter(
 /// Everything else takes the keyword path, which already pops out or animates from the words.
 nonisolated enum RouterFailureFallback: Equatable {
     case startExperiment
+    case designATheme(ThemeStudioRequest)
     case keywordPath(LiveSceneKind?)
 }
 
@@ -866,6 +922,7 @@ nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: 
         sceneIsBuilding: false
     )
     if skippedKeywordBranch == .startExperiment { return .startExperiment }
+    if case .designATheme(let themeStudioRequest)? = skippedKeywordBranch { return .designATheme(themeStudioRequest) }
     return .keywordPath(keywordPathSceneKind(for: transcript))
 }
 

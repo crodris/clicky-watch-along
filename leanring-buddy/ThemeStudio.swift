@@ -161,6 +161,26 @@ nonisolated extension ThemeRGBColor {
 
 // MARK: - Opening the studio
 
+/// Where the picture for a design comes from.
+nonisolated enum ThemeStudioPictureChoice: Equatable, Sendable {
+    /// No picture: design from the words alone.
+    case none
+    /// The picture the card already has, so a refinement keeps designing from it.
+    case keepTheCardsPicture
+    /// The largest picture in Chrome's front tab now, or the card's own picture when there is none to capture.
+    case captureAgain
+
+    /// What `design_theme`'s `fromPicture` input means: true when the learner points at a picture, false when they drop the
+    /// one the card has, and left out when they said nothing about it, which keeps the card's picture.
+    init(fromPictureInput fromPicture: Bool?) {
+        switch fromPicture {
+        case true?: self = .captureAgain
+        case false?: self = .none
+        case nil: self = .keepTheCardsPicture
+        }
+    }
+}
+
 /// Where the first ideas come from.
 nonisolated enum ThemeStudioRequest: Equatable, Sendable {
     /// From the learner's words alone.

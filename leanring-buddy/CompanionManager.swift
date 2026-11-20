@@ -226,6 +226,20 @@ final class CompanionManager: ObservableObject {
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
     private let settingsDialController = SettingsDialController()
+    /// "Change my theme": the card with three theme ideas, previewed on the real cursor and saved by voice or click.
+    private lazy var themeStudioController: ThemeStudioController = {
+        let themeIdeasClient = ThemeIdeasClient(workerBaseURL: Self.workerBaseURL)
+        return ThemeStudioController(
+            themeSettings: themeSettings,
+            environment: ThemeStudioController.Environment(
+                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
+                designIdeas: { themeIdeasRequest in try await themeIdeasClient.designIdeas(for: themeIdeasRequest) }
+            ),
+            cardPresenter: ThemeStudioPanelController()
+        )
+    }()
+    private var themeStudioSpeechTask: Task<Void, Never>?
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -1098,7 +1112,8 @@ final class CompanionManager: ObservableObject {
             brainTakesEveryRequest: brainTakesEveryRequest,
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding
+            sceneIsBuilding: sceneIsBuilding,
+            themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
@@ -1106,6 +1121,9 @@ final class CompanionManager: ObservableObject {
             return
         case .startExperiment:
             startTheExperimentInTheBackground(transcript: transcript)
+            return
+        case .designATheme(let themeStudioRequest):
+            startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
             return
         case nil:
             break
@@ -1119,6 +1137,7 @@ final class CompanionManager: ObservableObject {
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
             approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            themeStudioIsOpen: themeStudioController.isOpen,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding,
             brainTakesEveryRequest: brainTakesEveryRequest
@@ -2315,7 +2334,8 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape only cancels the settings dial when it is open, and only closes the agent list when that is open. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// Escape only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
+    /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -2327,6 +2347,10 @@ final class CompanionManager: ObservableObject {
         // With the agent list open, Escape only closes it.
         if agentListPanelController.isOpen {
             agentListPanelController.close()
+            return
+        }
+        // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
+        if themeStudioController.closeOnEscape() {
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -2465,7 +2489,9 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            themeStudioIsOpen: themeStudioController.isOpen,
+            themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas
         )
     }
 
@@ -2518,6 +2544,8 @@ final class CompanionManager: ObservableObject {
                 switch routerFailureFallback(for: transcript, sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene) {
                 case .startExperiment:
                     startTheExperimentInTheBackground(transcript: transcript)
+                case .designATheme(let themeStudioRequest):
+                    startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
                 case .keywordPath:
                     respondByTheKeywordPath(transcript: transcript)
                 }
@@ -2742,7 +2770,84 @@ final class CompanionManager: ObservableObject {
             return await recordTheSimulationGuess(input["guess"]?.stringValue ?? "")
         case .answerApproval:
             return answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript)
+        case .designTheme:
+            let themeRequest = (input["request"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !themeRequest.isEmpty else { return .failed(error: "request must say what the learner wants", state: nil) }
+            startDesigningATheme(
+                request: themeRequest,
+                basedOnIdea: input["basedOnIdea"]?.numberValue.flatMap { Int(exactly: $0) },
+                pictureChoice: ThemeStudioPictureChoice(fromPictureInput: input["fromPicture"]?.boolValue)
+            )
+            return .handedOff
+        case .pickThemeIdea:
+            guard let ideaNumber = input["number"]?.numberValue.flatMap({ Int(exactly: $0) }), themeStudioController.pickIdea(number: ideaNumber) else {
+                return .failed(error: "number must be the number of an idea on the card, from 1 to 3", state: nil)
+            }
+            return .changed(state: .object(["themeStudio": voiceCommandThemeStudioState(themeStudioController.state) ?? .null]))
+        case .saveTheme:
+            switch themeStudioController.saveTheHighlightedIdea() {
+            case .saved(let themeName):
+                return .changed(state: .object(["themeSaved": .string(themeName)]))
+            case .nothingToSave:
+                return .failed(error: "no idea is on the card to save", state: nil)
+            case .failed:
+                return .failed(error: "the theme could not be saved", state: nil)
+            }
+        case .closeThemeStudio:
+            themeStudioController.close()
+            return .changed(state: nil)
         }
+    }
+
+    // MARK: - Theme Studio
+
+    /// Opens the studio or asks for new ideas, and returns at once, so the card and its spoken line say the result. The
+    /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
+    /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
+    private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        if pictureChoice == .captureAgain {
+            theRequestBecameALookAtTheMedia()
+        }
+        themeStudioController.design(request: request, basedOnIdea: basedOnIdea, pictureChoice: pictureChoice)
+        voiceState = pictureChoice == .captureAgain ? .processing : .idle
+        currentResponseTask = Task {
+            await self.themeStudioController.waitForTheDesign()
+            guard !Task.isCancelled else { return }
+            if self.voiceState == .processing {
+                self.voiceState = .idle
+            }
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Says a studio line once the one Clicky is speaking ends, so a "no picture" line is not cut off by the ideas' own line.
+    /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
+    private func speakAThemeStudioLine(_ line: String) {
+        themeStudioSpeechTask?.cancel()
+        themeStudioSpeechTask = Task {
+            await self.waitForClickyToFinishSpeaking()
+            guard !Task.isCancelled else { return }
+            await self.speakLiveSceneLine(line)
+            await self.waitForClickyToFinishSpeaking()
+            guard !Task.isCancelled else { return }
+            if self.voiceState == .responding {
+                self.voiceState = .idle
+            }
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// A JPEG of the largest picture in Chrome's front tab, captured the way the image pop-out captures it, for a theme
+    /// built from it. Nil when Chrome has no picture on screen, or Screen Recording is off.
+    private func captureThePictureForTheThemeStudio() async -> ThemeStudioPicture? {
+        guard let pictureRect = VideoQuizSession.screenRectOfTheMediaToRiseFrom(),
+              let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(pictureRect),
+              let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
+            return nil
+        }
+        return ThemeStudioPicture(jpegData: jpegData, width: pictureGrab.width, height: pictureGrab.height)
     }
 
     // MARK: - Task Agent
@@ -3557,6 +3662,9 @@ final class CompanionManager: ObservableObject {
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
         if let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
+        }
+        if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
+            sceneStateFields["themeStudio"] = themeStudioState
         }
         if let readyBackgroundScene {
             sceneStateFields["readyToShow"] = .string(readyToShowStateText(
