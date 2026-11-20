@@ -1801,12 +1801,11 @@ struct leanring_buddyTests {
     @Test func aTaskAgentShowsTheStepsItReports() async throws {
         let store = makeBackgroundAgentStore()
         let agentID = store.start(kind: .task)
-        #expect(store.agents.first?.inProgressText == "Getting started")
+        #expect(store.agents.first?.stepNames == ["Getting started"])
         #expect(store.agents.first?.stepStatuses == [.current])
 
         store.reportStep("Searching the web", for: agentID)
         store.reportStep("Writing the page in Notion", for: agentID)
-        #expect(store.agents.first?.inProgressText == "Writing the page in Notion")
         #expect(store.agents.first?.stepNames == ["Searching the web", "Writing the page in Notion"])
         #expect(store.agents.first?.stepStatuses == [.done, .current])
 
@@ -1864,34 +1863,10 @@ struct leanring_buddyTests {
         #expect(store.agents.map(\.id) == [newestAgentID] + endedAgentIDs.suffix(10).reversed() + [longTaskID])
     }
 
-    @Test func aWingmanShowsWhileRunningAndForFourSecondsAfterAFinishOrFailureButNotAfterACancel() async throws {
-        let endedAt = Date(timeIntervalSince1970: 1_000)
-        func agent(in phase: BackgroundAgentPhase) -> BackgroundAgent {
-            BackgroundAgent(id: UUID(), kind: .studyGuide, subject: nil, studyGuideVideoKey: nil, startedAt: endedAt.addingTimeInterval(-30), currentStepStartedAt: endedAt.addingTimeInterval(-30), endedAt: endedAt, phase: phase)
-        }
-        let finishedAgent = agent(in: .finished(.notionPage(studyGuidePageURL)))
-        #expect(agent(in: .running(completedStepCount: 1)).isShownAsAWingman(at: endedAt.addingTimeInterval(500)))
-        #expect(finishedAgent.isShownAsAWingman(at: endedAt.addingTimeInterval(3.9)))
-        #expect(!finishedAgent.isShownAsAWingman(at: endedAt.addingTimeInterval(4)))
-        #expect(agent(in: .failed(reason: "x")).isShownAsAWingman(at: endedAt.addingTimeInterval(1)))
-        #expect(!agent(in: .failed(reason: "x")).isShownAsAWingman(at: endedAt.addingTimeInterval(4)))
-        #expect(!agent(in: .cancelled).isShownAsAWingman(at: endedAt))
-    }
-
     @Test func elapsedTimeReadsAsMinutesAndSeconds() async throws {
         #expect(backgroundAgentElapsedTimeText(seconds: 0) == "0:00")
         #expect(backgroundAgentElapsedTimeText(seconds: 42.9) == "0:42")
         #expect(backgroundAgentElapsedTimeText(seconds: 725) == "12:05")
-    }
-
-    @Test func fiveRunningAgentsShowThreeWingmenDownAndRightOfTheTriangleAndCountTwoMore() async throws {
-        let store = makeBackgroundAgentStore()
-        for _ in 0..<5 { store.start(kind: .studyGuide) }
-        let formation = wingmanFormation(for: store.agents)
-        #expect(formation.placements.count == 3)
-        #expect(formation.overflowCount == 2)
-        #expect(formation.placements.map(\.agent.id) == store.agents.prefix(3).map(\.id))
-        #expect(formation.placements.map(\.offset) == [CGSize(width: 15, height: 18), CGSize(width: 30, height: 36), CGSize(width: 45, height: 54)])
     }
 
     @Test func progressMovesInAStraightLineThroughEachStepAndNeverShowsAStepDoneEarly() async throws {
@@ -1916,15 +1891,15 @@ struct leanring_buddyTests {
         #expect(agent(.failed(reason: "x")).progressHeading(at: stepStartedAt) == nil)
     }
 
-    @Test func theWingmanFillsByAreaSoHalfTheWorkFillsHalfTheTriangle() async throws {
-        #expect(wingmanFillHeightShare(forProgress: 0) == 0)
-        #expect(wingmanFillHeightShare(forProgress: 1) == 1)
+    @Test func theTriangleFillsByAreaSoHalfTheWorkFillsHalfTheTriangle() async throws {
+        #expect(agentTriangleFillHeightShare(forProgress: 0) == 0)
+        #expect(agentTriangleFillHeightShare(forProgress: 1) == 1)
         // The filled area of a triangle cut at height share h from its base is 1 - (1 - h)^2.
         for progress in [0.25, 0.5, 0.75] {
-            let heightShare = wingmanFillHeightShare(forProgress: progress)
+            let heightShare = agentTriangleFillHeightShare(forProgress: progress)
             #expect(abs((1 - (1 - heightShare) * (1 - heightShare)) - progress) < 0.0001)
         }
-        #expect(wingmanFillHeightShare(forProgress: 0.5) < 0.3)
+        #expect(agentTriangleFillHeightShare(forProgress: 0.5) < 0.3)
     }
 
     @Test func theLandmarkLineSaysTheBeforeANameThatTakesIt() async throws {
@@ -1946,13 +1921,7 @@ struct leanring_buddyTests {
         let refreshJSON = String(decoding: try JSONEncoder().encode(refreshRevision), as: UTF8.self)
         #expect(!refreshJSON.contains("instruction"))
 
-        let startedAt = Date(timeIntervalSince1970: 1_000)
-        let updateAgent = { (phase: BackgroundAgentPhase) in
-            BackgroundAgent(id: UUID(), kind: .studyGuideUpdate, subject: nil, studyGuideVideoKey: nil, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: phase)
-        }
-        #expect(updateAgent(.running(completedStepCount: 0)).inProgressText == "Reading your quiz results")
-        #expect(updateAgent(.running(completedStepCount: 1)).inProgressText == "Adding your miss to the guide")
-        #expect(updateAgent(.finished(.notionPage(try #require(URL(string: "https://www.notion.so/p1"))))).inProgressText == nil)
+        #expect(BackgroundAgentKind.studyGuideUpdate.stepNames == ["Read the quiz results", "Add the miss to the guide"])
         #expect(BackgroundAgentKind.studyGuideUpdate.finishedChipText == "Study guide updated")
     }
 
@@ -2039,18 +2008,6 @@ struct leanring_buddyTests {
         )
         #expect(!mayRiseOverABusyScreen)
         #expect(!frontTabWasRead)
-    }
-
-    @Test func aFinishedWingmanHopsAheadOfTheTipAndLeavesNoGapInTheTrail() async throws {
-        let store = makeBackgroundAgentStore()
-        let olderAgentID = store.start(kind: .studyGuide)
-        let newerAgentID = store.start(kind: .studyGuide)
-        store.finish(newerAgentID, with: .notionPage(studyGuidePageURL))
-        let formation = wingmanFormation(for: store.agents)
-        #expect(formation.placements.map(\.agent.id) == [newerAgentID, olderAgentID])
-        #expect(formation.placements.map(\.offset) == [WingmanStyle.triangle.aheadOfTheTipOffset, CGSize(width: 15, height: 18)])
-        #expect(formation.overflowCount == 0)
-        #expect(wingmanFormation(for: []).placements.isEmpty)
     }
 
     // MARK: - Agent list shortcut

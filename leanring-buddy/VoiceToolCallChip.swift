@@ -5,8 +5,8 @@
 //  A small chip under the cursor that names each voice tool call, such as
 //  rotate_model(yawDegrees: -45), then fades out. It uses the status label's look:
 //  an icon on a white tile and colored letters with a white outline.
-//  A background agent that ends shows its line here too, in the agent's color with its triangle as the icon,
-//  so the learner sees which wingman it speaks for. It has a quieter second part and a longer stay.
+//  A background agent that ends shows its line here too, in the agent's own color with its triangle as the icon,
+//  so the learner sees which agent it speaks for. It has a quieter second part and a longer stay.
 //
 
 import AppKit
@@ -16,8 +16,9 @@ import SwiftUI
 /// Who the chip speaks for, which sets its icon and letter color.
 enum VoiceToolCallChipSender: Equatable {
     case voiceToolCall
-    /// `player` is the Haikyu!! player the agent was, so the chip shows the portrait instead of the triangle.
-    case backgroundAgent(BackgroundAgentKind, player: HaikyuPlayer?)
+    /// `color` is the agent's own color, which tints the triangle and the letters. `player` is the Haikyu!! player the
+    /// agent was, so the chip shows the portrait instead of the triangle.
+    case backgroundAgent(color: AgentPaletteColor, player: HaikyuPlayer?)
 }
 
 @MainActor
@@ -68,10 +69,10 @@ private struct VoiceToolCallChipView: View {
         case .backgroundAgent(_, let player?):
             HaikyuPortraitView(player: player, size: 22)
                 .overlay(Circle().stroke(player.school.accentColor, lineWidth: 2))
-        case .backgroundAgent(let agentKind, nil):
-            // The wingman's tilt, so the icon reads as the triangle beside the cursor.
+        case .backgroundAgent(let agentColor, nil):
+            // The cursor triangle's tilt, so the icon reads as the agent's triangle.
             Triangle()
-                .fill(agentKind.color)
+                .fill(agentColor.color)
                 .frame(width: 11, height: 11)
                 .rotationEffect(.degrees(-35))
         }
@@ -82,7 +83,7 @@ private struct VoiceToolCallChipView: View {
         case .voiceToolCall: return DS.Colors.blue700
         // Dark gray, readable inside the white outline whatever the team's color is.
         case .backgroundAgent(_, player: .some): return DS.Colors.backgroundAgentPlayerNameText
-        case .backgroundAgent(let agentKind, nil): return agentKind.chipTextColor
+        case .backgroundAgent(let agentColor, nil): return agentColor.chipTextColor
         }
     }
 }
@@ -120,9 +121,6 @@ final class VoiceToolCallChip {
     nonisolated static let panelSize = CGSize(width: 520, height: 34)
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
 
-    /// Whether team player wingmen trail the cursor now. CompanionManager sets it, since it owns the agent store.
-    var avatarWingmenAreShowing: () -> Bool = { false }
-
     private let chipModel = VoiceToolCallChipModel()
     private var chipPanel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
@@ -155,11 +153,7 @@ final class VoiceToolCallChip {
 
     private func placeChipUnderTheCursor(_ panel: NSPanel) {
         guard let screenFrame = screenUnderTheMouseCursor()?.frame else { return }
-        panel.setFrameOrigin(voiceToolCallChipOrigin(
-            mouseLocation: NSEvent.mouseLocation,
-            screenFrame: screenFrame,
-            avatarWingmenAreShowing: avatarWingmenAreShowing()
-        ))
+        panel.setFrameOrigin(voiceToolCallChipOrigin(mouseLocation: NSEvent.mouseLocation, screenFrame: screenFrame))
     }
 
     private func makeChipPanel() -> NSPanel {
@@ -183,35 +177,11 @@ final class VoiceToolCallChip {
 }
 
 /// The chip panel's bottom-left corner in AppKit screen points. It sits under the spot where Clicky's triangle and the
-/// status label sit, so neither covers it. While team player wingmen show, their portraits trail down and to the right
-/// through that spot, so the chip moves above and to the right of the cursor, which the trail and the finished
-/// player's hop up and to the left both leave empty. Where the screen's top edge leaves no room above, it goes below
-/// the whole trail, past the "+N" label, instead of being pushed down onto the cursor.
-func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect, avatarWingmenAreShowing: Bool) -> CGPoint {
-    let aboveTheCursor = CGPoint(x: 16, y: 12)
-    let belowThePlayerTrail = CGPoint(x: 16, y: -lowestPlayerTrailPointBelowTheMouse - 6 - VoiceToolCallChip.panelSize.height)
+/// status label sit, so neither covers it, and stays inside the screen.
+func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect) -> CGPoint {
     let underTheCursor = CGPoint(x: 35 - 19, y: -25 - 30 - 34)
-    let distanceFromCursor: CGPoint
-    if !avatarWingmenAreShowing {
-        distanceFromCursor = underTheCursor
-    } else if mouseLocation.y + aboveTheCursor.y + VoiceToolCallChip.panelSize.height <= screenFrame.maxY {
-        distanceFromCursor = aboveTheCursor
-    } else {
-        distanceFromCursor = belowThePlayerTrail
-    }
     return CGPoint(
-        x: min(mouseLocation.x + distanceFromCursor.x, screenFrame.maxX - VoiceToolCallChip.panelSize.width),
-        y: min(max(mouseLocation.y + distanceFromCursor.y, screenFrame.minY), screenFrame.maxY - VoiceToolCallChip.panelSize.height)
+        x: min(mouseLocation.x + underTheCursor.x, screenFrame.maxX - VoiceToolCallChip.panelSize.width),
+        y: min(max(mouseLocation.y + underTheCursor.y, screenFrame.minY), screenFrame.maxY - VoiceToolCallChip.panelSize.height)
     )
-}
-
-/// How far below the mouse the player trail reaches: the bottom of the "+N" label, which sits in the slot after the
-/// last wingman. The blue triangle's center is 25 points below the mouse (OverlayWindow's cursor offset), and every
-/// wingman offset counts from that center.
-var lowestPlayerTrailPointBelowTheMouse: CGFloat {
-    let blueTriangleCenterBelowTheMouse: CGFloat = 25
-    let overflowLabelHalfHeight: CGFloat = 8
-    return blueTriangleCenterBelowTheMouse
-        + WingmanStyle.avatar.offset(forSlot: WingmanFormation.mostWingmen).height
-        + overflowLabelHalfHeight
 }

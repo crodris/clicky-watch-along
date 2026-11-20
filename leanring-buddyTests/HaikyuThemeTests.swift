@@ -2,8 +2,8 @@
 //  HaikyuThemeTests.swift
 //  leanring-buddyTests
 //
-//  The Haikyu!! team theme: how a player is picked, the saved theme, portrait file names, how the wingman formation
-//  changes for portraits, and how the agent store assigns players.
+//  The Haikyu!! team theme: how a player is picked, the saved theme, portrait file names, and how the agent store
+//  assigns players.
 //
 
 import CoreGraphics
@@ -193,41 +193,6 @@ struct HaikyuThemeTests {
         #expect(everyPlayer.allSatisfy { $0.school.roster.contains($0) })
     }
 
-    // MARK: - Formation
-
-    @Test func portraitWingmenSitFartherOutAndHopFartherAhead() async throws {
-        let store = makeBackgroundAgentStore(theme: .school(.karasuno))
-        for _ in 0..<5 { store.start(kind: .studyGuide) }
-        let formation = wingmanFormation(for: store.agents)
-        #expect(formation.style == .avatar)
-        #expect(formation.placements.map(\.offset) == [CGSize(width: 30, height: 34), CGSize(width: 52, height: 68), CGSize(width: 74, height: 102)])
-        #expect(formation.overflowCount == 2)
-        #expect(formation.style.offset(forSlot: WingmanFormation.mostWingmen) == CGSize(width: 96, height: 136))
-        #expect(WingmanStyle.avatar.size(forSlot: 0) == 40)
-        #expect(WingmanStyle.avatar.size(forSlot: 1) == 32)
-        #expect(WingmanStyle.avatar.exitScale == 1.25)
-        #expect(WingmanStyle.avatar.stepLineOffset == 48)
-
-        let finishedAgentID = try #require(store.agents.first?.id)
-        store.finish(finishedAgentID, with: .readyScene)
-        let hoppingFormation = wingmanFormation(for: store.agents)
-        #expect(hoppingFormation.placements.first?.offset == CGSize(width: -30, height: -34))
-    }
-
-    @Test func theTriangleLookKeepsItsOldNumbers() async throws {
-        #expect(WingmanStyle.triangle.offset(forSlot: 0) == CGSize(width: 15, height: 18))
-        #expect(WingmanStyle.triangle.offset(forSlot: 2) == CGSize(width: 45, height: 54))
-        #expect(WingmanStyle.triangle.aheadOfTheTipOffset == CGSize(width: -14, height: -20))
-        #expect(WingmanStyle.triangle.size(forSlot: 0) == 11)
-        #expect(WingmanStyle.triangle.size(forSlot: 2) == 11)
-        #expect(WingmanStyle.triangle.exitScale == 1.8)
-        #expect(WingmanStyle.triangle.stepLineOffset == 16)
-
-        let store = makeBackgroundAgentStore()
-        store.start(kind: .studyGuide)
-        #expect(wingmanFormation(for: store.agents).style == .triangle)
-    }
-
     // MARK: - The store
 
     @Test func theStoreGivesEachNewAgentThePlayerNextInTheRoster() async throws {
@@ -255,18 +220,15 @@ struct HaikyuThemeTests {
         #expect(agentListPortraitBorderColor(phase: .cancelled, school: .nekoma) == DS.Colors.textTertiary)
     }
 
-    @Test func theChipMovesAboveTheCursorWhilePlayerWingmenTrailThroughTheSpotUnderIt() async throws {
+    @Test func theChipSitsUnderTheCursorAndStaysInsideTheScreen() async throws {
         let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
-        let mouseLocation = CGPoint(x: 500, y: 500)
-        let chipOriginUnderTheCursor = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, avatarWingmenAreShowing: false)
-        let chipOriginWithPlayerWingmen = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, avatarWingmenAreShowing: true)
-        #expect(chipOriginUnderTheCursor.y < mouseLocation.y)
-        #expect(chipOriginWithPlayerWingmen.y > mouseLocation.y)
-        // Near the top edge, with no room above, the chip goes below the whole trail instead of onto the cursor.
-        let mouseAtTheTop = CGPoint(x: 500, y: 1100)
-        let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: mouseAtTheTop, screenFrame: screenFrame, avatarWingmenAreShowing: true)
-        let overflowLabelBottomBelowTheMouse = 25 + WingmanStyle.avatar.offset(forSlot: WingmanFormation.mostWingmen).height + 8
-        #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height < mouseAtTheTop.y - overflowLabelBottomBelowTheMouse)
+        let chipOriginInTheMiddle = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 500), screenFrame: screenFrame)
+        #expect(chipOriginInTheMiddle.y < 500)
+        #expect(chipOriginInTheMiddle.x > 500)
+        let chipOriginAtTheRightEdge = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1700, y: 500), screenFrame: screenFrame)
+        #expect(chipOriginAtTheRightEdge.x + VoiceToolCallChip.panelSize.width <= screenFrame.maxX)
+        let chipOriginAtTheBottom = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 10), screenFrame: screenFrame)
+        #expect(chipOriginAtTheBottom.y >= screenFrame.minY)
     }
 
     @Test func everyWikiTitleIsAsciiOnceItsAccentsAreRemovedSoSwiftAndThePortraitScriptNameTheFileAlike() async throws {
@@ -282,17 +244,16 @@ struct HaikyuThemeTests {
     }
 
     #if DEBUG
-    @Test func seededScreenshotAgentsPutTheTeamsBestKnownPlayerAtTheFrontOfTheFormation() async throws {
+    @Test func seededScreenshotAgentsPutTheTeamsBestKnownPlayerFirst() async throws {
         let store = makeBackgroundAgentStore(theme: .school(.aobaJohsai))
         store.seedAgentsForScreenshots()
         let roster = HaikyuSchool.aobaJohsai.roster
         let runningPlayers = store.agents.filter(\.isRunning).map(\.player)
         #expect(runningPlayers == [roster[0], roster[1], roster[2]])
-        let formation = wingmanFormation(for: store.agents)
-        let trailPlayers = formation.placements.filter { $0.agent.finishedResult == nil }.map(\.agent.player)
-        // The failed portrait shows in the third slot while it lingers, and the third player waits in the overflow.
-        #expect(trailPlayers == [roster[0], roster[1], roster[4]])
-        #expect(formation.overflowCount == 1)
+        // Three running agents fill the three token positions, so the finished and failed ones wait in "+N".
+        let rankedAgents = agentsWithTokens(from: store.agents, at: Date())
+        #expect(rankedAgents.prefix(3).map(\.player) == [roster[0], roster[1], roster[2]])
+        #expect(rankedAgents.count == 5)
         // A second seed gives its running agents new players, never a second Oikawa. Ten listed agents outnumber the
         // 9 players, so only an ended agent may repeat one.
         store.seedAgentsForScreenshots()

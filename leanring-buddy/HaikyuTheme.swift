@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  An optional Haikyu!! team theme. Picking a school in the menu bar panel recolors Clicky's cursor, and every
-//  background agent that starts becomes one of that team's players, shown as a round portrait in the wingman
-//  formation and in the agent list. This file holds the data (schools, rosters, the theme and its saved setting),
+//  background agent that starts becomes one of that team's players, shown as a round portrait in its token beside
+//  the notch and in the agent list. This file holds the data (schools, rosters, the theme and its saved setting),
 //  the rule that picks the next player, and the portrait loading. The views that draw a theme read it from here.
 //  Portraits are fetched by tools/fetch-haikyu-portraits.py, which reads every `wikiTitle` in this file, so this
 //  table is the single source of truth for who exists.
