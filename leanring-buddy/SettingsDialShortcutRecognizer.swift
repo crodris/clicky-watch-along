@@ -4,9 +4,10 @@
 //
 //  Recognizes the shift + option chord that runs the settings dial: holding both for 0.3 seconds with nothing else
 //  pressed opens it, letting go of either key commits the highlighted item, and any press or another modifier
-//  while it is open cancels it, as does the event tap stopping, since the release may never arrive. It is fed modifier changes, key and mouse button presses, and the time, and holds
-//  no timer, so tests drive it with made-up times. Ctrl + option is push-to-talk, shift + option + a key types
-//  special characters, and shift + option + a click or a drag is a command in many apps, so none of them may open it.
+//  while it is open cancels it. The event tap stopping cancels it too, since the release may never arrive.
+//  It is fed modifier changes, key and mouse button presses, the time, and the tap stopping, and holds no timer,
+//  so tests drive it with made-up times. Ctrl + option is push-to-talk, shift + option + a key types special
+//  characters, and shift + option + a click or a drag is a command in many apps, so none of them may open it.
 //
 
 import AppKit
@@ -23,7 +24,8 @@ struct SettingsDialShortcutRecognizer {
         case opened
         /// Shift or option was let go while the dial was open.
         case released
-        /// A key, a mouse button, or another modifier arrived while the dial was open. Escape is a key.
+        /// A key, a mouse button, or another modifier arrived while the dial was open, or the event tap stopped.
+        /// Escape is a key.
         case cancelled
     }
 
