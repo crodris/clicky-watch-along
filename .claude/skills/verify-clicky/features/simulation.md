@@ -36,6 +36,10 @@ Preconditions:
   Run `RUN="$(readlink .verify-clicky/current)" && python3 -c "import base64,json,sys;print(json.dumps({'question':'let me try it','screenshotBase64':base64.b64encode(open(sys.argv[1],'rb').read()).decode(),'screenshotMediaType':'image/jpeg','kind':'simulation'}))" bench/fixtures/projectile-frame.jpg > "$RUN/sim-body.json"`, then `$V post /live-scene "$RUN/sim-body.json"`.
   The result is HTTP 200 with one usage line, and the page defines `controls`, `setControl`, `run`, `setPreviewVisible`, and `challenge`.
   The other bench frames are `lever-frame.jpg`, `pendulum-frame.jpg`, `dissolving-frame.jpg`, and `cooling-frame.jpg`.
+- **OpenAI fallback.** Start a Worker with a key OpenAI refuses, run `$V worker-up 8787 -- --var OPENAI_API_KEY:sk-invalid`, with no `LIVE_SCENE_MODEL`, then post the simulation body with `$V post /live-scene "$RUN/sim-body.json"`.
+  A key in `worker/.dev.vars` may win over `--var`, so if the log shows no 401, point the Worker at a copy of `.dev.vars` that holds the bad key.
+  The Worker log shows `OpenAI API error 401`, then `[/live-scene] gpt-6.1-sol could not answer (HTTP 401), so the scene falls back to claude-sonnet-5-5`, naming gpt-6.2-sol for a simulation, then a `[/live-scene] usage` line, and the reply is HTTP 200 with a page.
+  The usage line carries Sonnet's token counts, with `output_tokens` under 16000.
 - **Physics.** Load the page in a headless browser with `scene-tools.js` added at document start, call `clickyTools.simulation.guessHeard()`, then `set_control` and `run_simulation`, and compare the readouts with the topic's formula, such as v squared times sin 2 theta over g for the cannon.
   GPT pages matched within 1 percent on 2026-11-15.
 - **App.** Run `$V app-launch "let me try it | &I think 60 degrees will go farther | make the angle 30 degrees | run it | +8 make the angle 60 degrees | run it"`.

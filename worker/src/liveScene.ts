@@ -7,7 +7,9 @@
  * LIVE_SCENE_MODEL=opus or fable sends it to Claude Opus 5.5 or Claude Fable 5.2, and LIVE_SCENE_EFFORT overrides the
  * effort, for comparing scene quality. A benchmark Worker's BENCH_MODEL picks the path by its vendor: a gpt-* model runs the
  * GPT request with that model and BENCH_SERVICE_TIER (none means the standard tier), and any other model runs the Claude
- * request, where requestAnthropicMessage applies it. A reply that fails the check is retried once, then returned as 422,
+ * request, where requestAnthropicMessage applies it. When OpenAI cannot answer (a 401, 403, 404, 429, or 5xx, or a fetch that
+ * throws), the same scene is built on Sonnet 5.5 at Sonnet's default effort, and the retry stays on Sonnet. A benchmark
+ * Worker never falls back. A reply that fails the check is retried once, then returned as 422,
  * and the app tells the learner it couldn't build the scene.
  * /judge-answer asks Sonnet whether the learner's spoken answer is right, or whether they asked to skip, repeat,
  * get a hint, or change the view instead of answering.
@@ -17,6 +19,7 @@ import { z } from "zod";
 import {
   jsonResponse,
   logModelUsage,
+  openAICannotAnswerNow,
   parseJSONRequest,
   requestAnthropicReplyJSON,
   requestAnthropicReplyText,
@@ -245,7 +248,7 @@ function modelReplyText(responseJSON: unknown): string | undefined {
 
 type LiveSceneModelResult =
   | { ok: true; modelReply: string }
-  | { ok: false; kind: "upstream"; response: Response }
+  | { ok: false; kind: "upstream"; status: number; response: Response }
   | { ok: false; kind: "unusable"; reason: string };
 
 async function requestClaudeLiveSceneReply(
@@ -273,7 +276,7 @@ async function requestClaudeLiveSceneReply(
     ],
   });
   if (!anthropicReply.ok) {
-    return { ok: false, kind: "upstream", response: anthropicReply.response };
+    return { ok: false, kind: "upstream", status: anthropicReply.response.status, response: anthropicReply.response };
   }
   if (anthropicReply.replyText === undefined || anthropicReply.replyText.length === 0) {
     return { ok: false, kind: "unusable", reason: `${claudeModelID} response had no text` };
@@ -301,32 +304,39 @@ async function requestGPTLiveSceneReply(
   effort: string,
   sceneRequest: SceneRequest,
 ): Promise<LiveSceneModelResult> {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${openAIAPIKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: gptSceneModel.model,
-      ...(gptSceneModel.serviceTier === undefined ? {} : { service_tier: gptSceneModel.serviceTier }),
-      reasoning: { effort },
-      max_output_tokens: 14000,
-      instructions: liveSceneInstructionsFor(sceneRequest.kind),
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: sceneRequest.question },
-            {
-              type: "input_image",
-              image_url: `data:${sceneRequest.screenshotMediaType};base64,${sceneRequest.screenshotBase64}`,
-            },
-          ],
-        },
-      ],
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${openAIAPIKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: gptSceneModel.model,
+        ...(gptSceneModel.serviceTier === undefined ? {} : { service_tier: gptSceneModel.serviceTier }),
+        reasoning: { effort },
+        max_output_tokens: 14000,
+        instructions: liveSceneInstructionsFor(sceneRequest.kind),
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: sceneRequest.question },
+              {
+                type: "input_image",
+                image_url: `data:${sceneRequest.screenshotMediaType};base64,${sceneRequest.screenshotBase64}`,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  } catch (fetchError) {
+    // A network failure counts as OpenAI being down, so it takes the same fallback as a 5xx.
+    console.error("[/live-scene] OpenAI could not be reached:", fetchError);
+    return { ok: false, kind: "upstream", status: 502, response: jsonResponse({ error: "OpenAI could not be reached" }, 502) };
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -334,6 +344,7 @@ async function requestGPTLiveSceneReply(
     return {
       ok: false,
       kind: "upstream",
+      status: response.status,
       response: jsonResponse(
         { error: errorText.length > 0 ? errorText : "OpenAI request failed" },
         response.status,
@@ -388,11 +399,38 @@ export async function handleLiveScene(
 
   // One retry, because a broken page leaves the learner with a voice and nothing on screen.
   let lastValidationReason = "The model reply could not be checked";
+  // Starts as the configured model and becomes "sonnet" once OpenAI cannot answer, so the retry never waits on OpenAI again.
+  let sceneModelForThisRequest: LiveSceneModel = liveSceneModel;
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
-    const modelResult =
-      liveSceneModel === "gpt"
+    let modelResult =
+      sceneModelForThisRequest === "gpt"
         ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, gptSceneModel, gptSceneEffort, sceneRequest)
-        : await requestClaudeLiveSceneReply(env.ANTHROPIC_API_KEY, claudeModelIDBySetting[liveSceneModel], liveSceneEffort, sceneRequest);
+        : await requestClaudeLiveSceneReply(
+            env.ANTHROPIC_API_KEY,
+            claudeModelIDBySetting[sceneModelForThisRequest],
+            sceneModelForThisRequest === liveSceneModel ? liveSceneEffort : defaultLiveSceneEffortByModel[sceneModelForThisRequest],
+            sceneRequest,
+          );
+    // A benchmark override never falls back, since it measures one model.
+    if (
+      sceneModelForThisRequest === "gpt" &&
+      !modelResult.ok &&
+      modelResult.kind === "upstream" &&
+      benchOverride === undefined &&
+      openAICannotAnswerNow(modelResult.status)
+    ) {
+      console.error(
+        `[/live-scene] ${gptSceneModel.model} could not answer (HTTP ${modelResult.status}), so the scene falls back to ${claudeModelIDBySetting.sonnet}`,
+      );
+      sceneModelForThisRequest = "sonnet";
+      // Sonnet's own default effort, never GPT's effort or LIVE_SCENE_EFFORT, since the two models take different effort lists.
+      modelResult = await requestClaudeLiveSceneReply(
+        env.ANTHROPIC_API_KEY,
+        claudeModelIDBySetting.sonnet,
+        defaultLiveSceneEffortByModel.sonnet,
+        sceneRequest,
+      );
+    }
     if (!modelResult.ok) {
       if (modelResult.kind === "upstream") {
         return modelResult.response;

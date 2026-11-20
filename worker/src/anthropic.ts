@@ -119,7 +119,7 @@ export async function requestAnthropicReplyText(
  * account cannot reach), a 429 (out of credit or rate limited), or a 5xx (down, or not reached). A 400 or 422 is about
  * the request itself, so Claude would refuse it too.
  */
-function openAICannotAnswerNow(status: number): boolean {
+export function openAICannotAnswerNow(status: number): boolean {
   return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500;
 }
 
