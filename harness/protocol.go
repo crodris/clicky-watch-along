@@ -44,7 +44,7 @@ type cancelTaskMessage struct {
 
 // approvalResultMessage answers one approval_request. It names the request by approvalID alone, since the harness made
 // the ID and it is unique across tasks. Scope is "once" (this call only) or "always" (this tool at this capability, for
-// the rest of the harness process). A "no" is never remembered, whatever its scope.
+// the rest of the task that asked). A "no" is never remembered, whatever its scope.
 type approvalResultMessage struct {
 	ApprovalID string `json:"approvalID"`
 	Approved   bool   `json:"approved"`

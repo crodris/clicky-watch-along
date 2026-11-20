@@ -784,12 +784,12 @@ private struct ApprovalCardView: View {
                 AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
                     answerApproval(approvalRequest.approvalID, true, .always)
                 }
-                .help("Allow this tool for the rest of this task")
                 AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
                     answerApproval(approvalRequest.approvalID, false, .once)
                 }
             }
-            Text(verbatim: "Or say yes or no.")
+            // The panel is never key, so a tooltip would not show, and the card says how long Always lasts.
+            Text(verbatim: "Always lasts until this task ends. Or say yes or no.")
                 .font(.system(size: 10))
                 .foregroundColor(DS.Colors.textSecondary)
         }
