@@ -236,6 +236,10 @@ final class AgentTokenDockController {
     /// The token that flies to its slot right now, and the disc it lands on. Nil when no serve runs.
     private var flight: AgentTokenFlight?
     private var discIDTheFlightLandsOn: AgentTokenDiscID?
+    /// The flight that has landed but whose panel is still over its disc for a moment, and that disc. The disc waits to slide
+    /// to close a gap until the panel has left (`agentTokenDiscMustWaitForItsFlight`).
+    private var lingeringFlight: AgentTokenFlight?
+    private var discIDTheLingeringFlightSitsOn: AgentTokenDiscID?
     /// Callers waiting for the token to land (`waitForTheServeToLand`).
     private var callersWaitingForTheLanding: [CheckedContinuation<Void, Never>] = []
 
@@ -367,6 +371,8 @@ final class AgentTokenDockController {
                 existingDisc.hostingView.rootView = AgentTokenDiscContent(store: store, discModel: existingDisc.discModel, tokenSlot: .overflow, overflowCount: overflowCount)
             }
             guard existingDisc.panel.frame != panelFrame else { return }
+            // The slide happens when the flying panel leaves, which refreshes the dock (`forgetTheLingeringFlight`).
+            guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else { return }
             if reduceMotionIsOn {
                 existingDisc.panel.setFrame(panelFrame, display: true)
             } else {
@@ -471,9 +477,13 @@ final class AgentTokenDockController {
         case .fly(let path):
             print("Agent token serve: the token flies to its slot in \(AgentTokenServePath.flightSeconds) s")
             slotDisc.panel.alphaValue = 1
-            let tokenFlight = AgentTokenFlight(path: path, agentID: agentID, store: store) { [weak self] in
-                self?.landTheToken(onDiscWithID: slotDiscID)
-            }
+            let tokenFlight = AgentTokenFlight(
+                path: path,
+                agentID: agentID,
+                store: store,
+                onLanded: { [weak self] in self?.landTheToken(onDiscWithID: slotDiscID) },
+                onPanelHidden: { [weak self] hiddenFlight in self?.forgetTheLingeringFlight(hiddenFlight) }
+            )
             flight = tokenFlight
             discIDTheFlightLandsOn = slotDiscID
             tokenFlight.start()
@@ -499,11 +509,22 @@ final class AgentTokenDockController {
     private func landTheToken(onDiscWithID discID: AgentTokenDiscID) {
         print("Agent token serve: the token landed in its slot")
         discsByID[discID]?.discModel.isAnOpenSlotAwaitingItsToken = false
+        lingeringFlight = flight
+        discIDTheLingeringFlightSitsOn = discID
         flight = nil
         discIDTheFlightLandsOn = nil
         let callersToResume = callersWaitingForTheLanding
         callersWaitingForTheLanding = []
         for callerToResume in callersToResume { callerToResume.resume() }
+    }
+
+    /// The flight's panel has left the screen, so the disc under it may slide now if the layout moved it meanwhile. A newer
+    /// flight that landed since stays.
+    private func forgetTheLingeringFlight(_ hiddenFlight: AgentTokenFlight) {
+        guard lingeringFlight === hiddenFlight else { return }
+        lingeringFlight = nil
+        discIDTheLingeringFlightSitsOn = nil
+        refresh()
     }
 
     // MARK: Polling

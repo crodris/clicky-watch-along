@@ -25,6 +25,7 @@ final class AgentTokenFlight {
     /// The view that holds the disc. Its frame sits at the slot, and the animation moves it from the cursor to there.
     private let carrierView: NSView
     private let onLanded: () -> Void
+    private let onPanelHidden: (AgentTokenFlight) -> Void
     private var hasLanded = false
 
     /// The carrier is as wide as a disc's own panel and as tall, so the disc's shadow fits and its center is the carrier's.
@@ -42,9 +43,11 @@ final class AgentTokenFlight {
     private static let keyframeStepCount = 30
 
     /// - `onLanded`: called once, when the token reaches its slot or when `landAtOnce` ends the flight early.
-    init(path: AgentTokenServePath, agentID: UUID, store: BackgroundAgentStore, onLanded: @escaping () -> Void) {
+    /// - `onPanelHidden`: called once with this flight, when its panel has left the screen after the landing.
+    init(path: AgentTokenServePath, agentID: UUID, store: BackgroundAgentStore, onLanded: @escaping () -> Void, onPanelHidden: @escaping (AgentTokenFlight) -> Void) {
         self.path = path
         self.onLanded = onLanded
+        self.onPanelHidden = onPanelHidden
 
         // The curve stays inside the box of its three points, so this box holds the whole flight and the disc around it.
         let flightBox = CGRect(
@@ -131,10 +134,11 @@ final class AgentTokenFlight {
         hasLanded = true
         carrierView.layer?.removeAllAnimations()
         onLanded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsTheFlyingPanelStaysAfterLanding) { [panel] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsTheFlyingPanelStaysAfterLanding) { [self] in
             panel.orderOut(nil)
             // Dropping the view stops its ring's animation.
             panel.contentView = nil
+            onPanelHidden(self)
         }
     }
 }

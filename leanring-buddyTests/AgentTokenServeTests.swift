@@ -173,3 +173,18 @@ struct AgentTokenServeTests {
         #expect(!StudyGuideJob.refresh.isAskedForByTheLearner)
     }
 }
+
+// MARK: - A disc under a flight waits to slide
+
+@MainActor
+struct AgentTokenDiscWaitsForItsFlightTests {
+    @Test func theDiscATokenFliesToWaitsAndSoDoesTheDiscItsLandedPanelStillCovers() async throws {
+        #expect(agentTokenDiscMustWaitForItsFlight(3, flightLandsOn: 3, lingeringFlightSitsOn: nil))
+        #expect(agentTokenDiscMustWaitForItsFlight(3, flightLandsOn: nil, lingeringFlightSitsOn: 3))
+    }
+
+    @Test func everyOtherDiscSlidesAsUsual() async throws {
+        #expect(!agentTokenDiscMustWaitForItsFlight(1, flightLandsOn: 3, lingeringFlightSitsOn: 2))
+        #expect(!agentTokenDiscMustWaitForItsFlight(1, flightLandsOn: nil, lingeringFlightSitsOn: nil))
+    }
+}
