@@ -461,6 +461,68 @@
         ]
       },
       "readOnly": false
+    },
+    {
+      "name": "design_theme",
+      "description": "Open the Theme Studio, a card with three whole theme ideas, or change the ideas already on it. A theme is a cursor, its colors, its agent token colors, and its sounds, and it can use the picture the learner points at. Use it when the learner asks to change, make, design, or customize their theme, and for any wish about how the cursor looks, moves, or sounds while the card is open, such as \"two, but make the cursor a star that spins while it thinks\". Put the wish in request, in the learner's words. Set basedOnIdea, from 1 to 3, when they name one idea on the card to change. Set fromPicture true when they say this picture, this image, or this photo, or false when they drop the picture, and leave it out otherwise. It takes several seconds, and the card and a spoken line say the result, so a confirmation is never spoken. Never use it to pick, save, or close.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "What the learner wants, in their words, such as something cozy for night."
+          },
+          "basedOnIdea": {
+            "type": "number",
+            "description": "The idea on the card the change applies to, from 1 to 3. Leave it out when no one idea is named."
+          },
+          "fromPicture": {
+            "type": "boolean",
+            "description": "true to design from the largest picture in Chrome's front tab, false to drop the picture the card has. Leave it out otherwise."
+          }
+        },
+        "required": [
+          "request"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "pick_theme_idea",
+      "description": "Highlight one of the ideas on the Theme Studio card and try it on the real cursor. Use it when the learner says just a number or names an idea, such as \"two\" or \"the star one\". number is the idea's number on the card, from 1 to 3. Your confirmation is a few plain words, such as \"trying two\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "number",
+            "description": "The idea's number on the card, from 1 to 3."
+          }
+        },
+        "required": [
+          "number"
+        ]
+      },
+      "readOnly": false
+    },
+    {
+      "name": "save_theme",
+      "description": "Save the highlighted idea on the Theme Studio card as the learner's theme and apply it. Use it when they say save it, use it, I'll take it, or perfect. When they name an idea with it, such as \"save two\", call pick_theme_idea first. Your confirmation is a few plain words, such as \"saved it\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "close_theme_studio",
+      "description": "Close the Theme Studio card and keep the old theme. Use it for never mind, cancel, close it, or forget it while the card is open. Your confirmation is a few plain words, such as \"kept your old theme\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
     }
   ]
 }
