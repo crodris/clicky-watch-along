@@ -16,6 +16,14 @@ nonisolated func withATemporaryThemeStore<Result>(_ body: (CustomThemeStore) thr
     return try body(CustomThemeStore(themesDirectoryURL: temporaryDirectoryURL))
 }
 
+/// The same for a test that awaits inside, which runs on the main actor with the rest of the studio.
+@MainActor
+func withATemporaryThemeStore<Result>(_ body: @MainActor (CustomThemeStore) async throws -> Result) async rethrows -> Result {
+    let temporaryDirectoryURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-theme-store-tests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: temporaryDirectoryURL) }
+    return try await body(CustomThemeStore(themesDirectoryURL: temporaryDirectoryURL))
+}
+
 struct CustomThemeStoreTests {
     private let pictureBytes = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46])
 

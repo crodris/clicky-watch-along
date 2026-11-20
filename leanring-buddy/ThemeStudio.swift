@@ -106,6 +106,12 @@ nonisolated enum ThemeStudioState: Equatable, Sendable {
         return .showingIdeas(ideas)
     }
 
+    /// Whether the learner can pick idea `ideaNumber`, counting from 1: ideas are on show and one has that number.
+    func hasIdea(number ideaNumber: Int) -> Bool {
+        guard case .showingIdeas(let ideas) = self else { return false }
+        return ideas.ideas.indices.contains(ideaNumber - 1)
+    }
+
     /// The highlighted idea was saved, which closes the card.
     func afterSaving() -> ThemeStudioState {
         isShowingIdeas ? .closed : self
@@ -115,6 +121,42 @@ nonisolated enum ThemeStudioState: Equatable, Sendable {
     func closing() -> ThemeStudioState {
         .closed
     }
+}
+
+// MARK: - Tags
+
+/// What the card says about the highlighted idea, in words, as short tags: the cursor, how it moves, and the sounds.
+nonisolated func themeStudioTags(for idea: CustomTheme) -> [String] {
+    var tags: [String] = []
+    switch idea.cursor {
+    case .shapes(let shapes):
+        tags.append(shapes.count == 1 ? "cursor: 1 shape" : "cursor: \(shapes.count) shapes")
+    case .picture(let style):
+        var pictureTag = "cursor: your picture"
+        if style.fit == .circle { pictureTag += ", round" }
+        if style.tintHex != nil && style.tintStrength > 0 { pictureTag += ", tinted" }
+        tags.append(pictureTag)
+    }
+    if idea.motion.turnsTowardMovement { tags.append("turns as it moves") }
+    if idea.motion.trailStreaks > 0 && idea.motion.turnsTowardMovement {
+        tags.append(idea.motion.trailStreaks == 1 ? "1 trail streak" : "\(idea.motion.trailStreaks) trail streaks")
+    }
+    switch idea.motion.whileThinking {
+    case .none: break
+    case .spin: tags.append("spins while thinking")
+    case .pulse: tags.append("pulses while thinking")
+    case .wobble: tags.append("wobbles while thinking")
+    }
+    if idea.motion.whileListening == .pulse { tags.append("pulses while you talk") }
+    tags.append("sounds: \(idea.sounds.done.rawValue), \(idea.sounds.correct.rawValue), \(idea.sounds.needsYourOK.rawValue)")
+    return tags
+}
+
+nonisolated extension ThemeRGBColor {
+    /// Whether dark letters read better than white ones on this color, by WCAG contrast: dark wins above a luminance of about
+    /// 0.18. The Save button fills with the idea's accent, so its letters take this instead of the idea's own contrast color,
+    /// which the model may have picked for something else.
+    var readsBetterWithDarkInk: Bool { relativeLuminance > 0.179 }
 }
 
 // MARK: - Opening the studio

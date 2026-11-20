@@ -53,13 +53,15 @@ func approvalSummaryShowsToItsEnd(summaryBottom: CGFloat, scrollAreaHeight: CGFl
 
 // MARK: - Panel
 
-private final class AgentListPanel: NSPanel {
+/// A borderless panel that never becomes key or main, so the app under it keeps the keyboard. The agent list and the Theme
+/// Studio card both use it.
+final class NonKeyFloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
 /// A click on a panel that is not key would otherwise only be swallowed by AppKit.
-private final class AgentListHostingView<Content: View>: NSHostingView<Content> {
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
@@ -102,7 +104,7 @@ final class AgentListPanelController {
     private let actions: AgentListActions
     /// The queue of requests the learner answers with the Yes, Always, and No buttons of the approval card.
     private let approvalDesk: HarnessApprovalDesk
-    private var panel: AgentListPanel?
+    private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
     private var anchorTopLeft: CGPoint = .zero
@@ -169,12 +171,12 @@ final class AgentListPanelController {
         ) { [weak self] contentSize in
             self?.resizePanel(to: contentSize)
         }
-        let hostingView = AgentListHostingView(rootView: agentListView)
+        let hostingView = FirstMouseHostingView(rootView: agentListView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeightWithAnApprovalCard))
 
-        let agentListPanel = AgentListPanel(
+        let agentListPanel = NonKeyFloatingPanel(
             contentRect: CGRect(origin: .zero, size: initialSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -298,10 +300,15 @@ private struct HoverAndPointerView: NSViewRepresentable {
     }
 }
 
-private extension View {
-    /// Shows the pointing hand over this view and reports whether the mouse is over it.
-    func hoverAndPointer(_ onHoverChange: @escaping (Bool) -> Void) -> some View {
-        overlay(HoverAndPointerView(onHoverChange: onHoverChange))
+extension View {
+    /// Shows the pointing hand over this view and reports whether the mouse is over it. A disabled control passes
+    /// `isEnabled: false`, so it keeps the arrow and never looks clickable.
+    func hoverAndPointer(isEnabled: Bool = true, _ onHoverChange: @escaping (Bool) -> Void) -> some View {
+        overlay {
+            if isEnabled {
+                HoverAndPointerView(onHoverChange: onHoverChange)
+            }
+        }
     }
 }
 

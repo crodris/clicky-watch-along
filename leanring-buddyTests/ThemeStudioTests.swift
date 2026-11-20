@@ -274,3 +274,53 @@ struct ThemeIdeasReplyTests {
         #expect(throws: (any Error).self) { try ThemeIdeasReply(responseData: Data("not json".utf8), pictureWasSent: false) }
     }
 }
+
+// MARK: - The card's words and colors
+
+struct ThemeStudioCardTextTests {
+    @Test func theTagsSayTheCursorTheMotionAndTheSounds() throws {
+        let tags = themeStudioTags(for: try themeIdea(named: "Moonlit"))
+        #expect(tags == [
+            "cursor: 1 shape",
+            "turns as it moves",
+            "3 trail streaks",
+            "spins while thinking",
+            "pulses while you talk",
+            "sounds: Purr, Glass, Pop",
+        ])
+    }
+
+    @Test func aPictureCursorAndAQuietIdeaHaveTheirOwnTags() throws {
+        let pictureIdea = try CustomTheme.parse(idea: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+        #expect(themeStudioTags(for: pictureIdea).first == "cursor: your picture, tinted")
+        var quietIdea = replacingField(in: goodThemeIdea, at: ["motion"], with: .object([
+            "turnsTowardMovement": .bool(false), "trailStreaks": .number(2), "whileThinking": .string("none"), "whileListening": .string("none"),
+        ]))
+        quietIdea = replacingField(in: quietIdea, at: ["cursor", "shapes", "1"], with: .null)
+        let tags = themeStudioTags(for: try CustomTheme.parse(idea: quietIdea, id: "idea-1", pictureIsAvailable: false))
+        // Streaks trail behind a cursor that turns, so a cursor that does not turn says nothing about them.
+        #expect(tags == ["cursor: 1 shape", "sounds: Purr, Glass, Pop"])
+        let roundIdea = replacingField(in: goodPictureCursorThemeIdea, at: ["cursor", "picture"], with: .object([
+            "fit": .string("circle"), "outline": .string("#FFFFFF"), "tint": .null, "tintStrength": .number(0),
+        ]))
+        #expect(themeStudioTags(for: try CustomTheme.parse(idea: roundIdea, id: "idea-1", pictureIsAvailable: true)).first == "cursor: your picture, round")
+    }
+
+    @Test func anIdeaCanBePickedOnlyWhileIdeasShowAndOnlyByANumberTheyHave() throws {
+        let ideas = try threeStudioIdeas()
+        #expect(ThemeStudioState.showingIdeas(ideas).hasIdea(number: 1))
+        #expect(ThemeStudioState.showingIdeas(ideas).hasIdea(number: 3))
+        #expect(!ThemeStudioState.showingIdeas(ideas).hasIdea(number: 4))
+        #expect(!ThemeStudioState.showingIdeas(ideas).hasIdea(number: 0))
+        #expect(!ThemeStudioState.designing(previousIdeas: ideas).hasIdea(number: 1))
+        #expect(!ThemeStudioState.closed.hasIdea(number: 1))
+    }
+
+    @Test func theSaveButtonsLettersAreDarkOnABrightAccentAndWhiteOnADarkOne() throws {
+        #expect(try #require(ThemeRGBColor(hex: "#7DD3FC")).readsBetterWithDarkInk)
+        #expect(try #require(ThemeRGBColor(hex: "#FDE68A")).readsBetterWithDarkInk)
+        // A deep violet or blue still has the contrast of 3 the Worker needs against the overlay's dark surface, but white letters read better on it.
+        #expect(!(try #require(ThemeRGBColor(hex: "#2563EB")).readsBetterWithDarkInk))
+        #expect(!(try #require(ThemeRGBColor(hex: "#7C3AED")).readsBetterWithDarkInk))
+    }
+}
