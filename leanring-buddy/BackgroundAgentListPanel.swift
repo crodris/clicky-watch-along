@@ -46,7 +46,7 @@ func approvalListAnchorTopLeft(mouseLocation: CGPoint, panelSize: CGSize, visibl
 
 /// Whether the approval card's summary shows down to its last line: the bottom of the summary text, in the scroll
 /// area's own coordinates, is inside the area's height. A summary that does not fit counts only once it is scrolled to
-/// its end, since a part never shown could be the part that does the harm.
+/// its end. A learner who drags straight to the end skips the middle, which this does not catch.
 func approvalSummaryShowsToItsEnd(summaryBottom: CGFloat, scrollAreaHeight: CGFloat) -> Bool {
     summaryBottom <= scrollAreaHeight + 1
 }
@@ -88,8 +88,11 @@ final class AgentListPanelController {
     static let maximumPanelHeight: CGFloat = 360
     /// The approval card's summary scrolls past this height, so a long one cannot push the rows off the screen.
     static let maximumApprovalSummaryHeight: CGFloat = 200
+    /// The rest of the approval card around its summary: the title line, the buttons, the hint, the padding, and the line
+    /// under the card.
+    static let approvalCardHeightOutsideTheSummary: CGFloat = 110
     /// The list's tallest, with an approval card above the rows.
-    static let maximumPanelHeightWithAnApprovalCard: CGFloat = maximumPanelHeight + maximumApprovalSummaryHeight + 110
+    static let maximumPanelHeightWithAnApprovalCard: CGFloat = maximumPanelHeight + maximumApprovalSummaryHeight + approvalCardHeightOutsideTheSummary
     private static let gapFromTheMouse: CGFloat = 12
     /// One level above the cursor overlay windows, so the list is never under the cursor.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
@@ -97,7 +100,7 @@ final class AgentListPanelController {
     private let store: BackgroundAgentStore
     private let themeSettings: CompanionThemeSettings
     private let actions: AgentListActions
-    /// The queue of requests the learner answers with the Yes, Always, and No buttons of the oldest one's row.
+    /// The queue of requests the learner answers with the Yes, Always, and No buttons of the approval card.
     private let approvalDesk: HarnessApprovalDesk
     private var panel: AgentListPanel?
     private var clickOutsideMonitor: Any?
@@ -169,7 +172,7 @@ final class AgentListPanelController {
         let hostingView = AgentListHostingView(rootView: agentListView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
-        let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeight))
+        let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeightWithAnApprovalCard))
 
         let agentListPanel = AgentListPanel(
             contentRect: CGRect(origin: .zero, size: initialSize),
@@ -194,7 +197,7 @@ final class AgentListPanelController {
     }
 
     /// An approval request arrived: open the list next to the mouse with the requesting agent's row expanded. An open
-    /// list stays where it is, since the row that holds the request expands by itself.
+    /// list stays where it is, since its approval card shows the oldest request by itself.
     func openForAnApprovalRequest(fromAgentID agentID: UUID) {
         guard !isOpen else { return }
         let mouseLocation = NSEvent.mouseLocation

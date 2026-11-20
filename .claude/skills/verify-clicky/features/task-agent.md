@@ -43,8 +43,9 @@ Preconditions:
   Post `tools/call` for `hear_task_answer`, and Clicky speaks the answer.
 
 - **Approvals.** `take_screenshot`, `read_clipboard`, `write_clipboard`, `open_url`, and every MCP tool wait for the learner, since a tool that says it is read only reads private data.
-  The app log shows `Agent harness: approval requested for ...: <summary>`, "Pop" plays, and the agent list opens next to the mouse with the agent's row expanded.
-  The row shows the whole summary and the buttons Yes, Always, and No, the agent's wingman line says "Needs your OK", and the chip says "<agent> needs your OK · say yes or no".
+  The app log shows `Agent harness: approval <id> requested for <capability>`, "Pop" plays, and the agent list opens next to the mouse, at a corner that does not cover the pointer.
+  An approval card pinned under the list's header shows the whole summary and the buttons Yes, Always, and No, the agent's row says "Needs your OK", and the chip says "<agent> needs your OK · say yes or no".
+  A click, or a spoken yes, counts only once the card has shown the summary down to its last line for 1 second, so a click within that second logs `ignored a click on approval`.
   Click a button, and the log shows `Agent harness: approval approval-1 given (once)` or `declined`, and the tool runs or comes back as "The learner declined this action". Always lets that tool run again with no question until the harness stops.
   By voice, hold ctrl+option and say "yes", "no", or "always allow it". In a Debug app launched by `verify-clicky.sh app-launch` (which passes `--voice-tool-debug-server`), post `tools/call` for `answer_approval` with `{"approved":true,"always":false}` to `http://127.0.0.1:8790/mcp`. The tool is listed only while a request waits.
   Post `tools/call` for `debug_answer_approval` with `{"approvalID":"approval-1","approved":true,"scope":"once"}` to answer one request by its ID, such as the second of two waiting requests.
