@@ -49,7 +49,7 @@ private final class SettingsDialPanel: NSPanel {
 
 @MainActor
 final class SettingsDialController {
-    /// Two levels above the cursor overlay windows, the same as the agent list, so the dial draws over the cursor.
+    /// One level above the cursor overlay windows, the same as the agent list, so the dial draws over the cursor.
     private static let panelLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
     private static let hintWasShownDefaultsKey = "settingsDialHintWasShown"
     private static let secondsBetweenPointerReads: TimeInterval = 1.0 / 60
@@ -61,6 +61,7 @@ final class SettingsDialController {
     /// The dial's center in AppKit screen coordinates, fixed when it opens.
     private var dialCenter: CGPoint = .zero
     private var pointerReadTimer: Timer?
+    private var chordWatch = SettingsDialChordWatch(openedAt: 0)
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -80,6 +81,7 @@ final class SettingsDialController {
         let viewModel = SettingsDialViewModel(snapshot: snapshot, showsTheFirstRunHint: showsTheFirstRunHint, reduceMotion: reduceMotion)
         self.viewModel = viewModel
         picker = SettingsDialPicker(pointerOffsetWhenOpened: pointerOffsetFromTheDialCenter(for: mouseLocation))
+        chordWatch = SettingsDialChordWatch(openedAt: ProcessInfo.processInfo.systemUptime)
 
         let panelSize = SettingsDialPlacement.panelSize
         let hostingView = NSHostingView(rootView: SettingsDialView(viewModel: viewModel))
@@ -140,8 +142,17 @@ final class SettingsDialController {
     private func startReadingThePointer() {
         pointerReadTimer = Timer.scheduledTimer(withTimeInterval: Self.secondsBetweenPointerReads, repeats: true) { [weak self] _ in
             // The timer fires on the main run loop, where this class lives.
-            MainActor.assumeIsolated { self?.readThePointer() }
+            MainActor.assumeIsolated { self?.tickWhileOpen() }
         }
+    }
+
+    /// Closes the dial when its release was lost, then follows the pointer.
+    private func tickWhileOpen() {
+        if chordWatch.shouldCancel(modifierFlags: NSEvent.modifierFlags, at: ProcessInfo.processInfo.systemUptime) {
+            close()
+            return
+        }
+        readThePointer()
     }
 
     private func readThePointer() {
@@ -168,7 +179,7 @@ struct SettingsDialView: View {
     private var accentColor: Color { theme.cursorColor }
     /// The team's ink color, for line icons drawn on the accent color so they stay visible on it.
     private var inkColor: Color { theme.cursorContrastColor }
-    private let tokenFillColor = Color(hex: "#171b24")
+    private let tokenFillColor = DS.Colors.settingsDialToken
     private var centerInView: CGPoint {
         CGPoint(x: SettingsDialPlacement.reachLeft, y: SettingsDialPlacement.reachAbove)
     }
@@ -201,7 +212,7 @@ struct SettingsDialView: View {
     private var dial: some View {
         ZStack {
             Circle()
-                .fill(Color(red: 10 / 255, green: 12 / 255, blue: 18 / 255).opacity(0.76))
+                .fill(DS.Colors.settingsDialPlate.opacity(0.76))
                 .background(.ultraThinMaterial, in: Circle())
                 .overlay(Circle().stroke(Color.white.opacity(0.1), lineWidth: 1))
                 .frame(width: SettingsDialGeometry.plateRadius * 2, height: SettingsDialGeometry.plateRadius * 2)
@@ -240,7 +251,7 @@ struct SettingsDialView: View {
             if slice == .agents, viewModel.snapshot.runningAgentCount > 0 {
                 Text("\(viewModel.snapshot.runningAgentCount)")
                     .font(.system(size: 9, weight: .heavy))
-                    .foregroundColor(Color(hex: "#111111"))
+                    .foregroundColor(DS.Colors.settingsDialDarkInk)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Capsule().fill(Color.white))
@@ -403,7 +414,7 @@ struct SettingsDialView: View {
             .foregroundColor(Color.white.opacity(0.82))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(red: 10 / 255, green: 12 / 255, blue: 18 / 255).opacity(0.84)))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous).fill(DS.Colors.settingsDialPlate.opacity(0.84)))
             .fixedSize()
             // The mock puts the hint's top edge 16 points under the plate.
             .position(x: centerInView.x, y: centerInView.y + SettingsDialGeometry.plateRadius + 16 + 12)
@@ -440,8 +451,8 @@ private struct SettingsDialThemeBall: View {
             )
         case .random:
             ZStack {
-                Circle().fill(Color(hex: "#374151"))
-                Circle().stroke(Color(hex: "#111111"), lineWidth: 1.4 * size / 24)
+                Circle().fill(DS.Colors.settingsDialRandomBall)
+                Circle().stroke(DS.Colors.settingsDialDarkInk, lineWidth: 1.4 * size / 24)
                 Text("?")
                     .font(.system(size: size * 0.5, weight: .heavy))
                     .foregroundColor(.white)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs beside record-shot.sh for the study guide shot and the quiz miss shot. In the study guide shot, right after the
 # request it glides the mouse out and back, so the helper cursor is seen trailing the blue one. The rehearsal then pops
-# the engine out while the guide is written, and this opens the agent list with shift + option while the pop-out builds.
+# the engine out while the guide is written, and this opens the agent list through the settings dial while the pop-out builds.
 # In both shots, once the guide's page opens, this scrolls down to its key terms and clicks the timestamp of the term
 # about the stator vanes or the compressor, which opens the video at that moment in a new tab.
 # Usage, from the main checkout's root, started just before record-shot.sh:
@@ -88,7 +88,7 @@ if [[ "$(basename "$raw_events_path")" == study-guide.* ]]; then
   sleep 1
   "$verify_script" key agents-list
   sleep 3.5
-  "$verify_script" key agents-list
+  "$verify_script" key escape
 fi
 
 # The Notion tab comes forward about 2 seconds after the request, or later when Notion is slow, and the page takes a

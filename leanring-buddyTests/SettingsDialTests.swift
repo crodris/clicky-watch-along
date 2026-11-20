@@ -122,7 +122,7 @@ struct SettingsDialPickingTests {
     @Test func thePlateBoundaryDecidesBetweenPickingASliceAndPickingAFanItem() {
         let teamOpen = SettingsDialSelection(slice: .team, fanItemIndex: nil)
         let angleOfClickyBlueBall = SettingsDialSlice.team.fanLayout!.angleDegrees(ofItemAt: 0)
-        // On the plate's edge the pointer is still inside, so it picks the slice at that angle, which is Team here.
+        // On the plate's edge the pointer is still inside, so it picks the slice at that angle, which is Show here.
         let onTheEdge = teamOpen.afterPointerMoved(to: pointerOffset(atAngleDegrees: SettingsDialSlice.show.angleDegrees, distance: SettingsDialGeometry.plateRadius))
         #expect(onTheEdge.slice == .show)
         // One point past it the open fan takes over.

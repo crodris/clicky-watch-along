@@ -47,3 +47,14 @@ Steps:
 - **Escape.** Run `$V key dial-hold`, wait 0.8 s, run `$V key escape`, then `$V shot dial-escaped`.
   The dial is gone, and `$V key dial-release` after it commits nothing.
 - **Reduce Motion.** Turn on System Settings > Accessibility > Display > Reduce motion and repeat Open: the dial and fan appear with no scale or stagger.
+
+## Gotchas
+
+- Each rebuild can drop Clicky's Accessibility grant, and then the dial never opens, since the event tap needs it.
+  Check that the app log says `accessibility: true` before the first `$V key dial-hold`.
+- The mouse must sit at least 250 points from every screen edge, or the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
+- The first-run hint shows once per Mac, so run `defaults delete com.crodris.clicky-watch-along settingsDialHintWasShown` before a run that photographs it.
+- A Team or Model commit writes `companionTheme` or `selectedClaudeModel`, and Show writes `isClickyCursorEnabled`, in the defaults the everyday Debug app shares.
+  Write the original values back when the run ends, and delete the two keys that did not exist before.
+- `$V key dial-hold` leaves shift and option down until `$V key dial-release`, so release them even when a step in between fails.
+- Shift + option + a key is how some apps type special characters, so pressing any key while the dial is open cancels it, as Escape does.

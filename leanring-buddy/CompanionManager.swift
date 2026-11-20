@@ -2210,7 +2210,7 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape closes the agent list when it is open. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// Escape only cancels the settings dial when it is open, and only closes the agent list when that is open. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {

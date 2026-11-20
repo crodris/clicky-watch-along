@@ -619,6 +619,8 @@ command_key() {
       # The Agents token sits 78 points from the dial's center at 54 degrees, which is 46 right and 63 down.
       local mouse_x mouse_y
       read -r mouse_x mouse_y < <(swift "$checkout_root/demo/scripts/mouse/mouse.swift" where)
+      # A failed step below ends the script under set -e, which would leave shift and option held down on this Mac.
+      trap 'osascript -e '"'"'tell application "System Events" to key up option'"'"' -e '"'"'tell application "System Events" to key up shift'"'"'' EXIT
       osascript -e 'tell application "System Events"
         key down shift
         key down option
