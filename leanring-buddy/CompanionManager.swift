@@ -3285,9 +3285,16 @@ final class CompanionManager: ObservableObject {
         if toolName == Self.debugSeedAgentsToolName {
             if let kindNames = toolInput["kinds"]?.arrayValue {
                 // Running agents of the kinds named, in order, with no finished or failed ones.
-                backgroundAgentStore.seedRunningAgentsForScreenshots(kinds: kindNames.compactMap { kindName in
+                let seededAgentIDs = backgroundAgentStore.seedRunningAgentsForScreenshots(kinds: kindNames.compactMap { kindName in
                     kindName.stringValue.flatMap(BackgroundAgentKind.kindNamedForSeeding)
                 })
+                // "serveTheToken": true flies the token from the cursor, as a tool-started agent's does. A serve in flight
+                // lands at once when the next one starts, so seed one kind per call to see each flight.
+                if toolInput["serveTheToken"]?.boolValue == true {
+                    for seededAgentID in seededAgentIDs {
+                        agentTokenDockController.startServingTheToken(of: seededAgentID)
+                    }
+                }
             } else {
                 seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
             }
