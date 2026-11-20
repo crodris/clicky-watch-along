@@ -196,8 +196,8 @@ type pageOutcome struct {
 // A call to a tool the task was not offered (the set in offered) is answered here with an error. A tool with no capability starts at once.
 // One with a capability waits for the learner's approval, one call at a time in the turn's order, and a declined one
 // gets the declined result and never runs. A write_notion_page call that cites a link outside sources is refused with an
-// error naming it. It sets page once a write_notion_page call succeeds, and adds the video link of a successful
-// read_video_captions result to sources.
+// error naming it, and one that passes reaches the app with each source's link as sources spelled it. It sets page once
+// a write_notion_page call succeeds, and adds the video link of a successful read_video_captions result to sources.
 func (runner *taskRunner) runToolCalls(
 	taskContext context.Context,
 	task *runningTask,
@@ -236,7 +236,15 @@ func (runner *taskRunner) runToolCalls(
 		// from what it read is refused before the call reaches the app.
 		pageRefusal := ""
 		if call.Name == writeNotionPageTool {
-			pageRefusal = sources.refusalOfPageSources(call.Input)
+			check := sources.checkPageSources(call.Input)
+			pageRefusal = check.refusal
+			if pageRefusal == "" {
+				// The page cites each link as the set spelled it, never as the agent did.
+				call.Input = check.input
+			} else {
+				// A count only, since a refused link can hold what the agent read on the screen or the clipboard.
+				runner.log(taskContext, fmt.Sprintf("Task agent: refused %d page sources", check.refusedCount))
+			}
 		}
 		switch {
 		case !known || !offered[call.Name]:

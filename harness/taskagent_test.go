@@ -150,17 +150,41 @@ func TestTheFirstMessageNamesThePageTheLearnerWasOn(t *testing.T) {
 func TestAPageInputTheSourceCheckCannotReadIsRefusedAndALongRefusedLinkIsCut(t *testing.T) {
 	sources := newCitableSources(nil)
 
-	if refusal := sources.refusalOfPageSources(json.RawMessage(`{"sources":"https://a.example"}`)); !strings.Contains(refusal, "could not be read") {
-		t.Errorf("an input whose sources are not a list was not refused: %q", refusal)
+	if check := sources.checkPageSources(json.RawMessage(`{"sources":"https://a.example"}`)); !strings.Contains(check.refusal, "could not be read") {
+		t.Errorf("an input whose sources are not a list was not refused: %q", check.refusal)
 	}
 
 	longLink := "https://a.example/?d=" + strings.Repeat("x", 1000)
-	refusal := sources.refusalOfPageSources(json.RawMessage(`{"sources":[{"title":"A","url":"` + longLink + `"}]}`))
-	if strings.Contains(refusal, longLink) || !strings.Contains(refusal, "...") {
-		t.Errorf("a long refused link was not cut: %d characters", len(refusal))
+	check := sources.checkPageSources(json.RawMessage(`{"sources":[{"title":"A","url":"` + longLink + `"}]}`))
+	if strings.Contains(check.refusal, longLink) || !strings.Contains(check.refusal, "...") || check.refusedCount != 1 {
+		t.Errorf("a long refused link was not cut: %d characters, %d refused", len(check.refusal), check.refusedCount)
 	}
 
-	if refusal := sources.refusalOfPageSources(json.RawMessage(`{"sources":[]}`)); refusal != "" {
-		t.Errorf("a page with no sources was refused: %q", refusal)
+	if check := sources.checkPageSources(json.RawMessage(`{"sources":[]}`)); check.refusal != "" {
+		t.Errorf("a page with no sources was refused: %q", check.refusal)
+	}
+}
+
+func TestAPassingPageCitesEachLinkAsTheSetSpelledItNotAsTheAgentDid(t *testing.T) {
+	sources := newCitableSources(nil)
+	sources.add("https://a.example/Guide/")
+
+	// The fragment and the extra slashes are what the match key drops, and each is a way to carry data to the page's script.
+	check := sources.checkPageSources(json.RawMessage(`{"title":"T","sources":[{"title":"A","url":"HTTPS://A.Example/Guide///#clipboard-text"}]}`))
+	if check.refusal != "" {
+		t.Fatalf("a spelling of a citable link was refused: %q", check.refusal)
+	}
+	var forwarded struct {
+		Title   string `json:"title"`
+		Sources []struct {
+			Title string `json:"title"`
+			URL   string `json:"url"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(check.input, &forwarded); err != nil {
+		t.Fatalf("the forwarded input is not JSON: %v", err)
+	}
+	if len(forwarded.Sources) != 1 || forwarded.Sources[0].URL != "https://a.example/Guide/" || forwarded.Sources[0].Title != "A" || forwarded.Title != "T" {
+		t.Errorf("the forwarded input is %s, want the set's spelling with the other fields kept", check.input)
 	}
 }

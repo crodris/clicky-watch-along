@@ -145,7 +145,7 @@ func taskAgentTools(chosenSkill *skill, mcpTools []mcpTool) ([]anthropic.ToolUni
 		},
 		{
 			Name:        string(writeNotionPageTool),
-			Description: anthropic.String("Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once. No field may be empty. The title is at most 120 characters and the summary at most 1500. There are 1 to 8 sections, each with a heading of at most 120 characters and 1 to 10 points of at most 600 characters. There are at most 10 sources, each with a title of at most 200 characters and an https link."),
+			Description: anthropic.String("Write your findings as a private Notion page, opened for the learner in a background tab. Call it at most once. No field may be empty. The title is at most 120 characters and the summary at most 1500. There are 1 to 8 sections, each with a heading of at most 120 characters and 1 to 10 points of at most 600 characters. There are at most 10 sources, each with a title of at most 200 characters and an https link. A source must be a search result, the page in front, or the video."),
 			InputSchema: toolInputSchema(
 				map[string]any{
 					"title":    stringProperty("The page title."),
@@ -384,6 +384,10 @@ const longestRefusedLinkShown = 200
 // caption, or a page title is never in it, because a page-steered agent could put what it read there into a link's path
 // or query, and a learner who clicks the source would send it to that link's host.
 //
+// It maps each link's match key to the spelling the set first saw, since the page must be written with that spelling and
+// not the agent's. A spelling that differs only in what the key drops, such as a fragment or extra trailing slashes, is
+// still a way to carry data to the host's page script.
+//
 // A fetched page adds nothing. The agent can fetch any link it read anywhere, and the fetch result reports the link the
 // agent asked for, even after a redirect (checked against the real API on 2026-11-20 with http://github.com), so a
 // fetched page is citable only by a link that was already here. A page the agent reached by following a link inside a
@@ -391,21 +395,26 @@ const longestRefusedLinkShown = 200
 //
 // It is touched only by the goroutine that runs the task's loop.
 type citableSources struct {
-	keys map[string]bool
+	spellingsByKey map[string]string
 }
 
 // newCitableSources starts a task's set with the page in front, when the app found one.
 func newCitableSources(frontTabURL *string) *citableSources {
-	sources := &citableSources{keys: map[string]bool{}}
+	sources := &citableSources{spellingsByKey: map[string]string{}}
 	if frontTabURL != nil {
 		sources.add(*frontTabURL)
 	}
 	return sources
 }
 
+// add keeps the first spelling of a link, so a later spelling of the same link never replaces it.
 func (sources *citableSources) add(link string) {
-	if key, ok := sourceMatchKey(link); ok {
-		sources.keys[key] = true
+	key, ok := sourceMatchKey(link)
+	if !ok {
+		return
+	}
+	if _, alreadyHere := sources.spellingsByKey[key]; !alreadyHere {
+		sources.spellingsByKey[key] = strings.TrimSpace(link)
 	}
 }
 
@@ -422,28 +431,75 @@ func (sources *citableSources) addSearchResultsOf(message anthropic.Message) {
 	}
 }
 
-// refusalOfPageSources is the error result for a write_notion_page input that cites a link outside the set, naming each
-// such link, or "" when every source is allowed. An input it cannot read is refused too, since the check cannot say its
-// links are allowed.
-func (sources *citableSources) refusalOfPageSources(pageInput json.RawMessage) string {
-	var page struct {
-		Sources []struct {
-			URL string `json:"url"`
-		} `json:"sources"`
+// pageSourceCheck is the outcome of checking a write_notion_page input against the set.
+type pageSourceCheck struct {
+	// refusal is the error result for the agent, or "" when every source is allowed.
+	refusal string
+	// refusedCount is how many sources were refused. It is 0 when the input could not be read, which refusal then says.
+	refusedCount int
+	// input is what the app receives when refusal is "": the agent's input with every source's url replaced by the set's
+	// spelling of that link.
+	input json.RawMessage
+}
+
+// checkPageSources checks every link a write_notion_page input cites against the set. A refusal names each link outside
+// the set. An input it cannot read is refused too, since the check cannot say its links are allowed.
+//
+// The input that passes is built from what this function parsed, reading "sources" and "url" by exact key, and not from
+// the agent's bytes. Go's encoding/json would match a key such as "ſources" to "Sources", so a check that reads one way
+// and an app that reads another could disagree about which links the page cites.
+func (sources *citableSources) checkPageSources(pageInput json.RawMessage) pageSourceCheck {
+	unreadable := pageSourceCheck{refusal: "The page's sources could not be read, so none could be checked. " + refusalOfUnresearchedSources}
+	page, isObject := decodedToolInput(pageInput)
+	if !isObject {
+		return unreadable
 	}
-	if err := json.Unmarshal(pageInput, &page); err != nil {
-		return "The page's sources could not be read, so none could be checked. " + refusalOfUnresearchedSources
+	cited, hasSources := page["sources"]
+	if !hasSources {
+		return pageSourceCheck{input: pageInput}
 	}
+	citedSources, isList := cited.([]any)
+	if !isList {
+		return unreadable
+	}
+
 	var refusedLinks []string
-	for _, source := range page.Sources {
-		if key, ok := sourceMatchKey(source.URL); !ok || !sources.keys[key] {
-			refusedLinks = append(refusedLinks, shortenedForRefusal(source.URL))
+	spelledSources := make([]any, 0, len(citedSources))
+	for _, citedSource := range citedSources {
+		source, isSourceObject := citedSource.(map[string]any)
+		if !isSourceObject {
+			return unreadable
+		}
+		link, linkIsText := source["url"].(string)
+		if !linkIsText {
+			return unreadable
+		}
+		key, isLink := sourceMatchKey(link)
+		setSpelling, isCitable := sources.spellingsByKey[key]
+		if !isLink || !isCitable {
+			refusedLinks = append(refusedLinks, shortenedForRefusal(link))
+			continue
+		}
+		spelledSource := make(map[string]any, len(source))
+		for field, value := range source {
+			spelledSource[field] = value
+		}
+		spelledSource["url"] = setSpelling
+		spelledSources = append(spelledSources, spelledSource)
+	}
+	if len(refusedLinks) > 0 {
+		return pageSourceCheck{
+			refusal:      "These sources are not allowed: " + strings.Join(refusedLinks, ", ") + ". " + refusalOfUnresearchedSources,
+			refusedCount: len(refusedLinks),
 		}
 	}
-	if len(refusedLinks) == 0 {
-		return ""
+
+	page["sources"] = spelledSources
+	spelledInput, err := json.Marshal(page)
+	if err != nil {
+		return unreadable
 	}
-	return "These sources are not allowed: " + strings.Join(refusedLinks, ", ") + ". " + refusalOfUnresearchedSources
+	return pageSourceCheck{input: spelledInput}
 }
 
 func shortenedForRefusal(link string) string {
@@ -455,8 +511,8 @@ func shortenedForRefusal(link string) string {
 
 // sourceMatchKey is what two spellings of one link share: the scheme and host in lowercase (url.Parse lowercases the
 // scheme), no fragment, and no trailing slash on the path, with the query kept exactly, since a query is where data
-// would be carried. The page then cites the link as the set spelled it. It is false for text that is not a link with a
-// host.
+// would be carried. What the key drops can carry data too, so the page writes the link as the set spelled it (see
+// citableSources), never as the agent did. It is false for text that is not a link with a host.
 func sourceMatchKey(link string) (string, bool) {
 	parsed, err := url.Parse(strings.TrimSpace(link))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {

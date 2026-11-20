@@ -599,6 +599,10 @@ func TestAPageMayCiteASearchResultButNotALinkTheAgentWrote(t *testing.T) {
 	if !strings.Contains(toolCallLine, `"toolUseID":"toolu_page_2"`) || strings.Contains(toolCallLine, "b.example") {
 		t.Fatalf("the app got %s, want only the page that cites the search result", toolCallLine)
 	}
+	// The log says how many sources were refused and never which, since a refused link can hold the learner's data.
+	if !driver.logsContain("Task agent: refused 1 page sources") || driver.logsContain("b.example") || driver.logsContain("secret") {
+		t.Errorf("the refusal's log line is missing or names a link: %v", driver.logs)
+	}
 	driver.send(toolResultLine("task-1", "toolu_page_2", `"Written: https://www.notion.so/page"`, false))
 	driver.expectLine("task_finished")
 
@@ -662,8 +666,16 @@ func TestAFetchedSearchResultAndThePageInFrontAreCitableHoweverTheyAreSpelled(t 
 	driver := startHarness(t, worker.server.URL)
 	driver.send(startTaskLine("task-1", "write a page about the guide"))
 
-	if toolCallLine := driver.expectLine("tool_call"); !strings.Contains(toolCallLine, `"toolUseID":"toolu_page"`) {
+	toolCallLine := driver.expectLine("tool_call")
+	if !strings.Contains(toolCallLine, `"toolUseID":"toolu_page"`) {
 		t.Fatalf("the page did not reach the app: %s", toolCallLine)
+	}
+	// The app gets each link as the set spelled it, so the agent's fragment never reaches the page.
+	if !strings.Contains(toolCallLine, `"url":"https://a.example/Guide/"`) || strings.Contains(toolCallLine, "#intro") || strings.Contains(toolCallLine, "HTTPS://A.Example") {
+		t.Errorf("the app did not get the set's spelling of the search result: %s", toolCallLine)
+	}
+	if !strings.Contains(toolCallLine, `"url":"https://www.youtube.com/watch?v=abc"`) {
+		t.Errorf("the app did not get the page in front: %s", toolCallLine)
 	}
 }
 
