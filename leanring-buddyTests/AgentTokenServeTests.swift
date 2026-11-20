@@ -135,6 +135,17 @@ struct AgentTokenServeTests {
         #expect(agentTokenServeDisplayID(containing: CGPoint(x: 2_000, y: 1_080), displayFrames: displayFramesByID) == 2)
     }
 
+    @Test func aMouseOnTheTopRowOfADisplayWithAnotherStackedAboveItStaysOnThatDisplay() async throws {
+        // The laptop is 982 high and the external display sits right above it, so y 982 is the laptop's top row and the
+        // external display's bottom edge, which the mouse never rests on.
+        let displayFramesByID: [CGDirectDisplayID: CGRect] = [
+            1: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            2: CGRect(x: 0, y: 982, width: 1_920, height: 1_080),
+        ]
+        #expect(agentTokenServeDisplayID(containing: CGPoint(x: 400, y: 982), displayFrames: displayFramesByID) == 1)
+        #expect(agentTokenServeDisplayID(containing: CGPoint(x: 400, y: 983), displayFrames: displayFramesByID) == 2)
+    }
+
     @Test func aPointOnTheEdgeTwoDisplaysShareBelongsToTheDisplayItIsInsideOfWhicheverWayTheIDsAreAssigned() async throws {
         // x 1,512 is the right display's minX and the left display's maxX. A dictionary's order depends on its keys, so the IDs go
         // both ways round, and the answer must still be the right display.

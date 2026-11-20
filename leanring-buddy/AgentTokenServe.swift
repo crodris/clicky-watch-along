@@ -114,12 +114,14 @@ func agentTokenServeStartPoint(mouseLocation: CGPoint) -> CGPoint {
 
 /// The display the token flies to: the one the mouse is on, which is where the learner is looking. Nil when the mouse is
 /// on none of them, which means no serve.
+///
+/// AppKit's y grows upward, so the rows a mouse can reach on a display run from just above its `minY` up to its `maxY`: the
+/// top row has y equal to `maxY`, and a bottom row never has y equal to `minY`. That is the reverse of `CGRect.contains`, which
+/// would send a mouse in the top row to no display, or, with a display stacked above, to the display above. The left edge
+/// belongs to a display and the right edge to the display beside it.
 func agentTokenServeDisplayID(containing mouseLocation: CGPoint, displayFrames: [CGDirectDisplayID: CGRect]) -> CGDirectDisplayID? {
-    if let displayID = displayFrames.first(where: { $0.value.contains(mouseLocation) })?.key { return displayID }
-    // The mouse on a display's top row has y equal to the frame's maxY, which `CGRect.contains` leaves out, so a mouse resting
-    // in the menu bar would get no serve. Edges count only after no display holds the point, so a point on the edge two
-    // displays share still goes to the display it is inside of.
-    return displayFrames.first { displayID, displayFrame in
-        (displayFrame.minX...displayFrame.maxX).contains(mouseLocation.x) && (displayFrame.minY...displayFrame.maxY).contains(mouseLocation.y)
+    displayFrames.first { _, displayFrame in
+        displayFrame.minX <= mouseLocation.x && mouseLocation.x < displayFrame.maxX
+            && displayFrame.minY < mouseLocation.y && mouseLocation.y <= displayFrame.maxY
     }?.key
 }
