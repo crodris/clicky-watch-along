@@ -30,7 +30,7 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
                             Press that key through System Events, as the learner would, while the app runs.
                             dial-hold presses shift and option and leaves them down, which opens the settings dial under the mouse after 0.3 s.
                             dial-release lets them go, which commits the highlighted item.
-                            agents-list holds shift and option, glides the mouse onto the dial's Agents token, and releases, which opens the agent list.
+                            agents-list holds shift and option, glides the mouse onto the dial's Agents token, releases, which opens the agent list, and puts the mouse back.
                             Keep the mouse 250 points from every screen edge, since an edge shifts the dial.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
@@ -632,6 +632,8 @@ command_key() {
         key up option
         key up shift
       end tell'
+      # The list stays where the release opened it, and the mouse goes back, so a later glide starts where it always did.
+      swift "$checkout_root/demo/scripts/mouse/mouse.swift" move "$mouse_x" "$mouse_y" 0.2
       ;;
     *)
       echo "key takes escape, push-to-talk-tap, dial-hold, dial-release, or agents-list" >&2
