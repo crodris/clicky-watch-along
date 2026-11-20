@@ -2780,7 +2780,7 @@ final class CompanionManager: ObservableObject {
                     let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
                     writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
                     try Task.checkCancellation()
-                    agentHarness.sendToolResult(taskID: agentID, toolUseID: toolCall.toolUseID, content: toolRun.content, isError: toolRun.isError)
+                    agentHarness.sendToolResult(taskID: agentID, toolUseID: toolCall.toolUseID, content: toolRun.content, isError: toolRun.isError, sourceURL: toolRun.sourceURL)
                 case .finished(let spokenSummary):
                     finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
                     return
@@ -2804,10 +2804,12 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Runs one app tool for the agent and returns its tool_result content. A tool that fails returns an error result,
-    /// so the agent can work around it instead of the task failing.
-    private func runTaskAgentTool(_ toolCall: HarnessToolCall, agentID: UUID, pageAlreadyWritten: Bool) async -> (content: JSONValue, isError: Bool, writtenPageURL: URL?) {
-        func errorResult(_ message: String) -> (content: JSONValue, isError: Bool, writtenPageURL: URL?) {
-            (.string(message), true, nil)
+    /// so the agent can work around it instead of the task failing. `sourceURL` is the video's link for a
+    /// read_video_captions result and nil for every other tool, since the harness lets the agent cite only a link it
+    /// gets in that field.
+    private func runTaskAgentTool(_ toolCall: HarnessToolCall, agentID: UUID, pageAlreadyWritten: Bool) async -> (content: JSONValue, isError: Bool, writtenPageURL: URL?, sourceURL: String?) {
+        func errorResult(_ message: String) -> (content: JSONValue, isError: Bool, writtenPageURL: URL?, sourceURL: String?) {
+            (.string(message), true, nil, nil)
         }
         switch TaskAgentTool(rawValue: toolCall.toolName) {
         case .reportStep:
@@ -2815,7 +2817,7 @@ final class CompanionManager: ObservableObject {
             if !stepText.isEmpty {
                 backgroundAgentStore.reportStep(String(stepText.prefix(60)), for: agentID)
             }
-            return (.string("shown"), false, nil)
+            return (.string("shown"), false, nil, nil)
         case .readVideoCaptions:
             do {
                 let video = try await videoQuizSession.frontVideoForStudyGuide()
@@ -2823,7 +2825,7 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
-                return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil)
+                return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil, video.url)
             } catch {
                 return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
             }
@@ -2837,7 +2839,7 @@ final class CompanionManager: ObservableObject {
             return (.array([.object([
                 "type": .string("image"),
                 "source": .object(["type": .string("base64"), "media_type": .string("image/jpeg"), "data": .string(videoGrab.jpeg)]),
-            ])]), false, nil)
+            ])]), false, nil, nil)
         case .writeNotionPage:
             guard !pageAlreadyWritten else {
                 return errorResult("A page was already written for this task")
@@ -2849,14 +2851,14 @@ final class CompanionManager: ObservableObject {
             do {
                 let pageURL = try await taskAgentClient.writeNotionPage(toolCall.input)
                 print("Task agent: wrote \(pageURL)")
-                return (.string("Written: \(pageURL.absoluteString)"), false, pageURL)
+                return (.string("Written: \(pageURL.absoluteString)"), false, pageURL, nil)
             } catch {
                 print("Task agent: the Notion page failed: \(error)")
                 return errorResult("The page could not be written: \(error)")
             }
         case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
             let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
-            return (generalToolRun.content, generalToolRun.isError, nil)
+            return (generalToolRun.content, generalToolRun.isError, nil, nil)
         case nil:
             // The harness asks only for the tools above, so this is a harness newer than the app.
             return errorResult("\(toolCall.toolName) is not a tool")

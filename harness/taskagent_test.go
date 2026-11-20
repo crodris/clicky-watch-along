@@ -146,3 +146,21 @@ func TestTheFirstMessageNamesThePageTheLearnerWasOn(t *testing.T) {
 		})
 	}
 }
+
+func TestAPageInputTheSourceCheckCannotReadIsRefusedAndALongRefusedLinkIsCut(t *testing.T) {
+	sources := newCitableSources(nil)
+
+	if refusal := sources.refusalOfPageSources(json.RawMessage(`{"sources":"https://a.example"}`)); !strings.Contains(refusal, "could not be read") {
+		t.Errorf("an input whose sources are not a list was not refused: %q", refusal)
+	}
+
+	longLink := "https://a.example/?d=" + strings.Repeat("x", 1000)
+	refusal := sources.refusalOfPageSources(json.RawMessage(`{"sources":[{"title":"A","url":"` + longLink + `"}]}`))
+	if strings.Contains(refusal, longLink) || !strings.Contains(refusal, "...") {
+		t.Errorf("a long refused link was not cut: %d characters", len(refusal))
+	}
+
+	if refusal := sources.refusalOfPageSources(json.RawMessage(`{"sources":[]}`)); refusal != "" {
+		t.Errorf("a page with no sources was refused: %q", refusal)
+	}
+}
