@@ -225,8 +225,8 @@ struct HaikyuThemeTests {
 
     @Test func theChipsIconTileFollowsTheIconsShapeSoNoWhiteCornersShowAroundAPortrait() async throws {
         let player = try #require(HaikyuSchool.karasuno.roster.first)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, player: player).iconShape == .circularPortrait)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, player: nil).iconShape == .roundedSquareTile)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .player(player)).iconShape == .circularPortrait)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .triangle).iconShape == .roundedSquareTile)
         #expect(VoiceToolCallChipSender.voiceToolCall.iconShape == .roundedSquareTile)
     }
 
@@ -294,6 +294,6 @@ struct HaikyuThemeTests {
         let unthemedAgentID = store.start(kind: .experiment)
         #expect(store.agents.first { $0.id == unthemedAgentID }?.player == nil)
         #expect(store.agents.first { $0.id == karasunoAgentID }?.player == karasunoPlayer)
-        #expect(store.player(for: karasunoAgentID) == karasunoPlayer)
+        #expect(store.face(for: karasunoAgentID) == karasunoPlayer.map(AgentFace.player))
     }
 }

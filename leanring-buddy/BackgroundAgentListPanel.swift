@@ -533,10 +533,14 @@ private struct AgentRowView: View {
     }
 
     @ViewBuilder private var rowIcon: some View {
-        if let player = agent.player {
+        if case .player(let player) = agent.face {
             HaikyuPortraitView(player: player, size: 28, isGrayscale: agent.phase.isFailed)
                 .overlay(Circle().stroke(agentListPortraitBorderColor(phase: agent.phase, school: player.school), lineWidth: 2))
                 // A finished agent's portrait steps back, as its meter turns green.
+                .opacity(agent.finishedResult == nil ? 1 : 0.5)
+        } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
+            ThemePictureFaceView(picture: themePicture, size: 28, isGrayscale: agent.phase.isFailed)
+                .overlay(Circle().stroke(meterColor, lineWidth: 2))
                 .opacity(agent.finishedResult == nil ? 1 : 0.5)
         } else {
             AgentTriangleView(agent: agent, size: 11)
@@ -627,7 +631,7 @@ private struct AgentRowView: View {
             }
         }
         // Lines up under the title, which starts after the icon.
-        .padding(.leading, agent.player == nil ? 40 : 52)
+        .padding(.leading, agent.face == .triangle ? 40 : 52)
         .padding(.trailing, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)

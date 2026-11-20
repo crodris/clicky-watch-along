@@ -16,9 +16,9 @@ import SwiftUI
 /// Who the chip speaks for, which sets its icon and letter color.
 enum VoiceToolCallChipSender: Equatable {
     case voiceToolCall
-    /// `color` is the agent's own color, which tints the triangle and the letters. `player` is the Haikyu!! player the
-    /// agent was, so the chip shows the portrait instead of the triangle.
-    case backgroundAgent(color: AgentPaletteColor, player: HaikyuPlayer?)
+    /// `color` is the agent's own color, which tints the triangle and the letters. `face` is the Haikyu!! player the agent
+    /// was, or the picture of its custom theme, so the chip shows that round face instead of the triangle.
+    case backgroundAgent(color: AgentPaletteColor, face: AgentFace)
 }
 
 /// The shape the chip's icon has, which is also the shape of whatever sits behind it. A white rounded square behind a
@@ -31,8 +31,8 @@ enum VoiceToolCallChipIconShape: Equatable {
 extension VoiceToolCallChipSender {
     var iconShape: VoiceToolCallChipIconShape {
         switch self {
-        case .backgroundAgent(_, player: .some): return .circularPortrait
-        case .voiceToolCall, .backgroundAgent(_, player: nil): return .roundedSquareTile
+        case .backgroundAgent(_, face: .player), .backgroundAgent(_, face: .themePicture): return .circularPortrait
+        case .voiceToolCall, .backgroundAgent(_, face: .triangle): return .roundedSquareTile
         }
     }
 }
@@ -74,8 +74,8 @@ private struct VoiceToolCallChipView: View {
         switch chipModel.sender {
         case .voiceToolCall: return DS.Colors.blue700
         // Dark gray, readable inside the white outline whatever the team's color is.
-        case .backgroundAgent(_, player: .some): return DS.Colors.backgroundAgentPlayerNameText
-        case .backgroundAgent(let agentColor, nil): return agentColor.chipTextColor
+        case .backgroundAgent(_, face: .player): return DS.Colors.backgroundAgentPlayerNameText
+        case .backgroundAgent(let agentColor, face: .themePicture), .backgroundAgent(let agentColor, face: .triangle): return agentColor.chipTextColor
         }
     }
 }
@@ -118,11 +118,26 @@ struct VoiceToolCallChipIcon: View {
     }
 
     @ViewBuilder private var portrait: some View {
-        if case .backgroundAgent(_, let player?) = sender {
+        switch sender {
+        case .backgroundAgent(_, face: .player(let player)):
             // The ring is drawn inside the portrait's circle, and the shadow follows that circle, so nothing else shows.
             HaikyuPortraitView(player: player, size: Self.iconSize)
                 .overlay(Circle().strokeBorder(player.school.accentColor, lineWidth: 2))
                 .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
+        case .backgroundAgent(let agentColor, face: .themePicture(let themeID)):
+            if let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
+                ThemePictureFaceView(picture: themePicture, size: Self.iconSize)
+                    .overlay(Circle().strokeBorder(agentColor.color, lineWidth: 2))
+                    .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
+            } else {
+                // The picture file could not be read, so the round icon is the agent's color instead of nothing.
+                Circle()
+                    .fill(agentColor.color)
+                    .frame(width: Self.iconSize, height: Self.iconSize)
+                    .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
+            }
+        case .voiceToolCall, .backgroundAgent(_, face: .triangle):
+            EmptyView()
         }
     }
 }

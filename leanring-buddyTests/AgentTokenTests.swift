@@ -237,7 +237,7 @@ struct AgentTokenTests {
     // MARK: - Each agent's own color
 
     @Test func theKindColorsAndTheSpareColorsAreTheSixPaletteColorsInOrder() async throws {
-        #expect(AgentPaletteColor.allCases == [.teal, .amber, .violet, .lime, .sky, .pink])
+        #expect(AgentPaletteColor.fixedPalette == [.teal, .amber, .violet, .lime, .sky, .pink])
         #expect(AgentPaletteColor.teal.color == Color(hex: "#2dd4bf"))
         #expect(AgentPaletteColor.amber.color == Color(hex: "#FFB020"))
         #expect(AgentPaletteColor.violet.color == Color(hex: "#a78bfa"))
