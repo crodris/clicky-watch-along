@@ -110,6 +110,18 @@ struct AgentOverflowDiscView: View {
     }
 }
 
+/// The open slot a token is about to land in: a dashed outline the size of a disc, shown while the token flies there from
+/// the cursor. A faint dark fill keeps the white dashes readable on a light menu bar.
+struct AgentOpenSlotView: View {
+    var body: some View {
+        Circle()
+            .fill(Color.black.opacity(0.3))
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
+            .frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter)
+            .accessibilityHidden(true)
+    }
+}
+
 private extension View {
     /// A 1.5 point dark edge outside the disc and a soft shadow, so the disc reads on a light menu bar and a bright
     /// wallpaper whatever its face color. Hovering grows the disc a little, which tells the learner it takes a click.

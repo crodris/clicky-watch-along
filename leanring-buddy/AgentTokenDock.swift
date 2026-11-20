@@ -5,7 +5,8 @@
 //  The AppKit side of the agent tokens: one small borderless panel per disc, floating in the menu bar row just right of
 //  the notch (or past the middle of a display with no notch). Each panel hosts one SwiftUI disc and takes its own clicks
 //  without activating Clicky or taking the keyboard from Chrome. This file measures how much free space the menu bar
-//  has, and the pure rules in `AgentTokenLayout.swift` decide which tokens fill it.
+//  has, and the pure rules in `AgentTokenLayout.swift` decide which tokens fill it. It also runs the serve: a new agent's
+//  token flies in from the blue cursor (`AgentTokenFlight`) while its disc shows an open slot, as `AgentTokenServe.swift` plans.
 //
 //  macOS draws no app window in the strip beside the notch during a full-screen space, so no disc shows there, and
 //  nothing here works around that. Endings use the chip at the cursor.
@@ -124,15 +125,22 @@ private final class AgentTokenHostingView<Content: View>: NSHostingView<Content>
     }
 }
 
-/// What one disc's SwiftUI view reads: the store, so the ring follows the agent, and whether the mouse is over the disc.
+/// What one disc's SwiftUI view reads besides the store: whether the mouse is over the disc, and whether the disc is an open
+/// slot that the agent's token is still flying to.
 @MainActor
-private final class AgentTokenHoverModel: ObservableObject {
+final class AgentTokenDiscModel: ObservableObject {
     @Published var isHovered = false
+    @Published var isAnOpenSlotAwaitingItsToken: Bool
+
+    init(isAnOpenSlotAwaitingItsToken: Bool = false) {
+        self.isAnOpenSlotAwaitingItsToken = isAnOpenSlotAwaitingItsToken
+    }
 }
 
-private struct AgentTokenDiscContent: View {
+/// One disc's content, shared by the disc in the dock and by the token while it flies there, so the two look the same.
+struct AgentTokenDiscContent: View {
     @ObservedObject var store: BackgroundAgentStore
-    @ObservedObject var hoverModel: AgentTokenHoverModel
+    @ObservedObject var discModel: AgentTokenDiscModel
     let tokenSlot: AgentTokenSlot
     let overflowCount: Int
 
@@ -145,11 +153,13 @@ private struct AgentTokenDiscContent: View {
     @ViewBuilder private var discView: some View {
         switch tokenSlot {
         case .agent(let agentID):
-            if let agent = store.agents.first(where: { $0.id == agentID }) {
-                AgentTokenDiscView(agent: agent, isHovered: hoverModel.isHovered)
+            if discModel.isAnOpenSlotAwaitingItsToken {
+                AgentOpenSlotView()
+            } else if let agent = store.agents.first(where: { $0.id == agentID }) {
+                AgentTokenDiscView(agent: agent, isHovered: discModel.isHovered)
             }
         case .overflow:
-            AgentOverflowDiscView(overflowCount: overflowCount, isHovered: hoverModel.isHovered)
+            AgentOverflowDiscView(overflowCount: overflowCount, isHovered: discModel.isHovered)
         }
     }
 }
@@ -159,17 +169,24 @@ private struct AgentTokenDiscContent: View {
 private final class AgentTokenDisc {
     let panel: AgentTokenPanel
     let hostingView: AgentTokenHostingView<AgentTokenDiscContent>
-    let hoverModel = AgentTokenHoverModel()
+    let discModel: AgentTokenDiscModel
 
-    init(tokenSlot: AgentTokenSlot, overflowCount: Int, store: BackgroundAgentStore, onClick: @escaping () -> Void) {
+    init(
+        tokenSlot: AgentTokenSlot,
+        overflowCount: Int,
+        isAnOpenSlotAwaitingItsToken: Bool,
+        store: BackgroundAgentStore,
+        onClick: @escaping () -> Void
+    ) {
+        discModel = AgentTokenDiscModel(isAnOpenSlotAwaitingItsToken: isAnOpenSlotAwaitingItsToken)
         hostingView = AgentTokenHostingView(rootView: AgentTokenDiscContent(
             store: store,
-            hoverModel: hoverModel,
+            discModel: discModel,
             tokenSlot: tokenSlot,
             overflowCount: overflowCount
         ))
         hostingView.onClick = onClick
-        hostingView.onHoverChange = { [hoverModel] isHovered in hoverModel.isHovered = isHovered }
+        hostingView.onHoverChange = { [discModel] isHovered in discModel.isHovered = isHovered }
         panel = AgentTokenPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -216,6 +233,11 @@ final class AgentTokenDockController {
     private var pollTimer: Timer?
     private var observers: [Any] = []
     private var storeCancellable: AnyCancellable?
+    /// The token that flies to its slot right now, and the disc it lands on. Nil when no serve runs.
+    private var flight: AgentTokenFlight?
+    private var discIDTheFlightLandsOn: AgentTokenDiscID?
+    /// Callers waiting for the token to land (`waitForTheServeToLand`).
+    private var callersWaitingForTheLanding: [CheckedContinuation<Void, Never>] = []
 
     init(store: BackgroundAgentStore, onDiscClicked: @escaping (AgentTokenClick) -> Void) {
         self.store = store
@@ -249,7 +271,9 @@ final class AgentTokenDockController {
 
     // MARK: Refresh
 
-    private func refresh() {
+    /// - `discIDAwaitingTheServe`: a new disc to make as an open slot, hidden until its token lands (`startServingTheToken`),
+    ///   in place of the usual fade-in.
+    private func refresh(discIDAwaitingTheServe: AgentTokenDiscID? = nil) {
         let now = Date()
         let rankedAgents = agentsWithTokens(from: store.agents, at: now)
         guard !rankedAgents.isEmpty else {
@@ -307,13 +331,22 @@ final class AgentTokenDockController {
                 )
                 let discID = AgentTokenDiscID(displayID: displayID, tokenSlot: tokenSlot)
                 discIDsOnScreen.insert(discID)
-                place(discID: discID, overflowCount: layout.overflowCount, panelFrame: panelFrame)
+                place(
+                    discID: discID,
+                    overflowCount: layout.overflowCount,
+                    panelFrame: panelFrame,
+                    isAnOpenSlotAwaitingItsToken: discID == discIDAwaitingTheServe
+                )
             }
         }
 
         for (discID, disc) in discsByID where !discIDsOnScreen.contains(discID) {
             remove(disc)
             discsByID[discID] = nil
+        }
+        // A token cannot land on a disc that left, such as an agent cancelled mid-flight.
+        if let discIDTheFlightLandsOn, !discIDsOnScreen.contains(discIDTheFlightLandsOn) {
+            finishTheServeAtOnce()
         }
         // A display that is gone or shows no disc forgets its positions, so the next tokens start from the left again.
         for displayID in shownAgentIDsByDisplayID.keys where !discIDsOnScreen.contains(where: { $0.displayID == displayID }) {
@@ -326,11 +359,12 @@ final class AgentTokenDockController {
     }
 
     /// Moves a disc's panel to its position, or creates it there. A new disc fades in at its position, and the others slide
-    /// to close a gap. With Reduce Motion on, a disc just appears in its position.
-    private func place(discID: AgentTokenDiscID, overflowCount: Int, panelFrame: CGRect) {
+    /// to close a gap. With Reduce Motion on, a disc just appears in its position. A disc made for a serve starts as an open
+    /// slot that stays hidden until `startServingTheToken` decides how its token arrives.
+    private func place(discID: AgentTokenDiscID, overflowCount: Int, panelFrame: CGRect, isAnOpenSlotAwaitingItsToken: Bool) {
         if let existingDisc = discsByID[discID] {
             if case .overflow = discID.tokenSlot {
-                existingDisc.hostingView.rootView = AgentTokenDiscContent(store: store, hoverModel: existingDisc.hoverModel, tokenSlot: .overflow, overflowCount: overflowCount)
+                existingDisc.hostingView.rootView = AgentTokenDiscContent(store: store, discModel: existingDisc.discModel, tokenSlot: .overflow, overflowCount: overflowCount)
             }
             guard existingDisc.panel.frame != panelFrame else { return }
             if reduceMotionIsOn {
@@ -344,7 +378,12 @@ final class AgentTokenDockController {
             return
         }
 
-        let displayedDisc = AgentTokenDisc(tokenSlot: discID.tokenSlot, overflowCount: overflowCount, store: store) { [weak self] in
+        let displayedDisc = AgentTokenDisc(
+            tokenSlot: discID.tokenSlot,
+            overflowCount: overflowCount,
+            isAnOpenSlotAwaitingItsToken: isAnOpenSlotAwaitingItsToken,
+            store: store
+        ) { [weak self] in
             guard let self,
                   let clickedDisc = self.discsByID[discID],
                   let screen = NSScreen.screens.first(where: { $0.displayID == discID.displayID }) else { return }
@@ -352,7 +391,10 @@ final class AgentTokenDockController {
         }
         displayedDisc.panel.setFrame(panelFrame, display: false)
         discsByID[discID] = displayedDisc
-        if reduceMotionIsOn {
+        if isAnOpenSlotAwaitingItsToken {
+            displayedDisc.panel.alphaValue = 0
+            displayedDisc.panel.orderFrontRegardless()
+        } else if reduceMotionIsOn {
             displayedDisc.panel.orderFrontRegardless()
         } else {
             displayedDisc.panel.alphaValue = 0
@@ -381,9 +423,87 @@ final class AgentTokenDockController {
     }
 
     private func removeEveryDisc() {
+        finishTheServeAtOnce()
         for disc in discsByID.values { remove(disc) }
         discsByID = [:]
         shownAgentIDsByDisplayID = [:]
+    }
+
+    // MARK: Serve
+
+    /// Serves a new agent's token: it flies from the blue cursor glyph to its slot on the display the mouse is on, and the
+    /// dock shows it in place. Call this right after the agent starts, in the same turn, before the dock has made its disc.
+    /// The disc on the mouse's display is made now as an open slot, so it never fades in on its own first.
+    /// With Reduce Motion on, the token fades in at its slot instead. An agent with no slot of its own, or a display with
+    /// no room for discs, gets no serve (`agentTokenServePlan`). `waitForTheServeToLand` returns once the token has landed.
+    /// The discs on the other displays fade in as usual.
+    func startServingTheToken(of agentID: UUID) {
+        finishTheServeAtOnce()
+        let mouseLocation = NSEvent.mouseLocation
+        let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
+        guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID) else { return }
+
+        let slotDiscID = AgentTokenDiscID(displayID: cursorDisplayID, tokenSlot: .agent(agentID))
+        refresh(discIDAwaitingTheServe: slotDiscID)
+
+        let slotDisc = discsByID[slotDiscID]
+        let plan = agentTokenServePlan(
+            cursorPoint: agentTokenServeStartPoint(mouseLocation: mouseLocation),
+            slotPoint: slotDisc.map { CGPoint(x: $0.panel.frame.midX, y: $0.panel.frame.midY) },
+            slotDisplayCanShowDiscs: discsByID.keys.contains { $0.displayID == cursorDisplayID },
+            reduceMotionIsOn: reduceMotionIsOn
+        )
+        // A disc made for the serve exists exactly when the plan is not "none".
+        guard let slotDisc else {
+            print("Agent token serve: no serve, the agent has no slot on the display the mouse is on")
+            return
+        }
+        switch plan {
+        case .none:
+            return
+        case .fadeInAtTheSlot:
+            print("Agent token serve: Reduce Motion is on, so the token fades in at its slot")
+            slotDisc.discModel.isAnOpenSlotAwaitingItsToken = false
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = 0.2
+                slotDisc.panel.animator().alphaValue = 1
+            }
+        case .fly(let path):
+            print("Agent token serve: the token flies to its slot in \(AgentTokenServePath.flightSeconds) s")
+            slotDisc.panel.alphaValue = 1
+            let tokenFlight = AgentTokenFlight(path: path, agentID: agentID, store: store) { [weak self] in
+                self?.landTheToken(onDiscWithID: slotDiscID)
+            }
+            flight = tokenFlight
+            discIDTheFlightLandsOn = slotDiscID
+            tokenFlight.start()
+        }
+    }
+
+    /// Returns once the token that is flying has landed, or at once when none flies. The router's spoken confirmation waits
+    /// here, so the learner sees the hand-off before the voice speaks.
+    func waitForTheServeToLand() async {
+        guard flight != nil else { return }
+        let waitStartedAt = Date()
+        await withCheckedContinuation { callersWaitingForTheLanding.append($0) }
+        print("Agent token serve: the spoken line waited \(Int(Date().timeIntervalSince(waitStartedAt) * 1000)) ms for the token to land")
+    }
+
+    /// A push-to-talk press ends the flight at once, and the token shows in its slot.
+    func finishTheServeAtOnce() {
+        guard let flight else { return }
+        print("Agent token serve: the token lands at once")
+        flight.landAtOnce()
+    }
+
+    private func landTheToken(onDiscWithID discID: AgentTokenDiscID) {
+        print("Agent token serve: the token landed in its slot")
+        discsByID[discID]?.discModel.isAnOpenSlotAwaitingItsToken = false
+        flight = nil
+        discIDTheFlightLandsOn = nil
+        let callersToResume = callersWaitingForTheLanding
+        callersWaitingForTheLanding = []
+        for callerToResume in callersToResume { callerToResume.resume() }
     }
 
     // MARK: Polling

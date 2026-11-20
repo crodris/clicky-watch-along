@@ -765,6 +765,8 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
+            // A token still flying from the cursor to its slot lands there at once.
+            agentTokenDockController.finishTheServeAtOnce()
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.
@@ -2464,6 +2466,9 @@ final class CompanionManager: ObservableObject {
                 continue
             case .speak(let spokenLine):
                 if !spokenLine.isEmpty {
+                    // An agent the command started serves its token from the cursor first, and the line plays after it lands.
+                    await agentTokenDockController.waitForTheServeToLand()
+                    guard !Task.isCancelled else { return }
                     await speakLiveSceneLine(spokenLine)
                 }
             }
@@ -2611,6 +2616,7 @@ final class CompanionManager: ObservableObject {
     /// video keeps playing.
     private func startTheTaskAgent(goal: String) -> VoiceToolOutcome {
         let agentID = backgroundAgentStore.start(kind: .task)
+        agentTokenDockController.startServingTheToken(of: agentID)
         backgroundAgentStore.setSubject(goal, for: agentID)
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, agentID: agentID)
@@ -2779,6 +2785,9 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Sure, I'll build that while you watch."
         }
         currentResponseTask = Task {
+            // The experiment agent serves its token from the cursor first, and the line plays after it lands.
+            await self.agentTokenDockController.waitForTheServeToLand()
+            guard !Task.isCancelled else { return }
             await self.speakLiveSceneLine(spokenLine)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
@@ -2797,6 +2806,7 @@ final class CompanionManager: ObservableObject {
     /// Starts the build and returns at once, so the router speaks its confirmation and the video keeps playing.
     private func startBuildingASceneInTheBackground(whatToBuild: String, agentKind: BackgroundAgentKind) -> VoiceToolOutcome {
         let agentID = backgroundAgentStore.start(kind: agentKind)
+        agentTokenDockController.startServingTheToken(of: agentID)
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
         }
@@ -3022,6 +3032,9 @@ final class CompanionManager: ObservableObject {
             return .failed(error: "This video's study guide is still being written", state: nil)
         }
         let agentID = backgroundAgentStore.start(kind: studyGuideJob.agentKind, studyGuideVideoKey: videoKey)
+        if studyGuideJob.isAskedForByTheLearner {
+            agentTokenDockController.startServingTheToken(of: agentID)
+        }
         runInTheBackground(agentID) {
             let guideWasWritten = await self.writeTheStudyGuide(studyGuideJob, agentID: agentID)
             switch queuedStudyGuideRefreshStep(
