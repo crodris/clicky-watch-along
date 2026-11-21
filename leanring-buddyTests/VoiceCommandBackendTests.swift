@@ -41,6 +41,41 @@ struct VoiceCommandBackendTests {
         #expect(ClickyAppSecret.isSet(in: isolatedDefaults))
     }
 
+    /// `verify-clicky.sh app-launch --no-app-secret` and `--wrong-app-secret` pass this argument instead of writing the
+    /// defaults, which the everyday Clicky shares.
+    @Test func theDebugLaunchArgumentActsAsIfTheSecretWereMissingOrWrongAndNeverWritesTheDefaults() throws {
+        let defaultsSuiteName = "VoiceCommandBackendTests-" + UUID().uuidString
+        let isolatedDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { isolatedDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+        isolatedDefaults.set("the-real-secret", forKey: ClickyAppSecret.defaultsKey)
+
+        let noModeArguments = ["Clicky", "--voice-tool-debug-server"]
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: noModeArguments) == "the-real-secret")
+
+        let noneArguments = ["Clicky", ClickyAppSecret.debugLaunchArgument, "none"]
+        let wrongArguments = ["Clicky", ClickyAppSecret.debugLaunchArgument, "wrong"]
+        var requestWithNoSecret = URLRequest(url: URL(string: "http://127.0.0.1:8789/v1/messages")!)
+        ClickyAppSecret.add(to: &requestWithNoSecret, from: isolatedDefaults, launchArguments: noneArguments)
+        var requestWithAWrongSecret = URLRequest(url: URL(string: "http://127.0.0.1:8789/v1/messages")!)
+        ClickyAppSecret.add(to: &requestWithAWrongSecret, from: isolatedDefaults, launchArguments: wrongArguments)
+
+        #if DEBUG
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: noneArguments) == nil)
+        #expect(!ClickyAppSecret.isSet(in: isolatedDefaults, launchArguments: noneArguments))
+        #expect(requestWithNoSecret.value(forHTTPHeaderField: ClickyAppSecret.headerName) == nil)
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: wrongArguments) == ClickyAppSecret.secretTheWorkerRefuses)
+        #expect(ClickyAppSecret.isSet(in: isolatedDefaults, launchArguments: wrongArguments))
+        #expect(requestWithAWrongSecret.value(forHTTPHeaderField: ClickyAppSecret.headerName) == ClickyAppSecret.secretTheWorkerRefuses)
+        // A mode word the app does not know, and a mode argument with no word after it, change nothing.
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: ["Clicky", ClickyAppSecret.debugLaunchArgument, "other"]) == "the-real-secret")
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: ["Clicky", ClickyAppSecret.debugLaunchArgument]) == "the-real-secret")
+        #else
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: noneArguments) == "the-real-secret")
+        #expect(ClickyAppSecret.current(in: isolatedDefaults, launchArguments: wrongArguments) == "the-real-secret")
+        #endif
+        #expect(isolatedDefaults.string(forKey: ClickyAppSecret.defaultsKey) == "the-real-secret", "the argument never writes the defaults")
+    }
+
     /// The reason is the one harness/brainloop.go writes (`errAppSecretRefused`), which a harness test pins.
     @Test func aRefusedSecretResendsTheCommandOnceOnTheOldPathAndMovesTheRestOfTheLaunchThere() {
         var backend = VoiceCommandBackend(flagIsOn: true, appSecretIsSet: true)

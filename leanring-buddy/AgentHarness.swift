@@ -694,7 +694,7 @@ final class AgentHarness {
         }
         process.environment = agentHarnessEnvironment(
             workerBaseURL: workerBaseURL,
-            appSecret: appSecretDefaults.string(forKey: ClickyAppSecret.defaultsKey),
+            appSecret: ClickyAppSecret.current(in: appSecretDefaults),
             skillsDirectoryURLs: skillsDirectoryURLs,
             mcpConfigURL: TaskAgentFolders.mcpConfigURL(),
             parentEnvironment: ProcessInfo.processInfo.environment

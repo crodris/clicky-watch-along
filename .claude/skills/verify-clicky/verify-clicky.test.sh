@@ -4,7 +4,8 @@
 # `app-launch`'s flags, command_worker_down, which stops one Worker when given its port,
 # move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait,
 # accessibility_grant_warning, which tells app-launch to name the grant command, apply_app_secret_mode and
-# report_app_secret_state, which the --no-app-secret and --wrong-app-secret flags and doctor use, and the scroll
+# report_app_secret_state, which the --no-app-secret and --wrong-app-secret flags and doctor use (the flags pass the app
+# --app-secret-mode and never write the defaults the everyday Clicky shares), and the scroll
 # command's usage line and refusal of a value that is not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
@@ -90,15 +91,17 @@ check "both brain flags pass their launch arguments" "${app_launch_flag_argument
 check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
 parse_app_launch_arguments "pop this out"
 check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
-# --no-app-secret and --wrong-app-secret set the Debug app's defaults before it starts, so the upgrade paths of the harness
-# brain work on the first try. They are not app arguments, and the default copies the real secret.
+# --no-app-secret and --wrong-app-secret pass the app's own --app-secret-mode argument, so the upgrade paths of the harness
+# brain work on the first try without touching the defaults. The default copies the real secret and passes nothing.
 parse_app_launch_arguments "turn it to the left"
 check "app-launch copies the real secret by default" "${#app_launch_flag_arguments[@]} $app_launch_app_secret_mode" "0 copy"
 parse_app_launch_arguments --no-app-secret "turn it to the left"
-check "--no-app-secret asks for the secret to be removed and passes no app argument" "${#app_launch_flag_arguments[@]} $app_launch_app_secret_mode" "0 none"
+check "--no-app-secret passes --app-secret-mode none" "${app_launch_flag_arguments[*]} $app_launch_app_secret_mode" "--app-secret-mode none none"
 parse_app_launch_arguments --harness-brain --wrong-app-secret "turn it to the left"
-check "--wrong-app-secret asks for a refused secret and keeps the other flags" "${app_launch_flag_arguments[*]} $app_launch_app_secret_mode" "--brain-runs-in-the-harness wrong"
+check "--wrong-app-secret passes --app-secret-mode wrong and keeps the other flags" "${app_launch_flag_arguments[*]} $app_launch_app_secret_mode" "--brain-runs-in-the-harness --app-secret-mode wrong wrong"
 check "steps still follow the secret flags" "$app_launch_rehearsal_steps" "turn it to the left"
+parse_app_launch_arguments --no-app-secret --no-app-secret "x"
+check "the same secret flag twice passes one argument" "${app_launch_flag_arguments[*]}" "--app-secret-mode none"
 conflict_error="$( (parse_app_launch_arguments --no-app-secret --wrong-app-secret "x") 2>&1)" || true
 check "the two secret flags cannot go together" "$conflict_error" "--no-app-secret and --wrong-app-secret cannot go together"
 check "usage lists both secret flags" "$(usage | grep -c -e '--no-app-secret|--wrong-app-secret')" "1"
@@ -114,11 +117,9 @@ defaults() {
 }
 : >"$defaults_calls_file"
 apply_app_secret_mode none com.example.clicky real-secret
-check "--no-app-secret deletes the secret from the defaults" "$(cat "$defaults_calls_file")" "delete com.example.clicky clickyAppSecret"
-: >"$defaults_calls_file"
+check "--no-app-secret never writes or deletes the defaults" "$(cat "$defaults_calls_file")" ""
 apply_app_secret_mode wrong com.example.clicky real-secret
-check "--wrong-app-secret writes a secret the Worker refuses" "$(grep -c '^write com.example.clicky clickyAppSecret -string not-the-worker-secret-' "$defaults_calls_file")" "1"
-check "--wrong-app-secret never writes the real secret" "$(grep -c 'real-secret' "$defaults_calls_file" || true)" "0"
+check "--wrong-app-secret never writes or deletes the defaults" "$(cat "$defaults_calls_file")" ""
 : >"$defaults_calls_file"
 apply_app_secret_mode copy com.example.clicky real-secret
 check "the default copies the real secret" "$(cat "$defaults_calls_file")" "write com.example.clicky clickyAppSecret -string real-secret"
