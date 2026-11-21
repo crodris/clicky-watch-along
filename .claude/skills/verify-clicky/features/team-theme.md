@@ -11,7 +11,7 @@ A school's file draws the cursor as a volleyball in the team's colors, and turns
   A value an older version wrote (`clickyBlue`, `school:karasuno`, `random`) reads as the theme it named, with `random` as Clicky blue and Shuffle on, and is not rewritten until the learner picks a theme or flips Shuffle.
 - `theme-shuffle` is the panel's "Shuffle agents" switch, saved under `shufflesAgentThemes`. With it on, new agents wear several themes' looks and the cursor stays the picked theme's.
 - `theme-files` reads every bundled `themes/*.clickytheme` from `Contents/Resources/Themes`, which the "Copy Bundled Themes" build phase fills. A missing folder logs `Themes: the app has no bundled Themes folder`.
-- `theme-install` installs a double-clicked `.clickytheme` package: the chip says "Theme added" with its name, the theme's done sound plays, the panel lists it, and the cursor wears it. A package that does not parse logs `Themes: refused <name>: <rule>` and shows "Couldn't add that theme".
+- `theme-install` asks "Add theme?" for a double-clicked `.clickytheme` package (a card with the theme's cursor, `Add "<name>" to Clicky?`, how it moves, Cancel and Add theme; Escape and Cancel install nothing), and on Add theme installs it: the chip says "Theme added" with its name, the theme's done sound plays, the panel lists it, and the cursor wears it. A package that does not parse logs `Themes: refused <name>: <rule>` and shows "Couldn't add that theme" with no card.
 - `theme-cursor` draws the cursor as a volleyball in the school's colors, and colors its glow, the ring's ticks and dots, the loop, and the navigation bubble in the school's accent.
   Nekoma's ball is red with a black outline and white seams, and Inarizaki's is black with white lines.
   Three streaks in the team color trail the ball while it flies to a part and back, and while it follows a fast-moving mouse, turned toward the movement.
@@ -63,7 +63,7 @@ Preconditions:
   The tokens are ringed in each agent kind's color around a triangle, and the list says "Clicky blue" and "3 running".
 - **Picker.** The panel's buttons have no accessibility names, so press one with the real mouse: `swift demo/scripts/mouse/mouse.swift click <x> <y>` at a button's center in global points, read from a `$V shot` of the open panel.
   `defaults read com.crodris.clicky-watch-along companionTheme` shows the new value, the cursor changes at once, and the menu bar icon stays the Clicky cursor.
-- **Install.** Copy `themes/02-school-nekoma.clickytheme` to `$RUN/Shared.clickytheme`, run `open -a "<the Debug Clicky.app>" "$RUN/Shared.clickytheme"`, and `$V shot installed`: the "Theme added · Nekoma" chip and the red ball. The log says `Themes: installed Shared.clickytheme as nekoma-<4 hex>`. Delete that folder from `~/Library/Application Support/Clicky/Themes` when done.
+- **Install.** Copy `themes/02-school-nekoma.clickytheme` to `$RUN/Shared.clickytheme`, run `open -a "<the Debug Clicky.app>" "$RUN/Shared.clickytheme"`, `$V shot add-theme-card` (the "Add theme?" card near the top of the screen), click Add theme with the real mouse (read its point from the shot), and `$V shot installed`: the "Theme added · Nekoma" chip and the red ball. The log says `Themes: installed Shared.clickytheme as nekoma-<4 hex>`. Delete that folder from `~/Library/Application Support/Clicky/Themes` when done.
 - Write back the value `defaults read` showed before the run when done, or delete the key if there was none, since the everyday app reads it too.
 
 ## Gotchas
