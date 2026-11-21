@@ -186,6 +186,8 @@ struct AsksToDesignAThemeTests {
         // The learner asks what a theme is and wants none designed.
         #expect(asksToDesignATheme("what's the main theme of this new poem") == nil)
         #expect(asksToDesignATheme("explain the theme of this new picture") == nil)
+        // "need" and "a" make a request for a theme, but "of" after it names a work's theme.
+        #expect(asksToDesignATheme("I need a theme of loss for my essay") == nil)
         // A request word that comes only after "theme" is not a request for one.
         #expect(asksToDesignATheme("theme make") == nil)
     }

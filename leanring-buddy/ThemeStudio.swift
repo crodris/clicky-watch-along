@@ -190,13 +190,13 @@ nonisolated enum ThemeStudioRequest: Equatable, Sendable {
 /// A keyword branch ahead of the router, like "let me try it", since its words always mean the same thing: the learner
 /// asks for a theme of their own or Clicky's. That takes two things, and a theme the learner is only reading about has
 /// neither:
-/// - a request word (change, make, design, create, customize, customise, redo, switch, give) within the four words before
-///   "theme", and
-/// - an owner word (my, your, a, Clicky's) directly before "theme", or before "new theme".
+/// - a request word (change, make, design, create, customize, customise, redo, switch, give, want, need, get, try) within
+///   the four words before "theme", and
+/// - an owner word (my, your, a, Clicky's) directly before "theme" or one word before it, where "the" never counts.
 ///
-/// So "change my theme" and "make me a new theme" open the studio. "How does the author change the theme here" has no
-/// owner word, "what's the new theme in chapter two" has neither word, and "what's the main theme of this new poem" is
-/// followed by "of", so those are questions for the router. "New theme" or "new theme please" alone is a request too,
+/// So "change my theme", "make me a new theme", and "create a cozy theme" open the studio. "How does the author change the
+/// theme here" has no owner word, "what's the new theme in chapter two" has neither word, and "I need a theme of loss for
+/// my essay" is followed by "of", so those are questions for the router. "New theme" or "new theme please" alone is a request too,
 /// since nothing else is in it to ask about. The words "this picture", "this image", "this photo", or "match this" make
 /// it a request from the picture.
 /// Whether the router sees the utterance instead, while the studio is already open, during a quiz question, or with the
