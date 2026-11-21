@@ -99,6 +99,10 @@ It refuses when any Clicky is already running, because two instances fight over 
 It also quits the app and stops when the app's `Clicky start` log line shows `screen: false`.
 macOS keys privacy grants to the bundle ID that doctor prints, so a build with a new ID has none.
 Only Chris can grant them, in System Settings > Privacy & Security > Screen & System Audio Recording, and Accessibility for the video features.
+When the line shows `accessibility: false`, `app-launch` keeps going, since a rehearsal needs no Accessibility, and prints a warning that names `grant`.
+macOS can drop the Accessibility grant with no rebuild, as it did on 2026-11-20, so read that line on every launch.
+`$V grant` opens Privacy & Security > Accessibility and shows this checkout's Debug `Clicky.app` in Finder, so Chris turns its switch on or drags that exact app into the list.
+`demo/scripts/record-shot.sh` stops before recording on with `accessibility: false`, since the app's permissions panel would cover the take.
 
 ```bash
 $V app-launch "show me the inside of a heart"
@@ -164,6 +168,7 @@ app-launch [--brain] [--harness-brain] "<steps>"
                           --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
+grant                     Open Privacy & Security > Accessibility and show this checkout's Debug Clicky.app in Finder.
 shot <name>               Save a screenshot of every display into the run.
 key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>
                           Press that key through System Events, as the learner would, while the app runs.

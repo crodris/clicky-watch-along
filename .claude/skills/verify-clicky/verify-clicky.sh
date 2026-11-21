@@ -40,6 +40,8 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
                             A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
                             Park the mouse over the scroll area first, such as the approval card's summary.
+  grant                     Open System Settings at Privacy & Security > Accessibility and show this checkout's Debug Clicky.app in
+                            Finder, so Chris can drag that exact app into the list or turn its switch on. app-launch says when it is needed.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
 }
@@ -548,11 +550,35 @@ require_screen_recording_grant() {
         echo "This build has no Screen Recording grant. Ask Chris to allow Clicky in System Settings > Privacy & Security > Screen & System Audio Recording, and Accessibility for the video features, then launch again." >&2
         exit 1
       fi
+      accessibility_grant_warning "$app_log" >&2
       return 0
     fi
     sleep 0.5
   done
   echo "warning: the app log has no 'Clicky start' permission line after 10 seconds" >&2
+}
+
+# The rehearsal runs without Accessibility, but push-to-talk, the settings dial, and Escape do not, and the app opens its
+# "Permissions needed" panel, which covers a recorded take. macOS can drop the grant with no rebuild, so each launch checks.
+accessibility_grant_warning() {
+  local app_log="$1"
+  if grep 'Clicky start.* accessibility: false' "$app_log" >/dev/null 2>&1; then
+    echo "warning: this build has no Accessibility grant, so push-to-talk, the settings dial, and Escape do not work, and the app shows its permissions panel. Run this script's grant command and ask Chris to turn Clicky on there."
+  fi
+}
+
+command_grant() {
+  local app_path
+  app_path="$(debug_app_path)"
+  if [[ -z "$app_path" ]]; then
+    echo "debug app: MISSING for this repository. Run this script's build command first." >&2
+    exit 1
+  fi
+  open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+  open -R "$app_path"
+  echo "Opened Privacy & Security > Accessibility, and Finder shows the Debug app at $app_path."
+  echo "Ask Chris to turn on Clicky in that list, or drag the Clicky.app Finder shows into it when Clicky is missing."
+  echo "The next app-launch prints 'accessibility: true' once the grant holds."
 }
 
 # Reads app-launch's flags into app_launch_flag_arguments, the app's own launch arguments for them, and the steps after
@@ -746,6 +772,7 @@ main() {
     shot) command_shot "${1:?shot name}" ;;
     scroll) command_scroll "${1:?points}" ;;
     key) command_key "${1:?key name}" ;;
+    grant) command_grant ;;
     cleanup) command_app_quit; command_worker_down ;;
     *) usage; exit 1 ;;
   esac

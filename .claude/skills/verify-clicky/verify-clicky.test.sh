@@ -2,7 +2,8 @@
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
 # running_clicky_pids, which `app-launch` uses to refuse a second Clicky, parse_app_launch_arguments, which reads
 # `app-launch`'s flags, command_worker_down, which stops one Worker when given its port,
-# move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait, and the scroll
+# move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait,
+# accessibility_grant_warning, which tells app-launch to name the grant command, and the scroll
 # command's usage line and refusal of a value that is not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
@@ -36,6 +37,12 @@ command_worker_down 8787 >/dev/null 2>&1
 check "worker-down with a port leaves the other Worker's record" "$(ls "$state_root" | tr '\n' ' ')" "worker-8788.pid "
 command_worker_down >/dev/null 2>&1
 check "worker-down with no port removes every Worker's record" "$(ls "$state_root" | tr '\n' ' ')" ""
+
+printf '%s\n' "Clicky start — accessibility: false, screen: true, mic: true" >"$test_directory/no-accessibility.log"
+printf '%s\n' "Clicky start — accessibility: true, screen: true, mic: true" >"$test_directory/accessibility.log"
+check "a launch without Accessibility warns and names the grant command" \
+  "$(accessibility_grant_warning "$test_directory/no-accessibility.log" | grep -o 'grant command')" "grant command"
+check "a launch with Accessibility prints no warning" "$(accessibility_grant_warning "$test_directory/accessibility.log")" ""
 
 check "an app newer than every source is current" "$(first_source_newer_than "$dylib_path" "$test_directory/sources")" ""
 touch -t 202601030000 "$test_directory/sources/frame-popout.html"
@@ -118,4 +125,4 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, and scroll usage and argument checks"
+echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, the Accessibility warning, and scroll usage and argument checks"

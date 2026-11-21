@@ -164,6 +164,11 @@ fi
 
 app_was_launched=true
 "$verify_script" app-launch "$rehearsal_steps"
+# Without Accessibility the app opens its "Permissions needed" panel over the shot, so a take recorded then is lost.
+if grep 'Clicky start.* accessibility: false' "$run_folder/app.log" >/dev/null 2>&1; then
+  echo "the app started without Accessibility, so the take would show its permissions panel. Run $verify_script grant, then record again." >&2
+  exit 1
+fi
 tail -n +1 -F "$run_folder/app.log" 2>/dev/null \
   > >(perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$events_path.raw") &
 log_tail_pid=$!
