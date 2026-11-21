@@ -3931,7 +3931,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The token beside the notch,
-    /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
+    /// the chip above the cursor, and the page in a background tab say it instead. Returns whether the guide was written.
     @discardableResult
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async -> Bool {
         let startedAt = Date()
@@ -4423,7 +4423,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }
 
-    /// The blue cursor flies to the quiz's "?" label and its bubble shows the question, typed along with the voice, so a
+    /// The blue cursor flies to the quiz's "?" label and its speech Callout shows the question, brightening its words along with the voice, so a
     /// learner can read a long question again while answering. It stays until the question is answered, or the scene
     /// clears, which releases any held pointing.
     private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {

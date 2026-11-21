@@ -248,7 +248,7 @@ final class VoiceToolCallChip {
             mouseLocation: NSEvent.mouseLocation,
             screenFrame: screenFrame,
             calloutWidth: chipModel.contentWidth,
-            aStatusLabelIsShowing: LiveSceneStatusLabel.shared.statusLabelModel.isVisible
+            aStatusLabelIsShowing: LiveSceneStatusLabel.shared.statusLabelModel.presence.isInTheViewTree
         ))
     }
 

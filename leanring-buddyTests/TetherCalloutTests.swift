@@ -52,6 +52,22 @@ struct TetherCalloutTests {
 
     // MARK: - Presence
 
+    @Test func theSpeechPopPivotsAboutTheTailsTipEvenWhenTheCalloutSlidLeft() {
+        let screenSize = CGSize(width: 1000, height: 800)
+        let calloutSize = CGSize(width: 200, height: 49)
+        func tipPoint(cursorX: CGFloat) -> CGPoint {
+            let pivot = speechCalloutPivot(cursorPosition: CGPoint(x: cursorX, y: 300), calloutSize: calloutSize, screenSize: screenSize)
+            return CGPoint(x: pivot.x * screenSize.width, y: pivot.y * screenSize.height)
+        }
+        // In the middle the tip is just above the triangle.
+        #expect(abs(tipPoint(cursorX: 400).x - 400) < 0.001 && abs(tipPoint(cursorX: 400).y - (300 - tetherCalloutTipRiseAboveTheCursor)) < 0.001)
+        // At the right edge the Callout slid left, and the pivot follows its tail, which is not at the cursor any more.
+        #expect(tipPoint(cursorX: 990).x < 990 - 10)
+        // Before the Callout is measured, the pivot is the point above the triangle.
+        let unmeasured = speechCalloutPivot(cursorPosition: CGPoint(x: 990, y: 300), calloutSize: .zero, screenSize: screenSize)
+        #expect(abs(unmeasured.x * screenSize.width - 990) < 0.001)
+    }
+
     @Test func aCalloutPopsFromTheSpecsStartScaleAndLeavesByRiseOrRecall() {
         #expect(TetherCalloutPresencePose.appearing(reduceMotionIsOn: false) == TetherCalloutPresencePose(scale: DS.Move.popStartScale, opacity: 0, riseOffset: 0))
         #expect(TetherCalloutPresencePose.leaving(.fadeRise, reduceMotionIsOn: false) == TetherCalloutPresencePose(scale: 1, opacity: 0, riseOffset: -6))
@@ -144,11 +160,11 @@ struct TetherCalloutTests {
         #expect(unmovable.map(\.text) == ["a b ccc", "dddddddddd"])
     }
 
-    @Test func everyCharacterOfALineSitsAtItsOwnOffsetEvenAfterADoubleSpaceOrALineBreak() {
+    @Test func everyCharacterOfALineSitsAtItsOwnOffsetEvenAfterADoubleSpaceOrALineBreak() throws {
         let sentence = "Hi.  The fan\nspins fast"
         let lines = SpeechCalloutLayout.lines(of: sentence, wrapWidth: 1000, measuredWidth: tenPointsPerCharacter)
         #expect(lines.count == 1)
-        let line = try! #require(lines.first)
+        let line = try #require(lines.first)
         let sentenceCharacters = Array(sentence)
         #expect(line.startOffset == 0 && line.endOffset == sentenceCharacters.count)
         for (characterIndex, character) in line.text.enumerated() {

@@ -233,8 +233,6 @@ struct BlueCursorView: View {
             : (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
     }
 
-    /// Starts at 0.5 and springs to 1.0 when the first character appears.
-
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
     @State private var isReturningToCursor: Bool = false
@@ -287,7 +285,7 @@ struct BlueCursorView: View {
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: bubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.5), value: bubbleOpacity)
-                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, screenSize: screenFrame.size)))
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: bubbleSize, screenSize: screenFrame.size)))
             }
 
             // Onboarding video — always in the view tree so opacity animation works
@@ -322,7 +320,7 @@ struct BlueCursorView: View {
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: onboardingPromptBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.4), value: companionManager.onboardingPromptOpacity)
-                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, screenSize: screenFrame.size)))
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: onboardingPromptBubbleSize, screenSize: screenFrame.size)))
             }
 
             // Navigation pointer bubble - shown when buddy arrives at a detected element, and while a narration
@@ -341,7 +339,7 @@ struct BlueCursorView: View {
                     }
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, screenSize: screenFrame.size)))
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size)))
             }
 
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.

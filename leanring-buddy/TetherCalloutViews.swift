@@ -55,13 +55,19 @@ func speechCalloutCenter(cursorPosition: CGPoint, calloutSize: CGSize, screenSiz
     return CGPoint(x: leftEdge + calloutSize.width / 2, y: centerY)
 }
 
-/// Where the tail's tip is in the overlay, as a share of the screen: just above the triangle at `cursorPosition`. A Callout
-/// placed by `speechCalloutCenter` pivots its Pop about this point.
-func speechCalloutPivot(cursorPosition: CGPoint, screenSize: CGSize) -> UnitPoint {
-    UnitPoint(
-        x: cursorPosition.x / max(screenSize.width, 1),
-        y: (cursorPosition.y - tetherCalloutTipRiseAboveTheCursor) / max(screenSize.height, 1)
-    )
+/// Where the tail's tip is in the overlay, as a share of the screen. A Callout placed by `speechCalloutCenter` pivots its Pop
+/// about this point, so a Callout that slid left at the screen's edge still grows from its tail. Before the Callout is measured
+/// (a size of zero) the tip is taken to be just above the triangle at `cursorPosition`.
+func speechCalloutPivot(cursorPosition: CGPoint, calloutSize: CGSize, screenSize: CGSize) -> UnitPoint {
+    var tipPoint = CGPoint(x: cursorPosition.x, y: cursorPosition.y - tetherCalloutTipRiseAboveTheCursor)
+    if calloutSize != .zero {
+        let center = speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: calloutSize, screenSize: screenSize)
+        tipPoint = CGPoint(
+            x: center.x - calloutSize.width / 2 + TetherCalloutShape.tailTip(inCalloutOfSize: calloutSize).x,
+            y: center.y + calloutSize.height / 2
+        )
+    }
+    return UnitPoint(x: tipPoint.x / max(screenSize.width, 1), y: tipPoint.y / max(screenSize.height, 1))
 }
 
 // MARK: - Presence: Pop in, fade-rise out, Recall
