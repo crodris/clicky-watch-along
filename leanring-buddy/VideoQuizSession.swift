@@ -760,6 +760,12 @@ final class VideoQuizSession {
             print("Video quiz: the quiz video is no longer in its tab, so it cannot go back to \(missedQuestion.timestampText)")
             return .couldNotGoBack
         }
+        // The go-back takes over Clicky's one pause. A video it held paused on another tab stays paused behind the quiz tab,
+        // since pressing play on it would play two videos at once, and Clicky forgets that pause, as it does a learner's.
+        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: quizVideoTab) {
+            videoPausedByClicky = nil
+            print("Video quiz: let go of the pause it held on another tab, which stays paused behind the quiz video")
+        }
         guard var framePopout = questionPopoutsByAskedSeconds[missedQuestion.askedAtSeconds] else {
             do {
                 try ChromeVideoTab.runJavaScript(LearnerVideoCommand.seekTo(seconds: max(0, missedQuestion.askedAtSeconds - 10)).javaScript, in: quizVideoTab)
@@ -768,6 +774,8 @@ final class VideoQuizSession {
                 print("Video quiz: could not go back to \(missedQuestion.timestampText): \(error)")
                 return .couldNotGoBack
             }
+            // The quiz video plays again, so a pause Clicky held on it is over.
+            videoPausedByClicky = nil
             print("Video quiz: went back to \(missedQuestion.timestampText), a question with no pop-out")
             return .playsFromBeforeIt
         }
@@ -777,10 +785,6 @@ final class VideoQuizSession {
         } catch {
             print("Video quiz: could not go back to \(missedQuestion.timestampText): \(error)")
             return .couldNotGoBack
-        }
-        // Clicky holds one pause at a time, so a pause it held on another tab's video for a scene is let go first.
-        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: quizVideoTab) {
-            playTheVideoClickyPaused()
         }
         videoPausedByClicky = VideoPausedByClicky(reason: .requestedScene, tab: quizVideoTab)
         // The question is over, so no label waits to be named, and the video's printed labels may show the answer again.

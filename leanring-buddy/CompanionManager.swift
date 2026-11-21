@@ -2689,10 +2689,9 @@ final class CompanionManager: ObservableObject {
         case .showsItsPopout(let popoutOfTheQuestion):
             framePopout = popoutOfTheQuestion
         case .playsFromBeforeIt:
-            // No scene follows, so a pause the cleared or cancelled scene held is let go here.
-            videoQuizSession.resumeVideoAfterRequestedScene()
             return
         case .couldNotGoBack:
+            // No scene follows, so a pause the cleared or cancelled scene held on the tab in front is let go here.
             videoQuizSession.resumeVideoAfterRequestedScene()
             currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
             return

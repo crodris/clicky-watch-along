@@ -3,7 +3,8 @@
 //  leanring-buddyTests
 //
 //  The end of a video quiz: the score and the questions to look at again, the timestamps they show, where the Card sits
-//  and Glides from, the hint offer after a first wrong answer, the scene stylesheet's user script, and the Card at 2x.
+//  and Glides from, the Card counting as showing while it Glides in, the hint offer after a first wrong answer, the scene
+//  stylesheet's user script, and the Card at 2x.
 //
 
 import AppKit
