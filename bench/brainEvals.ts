@@ -94,6 +94,12 @@ export type AcceptedSequence = { calls: string[]; input?: Record<string, Record<
  */
 export type AcceptedAnswer = string | string[] | AcceptedSequence;
 
+/**
+ * Words a string input holds or lacks, by tool name and then input key: `{ seek_to_moment: { query: ["swim", "bladder"] } }`.
+ * A word counts when it is a whole word of the input, compared in lower case, so "pop" is not found in "popular".
+ */
+export type InputWords = Record<string, Record<string, string[]>>;
+
 export type BrainCase = {
   id: string;
   context: string;
@@ -106,6 +112,18 @@ export type BrainCase = {
    * the key must be absent. Keys not listed are not checked, and a tool not listed is not checked at all.
    */
   input?: Record<string, Record<string, unknown>>;
+  /**
+   * Words each call of a tool must hold in a string input, for an input the learner's words fill in, such as the `query` of
+   * `seek_to_moment`, where an exact match would fail every correct wording. Together with `inputOmits` it fails a query
+   * that is empty or that repeats the whole request, such as "swim bladder and pop it out".
+   */
+  inputContains?: InputWords;
+  /**
+   * Words each call of a tool must not hold in a string input: words of another step of the request or of its framing that a
+   * good query would not hold, not common words such as "up" or "go". Each listed word must be one lower case word as `wordsOf`
+   * splits text, and the validator refuses one that is not, since it could never match.
+   */
+  inputOmits?: InputWords;
   /**
    * Set on a planning case, whose steps depend on each other. The case passes when the calls of every turn, in the order
    * they were made, equal one accepted sequence and carry the expected `input`, so `accept` lists ordered sequences and
@@ -399,6 +417,27 @@ export function validateBrainEvals(evalFile: BrainEvalFile, toolCatalog: ToolCat
         throw new Error(`Case ${brainCase.id} checks the input of ${toolName}, which no accepted answer calls.`);
       }
     }
+    for (const [wordsFieldName, inputWords] of [["inputContains", brainCase.inputContains], ["inputOmits", brainCase.inputOmits]] as const) {
+      for (const [toolName, wordsByKey] of Object.entries(inputWords ?? {})) {
+        if (!acceptedAnswersOf(brainCase).flat().includes(toolName)) {
+          throw new Error(`Case ${brainCase.id} checks the words of ${toolName} in ${wordsFieldName}, which no accepted answer calls.`);
+        }
+        for (const [key, words] of Object.entries(wordsByKey)) {
+          if (words.length === 0) {
+            throw new Error(`Case ${brainCase.id} lists no words for ${toolName}.${key} in ${wordsFieldName}.`);
+          }
+          // The scorer compares each listed word with the words `wordsOf` splits the input into, so a listed word that
+          // `wordsOf` would split ("pop it out", "x-ray", "he's") or change ("Pop") could never match. A word that is
+          // one `wordsOf` word is its own first word, and any other text is not.
+          const unmatchableWords = words.filter((word) => wordsOf(word)[0] !== word);
+          if (unmatchableWords.length > 0) {
+            throw new Error(
+              `Case ${brainCase.id} lists words for ${toolName}.${key} in ${wordsFieldName} that are not one lower case whole word each: ${JSON.stringify(unmatchableWords)}.`,
+            );
+          }
+        }
+      }
+    }
     const holdsSequenceWithInput = brainCase.accept.some((answer) => typeof answer === "object" && !Array.isArray(answer));
     if (holdsSequenceWithInput && brainCase.scoreWholeCommand !== true) {
       throw new Error(`Case ${brainCase.id} is not scored on the whole command, so it cannot hold an accepted sequence with input of its own.`);
@@ -460,7 +499,8 @@ export type Outcome =
 
 /**
  * One tool call. `inputIsUnknown` marks a call the harness backend knows only by its name, from the turn's log line: the app
- * never saw it, because a hand-off ended the turn before it or the brain refused it, so a case's input check cannot pass it.
+ * never saw it, because a hand-off ended the turn before it or the brain refused it. A refused call fails a case's input check
+ * for its tool. A call after a hand-off in the same reply is not checked, since it never ran (`callsOfOneReplyThatRan`).
  */
 export type ToolCall = { name: string; input: Record<string, unknown>; inputIsUnknown?: boolean };
 
@@ -503,20 +543,56 @@ function inputMatches(callInput: Record<string, unknown>, expectedInput: Record<
   );
 }
 
-/** Whether every call of each listed tool holds that tool's expected input. A call with an unknown input never does. */
+/**
+ * The calls of one reply that ran. A hand-off ends the reply, so a later call in the same reply never runs: the harness
+ * answers it `Not run` and never sends it to the app, which is why the harness backend knows it only by name. Its name still
+ * counts for the tool set, and its input is not checked on either backend, since a call that never ran changes nothing.
+ * Only the one-reply scorer cuts here. A whole command can go on after a hand-off that did not run, such as a `pop_out`
+ * skipped after a failed seek, so `scoreWholeCommand` checks every call it has.
+ */
+function callsOfOneReplyThatRan(toolCalls: ToolCall[]): ToolCall[] {
+  const handOffPosition = toolCalls.findIndex((toolCall) => handOffToolNames.has(toolCall.name));
+  return handOffPosition === -1 ? toolCalls : toolCalls.slice(0, handOffPosition + 1);
+}
+
+/** Whether every given call, of each listed tool, holds that tool's expected input. A call with an unknown input never does. */
 function everyCallHoldsExpectedInput(toolCalls: ToolCall[], expectedInputByToolName: Record<string, Record<string, unknown>>): boolean {
   return Object.entries(expectedInputByToolName).every(([toolName, expectedInput]) =>
     toolCalls.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
   );
 }
 
-/** The outcome of one reply: the tool names, then, for a case that lists expected input, every call of that tool. */
+/** The whole words of a string, in lower case. */
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word !== "");
+}
+
+/**
+ * Whether every call of each listed tool holds the case's words: each `inputContains` word is in the string input, and no
+ * `inputOmits` word is. A call with an unknown input, or an input that is not a string, holds none.
+ */
+function everyCallHoldsExpectedWords(toolCalls: ToolCall[], brainCase: BrainCase): boolean {
+  const callHoldsWords = (toolCall: ToolCall, inputWords: InputWords | undefined, wordsMustBeThere: boolean): boolean =>
+    Object.entries(inputWords?.[toolCall.name] ?? {}).every(([key, words]) => {
+      const inputValue = toolCall.input[key];
+      if (toolCall.inputIsUnknown === true || typeof inputValue !== "string") {
+        return false;
+      }
+      const wordsInInput = new Set(wordsOf(inputValue));
+      return words.every((word) => wordsInInput.has(word) === wordsMustBeThere);
+    });
+  return toolCalls.every((toolCall) => callHoldsWords(toolCall, brainCase.inputContains, true) && callHoldsWords(toolCall, brainCase.inputOmits, false));
+}
+
+/** The outcome of one reply: the tool names, then, for a case that lists expected input or words, every call of that tool. */
 export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const nameOutcome = scoreToolCalls(toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(brainCase));
   if (nameOutcome !== "pass") {
     return nameOutcome;
   }
-  return everyCallHoldsExpectedInput(toolCalls, brainCase.input ?? {}) ? "pass" : "wrongInput";
+  // A call after a hand-off in this reply never ran, so neither its input nor its words are checked.
+  const callsThatRan = callsOfOneReplyThatRan(toolCalls);
+  return everyCallHoldsExpectedInput(callsThatRan, brainCase.input ?? {}) && everyCallHoldsExpectedWords(callsThatRan, brainCase) ? "pass" : "wrongInput";
 }
 
 /**
@@ -544,9 +620,10 @@ export function scoreApprovalCase(toolCalls: ToolCall[], settlement: ApprovalSet
 
 /**
  * The outcome of a planning case: the calls of every turn, in the order they were made, must equal one accepted sequence,
- * and then each call must hold the expected input, the case's `input` with the sequence's own input over it. A wrong order
- * is a `wrongTool`, like a wrong set of tools, and a sequence that is right but takes a seek's time from anywhere but the
- * scripted lookup is a `wrongInput`.
+ * and then each call must hold the expected input, the case's `input` with the sequence's own input over it, and the case's
+ * `inputContains` words and none of its `inputOmits` words. A wrong order is a `wrongTool`, like a wrong set of tools. A
+ * sequence that is right but takes a seek's time from anywhere but the scripted lookup, or has a string input that lacks an
+ * `inputContains` word or holds an `inputOmits` word, is a `wrongInput`.
  */
 export function scoreWholeCommand(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const calledToolNames = toolCalls.map((toolCall) => toolCall.name);
@@ -557,7 +634,7 @@ export function scoreWholeCommand(toolCalls: ToolCall[], brainCase: BrainCase): 
     return calledToolNames.length === 0 ? "missedTool" : "wrongTool";
   }
   const someSequenceHoldsItsInput = sequencesInThisOrder.some((sequence) => everyCallHoldsExpectedInput(toolCalls, { ...brainCase.input, ...sequence.input }));
-  return someSequenceHoldsItsInput ? "pass" : "wrongInput";
+  return someSequenceHoldsItsInput && everyCallHoldsExpectedWords(toolCalls, brainCase) ? "pass" : "wrongInput";
 }
 
 // ---------- Summary ----------
@@ -857,7 +934,7 @@ export type HarnessCommandEnding = { kind: "finished"; spokenLine: string; gaveU
 
 /** Everything one voice command wrote, with the time of each event since the `voice_command` line was sent. */
 export type HarnessCommandRecord = {
-  toolCalls: Array<ToolCall & { turnIndex: number }>;
+  toolCalls: Array<ToolCall & { turnIndex: number; toolUseID: string }>;
   turns: BrainTurnUsage[];
   firstToolCallMs: number | null;
   endedMs: number | null;
@@ -870,6 +947,10 @@ export type HarnessCommandRecord = {
 };
 
 export type ApprovalSettlement = { approved: boolean; scope: "once" | "always" };
+
+// These match `undoLastChangeTool` and `undoCallIDSuffix` in harness/brainundo.go, which brainEvals.test.ts checks.
+const undoLastChangeTool = "undo_last_change";
+const undoCallIDSuffix = "-undo";
 
 // Matches harness/voiceapproval.go: "Brain: approval %s given (once)" or "declined (once)", with the scope in parentheses.
 const brainApprovalLinePattern = /^Brain: approval (\S+) (given|declined) \((once|always)\)$/;
@@ -922,7 +1003,7 @@ export class HarnessCommandRecorder {
     if (message.type === "tool_call") {
       this.record.firstToolCallMs ??= elapsedMs;
       const toolName = String(message.name);
-      this.record.toolCalls.push({ name: toolName, input: isRecord(message.input) ? message.input : {}, turnIndex: Number(message.turnIndex) });
+      this.record.toolCalls.push({ name: toolName, input: isRecord(message.input) ? message.input : {}, turnIndex: Number(message.turnIndex), toolUseID: String(message.toolUseID) });
       const standIn = standInToolResult(toolName, this.brainCase);
       return { type: "tool_result", taskID: this.commandID, toolUseID: message.toolUseID, content: standIn.content, isError: standIn.isError, outcome: standIn.outcome };
     }
@@ -941,7 +1022,7 @@ export class HarnessCommandRecorder {
  * The first turn's calls as the Worker backend would score them. The turn's log line names every call the model made,
  * in order, but the app hears only the calls the harness sent as `tool_call` lines: it sends none after a hand-off and
  * none to a tool the command was not offered. A name with no `tool_call` line is a call with no known input, which still
- * counts as a wrong or spurious tool, and fails a case that checks that tool's input, as the Worker would score the call.
+ * counts as a wrong or spurious tool. It fails a case that checks that tool's input, unless it follows a hand-off and never ran.
  */
 export function firstTurnToolCalls(record: HarnessCommandRecord): ToolCall[] {
   return toolCallsOfTurn(record, 0);
@@ -958,6 +1039,12 @@ function toolCallsOfTurn(record: HarnessCommandRecord, turnIndex: number): ToolC
   return (record.turns[turnIndex]?.calledToolNames ?? []).map((calledToolName) => {
     const sentCall = sentCalls[nextSentCall];
     if (sentCall !== undefined && sentCall.name === calledToolName) {
+      nextSentCall += 1;
+      return { name: sentCall.name, input: sentCall.input };
+    }
+    // The harness handles undo_last_change itself and sends the app the inverse of the newest change, under the model's call
+    // ID plus a suffix. The learner sees that inverse, so it is the call that is scored. An undo with no such line was refused.
+    if (calledToolName === undoLastChangeTool && sentCall?.toolUseID.endsWith(undoCallIDSuffix) === true) {
       nextSentCall += 1;
       return { name: sentCall.name, input: sentCall.input };
     }
@@ -1360,7 +1447,11 @@ function describeCalls(toolCalls: ToolCall[], separator = " + "): string {
 }
 
 const acceptedText = (brainCase: BrainCase) => {
-  const inputText = brainCase.input === undefined ? "" : ` with input ${JSON.stringify(brainCase.input)}`;
+  const inputText = [
+    brainCase.input === undefined ? "" : ` with input ${JSON.stringify(brainCase.input)}`,
+    brainCase.inputContains === undefined ? "" : ` holding ${JSON.stringify(brainCase.inputContains)}`,
+    brainCase.inputOmits === undefined ? "" : ` omitting ${JSON.stringify(brainCase.inputOmits)}`,
+  ].join("");
   // A planning case's sequences are ordered, so they read as a chain, and a sequence's own input shows beside it.
   const separator = brainCase.scoreWholeCommand === true ? " > " : " + ";
   const sequenceTexts = acceptedSequencesOf(brainCase).map((sequence) => {

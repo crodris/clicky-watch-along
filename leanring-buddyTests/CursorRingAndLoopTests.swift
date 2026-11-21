@@ -149,7 +149,7 @@ private func controllerWithATurnWaitingForALoop(
     waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
 ) async -> CursorLoopController {
     let controller = CursorLoopController(
-        readTheMediaInTheFrontTab: { media },
+        readTheMediaInTheFrontTab: { _ in media },
         readTheFrontTabSample: readTheFrontTabSample,
         waitBetweenFrontTabPolls: waitBetweenFrontTabPolls
     )

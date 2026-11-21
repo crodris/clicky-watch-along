@@ -530,10 +530,10 @@ func TestACancelledCommandLeavesTheSessionAsItWasAndTheNextCommandHearsWhatItDid
 	if strings.Contains(requestText, "toolu_turn") || strings.Contains(requestText, "toolu_zoom") || strings.Contains(requestText, "turn and zoom") {
 		t.Errorf("the cancelled command's messages are in the next request: %s", requestText)
 	}
-	if got := lastUserText(t, thirdRequest); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":90} -> ok</interrupted_before>`+"\n"+`<learner_words>no, the other way</learner_words>`) {
+	if got := lastUserText(t, thirdRequest); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":90} -> ok; zoom {"factor":2} -> cut off, may have run</interrupted_before>`+"\n"+`<learner_words>no, the other way</learner_words>`) {
 		t.Errorf("the next message did not say what the cancelled command had done: %s", got)
 	}
-	if strings.Contains(lastUserText(t, thirdRequest), "zoom {") {
+	if strings.Contains(lastUserText(t, thirdRequest), `zoom {"factor":2} -> ok`) {
 		t.Errorf("the call still waiting at the cancel was reported as done")
 	}
 	everyToolUseHasItsResult(t, thirdRequest)
@@ -567,7 +567,7 @@ func TestANewCommandWaitsForTheCommandItCancelledToRollBackBeforeItReadsTheSessi
 		driver.expectLine("voice_command_finished")
 
 		requests := worker.requests()
-		if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":90} -> ok</interrupted_before>`) {
+		if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":90} -> ok; zoom {"factor":2} -> cut off, may have run</interrupted_before>`) {
 			t.Fatalf("run %d: the following command read the session before the cancelled one rolled back: %s", run, got)
 		}
 	}

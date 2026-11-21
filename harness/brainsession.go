@@ -70,7 +70,11 @@ type brainSession struct {
 	// interruptedActionLines are the lines of calls that finished in cancelled commands since the last command that
 	// stayed. The next command's user message tells the model about them.
 	interruptedActionLines []string
-	lastRequestAt          time.Time
+	// appliedChanges are the calls that changed the screen, newest first, at most mostAppliedChangesKept. undo_last_change
+	// reads them (brainundo.go). They include the calls of cancelled commands, which did change the screen, and a call a
+	// cancel caught while the app ran it, which has no inverse. An undo removes the change it reversed.
+	appliedChanges []appliedChange
+	lastRequestAt  time.Time
 	// generation changes when the session is reset or seeded, so a command that began before that never writes back.
 	generation int
 }
@@ -87,6 +91,7 @@ func (session *brainSession) reset() {
 	session.droppedFoldedCommands = 0
 	session.commands = nil
 	session.interruptedActionLines = nil
+	session.appliedChanges = nil
 	session.lastRequestAt = time.Time{}
 	session.generation++
 }
@@ -104,6 +109,7 @@ func (session *brainSession) seed(messages []anthropic.MessageParam, interrupted
 	session.droppedFoldedCommands = 0
 	session.commands = commands
 	session.interruptedActionLines = slices.Clone(interruptedActionLines)
+	session.appliedChanges = appliedChangesOfASeed(messages, interruptedActionLines)
 	session.lastRequestAt = session.now()
 	session.generation++
 	return nil
@@ -134,6 +140,12 @@ type sessionRun struct {
 	interruptedBefore []string
 	own               []anthropic.MessageParam
 	actionLines       []string
+	// scene is what the command saw on screen, which each change it makes is recorded against (brainundo.go).
+	scene sceneIdentity
+	// changes is the session's record of applied changes as this command sees it, minus the ones that no longer match the
+	// scene (changesThatStillApply): a copy that the command's own calls update, which replaces the session's when the
+	// command ends, whole or cancelled.
+	changes []appliedChange
 }
 
 // begin starts a command. It folds old commands first when the cache is cold or the session holds too many, then
@@ -161,6 +173,7 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 	}
 
 	interruptedBefore := slices.Clone(session.interruptedActionLines)
+	scene := sceneIdentityOf(sceneState)
 	return &sessionRun{
 		session:           session,
 		generation:        session.generation,
@@ -169,6 +182,8 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 		transcript:        transcript,
 		interruptedBefore: interruptedBefore,
 		own:               []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, sceneState, interruptedBefore)))},
+		scene:             scene,
+		changes:           changesThatStillApply(session.appliedChanges, scene),
 	}
 }
 
@@ -297,10 +312,12 @@ func (run *sessionRun) commit() {
 		messages:          withToolResultsCut(run.own),
 	})
 	run.session.interruptedActionLines = nil
+	run.session.appliedChanges = run.changes
 }
 
 // abandon rolls the command back: its messages never reach the session. The calls that finished did change the screen,
-// so their action lines wait for the next command's user message, after the lines an earlier interrupted command left.
+// so their action lines wait for the next command's user message, after the lines an earlier interrupted command left,
+// and their changes join the record of applied changes, so "undo that" can reverse them.
 func (run *sessionRun) abandon() {
 	run.session.mutex.Lock()
 	defer run.session.mutex.Unlock()
@@ -308,6 +325,7 @@ func (run *sessionRun) abandon() {
 		return
 	}
 	run.session.interruptedActionLines = append(slices.Clone(run.interruptedBefore), run.actionLines...)
+	run.session.appliedChanges = run.changes
 }
 
 // withToolResultsCut is the messages with every tool result's text cut to mostToolResultCharacters. The limit is shared by
@@ -370,6 +388,17 @@ func voiceToolActionLine(call toolCall, outcome voiceToolOutcome, resultText str
 		resultWord = "failed: " + failureReasonOf(resultText)
 	}
 	return fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), resultWord)
+}
+
+// cutOffResultWord is the result word of a call a press cancelled while the app was still running it. The call may have
+// changed the screen, so the next command's interrupted_before tag says so, and the model does not reverse an older move
+// as if the cut-off call had not happened.
+const cutOffResultWord = "cut off, may have run"
+
+// voiceToolCutOffActionLine is the action line of a call a press cancelled before the app answered, in the same format as
+// voiceToolActionLine so appliedChangeOfActionLine reads it back.
+func voiceToolCutOffActionLine(call toolCall) string {
+	return fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), cutOffResultWord)
 }
 
 // failureReasonOf is the error text of a failed tool's result, which the app writes as {"error": "...", "ok": false}.

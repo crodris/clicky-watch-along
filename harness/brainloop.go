@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,12 +29,14 @@ type brainRunner struct {
 	planningTurnTimeout time.Duration
 }
 
-// send writes a message for a command unless the command was cancelled, since a cancelled command sends nothing more.
-func (brain *brainRunner) send(commandContext context.Context, message outboundMessage) {
+// send writes a message for a command unless the command was cancelled, since a cancelled command sends nothing more. It
+// says whether the message was written.
+func (brain *brainRunner) send(commandContext context.Context, message outboundMessage) (wasSent bool) {
 	if commandContext.Err() != nil {
-		return
+		return false
 	}
 	brain.writer.send(message)
+	return true
 }
 
 // logTheCancel goes straight to the writer, since send drops every line of a cancelled command, and a verify run would
@@ -54,13 +57,15 @@ func (brain *brainRunner) logTheCancel(turnNumber int) {
 func (brain *brainRunner) runCommand(commandContext context.Context, command *runningTask, voiceCommand voiceCommandMessage) {
 	// The gate decides whether a request can be answered by voice, from the ID the app says the learner had seen.
 	approvalOffer := brain.approvals.answerableApproval(voiceCommand.ApprovalIDSeenAtPress)
-	tools, err := brainTools(offersForACommand(voiceCommand.Tools, approvalOffer))
+	run := brain.session.begin(voiceCommand.Transcript, sceneStateForACommand(voiceCommand.SceneState, approvalOffer))
+	// The session's record of applied changes decides whether undo_last_change is offered, so the command begins first.
+	tools, err := brainTools(withTheUndoOffer(offersForACommand(voiceCommand.Tools, approvalOffer), run))
 	if err != nil {
+		run.abandon()
 		brain.send(commandContext, newTaskFailedMessage(voiceCommand.TaskID, err.Error()))
 		return
 	}
 	offered := offeredToolNames(tools)
-	run := brain.session.begin(voiceCommand.Transcript, sceneStateForACommand(voiceCommand.SceneState, approvalOffer))
 
 	for turnIndex := 0; turnIndex <= mostBrainHaikuTurns; turnIndex++ {
 		turnNumber := turnIndex + 1
@@ -185,8 +190,11 @@ func theWorkerRefusedTheAppSecret(err error) bool {
 // each call after it gets a "Not run" result, since the API refuses a tool_use with no tool_result. A failed call stops
 // them too, since a later call that depends on it, such as a pop-out after a seek that found no moment, would act on
 // the wrong screen and the learner would never hear the failure: each later call gets its own "Not run" result and the
-// model is asked again. It records the action line of every call the app ran. It returns an error only when the command
-// was cancelled.
+// model is asked again. It records the action line of every call the app ran, and the change of every call that changed
+// the screen. A call a cancel catches while the app is still running it is recorded as a change with no inverse, and its
+// action line says it was cut off. A call to undo_last_change reaches the app as the inverse of the newest change
+// (brainundo.go), so an undo whose inverse fails, or that cannot be undone, is a failed call like any other. It returns an
+// error only when the command was cancelled.
 func (brain *brainRunner) runToolCalls(
 	commandContext context.Context,
 	command *runningTask,
@@ -226,17 +234,36 @@ func (brain *brainRunner) runToolCalls(
 			outcome, resultText := brain.answerTheApproval(call, approvalOffer, turnIndex, voiceCommand.Transcript)
 			anEarlierCallFailed = outcome == voiceToolFailed
 			outcomes = append(outcomes, outcome)
-			run.actionLines = append(run.actionLines, voiceToolActionLine(call, outcome, resultText))
+			run.noteFinishedCall(call, outcome, resultText, false)
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, resultText, outcome == voiceToolFailed))
 			continue
 		}
-		brain.send(commandContext, newVoiceToolCallMessage(commandID, call.ID, call.Name, inputWithoutConfirmation(call.Input), turnIndex))
-		result, err := waitForTheVoiceToolResult(commandContext, command, call.ID)
+		// callToRun is what reaches the app. It is the model's call, except for undo_last_change, which the harness turns
+		// into the inverse of the newest change, so the model never works out the reverse.
+		callToRun := call
+		isAnUndo := call.Name == undoLastChangeTool
+		if isAnUndo {
+			inverse, canBeUndone := run.inverseOfTheNewestChange(func(name toolName) bool { return offered[name] })
+			if !canBeUndone {
+				anEarlierCallFailed = true
+				outcomes = append(outcomes, voiceToolFailed)
+				toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, voiceToolFailureText("the newest change cannot be undone exactly, so make the reverse yourself"), true))
+				continue
+			}
+			callToRun = toolCall{ID: call.ID + undoCallIDSuffix, Name: inverse.tool, Input: inverse.input}
+		}
+		callWasSent := brain.send(commandContext, newVoiceToolCallMessage(commandID, callToRun.ID, callToRun.Name, inputWithoutConfirmation(callToRun.Input), turnIndex))
+		result, err := waitForTheVoiceToolResult(commandContext, command, callToRun.ID)
 		if err != nil {
 			// A result the app sent before its cancel_task is a call that finished, and it changed the screen, so its
-			// action line still reaches the next command through the rollback.
-			if result.ToolUseID == call.ID {
-				run.actionLines = append(run.actionLines, voiceToolActionLine(call, knownOutcomeOf(result), voiceToolResultText(result)))
+			// action line still reaches the next command through the rollback, and its change joins the record. With no
+			// result, a call the app received may still have been applied, so the record gets a change with no inverse
+			// that "undo that" cannot reach past. A call the cancel kept from being sent never ran, and neither did a
+			// lookup, which changes nothing.
+			if result.ToolUseID == callToRun.ID {
+				run.noteFinishedCall(callToRun, knownOutcomeOf(result), voiceToolResultText(result), isAnUndo)
+			} else if callWasSent && !isALookup(voiceCommand.Tools, callToRun.Name) {
+				run.noteACallWhoseEffectIsUnknown(callToRun)
 			}
 			return nil, nil, err
 		}
@@ -244,15 +271,23 @@ func (brain *brainRunner) runToolCalls(
 		anEarlierCallFailed = outcome == voiceToolFailed
 		outcomes = append(outcomes, outcome)
 		resultText := voiceToolResultText(result)
-		run.actionLines = append(run.actionLines, voiceToolActionLine(call, outcome, resultText))
+		run.noteFinishedCall(callToRun, outcome, resultText, isAnUndo)
 		if outcome == voiceToolHandedOff {
 			requestWasHandedOff = true
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, handedOffResultText, false))
 			continue
 		}
+		if isAnUndo {
+			result = resultOfTheUndo(call, callToRun, result, outcome)
+		}
 		toolResultBlocks = append(toolResultBlocks, tagSafeToolResult(toolResultBlock(result)))
 	}
 	return outcomes, toolResultBlocks, nil
+}
+
+// isALookup is true when the app offered the tool as read only, so a call to it changes nothing.
+func isALookup(offers []voiceToolOffer, name toolName) bool {
+	return slices.ContainsFunc(offers, func(offer voiceToolOffer) bool { return toolName(offer.Name) == name && offer.ReadOnly })
 }
 
 // knownOutcomeOf is a result's outcome. The app sends one with every voice tool result, so a result without it is a newer
