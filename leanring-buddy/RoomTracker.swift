@@ -17,6 +17,7 @@
 
 import Accelerate
 import CoreGraphics
+import CoreVideo
 import Foundation
 import Vision
 
@@ -343,6 +344,63 @@ nonisolated func translationFromTheKeyframe(keyframeImage: CGImage, currentImage
     }
     guard let alignment = registrationRequest.results?.first as? VNImageTranslationAlignmentObservation else { return nil }
     return CGVector(dx: alignment.alignmentTransform.tx, dy: -alignment.alignmentTransform.ty)
+}
+
+// MARK: - Frames to track
+
+/// A plane of 8-bit pixels (a camera frame's luma, or a person segmentation mask) scaled to `width` by `height`.
+nonisolated func planar8Scaled(baseAddress: UnsafeRawPointer, width: Int, height: Int, bytesPerRow: Int, toWidth targetWidth: Int, height targetHeight: Int) -> [UInt8] {
+    var scaled = [UInt8](repeating: 0, count: targetWidth * targetHeight)
+    scaled.withUnsafeMutableBufferPointer { scaledPointer in
+        var sourceBuffer = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: baseAddress), height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: bytesPerRow)
+        var destinationBuffer = vImage_Buffer(data: scaledPointer.baseAddress, height: vImagePixelCount(targetHeight), width: vImagePixelCount(targetWidth), rowBytes: targetWidth)
+        _ = vImageScale_Planar8(&sourceBuffer, &destinationBuffer, nil, vImage_Flags(kvImageNoFlags))
+    }
+    return scaled
+}
+
+/// The first plane of a pixel buffer (the luma of a 420 frame, or a one-component mask) scaled to the given size.
+nonisolated func firstPlaneScaled(of pixelBuffer: CVPixelBuffer, toWidth targetWidth: Int, height targetHeight: Int) -> [UInt8] {
+    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+    let planeIsSeparate = CVPixelBufferIsPlanar(pixelBuffer)
+    guard let baseAddress = planeIsSeparate ? CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) : CVPixelBufferGetBaseAddress(pixelBuffer) else {
+        return [UInt8](repeating: 0, count: targetWidth * targetHeight)
+    }
+    return planar8Scaled(
+        baseAddress: baseAddress,
+        width: planeIsSeparate ? CVPixelBufferGetWidthOfPlane(pixelBuffer, 0) : CVPixelBufferGetWidth(pixelBuffer),
+        height: planeIsSeparate ? CVPixelBufferGetHeightOfPlane(pixelBuffer, 0) : CVPixelBufferGetHeight(pixelBuffer),
+        bytesPerRow: planeIsSeparate ? CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0) : CVPixelBufferGetBytesPerRow(pixelBuffer),
+        toWidth: targetWidth,
+        height: targetHeight
+    )
+}
+
+/// The person at the track size, 255 on the person and 0 on the room: the segmentation's confidence over 0.3, grown by 4
+/// pixels on each side (a 9 by 9 square), so the person's soft edge stays out of the tracking too.
+nonisolated func personMaskAtTrackSize(segmentationConfidence: [UInt8], width: Int, height: Int) -> [UInt8] {
+    var person = segmentationConfidence.map { $0 >= 77 ? UInt8(255) : 0 }
+    var grown = [UInt8](repeating: 0, count: width * height)
+    person.withUnsafeMutableBufferPointer { personPointer in
+        grown.withUnsafeMutableBufferPointer { grownPointer in
+            var sourceBuffer = vImage_Buffer(data: personPointer.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
+            var destinationBuffer = vImage_Buffer(data: grownPointer.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
+            _ = vImageMax_Planar8(&sourceBuffer, &destinationBuffer, nil, 0, 0, 9, 9, vImage_Flags(kvImageEdgeExtend))
+        }
+    }
+    return grown
+}
+
+/// 1 where the room is and 0 on the person, as ECC weighs pixels.
+nonisolated func roomMask(fromPersonMask personMask: [UInt8]) -> [Float] {
+    personMask.map { $0 == 0 ? 1 : 0 }
+}
+
+/// The track size for a camera frame: 320 wide and the frame's shape.
+nonisolated func trackSize(forFrameWidth frameWidth: Int, frameHeight: Int) -> (width: Int, height: Int) {
+    let trackWidth = RoomTrackingSettings.trackWidth
+    return (trackWidth, max(1, Int((Double(frameHeight) * Double(trackWidth) / Double(frameWidth)).rounded())))
 }
 
 // MARK: - The tracker
