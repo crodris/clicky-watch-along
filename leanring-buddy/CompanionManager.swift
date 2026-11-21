@@ -632,6 +632,14 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Whether the pointing bubble leaves by shrinking into the cursor, noted by a push-to-talk press and taken once by the overlay.
+    private var pointingBubbleExitRecord = PointingBubbleExitRecord()
+
+    /// The overlay asks this once, as it hides the pointing bubble.
+    func takeThePointingBubbleExit() -> TetherCalloutExit {
+        pointingBubbleExitRecord.takeTheExit()
+    }
+
     func clearDetectedElementLocation() {
         detectedElementScreenLocation = nil
         detectedElementDisplayFrame = nil
@@ -977,6 +985,8 @@ final class CompanionManager: ObservableObject {
             agentTokenDockController.finishTheServeAtOnce()
             // A replay stops its camera and travel and stays open at its stop, so "next" and "back" still work.
             instantReplay.stopTheTravelForAPress()
+            // The learner interrupted, so a narration's bubble shrinks into the cursor instead of fading up.
+            pointingBubbleExitRecord.noteThatTheLearnerInterrupted(cursorIsPointing: detectedElementScreenLocation != nil)
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.

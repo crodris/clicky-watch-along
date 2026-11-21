@@ -244,6 +244,8 @@ struct BlueCursorView: View {
     /// True after an instant replay ended with the buddy stopped where it was, mid-flight included. The buddy stays
     /// there until the mouse moves `frozenBuddyReleaseDistance` points, then flies back to it.
     @State private var buddyIsFrozenWhereItStopped = false
+    /// How the pointing bubble leaves: a fade-rise, or a Recall into the cursor when the learner interrupted.
+    @State private var navigationBubbleExit: TetherCalloutExit = .fadeRise
     @State private var mouseLocationWhenTheBuddyFroze: CGPoint = .zero
     private let frozenBuddyReleaseDistance: CGFloat = 100
 
@@ -345,7 +347,7 @@ struct BlueCursorView: View {
                     }
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size)))
+                    .transition(.tetherCalloutPop(andLeave: navigationBubbleExit, reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size)))
             }
 
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.
@@ -405,7 +407,7 @@ struct BlueCursorView: View {
                 )
         }
         // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`).
-        .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
+        .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: navigationBubbleExit, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
         .animation(tetherCalloutAnimation(isAppearing: welcomeBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: welcomeBubbleIsShowing)
         .animation(tetherCalloutAnimation(isAppearing: onboardingPromptBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: onboardingPromptBubbleIsShowing)
         .frame(width: screenFrame.width, height: screenFrame.height)
@@ -707,6 +709,7 @@ struct BlueCursorView: View {
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
         buddyNavigationMode = .pointingAtTarget
+        navigationBubbleExit = .fadeRise
 
         // Rotate back to default pointer angle now that we've arrived
         triangleRotationDegrees = -35.0
@@ -800,8 +803,20 @@ struct BlueCursorView: View {
               buddyNavigationMode != .followingCursor,
               !isReturningToCursor else { return }
         currentTargetHoldsUntilReleased = false
-        navigationBubbleOpacity = 0.0
-        startFlyingBackToCursor()
+        let exitOfTheBubble = companionManager.takeThePointingBubbleExit()
+        guard exitOfTheBubble == .recall else {
+            navigationBubbleExit = .fadeRise
+            navigationBubbleOpacity = 0.0
+            startFlyingBackToCursor()
+            return
+        }
+        // SwiftUI removes a view with the transition it had on the last render, so the Recall is set one turn before the
+        // bubble leaves the tree, and the cursor's flight back waits for that turn too.
+        navigationBubbleExit = .recall
+        DispatchQueue.main.async {
+            navigationBubbleOpacity = 0.0
+            startFlyingBackToCursor()
+        }
     }
 
     /// Streams the navigation bubble text one character at a time with variable

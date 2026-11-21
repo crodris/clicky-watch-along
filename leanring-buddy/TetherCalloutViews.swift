@@ -148,18 +148,41 @@ struct TetherCalloutPresenceEffect: ViewModifier {
     }
 }
 
+/// How the pointing bubble leaves once its narration lets the cursor go. A push-to-talk press during the narration is an
+/// interruption, so the bubble shrinks into the cursor (`.recall`), and every other release fades and rises.
+/// CompanionManager notes the press, and the overlay takes the note once, when it hides the bubble.
+struct PointingBubbleExitRecord: Equatable {
+    private var learnerInterruptedThePointing = false
+
+    /// A press while the cursor points. With nothing pointed at, there is no bubble to recall.
+    mutating func noteThatTheLearnerInterrupted(cursorIsPointing: Bool) {
+        learnerInterruptedThePointing = cursorIsPointing
+    }
+
+    /// The exit for the bubble leaving now, which clears the note so a later release fades as usual.
+    mutating func takeTheExit() -> TetherCalloutExit {
+        defer { learnerInterruptedThePointing = false }
+        return learnerInterruptedThePointing ? .recall : .fadeRise
+    }
+}
+
 extension AnyTransition {
     /// For a Callout that a view's own condition puts in and takes out of the tree: it pops from its tail's tip going in, and
     /// leaves with a 6 point rise and a fade. With Reduce Motion on, both are a fade in place.
     /// `pivotInTheView` is where the tail's tip sits in the view the Callout is placed in.
     static func tetherCalloutPopAndFadeRise(reduceMotionIsOn: Bool, pivotInTheView: UnitPoint) -> AnyTransition {
+        tetherCalloutPop(andLeave: .fadeRise, reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: pivotInTheView)
+    }
+
+    /// The same Pop going in, and the leave `exit` names going out, so an interrupted Callout can shrink into the cursor.
+    static func tetherCalloutPop(andLeave exit: TetherCalloutExit, reduceMotionIsOn: Bool, pivotInTheView: UnitPoint) -> AnyTransition {
         .asymmetric(
             insertion: .modifier(
                 active: TetherCalloutPresenceEffect(pose: .appearing(reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
                 identity: TetherCalloutPresenceEffect(pose: .resting, pivotInTheView: pivotInTheView)
             ),
             removal: .modifier(
-                active: TetherCalloutPresenceEffect(pose: .leaving(.fadeRise, reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
+                active: TetherCalloutPresenceEffect(pose: .leaving(exit, reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
                 identity: TetherCalloutPresenceEffect(pose: .resting, pivotInTheView: pivotInTheView)
             )
         )
