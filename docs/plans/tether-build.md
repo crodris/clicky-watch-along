@@ -92,8 +92,18 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 
 | PR | Status |
 |---|---|
-| 1 Quick fixes | Open, shipping: [#66](https://github.com/crodris/clicky-watch-along/pull/66) |
-| 2, 3, 12 | Starting in parallel |
-| 4, 5, 6, 7, 9, 10, 11 | Waiting for PR 2 |
-| 8 | Waiting for PRs 2, 3, 7 |
-| 13 to 18 | After the build order |
+| 1 Quick fixes | Merged: [#66](https://github.com/crodris/clicky-watch-along/pull/66) |
+| 2 Tokens and carrier | Building |
+| 3 Theme files | Building |
+| 12 App icon | Building |
+| 4, 5, 7, 9, 10, 11 | Waiting for PR 2 |
+| 6 Agent list, Theme Studio, dial | Waiting for PRs 2 and 3 |
+| 8 Panel, onboarding, keyboard | Waiting for PRs 2, 3, and 7 |
+| 13 Theme Studio designs motion | After the build order |
+| 14 The loop carries background work | After the build order |
+| 15 End-of-video recap | After the build order |
+| 16 Pause every agent by voice | After the build order |
+| 17 Scrub by voice | After the build order |
+| 18 Share themes as files | After the build order |
+
+Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
