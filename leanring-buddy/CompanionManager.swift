@@ -267,7 +267,7 @@ final class CompanionManager: ObservableObject {
         return ThemeStudioController(
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
-                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                speak: { [weak self] line in self?.speakAThemeStudioLine(line, isAFailure: line == ThemeStudioController.couldNotDesignLine) },
                 stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
@@ -349,8 +349,8 @@ final class CompanionManager: ObservableObject {
         askQuestion: { [weak self] quiz, framePopout in
             self?.askVideoQuizQuestion(quiz, framePopout: framePopout)
         },
-        speakLine: { [weak self] line in
-            self?.speakVideoQuizLine(line)
+        speakLine: { [weak self] line, isAFailure in
+            self?.speakVideoQuizLine(line, isAFailure: isAFailure)
         }
     )
     /// True from the moment a video quiz question is asked until its explanation
@@ -1757,7 +1757,7 @@ final class CompanionManager: ObservableObject {
         // A tap while waiting cancels this task, and a line spoken now would cut off the tap's own narration.
         guard !Task.isCancelled else { return }
         if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
-            await speakLiveSceneLine(spokenLine)
+            await speakLiveSceneLine(spokenLine, isAFailure: pictureFlowsOutcome == .failed)
         }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
@@ -1793,7 +1793,7 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
-            await speakLiveSceneLine(spokenLine)
+            await speakLiveSceneLine(spokenLine, isAFailure: pictureFlowsOutcome == .failed)
         }
         guard !Task.isCancelled else { return }
         scheduleTransientHideIfNeeded()
@@ -2477,13 +2477,13 @@ final class CompanionManager: ObservableObject {
 
     /// Speaks a line from the video quiz after whatever Clicky is already saying,
     /// so a quick failure does not cut off "Let me read through this video."
-    private func speakVideoQuizLine(_ line: String) {
+    private func speakVideoQuizLine(_ line: String, isAFailure: Bool) {
         let previousSpokenLineTask = currentResponseTask
         currentResponseTask = Task {
             await previousSpokenLineTask?.value
             await self.waitUntilTheVoiceAnswerIsQuiet()
             guard !Task.isCancelled else { return }
-            await self.speakLiveSceneLine(line)
+            await self.speakLiveSceneLine(line, isAFailure: isAFailure)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -3292,7 +3292,7 @@ final class CompanionManager: ObservableObject {
     /// the line waits for another. The press counts tell the studio's own design apart from a request the learner made
     /// after it started, since both hold the thinking state.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
-    private func speakAThemeStudioLine(_ line: String) {
+    private func speakAThemeStudioLine(_ line: String, isAFailure: Bool) {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = Task {
             while !Task.isCancelled && !themeStudioLineMayStart(
@@ -3307,7 +3307,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             // A line that did not start keeps the previous token, which matches nothing once that line has ended.
-            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) {
+            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) {
                 self.themeStudioLineToken = lineToken
             }
             await self.waitForClickyToFinishSpeaking()
