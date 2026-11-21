@@ -37,10 +37,11 @@ enum SettingsDialGeometry {
 /// and the first-run hint. One fixed size keeps the window from resizing as a fan opens.
 /// The sides reach past the Team fan's widest built-in label pill, "Clicky blue" at the fan's left end, and the top reaches
 /// past the pills above the fan's top balls. A saved theme's name can be longer than any built-in one, so a fan label that
-/// would stick out is cut to fit (`SettingsDialLabel.fanLabelText`). `SettingsDialTests` checks that every pill fits.
+/// would stick out is cut to fit (`SettingsDialLabel.fanLabelText`), and the right side reaches farther than the left, since
+/// the saved themes sit at the fan's right end. `SettingsDialTests` checks that every pill fits.
 enum SettingsDialPlacement {
     static let reachLeft: CGFloat = 252
-    static let reachRight: CGFloat = 252
+    static let reachRight: CGFloat = 300
     static let reachAbove: CGFloat = 200
     static let reachBelow: CGFloat = 160
 

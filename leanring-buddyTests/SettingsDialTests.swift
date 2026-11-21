@@ -219,12 +219,14 @@ struct SettingsDialPlacementTests {
         #expect(nearTheRightTopCorner == CGPoint(x: visibleFrame.maxX - SettingsDialPlacement.reachRight, y: visibleFrame.maxY - SettingsDialPlacement.reachAbove))
     }
 
-    @Test func aScreenSmallerThanTheDialCentersTheDialOnTheScreen() {
+    @Test func aScreenSmallerThanTheDialCentersTheDialsWindowOnTheScreen() {
         let tinyFrame = CGRect(x: 100, y: 100, width: 300, height: 200)
         let center = SettingsDialPlacement.dialCenter(forMouseLocation: CGPoint(x: 110, y: 110), visibleFrame: tinyFrame)
-        // The window reaches farther above the center than below it, so the center sits that much below the screen's middle.
+        // The window reaches farther above the center than below it, and farther right than left, so the window, not the
+        // dial's center, sits in the screen's middle.
+        let windowMiddleX = center.x + (SettingsDialPlacement.reachRight - SettingsDialPlacement.reachLeft) / 2
         let windowMiddleY = center.y + (SettingsDialPlacement.reachAbove - SettingsDialPlacement.reachBelow) / 2
-        #expect(center.x == tinyFrame.midX)
+        #expect(windowMiddleX == tinyFrame.midX)
         #expect(windowMiddleY == tinyFrame.midY)
     }
 }
