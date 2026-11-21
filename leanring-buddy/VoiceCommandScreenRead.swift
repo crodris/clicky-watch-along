@@ -41,6 +41,22 @@ final class FrontTabReadAtRelease {
     }
 }
 
+/// Where the study guide check gets the front video's URL. A release that read the front tab hands over its answer, nil
+/// included, so a Chrome with no window never costs a second read. Only a command with no release read reads Chrome itself.
+enum FrontVideoURLSource {
+    case releaseRead(String?)
+    case readNow
+
+    func url(readNow readChromeNow: () -> String?) -> String? {
+        switch self {
+        case .releaseRead(let urlTheReleaseRead):
+            return urlTheReleaseRead
+        case .readNow:
+            return readChromeNow()
+        }
+    }
+}
+
 /// What the page and the study guide check answered, and when the last of them finished.
 struct VoiceCommandPageRead {
     let pageTools: [VoiceToolDescriptor]

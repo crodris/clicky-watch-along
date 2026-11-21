@@ -1328,12 +1328,13 @@ final class CompanionManager: ObservableObject {
         respondByTheKeywordPath(transcript: transcript)
     }
 
-    /// Starts the reads a voice command needs from the screen, at the release of push-to-talk. The front video read is
-    /// synchronous Apple Events to Chrome, which must run on the main actor, so it blocks the main actor for a moment, during
-    /// the microphone's tail. That delays nothing the microphone needs: the audio tap runs on the audio thread, and the
-    /// tail's stop is a main queue timer, which fires late only when the read outlasts the tail. The page reads that follow
-    /// wait on WebKit, and the study guide check starts with another synchronous Apple Event (`frontTabURLOfTheFrontWindow`)
-    /// on the main actor and then may wait on the Worker.
+    /// Starts the reads a voice command needs from the screen, at the release of push-to-talk. The front tab read, shared
+    /// with the cursor loop's media read through `frontTabRead`, is Apple Events to Chrome, which must run on the main actor,
+    /// so whichever reader asks first blocks the main actor for a moment, during the microphone's tail. That delays nothing
+    /// the microphone needs: the audio tap runs on the audio thread, and the tail's stop is a main queue timer, which fires
+    /// late only when the read outlasts the tail. The page reads that follow wait on WebKit, and the study guide check uses
+    /// the release read's URL and then may wait on the Worker. It reads `frontTabURLOfTheFrontWindow` itself only for a
+    /// command with no release read (the `runVoiceCommand` fallback).
     private func startReadingTheScreenForTheVoiceCommand(frontTabRead: FrontTabReadAtRelease) {
         let pressCountOfTheRead = pushToTalkPressCount
         forgetTheVoiceCommandScreenRead()
@@ -1357,7 +1358,7 @@ final class CompanionManager: ObservableObject {
                 pageIdentityAtRelease: pageIdentityAtRelease,
                 frontVideoState: frontVideoState,
                 pageRead: Task {
-                    await self.readThePageForTheVoiceCommand(frontVideoState: frontVideoState, readFrontVideoURL: { frontTab?.url })
+                    await self.readThePageForTheVoiceCommand(frontVideoState: frontVideoState, frontVideoURLSource: .releaseRead(frontTab?.url))
                 }
             )
         }
@@ -1391,15 +1392,15 @@ final class CompanionManager: ObservableObject {
 
     /// The page's tools and state and the study guide check. The two page reads wait on WebKit, and the study guide check
     /// may wait on the Worker, not on each other.
-    /// `readFrontVideoURL` is where the study guide check gets the front video's URL: the tab the release already read, or a
+    /// `frontVideoURLSource` is where the study guide check gets the front video's URL: the tab the release already read, or a
     /// fresh read of Chrome for a command that has no release read.
     private func readThePageForTheVoiceCommand(
         frontVideoState: JSONValue?,
-        readFrontVideoURL: (() -> String?)? = nil
+        frontVideoURLSource: FrontVideoURLSource = .readNow
     ) async -> VoiceCommandPageRead {
         async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
         async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
-        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState, readFrontVideoURL: readFrontVideoURL)
+        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState, frontVideoURLSource: frontVideoURLSource)
         let (pageTools, pageState, studyGuideExists) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
         return VoiceCommandPageRead(
             pageTools: pageTools,
@@ -3816,9 +3817,9 @@ final class CompanionManager: ObservableObject {
 
     /// A guide exists for the video in front only when that video is on YouTube and a guide is saved for it whose page
     /// is still in Notion.
-    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?, readFrontVideoURL: (() -> String?)? = nil) async -> Bool {
+    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?, frontVideoURLSource: FrontVideoURLSource = .readNow) async -> Bool {
         guard frontVideoState?["onYouTube"]?.boolValue == true,
-              let frontVideoURL = readFrontVideoURL?() ?? videoQuizSession.frontTabURLOfTheFrontWindow() else {
+              let frontVideoURL = frontVideoURLSource.url(readNow: { videoQuizSession.frontTabURLOfTheFrontWindow() }) else {
             return false
         }
         return await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: false) != nil

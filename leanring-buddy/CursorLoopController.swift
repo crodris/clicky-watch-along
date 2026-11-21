@@ -220,12 +220,21 @@ final class CursorLoopController: ObservableObject {
 
     private static var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
+    /// The release's front tab, but only when Chrome is the front app. The check comes first so a loop that has no business
+    /// reading Chrome never takes the shared read, which the voice command's screen read then makes itself.
+    static func frontTabForTheLoop(frontTabRead: FrontTabReadAtRelease, chromeIsTheFrontApp: () -> Bool) -> ChromeVideoTab? {
+        guard chromeIsTheFrontApp() else { return nil }
+        return frontTabRead.frontTab()
+    }
+
     /// The largest visible video or image in Chrome's front tab, with the tab it is in. Nil when Chrome is not the
     /// front app, shows no media worth framing, or refuses the read, and nil for media that fills a whole screen,
     /// which a loop would frame at the screen's edge for no reason.
     static func readTheMediaInTheFrontTab(frontTabRead: FrontTabReadAtRelease) -> MediaOnTheFrontTab? {
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == chromeBundleIdentifier,
-              let frontTab = frontTabRead.frontTab(),
+        guard let frontTab = frontTabForTheLoop(
+                  frontTabRead: frontTabRead,
+                  chromeIsTheFrontApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == chromeBundleIdentifier }
+              ),
               let largestMedia = try? ChromeVideoTab.largestVisibleMediaInFrontTabOrNone() else {
             return nil
         }
