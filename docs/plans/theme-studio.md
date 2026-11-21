@@ -187,7 +187,9 @@ The transitions are pure functions, tested one by one: open, ideas arrived, the 
 Flow:
 
 1. `asksToDesignATheme(_ transcript:) -> ThemeStudioRequest?` is a keyword branch ahead of the router, like "let me try it".
-   It matches "theme" with change, new, make, design, create, customize, or redo in the four words before it, unless "of" follows "theme" ("what's the main theme of this new poem" is a question), and returns `.fromThePicture` when the words also say this picture, this image, this photo, or match this, and `.fromWords` otherwise.
+   It matches "theme" with a request word (change, make, design, create, customize, customise, redo, switch, give) in the four words before it and an owner word (my, your, a, Clicky's) directly before "theme" or "new theme", unless "of" follows "theme" ("what's the main theme of this new poem" is a question).
+   "New theme" or "new theme please" alone matches too.
+   It returns `.fromThePicture` when the words also say this picture, this image, this photo, or match this, and `.fromWords` otherwise.
    It does not fire while a quiz question is open or while the studio is already open, since the router reads those.
    With the studio open no keyword branch runs at all, so "let me try it" and "animate this" reach the router too, and a failed router request says "Sorry, I couldn't do that one." instead of falling back to the keyword path.
    Starting a design cancels a scene still building, as "let me try it" does.

@@ -119,20 +119,37 @@ struct ThemeStudioStateTests {
 // MARK: - Opening the studio
 
 struct AsksToDesignAThemeTests {
-    @Test func themeWithAChangeWordNearbyOpensTheStudioFromTheWords() {
+    @Test func aRequestWordAndAnOwnerWordBeforeThemeOpenTheStudioFromTheWords() {
         let phrases = [
             "change my theme",
             "Hey Clicky, change my theme",
+            "make me a new theme",
             "can you make me a new theme",
+            "give me a new theme",
             "design a theme for night",
-            "create a cozy theme",
+            "create a theme",
             "customize my theme",
-            "redo the theme",
-            "I want a new theme",
+            "customise my theme",
+            "redo my theme",
+            "switch my theme",
+            "change your theme",
+            "change Clicky's theme",
+            "change Clicky\u{2019}s theme",
+            "change Clickys theme",
             "make my theme something cozy for night",
         ]
         for phrase in phrases {
             #expect(asksToDesignATheme(phrase) == .fromWords, "\(phrase)")
+        }
+    }
+
+    @Test func newThemeAloneOrWithPleaseIsARequestButNotInsideAQuestion() {
+        for phrase in ["new theme", "New theme.", "new theme please", "Hey Clicky, new theme please"] {
+            #expect(asksToDesignATheme(phrase) == .fromWords, "\(phrase)")
+        }
+        // The same words inside a longer utterance ask about a theme that already exists.
+        for phrase in ["what's the new theme please", "tell me about the new theme", "new theme in chapter two", "I love the new theme please"] {
+            #expect(asksToDesignATheme(phrase) == nil, "\(phrase)")
         }
     }
 
@@ -141,6 +158,8 @@ struct AsksToDesignAThemeTests {
             "make my theme from this picture",
             "make a theme from this image",
             "design a theme from this photo",
+            "design a theme from this picture",
+            "design me a theme from this picture",
             "change my theme to match this",
             "Make my theme from THIS picture.",
         ]
@@ -154,16 +173,25 @@ struct AsksToDesignAThemeTests {
         #expect(asksToDesignATheme("make a theme, this is great") == .fromWords)
     }
 
-    @Test func aQuestionAboutThePoemsOrPicturesThemeOpensNothing() {
-        // "new" sits within four words of "theme", but the learner asks what a theme is and wants none designed.
+    @Test func aQuestionAboutAWorksThemeOpensNothing() {
+        // "change" sits within four words of "theme", but nobody says whose theme it is, so the learner asks about a work.
+        #expect(asksToDesignATheme("how does the author change the theme here") == nil)
+        // "new" sits next to "theme", but there is no request word and no owner word.
+        #expect(asksToDesignATheme("what's the new theme in chapter two") == nil)
+        // The learner asks what a theme is and wants none designed.
         #expect(asksToDesignATheme("what's the main theme of this new poem") == nil)
         #expect(asksToDesignATheme("explain the theme of this new picture") == nil)
         // A request word that comes only after "theme" is not a request for one.
         #expect(asksToDesignATheme("theme make") == nil)
-        // The matches still hold.
-        #expect(asksToDesignATheme("make a new theme") == .fromWords)
-        #expect(asksToDesignATheme("change my theme") == .fromWords)
-        #expect(asksToDesignATheme("design me a theme from this picture") == .fromThePicture)
+    }
+
+    @Test func aRequestWordWithNoOwnerWordOrAnOwnerWordWithNoRequestWordOpensNothing() {
+        // "the" says nothing about whose theme it is, so it stays a question about the screen.
+        #expect(asksToDesignATheme("change the theme") == nil)
+        #expect(asksToDesignATheme("make the new theme darker") == nil)
+        // An owner word alone asks about the theme, not for another.
+        #expect(asksToDesignATheme("what is my theme") == nil)
+        #expect(asksToDesignATheme("tell me about a new theme") == nil)
     }
 
     @Test func aThemeWithNoChangeWordNearbyOrNoThemeAtAllOpensNothing() {
@@ -172,7 +200,7 @@ struct AsksToDesignAThemeTests {
         #expect(asksToDesignATheme("make a model of this engine") == nil)
         #expect(asksToDesignATheme("") == nil)
         // The change word is more than four words from "theme".
-        #expect(asksToDesignATheme("make sure you tell me one more time about the theme") == nil)
+        #expect(asksToDesignATheme("make sure you tell me one more time about my theme") == nil)
     }
 }
 

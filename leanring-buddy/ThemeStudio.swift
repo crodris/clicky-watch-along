@@ -187,27 +187,50 @@ nonisolated enum ThemeStudioRequest: Equatable, Sendable {
     case fromThePicture
 }
 
-/// A keyword branch ahead of the router, like "let me try it", since its words always mean the same thing: the word
-/// "theme" with change, new, make, design, create, customize, or redo within the four words before it, and not followed by
-/// "of", so "what's the main theme of this new poem" is a question for the router and not a request. The words "this
-/// picture", "this image", "this photo", or "match this" make it a request from the picture.
+/// A keyword branch ahead of the router, like "let me try it", since its words always mean the same thing: the learner
+/// asks for a theme of their own or Clicky's. That takes two things, and a theme the learner is only reading about has
+/// neither:
+/// - a request word (change, make, design, create, customize, customise, redo, switch, give) within the four words before
+///   "theme", and
+/// - an owner word (my, your, a, Clicky's) directly before "theme", or before "new theme".
+///
+/// So "change my theme" and "make me a new theme" open the studio. "How does the author change the theme here" has no
+/// owner word, "what's the new theme in chapter two" has neither word, and "what's the main theme of this new poem" is
+/// followed by "of", so those are questions for the router. "New theme" or "new theme please" alone is a request too,
+/// since nothing else is in it to ask about. The words "this picture", "this image", "this photo", or "match this" make
+/// it a request from the picture.
 /// Whether the router sees the utterance instead, while the studio is already open, during a quiz question, or with the
 /// brain flag on, is decided by `keywordBranchAheadOfTheRouter`.
 nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest? {
+    // An apostrophe stays inside a word, so "Clicky's" is one word, and a curly one from speech recognition reads the same.
+    let apostrophes = CharacterSet(charactersIn: "'")
     let words = transcript.lowercased()
-        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .replacingOccurrences(of: "\u{2019}", with: "'")
+        .components(separatedBy: CharacterSet.alphanumerics.union(apostrophes).inverted)
+        .map { $0.trimmingCharacters(in: apostrophes) }
         .filter { !$0.isEmpty }
+
+    let wordsAfterTheGreeting = words.starts(with: ["hey", "clicky"]) ? Array(words.dropFirst(2)) : words
+    let isTheWholeRequestNewTheme = wordsAfterTheGreeting == ["new", "theme"] || wordsAfterTheGreeting == ["new", "theme", "please"]
+
     let themeWordIndexes = words.indices.filter { words[$0] == "theme" || words[$0] == "themes" }
-    let wordsThatMakeAThemeRequest: Set<String> = ["change", "new", "make", "design", "create", "customize", "customise", "redo"]
+    let wordsThatMakeAThemeRequest: Set<String> = ["change", "make", "design", "create", "customize", "customise", "redo", "switch", "give"]
+    let wordsThatSayWhoseThemeItIs: Set<String> = ["my", "your", "a", "clicky's", "clickys"]
     let nearestWordsToCheck = 4
     let nameTheTheme = themeWordIndexes.contains { themeWordIndex in
         // "The theme of this poem" asks about a theme that already exists, whatever words come before it.
         let wordAfterTheTheme = words.indices.contains(themeWordIndex + 1) ? words[themeWordIndex + 1] : nil
         guard wordAfterTheTheme != "of" else { return false }
+
+        // "Make me a new theme" says whose theme it is before "new", and "change my theme" before "theme".
+        let wordBeforeTheTheme = words.indices.contains(themeWordIndex - 1) ? words[themeWordIndex - 1] : nil
+        let ownerWordIndex = wordBeforeTheTheme == "new" ? themeWordIndex - 2 : themeWordIndex - 1
+        guard words.indices.contains(ownerWordIndex), wordsThatSayWhoseThemeItIs.contains(words[ownerWordIndex]) else { return false }
+
         let wordIndexesBeforeTheTheme = max(0, themeWordIndex - nearestWordsToCheck)..<themeWordIndex
         return wordIndexesBeforeTheTheme.contains { wordsThatMakeAThemeRequest.contains(words[$0]) }
     }
-    guard nameTheTheme else { return nil }
+    guard nameTheTheme || isTheWholeRequestNewTheme else { return nil }
 
     let wordPairsThatPointAtThePicture: Set<[String]> = [["this", "picture"], ["this", "image"], ["this", "photo"], ["match", "this"]]
     let pointsAtThePicture = words.indices.dropLast().contains { wordIndex in
