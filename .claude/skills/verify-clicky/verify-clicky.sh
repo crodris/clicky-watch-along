@@ -35,6 +35,9 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
                             dial-release lets them go, which commits the highlighted item.
                             agents-list holds shift and option, glides the mouse onto the dial's Agents token, releases, which opens the agent list, and puts the mouse back.
                             Keep the mouse 250 points from every screen edge, since an edge shifts the dial.
+  scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
+                            A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
+                            Park the mouse over the scroll area first, such as the approval card's summary.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
 }
@@ -679,6 +682,14 @@ command_key() {
   echo "pressed $key_name"
 }
 
+command_scroll() {
+  local points="$1"
+  # Six digits is far past any scroll area, and keeps scroll.swift's Int32 from overflowing when it negates the value.
+  [[ "$points" =~ ^-?[0-9]{1,6}$ ]] || { echo "scroll takes a whole number of points up to 6 digits, positive to scroll down" >&2; exit 1; }
+  swift "$checkout_root/.claude/skills/verify-clicky/scroll.swift" "$points"
+  echo "scrolled $points points"
+}
+
 command_shot() {
   local shot_name="$1"
   local run_dir
@@ -712,6 +723,7 @@ main() {
     app-wait) command_app_wait "${1:-240}" ;;
     app-quit) command_app_quit ;;
     shot) command_shot "${1:?shot name}" ;;
+    scroll) command_scroll "${1:?points}" ;;
     key) command_key "${1:?key name}" ;;
     cleanup) command_app_quit; command_worker_down ;;
     *) usage; exit 1 ;;

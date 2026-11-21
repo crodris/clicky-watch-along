@@ -255,16 +255,16 @@ final class HarnessApprovalDesk: ObservableObject {
     /// agent waiting for good. harness/approval.go waits as long as the task lives.
     nonisolated static let defaultTimeoutSeconds: Double = 120
 
-    /// A yes, by voice or by click, counts only once the approval card has shown the oldest request's whole summary
-    /// this long without a break. The list opens next to the mouse, so a click the learner meant for the page could
-    /// otherwise be taken as Yes, and a summary on screen for an instant is one nobody read.
+    /// A yes, by voice or by click, counts only once the card has shown the oldest request's whole summary, scrolled
+    /// through from top to bottom, and this long has passed since it did. Scrolling away afterward does not stop the
+    /// clock. The list opens next to the mouse, so a click the learner meant for the page could otherwise be taken as
+    /// Yes, and a summary on screen for an instant is one nobody read.
     nonisolated static let secondsTheCardShowsBeforeAnAnswerCounts: Double = 1
 
     /// Oldest first.
     @Published private(set) var waitingRequests: [HarnessApprovalRequest] = []
-    /// When the approval card at the top of the open agent list last showed the oldest request's whole summary, or nil
-    /// while no card shows all of it: the list is closed, the summary is scrolled away from its end, or a new request
-    /// just became the oldest.
+    /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
+    /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest.
     private var oldestRequestVisibleSince: Date?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
     /// Whether the agent list is open, so a request that becomes the oldest shows in its card.
@@ -299,15 +299,16 @@ final class HarnessApprovalDesk: ObservableObject {
         onOldestRequestNeedsShowing?(oldestRequest)
     }
 
-    /// The approval card shows the whole summary of this request, after the list opened, after the request became the
-    /// oldest, or after the learner scrolled the summary to its end.
+    /// The approval card has now shown the whole summary of this request, from top to bottom: at once when it fits, or
+    /// once the learner has scrolled through all of it. The clock starts at the first report and runs until the list
+    /// closes or another request becomes the oldest.
     func theCardShowedTheWholeSummary(ofApprovalID approvalID: String) {
         guard waitingRequests.first?.approvalID == approvalID, oldestRequestVisibleSince == nil else { return }
         oldestRequestVisibleSince = currentDate()
     }
 
-    /// The card stopped showing the whole summary: the list closed, or the summary scrolled away from its end.
-    func theCardStoppedShowingTheWholeSummary() {
+    /// The card has not yet shown the whole summary, or the list closed, which discards what the card had seen.
+    func theCardHasNotShownTheWholeSummary() {
         oldestRequestVisibleSince = nil
     }
 

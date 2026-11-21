@@ -273,7 +273,7 @@ struct AgentHarnessTests {
         #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once), "a click meant for the page must not land on Yes")
 
         // A click closes the list before the second is up, so a later press finds nothing it may answer.
-        desk.theCardStoppedShowingTheWholeSummary()
+        desk.theCardHasNotShownTheWholeSummary()
         now += 5
         #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == nil)
 

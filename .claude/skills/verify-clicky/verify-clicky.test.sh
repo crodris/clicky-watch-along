@@ -1,7 +1,8 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
-# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, and move_the_previous_launch_files_aside, which keeps
-# an earlier launch's log lines away from app-wait.
+# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, move_the_previous_launch_files_aside, which keeps
+# an earlier launch's log lines away from app-wait, and the scroll command's usage line and refusal of a value that is
+# not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -51,6 +52,17 @@ fake_process_ids="$fake_process_ids $fake_app_id"
 sleep 0.5
 # A real Clicky on this Mac is listed too, so the check looks for the fake app's id among the ids.
 check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids | grep -cx "$fake_app_id" || true)" "1"
+# The usage text is how a driver learns the scroll primitive, and a bad value must stop before any event is posted.
+check "usage lists the scroll command" "$(usage | grep -c 'scroll <points>')" "1"
+# The function exits on a bad value, which ends only the command substitution, so its failure status is tolerated outside it.
+scroll_error="$(command_scroll "not-a-number" 2>&1)" || true
+scroll_refusal="scroll takes a whole number of points up to 6 digits, positive to scroll down"
+check "scroll refuses a value that is not a whole number" "$scroll_error" "$scroll_refusal"
+# Int32.min passes Int32(...) but traps when scroll.swift negates it, so the digit cap must stop it here.
+scroll_error="$(command_scroll "-2147483648" 2>&1)" || true
+check "scroll refuses a value of more than 6 digits" "$scroll_error" "$scroll_refusal"
+scroll_error="$(command_scroll "1000000" 2>&1)" || true
+check "scroll refuses a positive value of 7 digits" "$scroll_error" "$scroll_refusal"
 # A second launch in the same run must not leave the first launch's lines where app-wait reads.
 run_directory="$test_directory/run"
 mkdir -p "$run_directory"
@@ -89,4 +101,4 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, and app log rotation"
+echo "ok: verify-clicky build freshness, running-app detection, app log rotation, and scroll usage and argument checks"
