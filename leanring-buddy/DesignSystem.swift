@@ -2,9 +2,9 @@
 //  DesignSystem.swift
 //  leanring-buddy
 //
-//  Centralized design system using a blue accent palette on dark surfaces,
-//  with a unified button style system. All colors, button styles, and
-//  interaction states are defined here as the single source of truth.
+//  Centralized design tokens for a blue accent palette on dark surfaces:
+//  colors, corner radii, animation durations, and the pointer cursor
+//  modifier. Every view reads them from here.
 //
 
 import SwiftUI

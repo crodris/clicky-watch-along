@@ -978,7 +978,7 @@ final class CompanionManager: ObservableObject {
             }
         case .released:
             // Cancel the pending start task in case the user released the shortcut
-            // before the async startPushToTalk had a chance to begin recording.
+            // before the async startPushToTalkFromKeyboardShortcut had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
             // leaves the listening ring stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()

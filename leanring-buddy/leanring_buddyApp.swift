@@ -37,8 +37,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
-        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
-
         // The fork leaves analytics unconfigured so transcripts and replies
         // never reach the upstream PostHog project. Capture calls do nothing.
 
