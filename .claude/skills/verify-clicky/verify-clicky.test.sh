@@ -1,7 +1,8 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
-# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, and the scroll command's usage line and refusal
-# of a value that is not a whole number of at most 6 digits.
+# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, move_the_previous_launch_files_aside, which keeps
+# an earlier launch's log lines away from app-wait, and the scroll command's usage line and refusal of a value that is
+# not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -62,4 +63,42 @@ scroll_error="$(command_scroll "-2147483648" 2>&1)" || true
 check "scroll refuses a value of more than 6 digits" "$scroll_error" "$scroll_refusal"
 scroll_error="$(command_scroll "1000000" 2>&1)" || true
 check "scroll refuses a positive value of 7 digits" "$scroll_error" "$scroll_refusal"
-echo "ok: verify-clicky build freshness, running-app detection, and scroll usage and argument checks"
+# A second launch in the same run must not leave the first launch's lines where app-wait reads.
+run_directory="$test_directory/run"
+mkdir -p "$run_directory"
+echo "Live scene rehearsal: done" >"$run_directory/app.log"
+echo "first launch" >"$run_directory/app.err"
+move_the_previous_launch_files_aside "$run_directory"
+check "an earlier launch's log moves aside" "$(cat "$run_directory/app-1.log")" "Live scene rehearsal: done"
+check "an earlier launch's error log moves aside" "$(cat "$run_directory/app-1.err")" "first launch"
+check "the next launch starts with no app.log" "$([[ -e "$run_directory/app.log" ]] && echo present || echo absent)" "absent"
+echo "second launch" >"$run_directory/app.log"
+move_the_previous_launch_files_aside "$run_directory"
+check "a third launch keeps the second launch's log under the next number" "$(cat "$run_directory/app-2.log")" "second launch"
+# The usage, rejection, and steps files are rewritten on each launch, so they move with the log under the same number.
+echo "third launch" >"$run_directory/app.log"
+echo "steps" >"$run_directory/rehearsal-steps.txt"
+echo "usage" >"$run_directory/app.usage.log"
+echo "rejected" >"$run_directory/app.rejections.log"
+move_the_previous_launch_files_aside "$run_directory"
+check "the steps move with their launch's log" "$(cat "$run_directory/rehearsal-steps-3.txt")" "steps"
+check "the usage lines move with their launch's log" "$(cat "$run_directory/app-3.usage.log")" "usage"
+check "the rejections move with their launch's log" "$(cat "$run_directory/app-3.rejections.log")" "rejected"
+# A number an earlier launch used for any one of its files is taken, even when its log is gone.
+other_run_directory="$test_directory/other-run"
+mkdir -p "$other_run_directory"
+echo "earlier errors" >"$other_run_directory/app-1.err"
+echo "fourth launch" >"$other_run_directory/app.log"
+move_the_previous_launch_files_aside "$other_run_directory"
+check "a number with only an error log is taken" "$(cat "$other_run_directory/app-2.log")" "fourth launch"
+check "the earlier error log is left alone" "$(cat "$other_run_directory/app-1.err")" "earlier errors"
+# A leftover steps file alone also takes its number, so a later launch never overwrites it.
+steps_run_directory="$test_directory/steps-run"
+mkdir -p "$steps_run_directory"
+echo "earlier steps" >"$steps_run_directory/rehearsal-steps-1.txt"
+echo "fifth launch" >"$steps_run_directory/app.log"
+echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
+move_the_previous_launch_files_aside "$steps_run_directory"
+check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
+check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
+echo "ok: verify-clicky build freshness, running-app detection, app log rotation, and scroll usage and argument checks"

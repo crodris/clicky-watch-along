@@ -222,6 +222,33 @@ stop_process_tree() {
   kill -KILL $tree_pids 2>/dev/null || true
 }
 
+# Each launch's own files in a run, as "<name> <extension>" pairs: app.log becomes app-<N>.log, rehearsal-steps.txt
+# becomes rehearsal-steps-<N>.txt, and so on.
+per_launch_files=("app log" "app err" "app usage.log" "app rejections.log" "rehearsal-steps txt")
+
+# Moves an earlier launch's files in this run to their <N> names, with N the first number no earlier launch used.
+# `open --stdout` appends, so without this app-wait would match the earlier launch's "Live scene rehearsal: done" line
+# and return before this launch's steps ran, and the permission check would read the earlier launch's start line. The
+# usage, rejection, and steps files are rewritten on each launch, so they move too, and each launch keeps its evidence.
+move_the_previous_launch_files_aside() {
+  local run_dir="$1" launch_number=1 per_launch_file file_name file_extension slot_is_taken
+  while :; do
+    slot_is_taken=false
+    for per_launch_file in "${per_launch_files[@]}"; do
+      read -r file_name file_extension <<<"$per_launch_file"
+      if [[ -e "$run_dir/$file_name-$launch_number.$file_extension" ]]; then slot_is_taken=true; fi
+    done
+    [[ "$slot_is_taken" == true ]] || break
+    launch_number=$((launch_number + 1))
+  done
+  for per_launch_file in "${per_launch_files[@]}"; do
+    read -r file_name file_extension <<<"$per_launch_file"
+    if [[ -e "$run_dir/$file_name.$file_extension" ]]; then
+      mv "$run_dir/$file_name.$file_extension" "$run_dir/$file_name-$launch_number.$file_extension"
+    fi
+  done
+}
+
 # The first Swift file under source_directory that is newer than dylib_path, or nothing when the app is at least as new
 # as every Swift file. Only Swift code is linked into the dylib, so an edited page, script, or asset never makes it
 # stale. A find error, such as a file deleted during the walk, counts as fresh, since the next build would not fix it.
@@ -538,6 +565,7 @@ command_app_launch() {
   fi
   local run_dir
   run_dir="$(current_run_dir)"
+  move_the_previous_launch_files_aside "$run_dir"
   echo "$rehearsal_steps" >"$run_dir/rehearsal-steps.txt"
   worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
   # The Worker's Notion routes need the app's secret, which the app reads from its defaults. It is copied from
