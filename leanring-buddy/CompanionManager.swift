@@ -267,9 +267,9 @@ final class CompanionManager: ObservableObject {
         )
     }()
     private var themeStudioSpeechTask: Task<Void, Never>?
-    /// True from the moment the studio's own line starts to play until it ends, so closing the card stops that line and never
-    /// an unrelated answer that is playing when the card closes.
-    private var themeStudioLineIsPlaying = false
+    /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
+    /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
+    private var themeStudioLineToken: SpokenLineToken?
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -3076,11 +3076,12 @@ final class CompanionManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
             guard !Task.isCancelled else { return }
-            self.themeStudioLineIsPlaying = true
-            await self.speakLiveSceneLine(line)
+            // A line that did not start keeps the previous token, which matches nothing once that line has ended.
+            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) {
+                self.themeStudioLineToken = lineToken
+            }
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
-            self.themeStudioLineIsPlaying = false
             if self.voiceState == .responding {
                 self.voiceState = .idle
             }
@@ -3090,14 +3091,15 @@ final class CompanionManager: ObservableObject {
 
     /// Ends the studio's spoken line when the card closes or saves. Cancelling the speech task also drops a line still waiting
     /// for its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
-    /// runs once it is cancelled, so this does it. Playback stops only while the studio's own line is playing, since the
-    /// audio may be an answer the router handed off with the card open.
+    /// runs once it is cancelled, so this does it, but only when the stop reached the studio's own line, since the audio may
+    /// be an answer the router handed off with the card open. A line still loading never started playing, so cancelling the
+    /// task is what ends it, and the token ends a line that is already playing.
     private func stopTheThemeStudioSpeech() {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = nil
-        guard themeStudioLineIsPlaying else { return }
-        themeStudioLineIsPlaying = false
-        elevenLabsTTSClient.stopPlayback()
+        let studioLineToken = themeStudioLineToken
+        themeStudioLineToken = nil
+        guard let studioLineToken, elevenLabsTTSClient.stopPlayback(ifTheCurrentLineIs: studioLineToken) else { return }
         if voiceState == .responding {
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -4015,17 +4017,23 @@ final class CompanionManager: ObservableObject {
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
     @discardableResult
     private func speakLiveSceneLine(_ line: String) async -> Bool {
+        await speakLiveSceneLineAndReturnItsToken(line) != nil
+    }
+
+    /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
+    /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
         do {
-            try await elevenLabsTTSClient.speakText(line)
+            let lineToken = try await elevenLabsTTSClient.speakText(line)
             voiceState = .responding
-            return true
+            return lineToken
         } catch is CancellationError {
-            return false
+            return nil
         } catch {
             ClickyAnalytics.trackTTSError(error: error.localizedDescription)
             print("⚠️ ElevenLabs TTS error: \(error)")
             speakCreditsErrorFallback()
-            return false
+            return nil
         }
     }
 

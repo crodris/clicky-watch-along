@@ -212,6 +212,7 @@ Flow:
    A push-to-talk press does not close it. A new `design_theme` cancels a design call still running.
    Closing the card by Escape, the Close button, or `close_theme_studio` stops the line Clicky is saying about the ideas, and only that line: an answer playing for another request keeps playing.
    A studio line waits until no audio plays, push-to-talk is not held, and Clicky is not thinking about a request, all checked together (`themeStudioLineMayStart`). The studio's own design does not count as thinking.
+   The studio keeps the playback token of its own line, which `ElevenLabsTTSClient.speakText` returns, and closing the card stops playback only through `stopPlayback(ifTheCurrentLineIs:)`. A line another answer replaced, or one that ended, is not stopped, and the responding state is reset only when the stop reached the studio's line.
 
 The card is a borderless nonactivating panel that never becomes key, like the agent list, placed at the first corner around the mouse where it does not cover the pointer (reuse `approvalListAnchorTopLeft`).
 It shows the title, three tiles (the idea's cursor drawn by `CustomCursorView`, its name, its accent and agent colors as swatches, and a small agent token in its first agent color with the picture face when it uses the picture), the highlighted tile's tags (shape motion in words, the sounds), and the hint line "Say one, two, or three · or what to change · say save it".

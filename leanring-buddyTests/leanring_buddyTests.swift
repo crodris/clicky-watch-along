@@ -496,6 +496,23 @@ struct leanring_buddyTests {
         #expect(chunks == expectedChunks)
     }
 
+    @Test func aStopRequestForASpokenLineAppliesOnlyWhileThatLineIsTheCurrentOne() async throws {
+        var spokenLineTokenLedger = SpokenLineTokenLedger()
+        let firstLineToken = spokenLineTokenLedger.issueTokenForANewLine()
+        #expect(spokenLineTokenLedger.currentToken(audioIsPlayingOrArriving: true) == firstLineToken)
+        #expect(spokenLineTokenLedger.stopRequestApplies(to: firstLineToken, audioIsPlayingOrArriving: true))
+
+        // An unrelated answer replaces the line, so the first line's token no longer stops anything.
+        let replacingLineToken = spokenLineTokenLedger.issueTokenForANewLine()
+        #expect(firstLineToken != replacingLineToken)
+        #expect(!spokenLineTokenLedger.stopRequestApplies(to: firstLineToken, audioIsPlayingOrArriving: true))
+        #expect(spokenLineTokenLedger.stopRequestApplies(to: replacingLineToken, audioIsPlayingOrArriving: true))
+
+        // Once the audio has ended or been stopped, no line is current, so even the latest token stops nothing.
+        #expect(spokenLineTokenLedger.currentToken(audioIsPlayingOrArriving: false) == nil)
+        #expect(!spokenLineTokenLedger.stopRequestApplies(to: replacingLineToken, audioIsPlayingOrArriving: false))
+    }
+
     @Test func aSavedOlderModelChoiceMovesToTheLatestModelOfItsFamily() async throws {
         #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-opus-4-6") == "claude-opus-5-5")
         #expect(ClaudeVoiceModel.latestModelID(forStoredModelID: "claude-sonnet-4-6") == "claude-sonnet-5-5")
