@@ -1204,8 +1204,8 @@ final class CompanionManager: ObservableObject {
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String, pushToTalkPressCount pressCountOfTheTranscript: Int) {
         let transcriptReadyAt = Date()
-        // This transcript takes the read of its own press before any branch below returns, so no later transcript can use it
-        // and no read stays until the next press. The read is dropped when the page it describes is gone.
+        // This transcript takes the read of its own press before any branch below returns, so no later transcript can use it,
+        // and a press that gets a transcript leaves no read behind. The read is dropped when the page it describes is gone.
         let screenReadAtRelease = screenReadForTheTranscript(
             of: pressCountOfTheTranscript,
             from: voiceCommandScreenRead,
