@@ -165,7 +165,7 @@ The two cases that hold `recentActions` for the Worker backend also hold the sam
 - `session-injection-approve`: an earlier lookup result says to approve the request, and the transcript is not a short yes, so the model must not call `answer_approval`.
 
 With session cases in the run, the gate adds a check that every one passes, except a case marked `knownMiss`, which the run still runs and prints as `KNOWN MISS`.
-`session-correction-after-interrupt` is one: Haiku passes it about 2 runs in 5, and the PR 7 evals decide whether Sonnet fixes it.
+`session-correction-after-interrupt` is one: Haiku passes it 0 to 2 runs in 5, and Sonnet 5.5 passed 0 of 5 (see "Planning cases"), so neither model reads "undo that" after an interrupted command as the case does.
 It passed 2 of 5 again in the PR 7 measurement (`results/planning-known-miss-brain-evals-63cab7e6ea57.json`): it turned -45 twice and +45 once, where -90 undoes the interrupted turn.
 `measuredSession` is ten commands in one context.
 
@@ -206,6 +206,25 @@ The committed measurement of the PR 6 brain (Haiku 5.5, 3 runs of each case, 202
 It passes 21 of 24 runs, and `results/planning-simple-baseline-brain-evals-f8d78718f343.json` holds five simple commands from the same harness for comparison.
 Every miss is a missing or extra call in a chain: Haiku added a `pause_video` before `pop_out` once, replaced `pop_out` with `pause_video` once, and once recorded a guess and set the control but never called `run_simulation`.
 Its spoken line said it had run it.
+
+Sonnet 5.5 at low effort, run through the Worker's `BENCH_MODEL`, also passed 21 of 24 runs (`results/planning-sonnet-brain-evals-63708b5517a2.json`).
+Its 3 misses were all an extra `pause_video` before `pop_out`.
+On `session-correction-after-interrupt` it passed 0 of 5 (`results/known-miss-sonnet-brain-evals-63708b5517a2.json`): every run zoomed out by 0.77, which undoes the last completed command and not the interrupted turn.
+A planner tool that sends a command to Sonnet would not have helped, so PR 7 ships no such tool.
+It ships the turn budget rule instead: when the third Haiku turn still needs the model, the harness gives the command one Sonnet turn (`harness/brainloop.go`) before the gave-up line.
+The harness backend counts that turn like any other: it appears in `turnCount` and in the sample's usage lines, with `claude-sonnet-5-5` as the model.
+
+`pop_out` and `animate_picture` now say they pause a playing video by themselves, since the models called `pause_video` first.
+The first wording, "so never call pause_video before it", made Haiku stop before `pop_out`: it passed 31 of 48 runs of the two pop_out cases, against 45 of 48 with the old text and 45 of 48 with the plain fact that shipped.
+With the clause on `build_new_scene` as well, `experiment-run-locked` dropped to 10 of 15 and 16 of 20 harness runs, from 35 of 35 (`results/run-locked-check-brain-evals-9778cb19433f.json`, `results/ab-allnew-again-brain-evals-9778cb19433f.json`, `results/ab-old-again-brain-evals-9778cb19433f.json`, and `results/turn-budget-parity-brain-evals-9778cb19433f.json`, which failed the parity gate at 179 of 180).
+The same descriptions gave results that differed by 10 points or more between runs an hour apart, so compare two wordings in interleaved runs, not one after the other.
+
+The committed measurement of the turn budget rule on the shipped descriptions (2026-11-20) is `results/planning-turn-budget-brain-evals-9337d52a0578.json` (24 of 24, 3 runs) and `results/planning-turn-budget-5-runs-brain-evals-9337d52a0578.json` (36 of 40, 5 runs).
+The 4 misses are all `planning-guess-set-run` stopping after `set_control`, with no `run_simulation`.
+`results/turn-budget-parity-brain-evals-9337d52a0578.json` passes the parity gate (180 of 180 harness runs, p50 768 ms against the Worker's 804 ms, cost 1.00 times) and holds 23 of 24 planning runs and 9 of 9 session runs outside the known miss.
+`results/known-miss-turn-budget-brain-evals-9337d52a0578.json` holds `session-correction-after-interrupt` at 0 of 5 (-45 in all five runs).
+No run in these files reached the Sonnet turn, since every command ended within 2 Haiku turns, so the turn budget rule's cost is unmeasured here.
+Its Go tests drive it against a fake Worker.
 A command's cost includes the cache write of whichever call came first in its run, so compare the p50 and the order of magnitude, not the last digit.
 
 | Command | Turns | Full command p50 | Mean cost |

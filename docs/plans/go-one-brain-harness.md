@@ -61,7 +61,7 @@ The three approval follow-ups go first, because the cutover PR moves the approva
 | 4 | The brain answers voice commands in the harness, stateless | Piece 2, plus the prompt half of piece 4 | 1.5 days | Yes, the harness flag |
 | 5 | Brain evals drive the harness binary | Piece 5 | Half a day | Bench only |
 | 6 | The brain keeps a session, with compaction | Piece 1 | 1 day | Yes, the harness flag |
-| 7 | Two speeds: Haiku first, Sonnet when it plans | Piece 3 | 1 day, or 2 hours if the evals say Haiku is enough | Yes, the harness flag |
+| 7 | The turn budget rule, with no planner tool | Piece 3 | 2 hours, since the evals showed Sonnet planning adds nothing | Yes, the harness flag |
 | 8 | Approval rules move into the harness, and the harness flag turns on | Piece 4 | 1.5 days | The flag's default turns on |
 | 9 | Delete the old path | Cleanup | 2 hours | Chris decides when |
 
@@ -449,53 +449,60 @@ If the session eval shows p50 or cost past the gate, the mitigation is to offer 
 
 **Ships behind the flag.** Yes.
 
-## PR 7: Two speeds, Haiku first and Sonnet when it plans (piece 3)
+## PR 7: The turn budget rule, with no planner tool (piece 3)
 
-**First, measure.** Before writing code, add 8 planning cases to `bench/fixtures/brain-evals.json`: requests whose steps depend on each other, such as "go back to where he explains the heat shield and pop it out" (find a moment, seek, pop out) or "pause it, slow it down, and go back to the start of this part".
-Run them on the PR 6 brain.
-If Haiku passes every planning case in 3 runs, stop and ask Chris whether PR 7 is needed, and suggest shipping only the turn budget rule below.
+**Decision (2026-11-20).**
+Chris chose the reduced form: no `think_it_through` planner tool, only the turn budget rule and a fix to the `pop_out` description.
+The measurement behind it is below, and the bullets that describe the planner tool in the first plan are gone.
+
+**Measured first.**
+Eight planning cases (`bench/fixtures/brain-evals.json`, scored on the whole command) ran on the PR 6 brain, 3 runs each.
+Haiku 5.5 passed 21 of 24: once it added a `pause_video` before `pop_out`, and twice it stopped one step short (`pause_video` in place of `pop_out` once, `run_simulation` missing once).
+Sonnet 5.5 at low effort, through `BENCH_MODEL`, also passed 21 of 24, and all 3 misses were that extra `pause_video`.
+On the known miss `session-correction-after-interrupt` ("undo that" after an interrupted command), Sonnet passed 0 of 5: every run zoomed out by 0.77, undoing the last completed command and not the interrupted turn.
+Sonnet planning therefore fixes none of the misses, and a planner tool would add a turn and a Sonnet bill for no measured gain.
+The results are in `bench/results/planning-haiku-brain-evals-52c4e4ef169c.json`, `planning-sonnet-brain-evals-63708b5517a2.json`, and `known-miss-sonnet-brain-evals-63708b5517a2.json`.
 
 ### Design
 
-- The first turn of every command runs on Haiku with today's short prompt, as in PR 4.
-- **The planner tool.** A harness-only tool, `think_it_through`, is offered on Haiku turns.
-  Its description says to call it alone when a request needs several steps that depend on each other and no single tool, `answer_with_screen`, or `start_background_task` fits.
-  It never reaches the app.
-  When Haiku calls it alone, before any tool of the command has run, the harness drops that turn and runs the command again on Sonnet 5.5 at low effort, with a longer planning prompt, the same tools, and up to 6 turns.
-  After a tool has run, the harness never restarts the command, since a restart could repeat a relative seek or start a second background task.
-  A later call to `think_it_through` instead moves the next turn to Sonnet, with the turns and results so far kept.
-  The harness gives that call a result, "Moving to the planner", since Anthropic refuses a history with a `tool_use` block and no matching `tool_result`.
-  A `think_it_through` that comes with other calls in one reply counts as a later call: the other calls run, then the next turn moves to Sonnet.
-- **The turn budget rule.** When Haiku's third turn still needs the model, the harness gives the command one Sonnet turn before the gave-up line.
-- **Sonnet's time limit.** PR 4's 8 second turn timeout is for Haiku, and a Sonnet planning turn can take longer.
-  A Sonnet turn gets a 30 second timeout.
-  The harness writes a `Brain: planning on claude-sonnet-5-5` log line when a Sonnet turn starts, and Swift's deadline then waits 35 seconds from that line instead of 10, so it stays above the harness's own limit.
+- The first three turns of every command run on Haiku with today's short prompt, as in PR 4.
+- **The turn budget rule.** When Haiku's third turn still needs the model, the harness gives the command one Sonnet 5.5 turn before the gave-up line.
+  It is turn 4, at low effort with thinking off, with the same prompt, tools, and session history, and its cache is separate from Haiku's, which is fine for a path this rare.
+  Only that turn runs on Sonnet.
+  If it ends the command, the command ends normally.
+  If it still needs the model, times out, or fails, the command ends as gave up, not as `task_failed`, because its earlier calls already changed the screen and the keyword path would repeat them.
+  PR 6's session rules hold: every `tool_use` gets a `tool_result`, a cancel or a failure rolls the command back, and the `Brain: turn` line names the model and the calls.
+- **Sonnet's time limit.** PR 4's 8 second timeout is for Haiku.
+  The Sonnet turn gets 30 seconds.
+  The harness writes a `Brain: planning on claude-sonnet-5-5` log line with the command's `taskID` when it starts, the app turns that line into an event, and its deadline then waits 35 seconds from that line instead of 10, so it stays above the harness's own limit.
+  The `log` message gained an optional `taskID` for this one line.
+- **The `pop_out` and `animate_picture` descriptions** now say they pause a playing video by themselves (`VoiceCommandTools.swift`, and the bench catalog by `sync-tools`).
+  A stronger first wording, "never call pause_video before it", made Haiku stop before `pop_out` (31 of 48 runs against 45 of 48), and putting it on `build_new_scene` too dropped `experiment-run-locked` to 10 of 15 and 16 of 20 on the harness, so the shipped text states the fact and gives no order.
+  `build_new_scene` already said it pauses the video and is unchanged.
 - **Long tasks do not change.** "Find out", "research", and "compare" still go to `start_background_task`, which runs the Sonnet task agent in the same harness.
 
 ### Files
 
-`harness/brain.go` (the planner tool, the Sonnet settings, the planning prompt, the model choice per turn), `harness/brainloop.go`, tests, `bench/fixtures/brain-evals.json`, `bench/brainEvals.ts` (score a case by the whole command when it is a planning case, not only the first turn), `AGENTS.md`.
-A planning case scripts each tool's result with PR 5's scripted outcomes, such as the timestamp a `find_moment` returns, and is scored on the ordered calls, a seek input taken from that timestamp, and the cost of all turns.
+`harness/brain.go` (the Sonnet model, its timeout, the planning log line, the model per request), `harness/brainloop.go` (the extra turn, the gave-up on a failed Sonnet turn), `harness/protocol.go` and `harness/main.go` (the `taskID` on a command's log line, a test-only timeout override), `leanring-buddy/AgentHarness.swift` and `HarnessVoiceCommand.swift` (the `.planningTurnStarted` event and the 35 second wait), `leanring-buddy/VoiceCommandTools.swift` and `bench/fixtures/brain-evals-tools.json`, the planning cases and `bench/brainEvals.ts` from the measuring step, tests, `AGENTS.md`, `bench/README.md`, and verify-clicky's `features/voice-commands.md`.
 
 ### Protocol
 
-No change.
-The `Brain: turn` log line already names the model.
+`log` carries an optional `taskID`, set only on the planning line.
+No other message changes.
 
 ### Tests
 
-- Go: a `think_it_through` call before any tool runs sends the next request on Sonnet with the planning prompt and does not keep the Haiku turn.
-- Go: a `think_it_through` call after a `seek_relative` has run moves the next turn to Sonnet with the history kept, the seek runs exactly once, and the Sonnet request has a `tool_result` for the `think_it_through` call.
-- Go: a third Haiku turn that still needs the model gets one Sonnet turn, then the gave-up line.
-- Bench: the 8 planning cases pass in 3 runs, and the 43 old cases still pass 129 of 129 with no Sonnet turn among them.
-- Bench: record the p50 and cost of each planning case.
-  The Sonnet cache is separate from Haiku's, so each escalation pays full input price for the tools, the prompt, and the session.
-  The PR reports these numbers next to a simple command's, and Chris sets the cost ceiling for escalation from them before the PR merges.
+- Go: a third Haiku turn that still needs the model gets one Sonnet turn (the request names Sonnet and carries the same prompt, tools, settings, and history), the planning line names the command, and the gave-up line follows when Sonnet still needs the model.
+- Go: a Sonnet turn that finishes the command ends it normally with its confirmation spoken.
+- Go: a Sonnet turn with no reply in its time limit ends the command as gave up, with no retry.
+- Go: the limits are 8 seconds for Haiku and 30 for Sonnet.
+- Swift: the wait for the next event is 35 seconds after the planning line and 10 otherwise, and the planning line reaches only the command it names.
+- Bench: the 8 planning cases and the parity gate, with the numbers recorded in `bench/README.md`: 24 of 24 and 36 of 40 planning runs, 180 of 180 parity runs, and no run reached the Sonnet turn, so its cost is unmeasured outside the Go tests.
 
 ### Verify
 
-`$V app-launch --brain --harness-brain "go back to where he explains the heat shield and pop it out"` on a Starship video.
-The log shows one Haiku turn, then Sonnet turns, then the pop-out, and the thinking dots stay up while Sonnet plans.
+No ordinary command reaches the Sonnet turn, so the app log of a real command has no planning line.
+The Go tests drive the path, and `features/voice-commands.md` says what the log shows when it runs.
 
 **Ships behind the flag.** Yes.
 
@@ -640,5 +647,5 @@ Check Haiku 5.5's minimum with the `claude-api` reference before PR 6 relies on 
    Deleting it also ends the no-secret fallback and router benchmarks on GPT and Gemini models.
 5. **PR 0's timeout.** Raise the app's `/live-scene` timeout for the background builds if the Sonnet fallback's p95 passes 60 seconds, or keep 60 and accept a failure on a slow fallback.
    The same choice covers a slow OpenAI failure, which this plan does not cap.
-6. **PR 7 if Haiku passes the planning cases.** Skip the planner tool and ship only the turn budget rule, or build both.
-7. **PR 7's cost ceiling.** How much a planning command may cost, set from the numbers PR 7 records.
+6. **PR 7's planner tool.** Decided: skipped, only the turn budget rule ships (see PR 7).
+7. **PR 7's cost ceiling.** The Sonnet turn runs only after 3 Haiku turns that still need the model, so no measured run reached it. Set a ceiling if a verify run shows it firing often.
