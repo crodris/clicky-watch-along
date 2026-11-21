@@ -108,6 +108,29 @@ func screenReadForTheTranscript(
     return screenRead
 }
 
+/// The page read a voice command waits for: the one started at the press's release, which is awaited when it has not
+/// finished, or a fresh one (`readNow`) for a command with no read of its own, such as a quiz scene command or a transcript
+/// whose read was dropped. Nil when a push-to-talk press cancelled the command during the read, so the command sends nothing
+/// to the harness or the Worker. The cancel also reaches the read, since a hung study guide check would otherwise hold a
+/// cancelled command up.
+func pageReadForTheVoiceCommand(
+    startedAtRelease pageReadStartedAtRelease: Task<VoiceCommandPageRead, Never>?,
+    readNow: () async -> VoiceCommandPageRead
+) async -> VoiceCommandPageRead? {
+    let pageRead: VoiceCommandPageRead
+    if let pageReadStartedAtRelease {
+        pageRead = await withTaskCancellationHandler {
+            await pageReadStartedAtRelease.value
+        } onCancel: {
+            pageReadStartedAtRelease.cancel()
+        }
+    } else {
+        pageRead = await readNow()
+    }
+    guard !Task.isCancelled else { return nil }
+    return pageRead
+}
+
 /// Whether a release starts the screen read. A quiz answer goes to the judge and a building scene keeps the keyword path,
 /// and neither reads the video.
 nonisolated func screenReadStartsAtRelease(phaseIsWaitingForAQuizAnswer: Bool, sceneIsBuilding: Bool) -> Bool {
