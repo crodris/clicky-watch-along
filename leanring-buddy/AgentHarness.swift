@@ -357,7 +357,8 @@ nonisolated enum ApprovalAnswerReadiness: Equatable, Sendable {
     case readyInAMoment
     case ready
 
-    /// Yes and Always dim until they count, so a click that the desk would ignore is never offered. No never dims.
+    /// Allow once and For this task dim until a yes counts, so a click that the desk would ignore is never offered.
+    /// Don't allow never dims.
     var allowButtonsAreDimmed: Bool { self != .ready }
 }
 

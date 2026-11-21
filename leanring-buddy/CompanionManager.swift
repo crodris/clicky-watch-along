@@ -3543,8 +3543,8 @@ final class CompanionManager: ObservableObject {
     }
 
     /// The router's `answer_approval` answers the request that was oldest when the learner spoke, the one the agent
-    /// list showed. A no counts at once, and a yes only when the card had shown the whole summary for a second at the
-    /// press and the learner's own words say yes.
+    /// list showed. A no counts at once, with a word of no for an unread request. A yes counts only when the card had
+    /// shown the whole summary for a second at the press and the learner's own words say yes.
     private func answerTheApproval(
         _ approvalTheLearnerIsAnswering: ApprovalAtPress?,
         byVoiceInput input: [String: JSONValue],

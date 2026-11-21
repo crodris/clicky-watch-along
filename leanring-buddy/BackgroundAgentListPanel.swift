@@ -988,7 +988,7 @@ struct ApprovalCardView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: approvalRequest.capability.approvalCardSymbolName)
-                .font(.system(size: 12, weight: .bold))
+                .font(DS.TypeScale.title.font)
                 .foregroundColor(DS.Colors.inkOnAccent)
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(DS.Colors.warning))
