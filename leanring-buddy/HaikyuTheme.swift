@@ -416,7 +416,7 @@ final class CompanionThemeSettings: ObservableObject {
     var shownThemePicture: NSImage? {
         if previewTheme != nil { return previewPicture }
         guard case .custom(let customTheme) = theme, customTheme.usesPicture else { return nil }
-        return CustomThemePictureCache.image(forThemeID: customTheme.id)
+        return CustomThemePictureCache.image(forThemeID: customTheme.id, in: customThemeStore)
     }
 
     func preview(_ idea: CustomTheme, picture: NSImage?) {
@@ -437,6 +437,29 @@ final class CompanionThemeSettings: ObservableObject {
         clearPreview()
         theme = .custom(savedTheme)
         return savedTheme
+    }
+
+    /// Gives a saved theme a new name, and puts the list back in name order. The theme in use stays in use, now under its
+    /// new name. Throws what `CustomThemeStore.rename` throws, such as a name over 24 characters, and changes nothing then.
+    func renameSavedTheme(themeID: String, to typedName: String) throws {
+        let renamedTheme = try customThemeStore.rename(themeID: themeID, to: typedName)
+        savedCustomThemes = customThemeStore.loadSavedThemes()
+        if case .custom(let themeInUse) = theme, themeInUse.id == themeID {
+            // The saved setting is the id, which did not change, so only the name this holds needs replacing.
+            theme = .custom(renamedTheme)
+        }
+    }
+
+    /// Deletes a saved theme from disk and from the list. If it was the theme in use, Clicky blue takes over. An agent that
+    /// is running keeps the color it was given when it started, as agents keep theirs for life, and a picture face it wore
+    /// falls back to the triangle, since the picture went with the folder.
+    func deleteSavedTheme(themeID: String) throws {
+        try customThemeStore.delete(themeID: themeID)
+        savedCustomThemes = customThemeStore.loadSavedThemes()
+        CustomThemePictureCache.forgetImage(forThemeID: themeID)
+        if case .custom(let themeInUse) = theme, themeInUse.id == themeID {
+            theme = .clickyBlue
+        }
     }
 }
 
@@ -499,18 +522,24 @@ enum HaikyuPortraitCache {
 }
 
 /// Loads the picture a saved custom theme keeps (picture.jpg), once. Nil when the theme has none or the file is unreadable.
-/// Themes never change after they are saved, so an id's picture is cached for the life of the app.
+/// A saved theme's picture never changes, so an id's picture is cached for the life of the app, until the theme is deleted
+/// (`forgetImage(forThemeID:)`).
 @MainActor
 enum CustomThemePictureCache {
     private static var imagesByThemeID: [String: NSImage?] = [:]
 
-    static func image(forThemeID themeID: String) -> NSImage? {
+    static func image(forThemeID themeID: String, in store: CustomThemeStore = .standard()) -> NSImage? {
         if let cachedImage = imagesByThemeID[themeID] {
             return cachedImage
         }
-        let image = NSImage(contentsOf: CustomThemeStore.standard().pictureURL(forThemeID: themeID))
+        let image = NSImage(contentsOf: store.pictureURL(forThemeID: themeID))
         imagesByThemeID[themeID] = .some(image)
         return image
+    }
+
+    /// A deleted theme's picture, and a "no picture" answer cached for its id, are not looked up again from memory.
+    static func forgetImage(forThemeID themeID: String) {
+        imagesByThemeID.removeValue(forKey: themeID)
     }
 }
 
