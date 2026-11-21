@@ -153,6 +153,81 @@
         "record_guess"
       ]
     },
+    "experimentExplore": {
+      "description": "An experiment is on screen after the learner guessed, so Run is unlocked, the guess tool and build_simulation are not offered, and one run is in the trials.",
+      "sceneState": {
+        "challenge": null,
+        "controls": [
+          {
+            "label": "Launch angle",
+            "max": 85,
+            "min": 5,
+            "name": "angle",
+            "step": 1,
+            "unit": "deg",
+            "value": 30
+          },
+          {
+            "label": "Launch speed",
+            "max": 30,
+            "min": 5,
+            "name": "speed",
+            "step": 1,
+            "unit": "m/s",
+            "value": 15
+          }
+        ],
+        "explodeAmount": 0,
+        "focusedLabel": "",
+        "insideIsOpen": false,
+        "labels": [
+          "cannon",
+          "ball",
+          "target"
+        ],
+        "labelsAreShown": false,
+        "lessonStage": "explore",
+        "page": "simulation",
+        "pastRuns": [
+          {
+            "controls": [
+              { "label": "Launch angle", "unit": "deg", "value": 30 },
+              { "label": "Launch speed", "unit": "m/s", "value": 15 }
+            ],
+            "readouts": [
+              { "label": "Landing distance", "unit": "m", "value": 19.9 }
+            ],
+            "trial": 1
+          }
+        ],
+        "pitchDegrees": 12,
+        "predictionQuestion": "Which goes farther, a ball launched at 30 degrees or one at 60 degrees?",
+        "readouts": [
+          { "label": "Landing distance", "unit": "m", "value": 19.9 }
+        ],
+        "runIsGoing": false,
+        "tourFinished": true,
+        "videoQuizIsRunning": false,
+        "yawDegrees": 0,
+        "zoom": 0.4
+      },
+      "tools": [
+        "rotate_model",
+        "zoom",
+        "zoom_to_part",
+        "reset_view",
+        "set_control",
+        "set_labels",
+        "run_simulation",
+        "answer_with_screen",
+        "build_new_scene",
+        "pop_out",
+        "animate_picture",
+        "close_scene",
+        "explain_part",
+        "start_background_task"
+      ]
+    },
     "popout": {
       "description": "A frame pop-out is on screen with its parts labeled. The state matches fixtures/voice-command.json.",
       "sceneState": {
@@ -543,6 +618,25 @@
         "set_control"
       ],
       "why": "A command, not a guess, so it must not go to record_guess."
+    },
+    {
+      "id": "experiment-try-angle",
+      "context": "experimentExplore",
+      "say": "try 45 degrees",
+      "accept": [
+        "set_control"
+      ],
+      "input": { "set_control": { "name": "angle", "value": 45, "run": true } },
+      "why": "A request to try a value is one call, set_control with run true, not set_control followed by run_simulation."
+    },
+    {
+      "id": "experiment-run-again",
+      "context": "experimentExplore",
+      "say": "run it again",
+      "accept": [
+        "run_simulation"
+      ],
+      "why": "No control changes, so there is nothing for set_control to set. run_simulation stays for a repeat run."
     },
     {
       "id": "popout-other-way",
@@ -1144,11 +1238,11 @@
       "say": "I think sixty goes farther, so set the angle to sixty and run it",
       "scoreWholeCommand": true,
       "accept": [
-        ["record_guess", "set_control", "run_simulation"],
-        ["set_control", "record_guess", "run_simulation"]
+        { "calls": ["record_guess", "set_control"], "input": { "set_control": { "name": "angle", "value": 60, "run": true } } },
+        { "calls": ["record_guess", "set_control", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": null } } },
+        { "calls": ["set_control", "record_guess", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": null } } }
       ],
-      "input": { "set_control": { "name": "angle", "value": 60 } },
-      "why": "Three steps with a fixed end: Run is locked until the guess is recorded, so run_simulation must come after record_guess, and the control must be set before the run."
+      "why": "The guess must be recorded before the run, since Run is locked until then, and the control must be set before the run. set_control with run true does the set and the run in one call, so record_guess comes first. The older chain with run_simulation is accepted only when set_control leaves run out, so a model that runs twice fails."
     }
   ]
 }
