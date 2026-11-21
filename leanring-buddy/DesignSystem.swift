@@ -200,6 +200,24 @@ enum DS {
         /// The same blue as text, for the frame pop-out page, which cannot read a SwiftUI Color.
         static let overlayCursorBlueHex = "#3380ff"
 
+        // ── Tether materials ─────────────────────────────────────────
+        // The two materials every Tether surface is drawn in (`TetherMaterials.swift`). They never follow the theme: the
+        // theme's accent is the only color a surface takes from it.
+
+        /// The top of the Card's surface gradient.
+        static let cardSurfaceTop = Color(hex: "#121419")
+
+        /// The bottom of the Card's surface gradient.
+        static let cardSurfaceBottom = Color(hex: "#171a21")
+
+        /// The Callout's solid surface. Solid, not blurred: a blur turned it mid gray on a white page, where white words
+        /// fell from 17.9 to 5.4 contrast in the phase-zero prototype.
+        static let calloutSurface = Color(hex: "#14171e")
+
+        /// The ink of an icon on an accent-filled disc. Near-black on every accent, Clicky blue included, since white on
+        /// `#3380ff` is only 3.9 contrast and this is 5.3.
+        static let inkOnAccent = Color(hex: "#0b0c0e")
+
         // ── Settings Dial ────────────────────────────────────────────
 
         /// The dial's plate and the first-run hint's background, a near-black blue.
@@ -312,6 +330,8 @@ enum DS {
         static let large: CGFloat = 10
         /// Large panels, permission cards.
         static let extraLarge: CGFloat = 12
+        /// The Tether Card (`tetherCard()`).
+        static let card: CGFloat = 14
         /// Pill-shaped buttons (the continue button).
         static let pill: CGFloat = .infinity
     }
@@ -327,6 +347,166 @@ enum DS {
         static let slow: Double = 0.4
     }
 
+    // MARK: - Tether type scale
+
+    /// The Tether type scale: four sizes (17, 15, 13, 11) in six styles. Every Tether surface sets its text in one of them,
+    /// such as `Text("Popping it out").font(DS.TypeScale.voice.font)`. Set a Data style string with `Text(verbatim:)`, since
+    /// SwiftUI turns a URL in a plain `Text` into a blue link.
+    /// (`DS.Type` would be Swift's metatype of `DS`, so the scale has this name.)
+    enum TypeScale: CaseIterable {
+        /// 17/700 rounded: a Card's heading, such as "Set up Clicky".
+        case headline
+        /// 15/700 rounded: anything Clicky says on a Callout, such as "Popping it out".
+        case voice
+        /// 13/600: a row's name, such as "Task · Booster catch". The spec's 650 is not a system weight, so semibold.
+        case title
+        /// 13/400: a row's line, such as "Reading nasa.gov for the booster catch numbers".
+        case body
+        /// 11/500: a hint under a control.
+        case caption
+        /// 11 monospaced: a link, a path, or a raw value.
+        case data
+
+        var pointSize: CGFloat {
+            switch self {
+            case .headline: return 17
+            case .voice: return 15
+            case .title, .body: return 13
+            case .caption, .data: return 11
+            }
+        }
+
+        var weight: Font.Weight {
+            switch self {
+            case .headline, .voice: return .bold
+            case .title: return .semibold
+            case .body, .data: return .regular
+            case .caption: return .medium
+            }
+        }
+
+        var design: Font.Design {
+            switch self {
+            case .headline, .voice: return .rounded
+            case .title, .body, .caption: return .default
+            case .data: return .monospaced
+            }
+        }
+
+        var font: Font { .system(size: pointSize, weight: weight, design: design) }
+    }
+
+    // MARK: - Tether moves
+
+    /// The ten named moves of the Tether redesign. Every animated change on a Tether surface is one of them, so a surface
+    /// asks for a move by name, such as `withAnimation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotion)) { ... }`, and
+    /// never writes its own duration or spring. Each move has a `curve` and a Reduce Motion form (`reduceMotionForm`), which
+    /// keeps the change of state and drops the travel.
+    ///
+    /// A move that crosses windows (Send, and a Card's Glide out of a disc and its Return to source) runs on the shared
+    /// carrier panel (`TetherCarrier`), which samples the same curve for Core Animation.
+    ///
+    /// Today's timings, and the move each becomes as the Tether PRs adopt these tokens:
+    /// - The pointing bubble's spring(0.4, 0.6) scale and 0.5 s fade, and the status label's and chip's 0.2 s ease-out at
+    ///   scale 0.4: Pop in, and out at 0.7x.
+    /// - The dial token's, disc hover's, fan's, and fan ball's 0.1 to 0.14 s ease-outs and spring(0.18, 0.8): Snap.
+    /// - The dial's spring(0.22, 0.78) open: Glide. Its fan items' spring(0.26, 0.72) with a 14 ms stagger: Pop.
+    /// - The dial's, agent list's, studio's, and panel's close, which is `orderOut` today: Glide close at 0.7x.
+    /// - A disc's phase and check, 0.25 s ease-out: Pop for the badge, Snap for the ring.
+    /// - The ring cue's 0.15 and 0.35 s crossfades and the loop's 0.3 s fade: one fade, `fadeSeconds`.
+    /// - The pointing flight's 0.6 to 1.4 s smoothstep with a peak scale of 1.3: Point, with a stretch of 1.15 and a
+    ///   landing ring.
+    /// - The agent serve's 0.5 s keyframes: Send, on the carrier panel.
+    /// - The welcome fade's and onboarding video's 2 s eases: Glide over 0.6 s, on the first run only.
+    /// - The scene pages' CSS (0.15, 0.3, and 0.6 s labels, the 0.45 s shake, the 0.7 s burst, the 0.4 s lift): Snap, Pop,
+    ///   Shake, a hop, and Glide.
+    /// - The ring's dots (1.2 s), the loop's spark (2.2 s), and the status icons (1.4 to 3.2 s) are ambient loops, not
+    ///   moves, and keep their timings.
+    enum Move: CaseIterable {
+        /// Work leaves the cursor for its disc: the serve, a smoothstep arc over 0.5 s.
+        case send
+        /// A result comes back: a spark runs from the disc along the screen edge to the cursor, then the chip pops.
+        case bringBack
+        /// The pointing flight, paced by its distance from 0.6 to 1.4 s, with a stretch and a landing ring.
+        case point
+        /// A scene grows out of the media rect over 1.6 s (`scene-rise.js`).
+        case rise
+        /// A pop-out flattens back into the video over 0.8 s (`returnToSource` in `frame-popout.html`).
+        case returnToSource
+        /// A Callout or a badge appears from its anchor.
+        case pop
+        /// A Card opens out of its origin with the tether line, and closes back into it at `glideCloseTimeFactor`.
+        case glide
+        /// Hover, selection, and press.
+        case snap
+        /// An interrupt: speech, chips, and status lines shrink into the cursor in 180 ms. Scenes, the studio, and lists stay.
+        case recall
+        /// A failure or a wrong quiz answer: one small shake. Never alone, since Reduce Motion drops it: the red color and
+        /// the cross badge carry the failure.
+        case shake
+
+        var curve: MoveCurve {
+            switch self {
+            case .send: return .timed(seconds: 0.5, bezier: .smoothstep)
+            case .bringBack: return .timed(seconds: 0.6, bezier: .smoothstep)
+            case .point: return .pacedByDistance(pointsPerSecond: 800, shortestSeconds: 0.6, longestSeconds: 1.4, bezier: .smoothstep)
+            case .rise: return .timed(seconds: 1.6, bezier: .cubicEaseInOut)
+            case .returnToSource: return .timed(seconds: 0.8, bezier: .cubicEaseInOut)
+            case .pop: return .spring(response: 0.32, dampingFraction: 0.68)
+            case .glide: return .spring(response: 0.42, dampingFraction: 0.9)
+            case .snap: return .spring(response: 0.18, dampingFraction: 0.86)
+            case .recall: return .timed(seconds: 0.18, bezier: .quadraticEaseIn)
+            case .shake: return .decayingShake(seconds: 0.45, amplitudePoints: 7, cyclesPerSecond: 3.5, decayPerSecond: 7)
+            }
+        }
+
+        /// What the move becomes with Reduce Motion on: a flight fades in at its target and leaves a still ring there,
+        /// a Card or Callout crossfades in place, and the shake does nothing.
+        var reduceMotionForm: ReducedMotionForm {
+            switch self {
+            case .send, .bringBack, .point: return .fadeAtTheTargetLeavingAStillRing(seconds: 0.2)
+            case .rise, .returnToSource, .pop, .glide, .snap, .recall: return .crossfade(seconds: Self.fadeSeconds)
+            case .shake: return .none
+            }
+        }
+
+        /// The SwiftUI animation for this move. Nil when the change should apply with no animation: the shake, which moves
+        /// an offset (`curve.progress`) instead of easing a value, and any move whose Reduce Motion form is none.
+        /// - `travelingPoints`: how far the thing moves, which only the Point move's duration depends on.
+        func animation(reduceMotionIsOn: Bool, travelingPoints: Double = 0) -> SwiftUI.Animation? {
+            if reduceMotionIsOn {
+                switch reduceMotionForm {
+                case .crossfade(let seconds), .fadeAtTheTargetLeavingAStillRing(let seconds): return .easeOut(duration: seconds)
+                case .none: return nil
+                }
+            }
+            return curve.animation(travelingPoints: travelingPoints)
+        }
+
+        // The shapes the moves take, shared by every surface that plays them.
+
+        /// The one fade every crossfade uses, the ring cue's included.
+        static let fadeSeconds: Double = 0.15
+        /// Pop grows from this scale, pivoting on the Callout's tail tip (`TetherCalloutShape.tailTip`).
+        static let popStartScale: CGFloat = 0.4
+        /// Pop's opacity reaches 1 in this time, well before its spring settles.
+        static let popFadeInSeconds: Double = 0.12
+        /// A Glide grows from this scale at its origin, so it reads as coming out of a 22 point disc.
+        static let glideStartScale: CGFloat = 0.07
+        /// A Glide close plays the open's spring this many times as long, so a close is quicker than an open.
+        static let glideCloseTimeFactor: Double = 0.7
+        /// Snap scales a pressed control to this.
+        static let snapPressScale: CGFloat = 0.97
+        /// Recall shrinks to this scale as it fades into the cursor.
+        static let recallEndScale: CGFloat = 0.1
+        /// Point stretches the cursor to this length along its flight at the fastest point.
+        static let pointStretch: CGFloat = 1.15
+        /// The tether line's width, in the origin's color.
+        static let tetherLineWidth: CGFloat = 1
+        /// The tether line fades out over this time after the carried thing lands.
+        static let tetherFadeSeconds: Double = 0.25
+    }
+
     // MARK: - State Layer Opacities
     // Based on Material Design 3's state layer system.
     // A "state layer" overlays the button's content color at these opacities.
@@ -340,6 +520,141 @@ enum DS {
         static let pressed: Double = 0.12
         /// Dragged: strongest overlay (rarely used).
         static let dragged: Double = 0.16
+    }
+}
+
+// MARK: - Move curves
+
+/// What a move does with Reduce Motion on (`DS.Move.reduceMotionForm`). Every form keeps the change of state.
+nonisolated enum ReducedMotionForm: Equatable, Sendable {
+    /// Fade in place over this time, with no scale and no travel.
+    case crossfade(seconds: Double)
+    /// A flight: no travel, a fade in at the target over this time, and a still ring left on the target.
+    case fadeAtTheTargetLeavingAStillRing(seconds: Double)
+    /// Nothing moves. Only the shake has this, so a failure never relies on it alone.
+    case none
+}
+
+/// A cubic bezier easing from (0, 0) to (1, 1): the curve CSS `cubic-bezier`, SwiftUI's `timingCurve`, and
+/// `CAMediaTimingFunction(controlPoints:)` take, so a move eases the same way in each.
+nonisolated struct MoveBezier: Equatable, Sendable {
+    let x1: Double
+    let y1: Double
+    let x2: Double
+    let y2: Double
+
+    /// Exactly smoothstep, `3t² - 2t³`, the curve the serve and the pointing flight use: its x control points are evenly
+    /// spaced, so x is the time itself.
+    static let smoothstep = MoveBezier(x1: 1.0 / 3, y1: 0, x2: 2.0 / 3, y2: 1)
+    /// Exactly `t²`: it starts slowly and speeds up, as a Recall does into the cursor.
+    static let quadraticEaseIn = MoveBezier(x1: 1.0 / 3, y1: 0, x2: 2.0 / 3, y2: 1.0 / 3)
+    /// The rise's and the pop-out return's ease in and out, `cubic-bezier(0.65, 0, 0.35, 1)`.
+    static let cubicEaseInOut = MoveBezier(x1: 0.65, y1: 0, x2: 0.35, y2: 1)
+
+    /// The eased progress after `linearProgress` of the time, from 0 to 1. Progress outside 0 to 1 is clamped.
+    func progress(atLinearProgress linearProgress: Double) -> Double {
+        guard linearProgress > 0 else { return 0 }
+        guard linearProgress < 1 else { return 1 }
+        // The curve's x grows with its parameter, since both x control points lie in 0 to 1, so halving the range 50 times
+        // finds the parameter whose x is the time to far below a pixel.
+        var lowParameter = 0.0
+        var highParameter = 1.0
+        for _ in 0..<50 {
+            let middleParameter = (lowParameter + highParameter) / 2
+            if Self.coordinate(atParameter: middleParameter, firstControl: x1, secondControl: x2) < linearProgress {
+                lowParameter = middleParameter
+            } else {
+                highParameter = middleParameter
+            }
+        }
+        return Self.coordinate(atParameter: (lowParameter + highParameter) / 2, firstControl: y1, secondControl: y2)
+    }
+
+    /// One coordinate of the curve from 0 to 1 through the two control values.
+    private static func coordinate(atParameter parameter: Double, firstControl: Double, secondControl: Double) -> Double {
+        let remaining = 1 - parameter
+        return 3 * remaining * remaining * parameter * firstControl + 3 * remaining * parameter * parameter * secondControl + parameter * parameter * parameter
+    }
+}
+
+/// How a move's value travels from its start (0) to its end (1) over time. SwiftUI plays it through `animation`, and the
+/// carrier samples `progress` into Core Animation keyframes, so both draw the same curve.
+nonisolated enum MoveCurve: Equatable, Sendable {
+    /// A damped spring, with the meaning SwiftUI's `spring(response:dampingFraction:)` gives these two values. Every move's
+    /// spring is under-damped (a damping fraction below 1).
+    case spring(response: Double, dampingFraction: Double)
+    /// A fixed time along a bezier.
+    case timed(seconds: Double, bezier: MoveBezier)
+    /// A time that grows with the distance traveled, held between the shortest and longest time.
+    case pacedByDistance(pointsPerSecond: Double, shortestSeconds: Double, longestSeconds: Double, bezier: MoveBezier)
+    /// An offset that swings either way and dies out. Its `progress` is the signed share of `amplitudePoints`, from -1 to 1,
+    /// and it is 0 at the start and at the end.
+    case decayingShake(seconds: Double, amplitudePoints: Double, cyclesPerSecond: Double, decayPerSecond: Double)
+
+    /// A spring has settled once its distance from the end stays under this share of the whole move.
+    private static let springSettledShare = 0.002
+
+    /// How long the move takes. A spring's time is how long it takes to settle.
+    /// - `travelingPoints`: the distance moved, which only a move paced by distance reads.
+    func seconds(travelingPoints: Double = 0) -> Double {
+        switch self {
+        case .spring(let response, let dampingFraction):
+            let naturalFrequency = 2 * Double.pi / response
+            return -log(Self.springSettledShare) / (dampingFraction * naturalFrequency)
+        case .timed(let seconds, _):
+            return seconds
+        case .pacedByDistance(let pointsPerSecond, let shortestSeconds, let longestSeconds, _):
+            return min(max(travelingPoints / pointsPerSecond, shortestSeconds), longestSeconds)
+        case .decayingShake(let seconds, _, _, _):
+            return seconds
+        }
+    }
+
+    /// The share of the move done `elapsedSeconds` after it started: 0 before the start, exactly 1 from `seconds` on, and
+    /// a little past 1 while a spring overshoots. A shake's is its signed offset share instead (see `decayingShake`).
+    func progress(atSeconds elapsedSeconds: Double, travelingPoints: Double = 0) -> Double {
+        guard elapsedSeconds > 0 else { return 0 }
+        let totalSeconds = seconds(travelingPoints: travelingPoints)
+        switch self {
+        case .spring(let response, let dampingFraction):
+            guard elapsedSeconds < totalSeconds else { return 1 }
+            let naturalFrequency = 2 * Double.pi / response
+            let dampedFrequency = naturalFrequency * (1 - dampingFraction * dampingFraction).squareRoot()
+            let envelope = exp(-dampingFraction * naturalFrequency * elapsedSeconds)
+            return 1 - envelope * (cos(dampedFrequency * elapsedSeconds)
+                + dampingFraction * naturalFrequency / dampedFrequency * sin(dampedFrequency * elapsedSeconds))
+        case .timed(_, let bezier), .pacedByDistance(_, _, _, let bezier):
+            return bezier.progress(atLinearProgress: elapsedSeconds / totalSeconds)
+        case .decayingShake(_, _, let cyclesPerSecond, let decayPerSecond):
+            guard elapsedSeconds < totalSeconds else { return 0 }
+            return exp(-decayPerSecond * elapsedSeconds) * sin(2 * Double.pi * cyclesPerSecond * elapsedSeconds)
+        }
+    }
+
+    /// The same curve played `factor` times as long, as a Glide close plays the open at 0.7x.
+    func timeScaled(by factor: Double) -> MoveCurve {
+        switch self {
+        case .spring(let response, let dampingFraction):
+            return .spring(response: response * factor, dampingFraction: dampingFraction)
+        case .timed(let seconds, let bezier):
+            return .timed(seconds: seconds * factor, bezier: bezier)
+        case .pacedByDistance(let pointsPerSecond, let shortestSeconds, let longestSeconds, let bezier):
+            return .pacedByDistance(pointsPerSecond: pointsPerSecond / factor, shortestSeconds: shortestSeconds * factor, longestSeconds: longestSeconds * factor, bezier: bezier)
+        case .decayingShake(let seconds, let amplitudePoints, let cyclesPerSecond, let decayPerSecond):
+            return .decayingShake(seconds: seconds * factor, amplitudePoints: amplitudePoints, cyclesPerSecond: cyclesPerSecond / factor, decayPerSecond: decayPerSecond / factor)
+        }
+    }
+
+    /// The SwiftUI animation that plays this curve. Nil for a shake, which moves an offset instead of easing a value.
+    func animation(travelingPoints: Double = 0) -> SwiftUI.Animation? {
+        switch self {
+        case .spring(let response, let dampingFraction):
+            return .spring(response: response, dampingFraction: dampingFraction)
+        case .timed(_, let bezier), .pacedByDistance(_, _, _, let bezier):
+            return .timingCurve(bezier.x1, bezier.y1, bezier.x2, bezier.y2, duration: seconds(travelingPoints: travelingPoints))
+        case .decayingShake:
+            return nil
+        }
     }
 }
 
