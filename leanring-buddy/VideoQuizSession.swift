@@ -857,14 +857,26 @@ final class VideoQuizSession {
     /// The main video in Chrome's front tab, on any site, as the voice command model sees it, or nil when the
     /// page has none. A video inside a frame from another site cannot be reached by a page script, so it counts as none.
     func frontVideoStateForVoiceCommands() -> JSONValue? {
-        guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+        let frontTab: ChromeVideoTab
+        do {
+            frontTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        } catch {
+            print("Front video: could not read the front tab: \(error)")
+            return nil
+        }
         return frontVideoStateForVoiceCommands(in: frontTab)
     }
 
     /// The same read of a front tab the caller already has, so a release that reads the tab once for several readers does not
-    /// read it again here.
+    /// read it again here. A read that finds no video says why in the log, since "no video" and "Chrome refused" send the
+    /// model different tools and look the same afterwards.
     func frontVideoStateForVoiceCommands(in frontTab: ChromeVideoTab) -> JSONValue? {
-        try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
+        do {
+            return try Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
+        } catch {
+            print("Front video: no video state for the front tab (\(URL(string: frontTab.url)?.host() ?? "unknown host")): \(error)")
+            return nil
+        }
     }
 
     /// Runs a pause, play, seek, or speed change the learner asked for on the video in front, and returns its state.

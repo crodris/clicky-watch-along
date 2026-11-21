@@ -2808,6 +2808,7 @@ final class CompanionManager: ObservableObject {
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
         let offeredToolNames = Set(tools.map(\.name))
+        print("Voice command: offering \(tools.count) tools, \(frontVideoState == nil ? "no video" : "a video") in front")
         // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
         // screen while they spoke or while the model ran, such as after the shown one's task ended.
         let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
