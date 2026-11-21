@@ -588,7 +588,7 @@ func TestAHandedOffResultThenACancelEndTheCommandAsHandedOff(t *testing.T) {
 // Commands and tasks share one stdin reader and one app write queue, so a task waiting on a slow MCP server, with a
 // large tool result on its way to it, must not hold up a command.
 func TestACommandGetsItsFirstCallWhileATaskWaitsOnTheMCPServersAndAResultIsInFlight(t *testing.T) {
-	const mcpServerStartDelay = 1500 * time.Millisecond
+	const mcpServerStartDelay = 5 * time.Second
 	directory := t.TempDir()
 	config := map[string]any{"mcpServers": map[string]any{"slow": map[string]any{
 		"command": os.Args[0],
