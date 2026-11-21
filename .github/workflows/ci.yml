@@ -78,6 +78,8 @@ jobs:
       - run: node report.ts --out "$RUNNER_TEMP/bench-report" results/*.json
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
+      # Every PNG the AppIcon set names must have its exact size and transparent corners, or macOS shows a black square behind the icon.
+      - run: python3 -I ../tools/app-icon/check-app-icon.py
 
   app:
     # Pushes and same-repo PRs run on the self-hosted Mac runner, as a separate macOS user, because GitHub's macOS queue can take over 10 minutes.
