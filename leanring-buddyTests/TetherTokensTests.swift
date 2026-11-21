@@ -97,6 +97,11 @@ struct TetherTokensTests {
         #expect(distanceLeftJustBeforeTheEnd > 0.0015 && distanceLeftJustBeforeTheEnd < 0.0025)
     }
 
+    @Test func swiftUIPlaysADampingAboveOneAsCriticallyDampedLikeTheCarrier() {
+        #expect(MoveCurve.spring(response: 0.3, dampingFraction: 1.4).animation() == .spring(response: 0.3, dampingFraction: 1))
+        #expect(DS.Move.glide.curve.animation() == .spring(response: 0.42, dampingFraction: 0.9))
+    }
+
     @Test func everyReduceMotionFormSaysHowLongItsFadeTakes() {
         #expect(ReducedMotionForm.crossfade(seconds: 0.15).fadeSeconds == 0.15)
         #expect(ReducedMotionForm.fadeAtTheTargetLeavingAStillRing(seconds: 0.2).fadeSeconds == 0.2)
