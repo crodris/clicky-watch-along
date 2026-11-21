@@ -1,0 +1,1987 @@
+{
+  "label": "undo-rebased-session",
+  "benchKind": "brain-evals",
+  "commitSHA": "b432a3784e3f",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-21T18:38:22.007Z",
+  "runCount": 3,
+  "port": 8797,
+  "measures": {
+    "session": {
+      "commands": 30,
+      "passed": 29,
+      "cacheReadShare": 0.9261,
+      "p50Ms": 600,
+      "p95Ms": 876,
+      "meanFirstTurnCostUSD": 0.000167,
+      "meanFullCommandCostUSD": 0.000167
+    },
+    "stateless": {
+      "commands": 30,
+      "passed": 23,
+      "cacheReadShare": 0.96,
+      "p50Ms": 669,
+      "p95Ms": 1098,
+      "meanFirstTurnCostUSD": 0.000125,
+      "meanFullCommandCostUSD": 0.000125
+    }
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "measured-1",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 611.8457500000004,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 611.6542920000011,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-2",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 876.3093750000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 324,
+          "cacheReadTokens": 5754,
+          "outputTokens": 130
+        }
+      ],
+      "costUSD": 0.00017874,
+      "fullCommandCostUSD": 0.00017874,
+      "totalMs": 876.1951250000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-3",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 583.278542,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 302,
+          "cacheReadTokens": 6078,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00015482999999999998,
+      "fullCommandCostUSD": 0.00015482999999999998,
+      "totalMs": 583.0535419999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-4",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 612.200291000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 254,
+          "cacheReadTokens": 6380,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00015185,
+      "fullCommandCostUSD": 0.00015185,
+      "totalMs": 612.0379580000008,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-5",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 886.732,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 254,
+          "cacheReadTokens": 6634,
+          "outputTokens": 133
+        }
+      ],
+      "costUSD": 0.00018009,
+      "fullCommandCostUSD": 0.00018009,
+      "totalMs": 886.5863339999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "pitchDegrees": 30,
+            "yawDegrees": 0
+          }
+        }
+      ],
+      "spokenText": "tilted it up",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-6",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 550.3396249999987,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 303,
+          "cacheReadTokens": 6888,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00014945499999999997,
+      "fullCommandCostUSD": 0.00014945499999999997,
+      "totalMs": 550.2129589999986,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "reset the view",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-7",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 547.7075420000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 156,
+          "cacheWriteTokens": 1663,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00031774500000000003,
+      "fullCommandCostUSD": 0.00031774500000000003,
+      "totalMs": 547.5502090000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "piston"
+          }
+        }
+      ],
+      "spokenText": "showing the piston",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-8",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 587.0533749999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 154,
+          "cacheWriteTokens": 251,
+          "cacheReadTokens": 7090,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.000156675,
+      "fullCommandCostUSD": 0.000156675,
+      "totalMs": 586.819125,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "exploded it apart",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-9",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 584.181125000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 247,
+          "cacheReadTokens": 7341,
+          "outputTokens": 76
+        }
+      ],
+      "costUSD": 0.000157785,
+      "fullCommandCostUSD": 0.000157785,
+      "totalMs": 583.7396669999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 0
+          }
+        }
+      ],
+      "spokenText": "put it back together",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-10",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 711.6117919999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 246,
+          "cacheReadTokens": 7588,
+          "outputTokens": 116
+        }
+      ],
+      "costUSD": 0.00018032999999999998,
+      "fullCommandCostUSD": 0.00018032999999999998,
+      "totalMs": 711.4835419999981,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": 45
+          }
+        }
+      ],
+      "spokenText": "undid the first turn",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-1",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 623.776249999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 623.5720829999991,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-2",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 819.7615409999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6078,
+          "outputTokens": 119
+        }
+      ],
+      "costUSD": 0.00013598,
+      "fullCommandCostUSD": 0.00013598,
+      "totalMs": 819.078125,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-3",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 600.3345410000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 291,
+          "cacheReadTokens": 6078,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.000153455,
+      "fullCommandCostUSD": 0.000153455,
+      "totalMs": 600.116750000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-4",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 603.8882090000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 254,
+          "cacheReadTokens": 6369,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00015174,
+      "fullCommandCostUSD": 0.00015174,
+      "totalMs": 603.6370840000018,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-5",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 813.7531659999986,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 254,
+          "cacheReadTokens": 6623,
+          "outputTokens": 137
+        }
+      ],
+      "costUSD": 0.00018198000000000002,
+      "fullCommandCostUSD": 0.00018198000000000002,
+      "totalMs": 813.5928329999988,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "pitchDegrees": 30,
+            "yawDegrees": 0
+          }
+        }
+      ],
+      "spokenText": "turned it up",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-6",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 524.3718750000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 307,
+          "cacheReadTokens": 6877,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00014984499999999999,
+      "fullCommandCostUSD": 0.00014984499999999999,
+      "totalMs": 524.2795420000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "reset the view",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-7",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 591.1398329999975,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 156,
+          "cacheWriteTokens": 1656,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00031687,
+      "fullCommandCostUSD": 0.00031687,
+      "totalMs": 590.8165409999965,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "piston"
+          }
+        }
+      ],
+      "spokenText": "showing the piston",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-8",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 579.6182079999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 154,
+          "cacheWriteTokens": 251,
+          "cacheReadTokens": 7083,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00015760499999999998,
+      "fullCommandCostUSD": 0.00015760499999999998,
+      "totalMs": 579.4351669999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "pulled the parts apart",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-9",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 550.8061249999992,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 249,
+          "cacheReadTokens": 7334,
+          "outputTokens": 76
+        }
+      ],
+      "costUSD": 0.000157965,
+      "fullCommandCostUSD": 0.000157965,
+      "totalMs": 550.7044999999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 0
+          }
+        }
+      ],
+      "spokenText": "put it back together",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-10",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 693.6867920000004,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 246,
+          "cacheReadTokens": 7583,
+          "outputTokens": 107
+        }
+      ],
+      "costUSD": 0.00017578,
+      "fullCommandCostUSD": 0.00017578,
+      "totalMs": 693.4602919999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": 45
+          }
+        }
+      ],
+      "spokenText": "undid the first turn",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-1",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 641.3049580000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 641.1309579999943,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-2",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 476.8439999999973,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6078,
+          "outputTokens": 9
+        }
+      ],
+      "costUSD": 0.00008098,
+      "fullCommandCostUSD": 0.00008098,
+      "totalMs": 476.8439999999973,
+      "outcome": "missedTool",
+      "toolCalls": [],
+      "spokenText": "The model is turned left.",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-3",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 615.0570829999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 164,
+          "cacheReadTokens": 6078,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00013758,
+      "fullCommandCostUSD": 0.00013758,
+      "totalMs": 614.8717079999988,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-4",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 592.9468750000015,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 158,
+          "cacheWriteTokens": 254,
+          "cacheReadTokens": 6242,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00015047,
+      "fullCommandCostUSD": 0.00015047,
+      "totalMs": 592.6831659999953,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-5",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 657.4057079999984,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 254,
+          "cacheReadTokens": 6496,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.00016621,
+      "fullCommandCostUSD": 0.00016621,
+      "totalMs": 657.245041999995,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "pitchDegrees": 20,
+            "yawDegrees": 0
+          }
+        }
+      ],
+      "spokenText": "turned it up",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-6",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 539.8896250000034,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 278,
+          "cacheReadTokens": 6750,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00014495,
+      "fullCommandCostUSD": 0.00014495,
+      "totalMs": 536.3834170000046,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "reset the view",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-7",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 604.4830000000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 156,
+          "cacheWriteTokens": 1500,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00029737,
+      "fullCommandCostUSD": 0.00029737,
+      "totalMs": 604.2687080000032,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "piston"
+          }
+        }
+      ],
+      "spokenText": "showing the piston",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-8",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 585.1948330000014,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 154,
+          "cacheWriteTokens": 251,
+          "cacheReadTokens": 6927,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.000156045,
+      "fullCommandCostUSD": 0.000156045,
+      "totalMs": 584.8596660000039,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "pulled the parts apart",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-9",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 575.5990420000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 155,
+          "cacheWriteTokens": 249,
+          "cacheReadTokens": 7178,
+          "outputTokens": 76
+        }
+      ],
+      "costUSD": 0.000156405,
+      "fullCommandCostUSD": 0.000156405,
+      "totalMs": 575.3656249999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 0
+          }
+        }
+      ],
+      "spokenText": "put it back together",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-10",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 709.8112909999982,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 157,
+          "cacheWriteTokens": 246,
+          "cacheReadTokens": 7427,
+          "outputTokens": 83
+        }
+      ],
+      "costUSD": 0.00016222,
+      "fullCommandCostUSD": 0.00016222,
+      "totalMs": 709.6178329999966,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": 45
+          }
+        }
+      ],
+      "spokenText": "undid the first turn",
+      "mode": "session"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-1",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 686.3115830000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 684.593042,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-2",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 663.040375,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 662.8179580000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-3",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 742.6696659999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 228,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011707,
+      "fullCommandCostUSD": 0.00011707,
+      "totalMs": 742.5463749999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-4",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 649.9720830000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 228,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011707,
+      "fullCommandCostUSD": 0.00011707,
+      "totalMs": 649.5402910000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-5",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1000.9074999999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 150
+        }
+      ],
+      "costUSD": 0.00015177000000000002,
+      "fullCommandCostUSD": 0.00015177000000000002,
+      "totalMs": 1000.77225,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "moved it closer",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-6",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 785.9676250000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 96
+        }
+      ],
+      "costUSD": 0.00012497,
+      "fullCommandCostUSD": 0.00012497,
+      "totalMs": 785.517167,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to the starting view",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-7",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 644.3958750000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 226,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00011737000000000001,
+      "fullCommandCostUSD": 0.00011737000000000001,
+      "totalMs": 644.1073340000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "piston"
+          }
+        }
+      ],
+      "spokenText": "Showing the piston",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-8",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 605.0406249999996,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 224,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011667,
+      "fullCommandCostUSD": 0.00011667,
+      "totalMs": 604.9269159999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "pulling the parts apart",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-9",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1100.0336669999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 158
+        }
+      ],
+      "costUSD": 0.00015577,
+      "fullCommandCostUSD": 0.00015577,
+      "totalMs": 1099.7298339999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 0
+          }
+        }
+      ],
+      "spokenText": "putting it back together",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-10",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 909.601541,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 111
+        }
+      ],
+      "costUSD": 0.00013247,
+      "fullCommandCostUSD": 0.00013247,
+      "totalMs": 909.1447909999988,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-1",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 680.2505830000009,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 668.5193749999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-2",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 651.8890420000025,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 651.7142500000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-3",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 638.3359579999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 228,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011707,
+      "fullCommandCostUSD": 0.00011707,
+      "totalMs": 638.2137079999993,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-4",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 633.4830419999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 228,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011707,
+      "fullCommandCostUSD": 0.00011707,
+      "totalMs": 633.4164170000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-5",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 854.4461669999982,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 137
+        }
+      ],
+      "costUSD": 0.00014527000000000002,
+      "fullCommandCostUSD": 0.00014527000000000002,
+      "totalMs": 854.2873749999999,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zoomed in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-6",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 716.9514580000032,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 81
+        }
+      ],
+      "costUSD": 0.00011747,
+      "fullCommandCostUSD": 0.00011747,
+      "totalMs": 716.7266670000026,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "Zoom reset to the start",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-7",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 619.2814590000016,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 226,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011687000000000001,
+      "fullCommandCostUSD": 0.00011687000000000001,
+      "totalMs": 608.6751670000012,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "piston"
+          }
+        }
+      ],
+      "spokenText": "showing the piston",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-8",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 678.6264580000025,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 224,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011667,
+      "fullCommandCostUSD": 0.00011667,
+      "totalMs": 673.986917000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "pulling the parts apart",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-9",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 786.8854170000013,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 115
+        }
+      ],
+      "costUSD": 0.00013427,
+      "fullCommandCostUSD": 0.00013427,
+      "totalMs": 786.6359169999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 0
+          }
+        }
+      ],
+      "spokenText": "putting it back together",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-10",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 906.6061249999984,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 115
+        }
+      ],
+      "costUSD": 0.00013447,
+      "fullCommandCostUSD": 0.00013447,
+      "totalMs": 906.403166,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to the start",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-1",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 633.6199579999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 633.0836670000026,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-2",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 601.4689580000013,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.00011797,
+      "fullCommandCostUSD": 0.00011797,
+      "totalMs": 601.2743750000009,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        }
+      ],
+      "spokenText": "turned it left",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-3",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 637.7098750000005,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 228,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011707,
+      "fullCommandCostUSD": 0.00011707,
+      "totalMs": 637.564959000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-4",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 640.5139999999992,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 228,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011707,
+      "fullCommandCostUSD": 0.00011707,
+      "totalMs": 640.3764580000025,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "zooming in a bit",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-5",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1098.1807499999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 180
+        }
+      ],
+      "costUSD": 0.00016677,
+      "fullCommandCostUSD": 0.00016677,
+      "totalMs": 1098.0274999999965,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 1.3
+          }
+        }
+      ],
+      "spokenText": "moved closer",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-6",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 767.4970840000024,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 91
+        }
+      ],
+      "costUSD": 0.00012247,
+      "fullCommandCostUSD": 0.00012247,
+      "totalMs": 767.3729999999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to the starting view",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-7",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 590.9975419999973,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 226,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011687000000000001,
+      "fullCommandCostUSD": 0.00011687000000000001,
+      "totalMs": 590.8317920000045,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "piston"
+          }
+        }
+      ],
+      "spokenText": "showing the piston",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-8",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 628.3546659999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 224,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 80
+        }
+      ],
+      "costUSD": 0.00011667,
+      "fullCommandCostUSD": 0.00011667,
+      "totalMs": 624.5932909999974,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "explode_view",
+          "input": {
+            "amount": 1
+          }
+        }
+      ],
+      "spokenText": "pulling the parts apart",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-9",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 749.2907919999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 225,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 102
+        }
+      ],
+      "costUSD": 0.00012777,
+      "fullCommandCostUSD": 0.00012777,
+      "totalMs": 749.1069580000039,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "putting it back together",
+      "mode": "stateless"
+    },
+    {
+      "backend": "harness",
+      "caseId": "measured-10",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 895.984166000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 227,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5427,
+          "outputTokens": 113
+        }
+      ],
+      "costUSD": 0.00013347,
+      "fullCommandCostUSD": 0.00013347,
+      "totalMs": 895.8424159999995,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "reset_view",
+          "input": {}
+        }
+      ],
+      "spokenText": "back to the start",
+      "mode": "stateless"
+    }
+  ]
+}

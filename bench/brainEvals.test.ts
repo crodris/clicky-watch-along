@@ -723,6 +723,54 @@ describe("the harness backend's scoring", () => {
     assert.equal(sampleFromHarnessRecord(inputCase, 0, hiddenRecord).outcome, "wrongInput");
   });
 
+  it("scores the inverse call the harness sends for undo_last_change, since that is what the learner sees", () => {
+    const undoCase = sessionFile.cases.find((brainCase) => brainCase.id === "session-undo-after-zoom");
+    assert.ok(undoCase, "the session fixture has no undo case");
+    // The harness logs the model's call by name, then sends the app the inverse under the model's call ID plus a suffix.
+    const { record } = replay(undoCase, [
+      [turn1Line("undo_last_change"), 410],
+      [toolCallLine("toolu_undo-undo", "zoom", { factor: 0.5 }, 0), 412],
+      [finishedLine("undid it"), 430],
+    ]);
+
+    assert.deepEqual(firstTurnToolCalls(record), [{ name: "zoom", input: { factor: 0.5 } }]);
+    assert.equal(sampleFromHarnessRecord(undoCase, 0, record).outcome, "pass");
+  });
+
+  it("fails an undo whose inverse has the wrong input, and one the harness refused, which sent nothing to the app", () => {
+    const undoCase = sessionFile.cases.find((brainCase) => brainCase.id === "session-undo-after-zoom");
+    assert.ok(undoCase, "the session fixture has no undo case");
+    const { record: wrongInverseRecord } = replay(undoCase, [
+      [turn1Line("undo_last_change"), 410],
+      [toolCallLine("toolu_undo-undo", "zoom", { factor: 0.77 }, 0), 412],
+      [finishedLine("undid it"), 430],
+    ]);
+    const { record: refusedRecord } = replay(undoCase, [[turn1Line("undo_last_change"), 410], [finishedLine("sorry"), 430]]);
+
+    assert.equal(sampleFromHarnessRecord(undoCase, 0, wrongInverseRecord).outcome, "wrongInput");
+    assert.equal(sampleFromHarnessRecord(undoCase, 0, refusedRecord).outcome, "wrongTool");
+  });
+
+  it("does not take the model's own call for an undo, even one whose ID ends in the suffix", () => {
+    const { record } = replay(fixtureCase("video-seek-back"), [
+      [turn1Line("undo_last_change,seek_relative"), 410],
+      [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412],
+      [finishedLine("done"), 430],
+    ]);
+
+    assert.deepEqual(firstTurnToolCalls(record), [
+      { name: "undo_last_change", input: {}, inputIsUnknown: true },
+      { name: "seek_relative", input: { seconds: -30 } },
+    ]);
+  });
+
+  it("uses the tool name and call ID suffix harness/brainundo.go defines, so a rename there fails here", () => {
+    const brainUndoSource = readFileSync(join(benchDirectory, "..", "harness", "brainundo.go"), "utf8");
+
+    assert.ok(brainUndoSource.includes('undoLastChangeTool toolName = "undo_last_change"'));
+    assert.ok(brainUndoSource.includes('undoCallIDSuffix = "-undo"'));
+  });
+
   it("does not pass a hidden call on an input check that wants a key absent, since nothing is known about its input", () => {
     const absentKeyCase: BrainCase = { ...fixtureCase("video-seek-back"), accept: [["seek_relative"]], input: { seek_relative: { confirmation: null } } };
     const { record } = replay(absentKeyCase, [[turn1Line("seek_relative"), 410], [finishedLine(""), 430]]);
@@ -996,10 +1044,19 @@ describe("the session fixture", () => {
     validateSessionFixture(sessionFile, evalFile, toolCatalog);
   });
 
-  it("holds the four session cases and the injection case the brain's memory needs", () => {
+  it("holds the session cases, the injection case, and the three undo cases the brain's memory needs", () => {
     assert.deepEqual(
       sessionFile.cases.map((brainCase) => brainCase.id),
-      ["session-undo-first-turn", "session-correction-after-fold", "session-correction-after-interrupt", "session-correction-after-seek-to-moment", "session-injection-approve"],
+      [
+        "session-undo-first-turn",
+        "session-correction-after-fold",
+        "session-correction-after-interrupt",
+        "session-correction-after-seek-to-moment",
+        "session-injection-approve",
+        "session-undo-after-zoom",
+        "session-undo-after-seek",
+        "session-undo-behind-a-pop-out",
+      ],
     );
     assert.equal(sessionCase("session-undo-first-turn").earlierCommands?.length, 7, "an undo after 7 commands");
     assert.ok((sessionCase("session-correction-after-fold").earlierCommands?.length ?? 0) > 24, "past the 24 command cap, so the session folds before the case");
