@@ -1170,7 +1170,21 @@ describe("the harness driver's session lines", () => {
 
 describe("the planning cases", () => {
   const popOutCase = fixtureCase("planning-find-seek-pop-out");
+  const findLastCase = fixtureCase("planning-find-last-mention");
   const backUpCase = fixtureCase("planning-find-then-back-up");
+  /** A case with two accepted sequences that each carry their own input, as the planning cases did before seek_to_moment. */
+  const twoSequenceCase: BrainCase = {
+    id: "inline-find-then-back-up",
+    context: "video",
+    say: "go to where he talks about the liver and then back up ten seconds",
+    why: "x",
+    scoreWholeCommand: true,
+    accept: [
+      { calls: ["find_moment", "seek_to_time", "seek_relative"], input: { seek_to_time: { seconds: 305 }, seek_relative: { seconds: -10 } } },
+      { calls: ["find_moment", "seek_to_time"], input: { seek_to_time: { seconds: 295 } } },
+    ],
+    toolResults: findLastCase.toolResults,
+  };
   /** The line the harness writes for a later turn, which `turn1Line` writes for the first. */
   const turnLine = (turnNumber: number, calls: string) => ({
     type: "log",
@@ -1178,61 +1192,90 @@ describe("the planning cases", () => {
   });
   const findMomentTurn: Array<[Record<string, unknown>, number]> = [
     [turn1Line("find_moment"), 400],
-    [toolCallLine("call-1", "find_moment", { query: "swim bladder" }, 0), 402],
+    [toolCallLine("call-1", "find_moment", { query: "liver" }, 0), 402],
   ];
   const scoreSecondTurn = (brainCase: BrainCase, secondTurnCalls: string, secondTurnToolCallLines: Array<[Record<string, unknown>, number]>) =>
     sampleFromHarnessRecord(brainCase, 0, replay(brainCase, [...findMomentTurn, [turnLine(2, secondTurnCalls), 800], ...secondTurnToolCallLines, [finishedLine(""), 830]]).record);
+  /** A command whose first reply holds every call, so it takes one turn. */
+  const scoreOneTurn = (brainCase: BrainCase, calls: Array<[string, Record<string, unknown>]>) =>
+    sampleFromHarnessRecord(
+      brainCase,
+      0,
+      replay(brainCase, [[turn1Line(calls.map(([name]) => name).join(",")), 400], ...calls.map(([name, input], index) => [toolCallLine(`call-${index + 1}`, name, input, 0), 402 + index] as [Record<string, unknown>, number]), [finishedLine(""), 430]]).record,
+    );
 
-  it("passes calls across turns that match an accepted sequence in order, with the seek's time taken from the scripted lookup, and reports every turn's cost", () => {
-    const passedSample = scoreSecondTurn(popOutCase, "seek_to_time,pop_out", [
-      [toolCallLine("call-2", "seek_to_time", { seconds: 98 }, 1), 802],
-      [toolCallLine("call-3", "pop_out", {}, 1), 804],
-    ]);
+  it("passes a seek and a pop-out in one reply, with no lookup turn", () => {
+    const passedSample = scoreOneTurn(popOutCase, [["seek_to_moment", { query: "swim bladder" }], ["pop_out", {}]]);
 
     assert.equal(passedSample.outcome, "pass");
-    assert.deepEqual(passedSample.toolCalls.map((toolCall) => toolCall.name), ["find_moment", "seek_to_time", "pop_out"]);
+    assert.deepEqual(passedSample.toolCalls.map((toolCall) => toolCall.name), ["seek_to_moment", "pop_out"]);
+    assert.equal(passedSample.turnCount, 1);
+  });
+
+  it("fails a pop-out the model dropped, the old lookup route, and the right calls in the wrong order", () => {
+    const droppedThePopOut = scoreOneTurn(popOutCase, [["seek_to_moment", { query: "swim bladder" }]]);
+    // pop_out came first, so the hand-off ended the turn and the seek never ran: it has a name and no tool_call line.
+    const wrongOrderSample = sampleFromHarnessRecord(
+      popOutCase,
+      0,
+      replay(popOutCase, [[turn1Line("pop_out,seek_to_moment"), 400], [toolCallLine("call-1", "pop_out", {}, 0), 402], [finishedLine(""), 430]]).record,
+    );
+    const lookedItUpFirst = sampleFromHarnessRecord(
+      popOutCase,
+      0,
+      replay(popOutCase, [...findMomentTurn, [turnLine(2, "seek_to_time,pop_out"), 800], [toolCallLine("call-2", "seek_to_time", { seconds: 98 }, 1), 802], [toolCallLine("call-3", "pop_out", {}, 1), 804], [finishedLine(""), 830]]).record,
+    );
+
+    assert.equal(droppedThePopOut.outcome, "wrongTool");
+    assert.equal(wrongOrderSample.outcome, "wrongTool");
+    assert.equal(lookedItUpFirst.outcome, "wrongTool");
+    assert.equal(scoreToolCalls(wrongOrderSample.toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(popOutCase)), "pass");
+  });
+
+  it("passes a lookup that feeds a seek across turns, with the seek's time taken from the scripted lookup, and reports every turn's cost", () => {
+    const passedSample = scoreSecondTurn(findLastCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 470 }, 1), 802]]);
+
+    assert.equal(passedSample.outcome, "pass");
+    assert.deepEqual(passedSample.toolCalls.map((toolCall) => toolCall.name), ["find_moment", "seek_to_time"]);
     assert.equal(passedSample.turnCount, 2);
     // The first turn alone costs less than the command, which adds both turns.
     assert.ok((passedSample.fullCommandCostUSD ?? 0) > (passedSample.costUSD ?? Infinity));
   });
 
-  it("fails the right calls in the wrong order, which an unordered score would pass", () => {
-    // pop_out came first, so the hand-off ended the turn and the seek never ran: it has a name and no tool_call line.
-    const wrongOrderSample = scoreSecondTurn(popOutCase, "pop_out,seek_to_time", [[toolCallLine("call-2", "pop_out", {}, 1), 802]]);
-
-    assert.equal(wrongOrderSample.outcome, "wrongTool");
-    assert.equal(scoreToolCalls(wrongOrderSample.toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(popOutCase)), "pass");
-  });
-
   it("fails a plan that stops early, and a seek whose time is not the scripted one", () => {
-    const stoppedAfterTheLookup = sampleFromHarnessRecord(popOutCase, 0, replay(popOutCase, [...findMomentTurn, [finishedLine("I found it"), 500]]).record);
-    const seekedToTheSecondMoment = scoreSecondTurn(popOutCase, "seek_to_time,pop_out", [
-      [toolCallLine("call-2", "seek_to_time", { seconds: 301 }, 1), 802],
-      [toolCallLine("call-3", "pop_out", {}, 1), 804],
-    ]);
-    const neverLookedUp = sampleFromHarnessRecord(popOutCase, 0, replay(popOutCase, [[turn1Line("none"), 400], [finishedLine("it is a shark"), 410]]).record);
+    const stoppedAfterTheLookup = sampleFromHarnessRecord(findLastCase, 0, replay(findLastCase, [...findMomentTurn, [finishedLine("I found it"), 500]]).record);
+    const seekedToTheBestMatch = scoreSecondTurn(findLastCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 305 }, 1), 802]]);
+    const neverLookedUp = sampleFromHarnessRecord(findLastCase, 0, replay(findLastCase, [[turn1Line("none"), 400], [finishedLine("it is a shark"), 410]]).record);
 
     assert.equal(stoppedAfterTheLookup.outcome, "wrongTool");
-    assert.equal(seekedToTheSecondMoment.outcome, "wrongInput");
+    assert.equal(seekedToTheBestMatch.outcome, "wrongInput");
     assert.equal(neverLookedUp.outcome, "missedTool");
   });
 
   it("holds each accepted sequence to its own input, so one seek to 295 and two seeks from 305 both pass and a mix does not", () => {
-    const backUpOnce = scoreSecondTurn(backUpCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 295 }, 1), 802]]);
-    const seekThenBackUp = scoreSecondTurn(backUpCase, "seek_to_time,seek_relative", [
+    const backUpOnce = scoreSecondTurn(twoSequenceCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 295 }, 1), 802]]);
+    const seekThenBackUp = scoreSecondTurn(twoSequenceCase, "seek_to_time,seek_relative", [
       [toolCallLine("call-2", "seek_to_time", { seconds: 305 }, 1), 802],
       [toolCallLine("call-3", "seek_relative", { seconds: -10 }, 1), 804],
     ]);
-    const backedUpTwice = scoreSecondTurn(backUpCase, "seek_to_time,seek_relative", [
+    const backedUpTwice = scoreSecondTurn(twoSequenceCase, "seek_to_time,seek_relative", [
       [toolCallLine("call-2", "seek_to_time", { seconds: 295 }, 1), 802],
       [toolCallLine("call-3", "seek_relative", { seconds: -10 }, 1), 804],
     ]);
-    const forgotToBackUp = scoreSecondTurn(backUpCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 305 }, 1), 802]]);
+    const forgotToBackUp = scoreSecondTurn(twoSequenceCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 305 }, 1), 802]]);
 
     assert.equal(backUpOnce.outcome, "pass");
     assert.equal(seekThenBackUp.outcome, "pass");
     assert.equal(backedUpTwice.outcome, "wrongInput");
     assert.equal(forgotToBackUp.outcome, "wrongInput");
+  });
+
+  it("takes a seek to a found moment and a relative seek in one reply, and holds the relative seek to -10", () => {
+    const backedUp = scoreOneTurn(backUpCase, [["seek_to_moment", { query: "liver" }], ["seek_relative", { seconds: -10 }]]);
+    const backedUpTheWrongWay = scoreOneTurn(backUpCase, [["seek_to_moment", { query: "liver" }], ["seek_relative", { seconds: 10 }]]);
+
+    assert.equal(backedUp.outcome, "pass");
+    assert.equal(backedUpTheWrongWay.outcome, "wrongInput");
   });
 
   it("are 8 cases the Worker backend does not run, and the parity cases leave them out", () => {
@@ -1250,7 +1293,8 @@ describe("the planning cases", () => {
   it("cover a lookup that feeds a seek, a hand-off that must come last, and actions in a fixed order", () => {
     const planningCases = evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand === true);
 
-    assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).every((calls) => calls[0] === "find_moment" && calls.includes("seek_to_time"))));
+    assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).every((calls) => calls[0] === "find_moment" && calls.includes("seek_to_time"))), "a lookup the router must read, such as the last mention, stays on find_moment");
+    assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "seek_to_moment,pop_out"));
     assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "seek_relative,pop_out"));
     assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "rotate_model,zoom_to_part"));
   });

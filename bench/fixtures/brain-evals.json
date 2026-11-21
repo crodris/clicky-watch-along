@@ -48,6 +48,7 @@
         "seek_to_time",
         "set_speed",
         "find_moment",
+        "seek_to_moment",
         "make_study_guide",
         "build_model_in_background",
         "start_background_task"
@@ -213,6 +214,7 @@
         "seek_to_time",
         "set_speed",
         "find_moment",
+        "seek_to_moment",
         "make_study_guide",
         "build_model_in_background",
         "show_ready_model",
@@ -263,6 +265,7 @@
         "seek_to_time",
         "set_speed",
         "find_moment",
+        "seek_to_moment",
         "make_study_guide",
         "build_model_in_background",
         "start_background_task",
@@ -398,9 +401,18 @@
       "why": "Easy. The fixture's own command."
     },
     {
+      "id": "video-seek-to-moment",
+      "context": "video",
+      "say": "go back to where he explains the swim bladder",
+      "accept": [
+        "seek_to_moment"
+      ],
+      "why": "Going to a spot in the captions is one call, since seek_to_moment finds the best line and seeks there, and the old find_moment then seek_to_time takes two model turns."
+    },
+    {
       "id": "video-find-moment",
       "context": "video",
-      "say": "where does he explain the swim bladder",
+      "say": "where in the video does he mention the swim bladder, just tell me the time",
       "accept": [
         "find_moment"
       ],
@@ -413,7 +425,7 @@
           ]
         }
       },
-      "why": "A lookup, since the router cannot know the time without the captions."
+      "why": "A question about when, so nothing should move. A lookup, since the router cannot know the time without the captions."
     },
     {
       "id": "video-build-model",
@@ -989,18 +1001,8 @@
       "context": "video",
       "say": "go back to where he explains the swim bladder and pop it out",
       "scoreWholeCommand": true,
-      "accept": [["find_moment", "seek_to_time", "pop_out"]],
-      "input": { "seek_to_time": { "seconds": 98 } },
-      "toolResults": {
-        "find_moment": {
-          "outcome": "lookedUp",
-          "result": [
-            { "seconds": 98, "captions": "so the swim bladder is the gas filled organ bony fish use to float" },
-            { "seconds": 301, "captions": "sharks have no swim bladder at all so they rely on their oily liver" }
-          ]
-        }
-      },
-      "why": "Three steps that depend on each other: the lookup gives the time, the seek needs it, and the pop-out must come last because it hands off and ends the command, and it lifts the frame the seek landed on."
+      "accept": [["seek_to_moment", "pop_out"]],
+      "why": "Two steps in one reply: seek_to_moment finds the line and seeks in one call, and the pop-out must come last because it hands off and ends the command, and it lifts the frame the seek landed on. With a lookup and a seek the model had to carry a third step across a second turn, and it dropped the pop-out in some runs."
     },
     {
       "id": "planning-pause-slow-rewind",
@@ -1024,19 +1026,9 @@
       "say": "go to where he talks about the liver and then back up ten seconds",
       "scoreWholeCommand": true,
       "accept": [
-        { "calls": ["find_moment", "seek_to_time", "seek_relative"], "input": { "seek_to_time": { "seconds": 305 }, "seek_relative": { "seconds": -10 } } },
-        { "calls": ["find_moment", "seek_to_time"], "input": { "seek_to_time": { "seconds": 295 } } }
+        { "calls": ["seek_to_moment", "seek_relative"], "input": { "seek_relative": { "seconds": -10 } } }
       ],
-      "toolResults": {
-        "find_moment": {
-          "outcome": "lookedUp",
-          "result": [
-            { "seconds": 305, "captions": "the shark's liver is full of oil and that oil is what keeps it up" },
-            { "seconds": 402, "captions": "that is why sharks have to keep swimming or they sink" }
-          ]
-        }
-      },
-      "why": "A seek relative to a found moment. Either two seeks (305, then back 10) or one seek to 295 is right, and the second seek must not be taken from the current time."
+      "why": "A seek relative to a found moment. The relative seek must come after seek_to_moment, which moves the video, and must be -10, not a time taken from the current position."
     },
     {
       "id": "planning-find-seek-slow",
@@ -1044,21 +1036,11 @@
       "say": "go to where he explains the cartilage skeleton and watch it at half speed",
       "scoreWholeCommand": true,
       "accept": [
-        ["find_moment", "seek_to_time", "set_speed"],
-        ["find_moment", "set_speed", "seek_to_time"],
-        ["set_speed", "find_moment", "seek_to_time"]
+        ["seek_to_moment", "set_speed"],
+        ["set_speed", "seek_to_moment"]
       ],
-      "input": { "seek_to_time": { "seconds": 214 }, "set_speed": { "rate": 0.5 } },
-      "toolResults": {
-        "find_moment": {
-          "outcome": "lookedUp",
-          "result": [
-            { "seconds": 214, "captions": "a shark's skeleton is cartilage which is lighter than bone" },
-            { "seconds": 17, "captions": "today we are looking at how sharks float without a swim bladder" }
-          ]
-        }
-      },
-      "why": "A lookup followed by two actions, where the speed change may come before or after the seek but the seek must wait for the lookup."
+      "input": { "set_speed": { "rate": 0.5 } },
+      "why": "Two actions in one reply, where the speed change may come before or after the seek."
     },
     {
       "id": "planning-seek-back-then-pop-out",

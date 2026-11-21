@@ -3165,6 +3165,21 @@ final class CompanionManager: ObservableObject {
             } catch {
                 return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil))
             }
+        case .seekToMoment:
+            // One call finds the best caption line and seeks there, so the model can follow it with pop_out in the same reply.
+            do {
+                let captionMoments = try await videoQuizSession.captionMomentsInTheFrontVideo(matching: input["query"]?.stringValue ?? "")
+                guard let bestCaptionMoment = captionMoments.first else {
+                    return .outcome(.failed(error: "No caption line says that. Try other words, or use find_moment.", state: nil))
+                }
+                let videoState = try videoQuizSession.runLearnerVideoCommand(.seekTo(seconds: bestCaptionMoment.seconds))
+                return .outcome(.changed(state: .object([
+                    "video": videoState,
+                    "movedTo": .object(["seconds": .number(bestCaptionMoment.seconds), "captions": .string(bestCaptionMoment.text)]),
+                ])))
+            } catch {
+                return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil))
+            }
         case .endQuiz:
             return .handOff { self.handleVideoQuizVoiceCommand(.stop) }
         case .makeStudyGuide:

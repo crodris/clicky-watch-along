@@ -109,6 +109,8 @@ A lookup, `find_moment`, gets `lookedUp`, so the brain takes a second turn, as i
 Every other tool gets `changed`.
 A case may script a tool's answer with `toolResults`, a map from a tool name to `{ outcome, result?, error? }`.
 `video-find-moment` scripts two caption lines for `find_moment`, and a lookup with no script gets an empty result.
+`seek_to_moment` is an action in the app (it finds the best line and seeks in one call), so it gets `changed` and needs no script.
+The stand-in cannot test which line the app's scorer picks, so `SeekToMomentTests` pins that on real caption lines.
 
 Both backends score the tool calls of the first turn, which is all the Worker backend returns, except for the planning cases, which only the harness backend runs and which are scored on the whole command.
 The Worker backend scores every `tool_use` block of the reply.
@@ -187,7 +189,7 @@ A case marks itself with `scoreWholeCommand: true`, and the harness backend scor
   Each accepted answer in `accept` is an ordered sequence, not an unordered set, so a seek that comes after a hand-off fails.
   A sequence that may come in several orders is listed once per order.
 - A sequence may be written `{ "calls": [...], "input": { ... } }` to carry input of its own, which replaces the case's `input` for that tool.
-  `planning-find-then-back-up` uses it, since two seeks (305, then back 10) and one seek to 295 are both right and need different inputs.
+  `planning-find-then-back-up` uses it to hold the relative seek to -10 after `seek_to_moment`.
 - A seek's time must come from the case's scripted `find_moment` result, so each case scripts every lookup in `toolResults` and `validateBrainEvals` refuses a sequence that calls `find_moment` with no script.
   The harness answers every other tool with `changed` or `handedOff`, as for any case.
 - The sample keeps the full command's time and cost, and the run prints a table with each case's pass count, `fullP50` (the `voice_command` line to `voice_command_finished`), and `meanFullUsd` (every turn's cost) next to the first-turn columns of the other tables.

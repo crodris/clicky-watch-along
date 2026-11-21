@@ -188,6 +188,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case seekToTime = "seek_to_time"
     case setSpeed = "set_speed"
     case findMoment = "find_moment"
+    case seekToMoment = "seek_to_moment"
     case endQuiz = "end_quiz"
     case makeStudyGuide = "make_study_guide"
     case reviseStudyGuide = "revise_study_guide"
@@ -261,7 +262,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.sceneIsOnScreen && context.sceneHasLabels && !context.quizQuestionIsOpen
             case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed:
                 return context.videoIsInFront
-            case .findMoment:
+            case .findMoment, .seekToMoment:
                 return context.videoIsInFront && context.videoIsOnYouTube
             case .endQuiz:
                 return context.videoQuizIsRunning
@@ -367,7 +368,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .setSpeed:
             return "Set how fast the video in Chrome's front tab plays. 1 is normal speed."
         case .findMoment:
-            return "Search the video's captions for where something is said. Returns up to 3 moments, best match first, with their times, so you can call seek_to_time next."
+            return "Search the video's captions for where something is said, without moving the video. Returns up to 3 moments, best match first, with their times. Use it when the learner asks when or where something is said, wants a particular mention such as the last or the second one, or says seek_to_moment landed in the wrong place. Then call seek_to_time with the time you pick. To go straight to the best match, use seek_to_moment."
+        case .seekToMoment:
+            return "Move the video in Chrome's front tab to the caption line that best matches query, in one step. It lands on the single best match, never on the first or last mention. Use it when the learner says go to, go back to, or jump to where something is said or explained, such as \"go back to where he explains the gills\". Put the words they would hear in query. Call every other tool they asked for in the same reply, because this tool needs no result before the next one and tools in one reply run in the order you call them. \"Go to where he explains the gills and back up ten seconds\" is seek_to_moment and then seek_relative with -10, and \"jump to the part about the teeth and pop it out\" is seek_to_moment and then pop_out. When they want the first, last, or another particular mention, or only ask when something is said, use find_moment, and then seek_to_time if they want to go there."
         case .endQuiz:
             return "Stop the video quiz."
         case .makeStudyGuide:
@@ -426,7 +429,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema(["seconds": numberProperty("Seconds from the start of the video.")], required: ["seconds"])
         case .setSpeed:
             return objectSchema(["rate": numberProperty("From 0.25 to 2.")], required: ["rate"])
-        case .findMoment:
+        case .findMoment, .seekToMoment:
             return objectSchema(["query": .object(["type": .string("string"), "description": .string("A few words that would be said at that moment.")])], required: ["query"])
         case .makeStudyGuide:
             return objectSchema(["focus": .object(["type": .string("string"), "description": .string("An extra wish for the guide, such as only the part about the engine. Leave it out when they made none.")])], required: [])
@@ -555,6 +558,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return rate == 1 ? "Normal speed" : "Playing at \(rateText)x"
         case "find_moment":
             return textInput("query").map { query in "Finding \u{201C}\(query)\u{201D}" } ?? "Searching the captions"
+        case "seek_to_moment":
+            return textInput("query").map { query in "Jumping to \u{201C}\(query)\u{201D}" }
         case "end_quiz":
             return "Ending the quiz"
         case "make_study_guide":
