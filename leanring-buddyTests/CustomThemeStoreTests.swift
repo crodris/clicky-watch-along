@@ -473,6 +473,31 @@ struct CustomThemeStoreRenameAndDeleteTests {
         }
     }
 
+    @Test func theReadRefusesALinkAPipeOrAnOversizedFileSwappedInAfterTheCheck() throws {
+        // The checks in plainFileData run before the read, so the read checks the open file again. Each of these reaches
+        // the read directly, as a file swapped in between would.
+        let folderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-read-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let regularFileURL = folderURL.appendingPathComponent("regular.jpg")
+        try Data(count: 10).write(to: regularFileURL)
+        #expect(try CustomThemeStore.boundedRegularFileData(at: regularFileURL, relativePath: "regular.jpg", mostBytes: 10).count == 10)
+        #expect(throws: CustomThemeStoreError.packageFileIsTooLarge("regular.jpg")) {
+            try CustomThemeStore.boundedRegularFileData(at: regularFileURL, relativePath: "regular.jpg", mostBytes: 9)
+        }
+        let linkURL = folderURL.appendingPathComponent("link.jpg")
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: regularFileURL)
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("link.jpg")) {
+            try CustomThemeStore.boundedRegularFileData(at: linkURL, relativePath: "link.jpg", mostBytes: 10)
+        }
+        // A named pipe with no writer would block a plain read forever.
+        let pipeURL = folderURL.appendingPathComponent("pipe.jpg")
+        #expect(mkfifo(pipeURL.path, 0o600) == 0)
+        #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("pipe.jpg")) {
+            try CustomThemeStore.boundedRegularFileData(at: pipeURL, relativePath: "pipe.jpg", mostBytes: 10)
+        }
+    }
+
     @Test func aPortraitOverItsSizeCapIsRefusedAndNothingIsInstalled() throws {
         try withATemporaryThemeStore { store in
             let rosterJSON = replacingField(in: goodVersion2ThemeJSON, at: ["agents"], with: .object([

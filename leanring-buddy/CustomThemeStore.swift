@@ -215,7 +215,23 @@ nonisolated struct CustomThemeStore: Sendable {
                 throw CustomThemeStoreError.packageFileIsTooLarge(relativePath)
             }
         }
-        return try Data(contentsOf: currentURL)
+        return try boundedRegularFileData(at: currentURL, relativePath: relativePath, mostBytes: mostBytes)
+    }
+
+    /// Reads a file the checks above found to be a regular file, again on the open file itself, so a file swapped for a
+    /// link, a named pipe, or a device between the check and the read is refused instead of followed or waited on.
+    /// `O_NOFOLLOW` refuses a link, `O_NONBLOCK` keeps a pipe from blocking the open, and the read stops at `mostBytes + 1`.
+    static func boundedRegularFileData(at fileURL: URL, relativePath: String, mostBytes: Int) throws -> Data {
+        let fileDescriptor = open(fileURL.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fileDescriptor >= 0 else { throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath) }
+        let fileHandle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
+        var fileStatus = stat()
+        guard fstat(fileDescriptor, &fileStatus) == 0, fileStatus.st_mode & S_IFMT == S_IFREG else {
+            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+        }
+        let fileData = try fileHandle.read(upToCount: mostBytes + 1) ?? Data()
+        guard fileData.count <= mostBytes else { throw CustomThemeStoreError.packageFileIsTooLarge(relativePath) }
+        return fileData
     }
 
     // MARK: - Bundled themes
