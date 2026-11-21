@@ -36,6 +36,7 @@ import {
   sampleFromHarnessRecord,
   scoreApprovalCase,
   scoreBrainCase,
+  scoreWholeCommand,
   scoreToolCalls,
   skillInputDescription,
   skillInstructionSentence,
@@ -427,6 +428,73 @@ describe("the tool catalog", () => {
 // ---------- The harness backend ----------
 
 const fixtureCase = (caseId: string) => evalFile.cases.find((brainCase) => brainCase.id === caseId) as BrainCase;
+
+describe("the words an input must hold or omit", () => {
+  const seekCase = fixtureCase("planning-find-seek-pop-out");
+  const wholeCommand = (query: unknown) => [
+    { name: "seek_to_moment", input: { query } },
+    { name: "pop_out", input: {} },
+  ];
+
+  it("passes a query that holds the subject words and none of the framing words, in any wording", () => {
+    assert.equal(scoreWholeCommand(wholeCommand("swim bladder"), seekCase), "pass");
+    assert.equal(scoreWholeCommand(wholeCommand("He explains the Swim Bladder."), seekCase), "pass");
+  });
+
+  it("fails an empty query, a missing query, and a query without every subject word", () => {
+    for (const badQuery of ["", undefined, 5, "bladder", "swim"]) {
+      assert.equal(scoreWholeCommand(wholeCommand(badQuery), seekCase), "wrongInput", String(badQuery));
+    }
+  });
+
+  it("fails a query that repeats the request around the subject", () => {
+    assert.equal(scoreWholeCommand(wholeCommand("swim bladder and pop it out"), seekCase), "wrongInput");
+  });
+
+  it("counts whole words, so a framing word inside another word is not found", () => {
+    assert.equal(scoreWholeCommand(wholeCommand("popular swim bladder outline"), seekCase), "pass");
+  });
+
+  it("scores a first-turn case the same way, and never passes a call whose input is unknown", () => {
+    const firstTurnCase = fixtureCase("video-seek-to-moment");
+    assert.equal(scoreBrainCase([{ name: "seek_to_moment", input: { query: "the swim bladder" } }], firstTurnCase), "pass");
+    assert.equal(scoreBrainCase([{ name: "seek_to_moment", input: { query: "go back to where he explains the swim bladder" } }], firstTurnCase), "wrongInput");
+    assert.equal(scoreBrainCase([{ name: "seek_to_moment", input: {}, inputIsUnknown: true }], firstTurnCase), "wrongInput");
+  });
+
+  it("is checked by the fixture validator: only a tool an accepted answer calls, with lower case words", () => {
+    const validCase: BrainCase = { id: "new-case", context: "video", say: "go to the gills", why: "x", accept: ["seek_to_moment"] };
+    const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
+    validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: ["gills"] } } }), toolCatalog);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { pause_video: { query: ["gills"] } } }), toolCatalog), /no accepted answer calls/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputOmits: { seek_to_moment: { query: ["Pop"] } } }), toolCatalog), /not one lower case whole word/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: [] } } }), toolCatalog), /lists no words/);
+  });
+
+  it("is checked by the fixture validator: each listed word is exactly one whole word, since a word the scorer would split never matches", () => {
+    const validCase: BrainCase = { id: "new-case", context: "video", say: "go to the gills", why: "x", accept: ["seek_to_moment"] };
+    const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
+    for (const unmatchableWord of ["pop it out", "x-ray", "he's", " pop", ""]) {
+      for (const wordsFieldName of ["inputContains", "inputOmits"] as const) {
+        assert.throws(
+          () => validateBrainEvals(withCase({ ...validCase, [wordsFieldName]: { seek_to_moment: { query: ["gills", unmatchableWord] } } }), toolCatalog),
+          /not one lower case whole word/,
+          `${wordsFieldName} ${JSON.stringify(unmatchableWord)}`,
+        );
+      }
+    }
+    validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: ["gills", "x", "ray"] } } }), toolCatalog);
+  });
+
+  it("is listed on every case that accepts seek_to_moment, so a wording change that sends the whole request or nothing is caught", () => {
+    const seekCases = evalFile.cases.filter((brainCase) => acceptedAnswersOf(brainCase).flat().includes("seek_to_moment"));
+    assert.ok(seekCases.length >= 5);
+    for (const brainCase of seekCases) {
+      assert.ok((brainCase.inputContains?.seek_to_moment?.query?.length ?? 0) > 0, `${brainCase.id} lists no words its query must hold`);
+      assert.ok((brainCase.inputOmits?.seek_to_moment?.query?.length ?? 0) > 0, `${brainCase.id} lists no words its query must omit`);
+    }
+  });
+});
 // Copied from the format string in harness/brain.go's brainUsageLine, with numbers filled in.
 const brainGoTurnLine = "Brain: turn 2 on claude-haiku-5-5 stopped for tool_use, tokens in 1200, cache read 3400, cache write 56, out 789, 640 ms, calls design_theme,pick_theme_idea";
 
@@ -653,6 +721,54 @@ describe("the harness backend's scoring", () => {
 
     assert.equal(sampleFromHarnessRecord(inputCase, 0, refusedRecord).outcome, "wrongTool");
     assert.equal(sampleFromHarnessRecord(inputCase, 0, hiddenRecord).outcome, "wrongInput");
+  });
+
+  it("scores the inverse call the harness sends for undo_last_change, since that is what the learner sees", () => {
+    const undoCase = sessionFile.cases.find((brainCase) => brainCase.id === "session-undo-after-zoom");
+    assert.ok(undoCase, "the session fixture has no undo case");
+    // The harness logs the model's call by name, then sends the app the inverse under the model's call ID plus a suffix.
+    const { record } = replay(undoCase, [
+      [turn1Line("undo_last_change"), 410],
+      [toolCallLine("toolu_undo-undo", "zoom", { factor: 0.5 }, 0), 412],
+      [finishedLine("undid it"), 430],
+    ]);
+
+    assert.deepEqual(firstTurnToolCalls(record), [{ name: "zoom", input: { factor: 0.5 } }]);
+    assert.equal(sampleFromHarnessRecord(undoCase, 0, record).outcome, "pass");
+  });
+
+  it("fails an undo whose inverse has the wrong input, and one the harness refused, which sent nothing to the app", () => {
+    const undoCase = sessionFile.cases.find((brainCase) => brainCase.id === "session-undo-after-zoom");
+    assert.ok(undoCase, "the session fixture has no undo case");
+    const { record: wrongInverseRecord } = replay(undoCase, [
+      [turn1Line("undo_last_change"), 410],
+      [toolCallLine("toolu_undo-undo", "zoom", { factor: 0.77 }, 0), 412],
+      [finishedLine("undid it"), 430],
+    ]);
+    const { record: refusedRecord } = replay(undoCase, [[turn1Line("undo_last_change"), 410], [finishedLine("sorry"), 430]]);
+
+    assert.equal(sampleFromHarnessRecord(undoCase, 0, wrongInverseRecord).outcome, "wrongInput");
+    assert.equal(sampleFromHarnessRecord(undoCase, 0, refusedRecord).outcome, "wrongTool");
+  });
+
+  it("does not take the model's own call for an undo, even one whose ID ends in the suffix", () => {
+    const { record } = replay(fixtureCase("video-seek-back"), [
+      [turn1Line("undo_last_change,seek_relative"), 410],
+      [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412],
+      [finishedLine("done"), 430],
+    ]);
+
+    assert.deepEqual(firstTurnToolCalls(record), [
+      { name: "undo_last_change", input: {}, inputIsUnknown: true },
+      { name: "seek_relative", input: { seconds: -30 } },
+    ]);
+  });
+
+  it("uses the tool name and call ID suffix harness/brainundo.go defines, so a rename there fails here", () => {
+    const brainUndoSource = readFileSync(join(benchDirectory, "..", "harness", "brainundo.go"), "utf8");
+
+    assert.ok(brainUndoSource.includes('undoLastChangeTool toolName = "undo_last_change"'));
+    assert.ok(brainUndoSource.includes('undoCallIDSuffix = "-undo"'));
   });
 
   it("does not pass a hidden call on an input check that wants a key absent, since nothing is known about its input", () => {
@@ -928,10 +1044,19 @@ describe("the session fixture", () => {
     validateSessionFixture(sessionFile, evalFile, toolCatalog);
   });
 
-  it("holds the four session cases and the injection case the brain's memory needs", () => {
+  it("holds the session cases, the injection case, and the three undo cases the brain's memory needs", () => {
     assert.deepEqual(
       sessionFile.cases.map((brainCase) => brainCase.id),
-      ["session-undo-first-turn", "session-correction-after-fold", "session-correction-after-interrupt", "session-correction-after-seek-to-moment", "session-injection-approve"],
+      [
+        "session-undo-first-turn",
+        "session-correction-after-fold",
+        "session-correction-after-interrupt",
+        "session-correction-after-seek-to-moment",
+        "session-injection-approve",
+        "session-undo-after-zoom",
+        "session-undo-after-seek",
+        "session-undo-behind-a-pop-out",
+      ],
     );
     assert.equal(sessionCase("session-undo-first-turn").earlierCommands?.length, 7, "an undo after 7 commands");
     assert.ok((sessionCase("session-correction-after-fold").earlierCommands?.length ?? 0) > 24, "past the 24 command cap, so the session folds before the case");
@@ -1164,6 +1289,78 @@ describe("the harness driver's session lines", () => {
       assert.ok((record.firstToolCallMs ?? NaN) >= 25 && (record.firstToolCallMs ?? NaN) < 1000, String(record.firstToolCallMs));
     } finally {
       harnessBrain.stop();
+    }
+  });
+});
+
+describe("a number with a change on the Theme Studio card", () => {
+  const refineCases = ["theme-refine-sound", "theme-refine-cursor-shape"].map((caseId) => fixtureCase(caseId));
+  const ideaNumberOf = (brainCase: BrainCase): number => Number(brainCase.input?.design_theme?.basedOnIdea);
+
+  it("passes the design alone and the design with a pick of the same idea, in either order", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      const pick = { name: "pick_theme_idea", input: { number: ideaNumber } };
+      assert.equal(scoreBrainCase([design], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([pick, design], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([design, pick], brainCase), "pass", brainCase.id);
+    }
+  });
+
+  it("passes the design then a pick as the harness records it, since a pick after a hand-off never runs", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      // The recorded flake: the harness sent a tool_call line for the design only, so the pick is known by its name.
+      const { record } = replay(brainCase, [
+        [turn1Line("design_theme,pick_theme_idea"), 410],
+        [toolCallLine("call-1", "design_theme", { request: "x", basedOnIdea: ideaNumber }, 0), 412],
+        [finishedLine(""), 430],
+      ]);
+
+      assert.deepEqual(firstTurnToolCalls(record).at(-1), { name: "pick_theme_idea", input: {}, inputIsUnknown: true });
+      assert.equal(sampleFromHarnessRecord(brainCase, 0, record).outcome, "pass", brainCase.id);
+    }
+  });
+
+  it("still checks the input of a call that ran before the hand-off, and the name of one after it", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const otherIdeaNumber = ideaNumber === 1 ? 3 : 1;
+      const hiddenPick = { name: "pick_theme_idea", input: {}, inputIsUnknown: true };
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      assert.equal(scoreBrainCase([design, hiddenPick], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([hiddenPick, design], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([{ ...design, input: { request: "x", basedOnIdea: otherIdeaNumber } }, hiddenPick], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([design, { name: "pause_video", input: {}, inputIsUnknown: true }], brainCase), "wrongTool", brainCase.id);
+    }
+  });
+
+  it("checks the input of a call after a skipped hand-off in a whole command, since the command went on", () => {
+    // A seek fails, the harness skips the pop_out after it, and the model seeks again in a later turn, so that seek ran.
+    const planningCase: BrainCase = {
+      id: "test-skipped-hand-off",
+      context: "video",
+      say: "go back to where he explains the gills and pop it out",
+      accept: [["seek_to_moment", "pop_out", "seek_to_time"]],
+      input: { seek_to_time: { seconds: 98 } },
+      scoreWholeCommand: true,
+      why: "A seek that fails skips the pop_out after it, and the seek the model makes in a later turn runs, so its input is checked.",
+    };
+    const failedSeek = { name: "seek_to_moment", input: { query: "gills" } };
+    const skippedPopOut = { name: "pop_out", input: {}, inputIsUnknown: true };
+    assert.equal(scoreWholeCommand([failedSeek, skippedPopOut, { name: "seek_to_time", input: { seconds: 98 } }], planningCase), "pass");
+    assert.equal(scoreWholeCommand([failedSeek, skippedPopOut, { name: "seek_to_time", input: { seconds: 5 } }], planningCase), "wrongInput");
+  });
+
+  it("fails a pick of another idea, a pick alone, and a design of another idea", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const otherIdeaNumber = ideaNumber === 1 ? 3 : 1;
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      assert.equal(scoreBrainCase([{ name: "pick_theme_idea", input: { number: otherIdeaNumber } }, design], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([{ name: "pick_theme_idea", input: { number: ideaNumber } }], brainCase), "wrongTool", brainCase.id);
+      assert.equal(scoreBrainCase([{ name: "design_theme", input: { request: "x", basedOnIdea: otherIdeaNumber } }], brainCase), "wrongInput", brainCase.id);
     }
   });
 });
