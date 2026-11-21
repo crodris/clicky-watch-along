@@ -84,6 +84,19 @@
       "why": "The learner cut off a command after it turned the model right by 90 degrees. The session rolled that command back, so only the Interrupted before line shows the turn, and undoing it must reverse that turn. The harness records the call that finished and offers undo_last_change, so the model no longer works out -90 itself (Haiku passed 0 of 5 before that tool)."
     },
     {
+      "id": "session-undo-after-cut-off",
+      "context": "scene3D",
+      "say": "undo that",
+      "sceneStateChanges": { "yawDegrees": 45 },
+      "earlierCommands": [
+        {"say": "turn it to the left", "calls": [{"name": "rotate_model", "input": {"yawDegrees": -45}, "confirmation": "turned it left"}]}
+      ],
+      "interruptedBefore": ["rotate_model {\"yawDegrees\":90} -> cut off, may have run"],
+      "accept": ["none", "rotate_model"],
+      "input": { "rotate_model": { "yawDegrees": -90 } },
+      "why": "A press cut off a turn right by 90 degrees while the app ran it, so its line says it may have run, and the yaw of 45 shows it did. The harness records it as a change with no inverse, so undo_last_change is not offered. The model may reverse the cut-off turn or answer with no tool, and it must not reach past it to reverse the older left turn with +45."
+    },
+    {
       "id": "session-correction-after-seek-to-moment",
       "context": "video",
       "say": "no, the other time he talks about it",

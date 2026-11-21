@@ -52,7 +52,8 @@ var undoLastChangeOffer = voiceToolOffer{
 //
 // effectIsUnknown marks a call a press cancelled while the app was still running it. The app may have applied it, so the
 // record keeps it as a change with no inverse: it stands between "undo that" and an older change, and a cancelled undo
-// leaves one, so the change that undo reversed is not undone a second time.
+// leaves one, so the change that undo reversed is not undone a second time. A cut-off page call is the exception
+// (aCutOffCallHasRun), since it has almost surely run, and it is recorded as an ordinary change with its inverse.
 type appliedChange struct {
 	tool            toolName
 	input           json.RawMessage
@@ -315,15 +316,30 @@ func (run *sessionRun) noteChange(change appliedChange) {
 	}
 }
 
-// noteACallWhoseEffectIsUnknown puts a change with no inverse at the front of the record, for a call a press cancelled
-// while the app was still running it. The app may already have applied it (page JavaScript keeps running, and play_video
-// spends about 1.6 seconds on its play check), so "undo that" must not reach past it. For a cancelled undo it also keeps
-// the change the undo reversed from being undone a second time. It also writes the call's action line, marked as cut off,
-// so the next command's interrupted_before tag names it. The system prompt tells the model to reverse an earlier action
-// itself when asked to undo, and a call the model never hears of would let it reach past the cut-off call.
-func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall) {
+// noteACallWhoseEffectIsUnknown puts a change at the front of the record, for a call a press cancelled while the app was
+// still running it. The app may already have applied it (page JavaScript keeps running, and play_video spends about 1.6
+// seconds on its play check), so "undo that" must not reach past it. A cut-off page call keeps its inverse, so "undo
+// that" reverses it (aCutOffCallHasRun), and any other cut-off call is a change with no inverse. For a cancelled undo it
+// also keeps the change the undo reversed from being undone a second time. It also writes the call's action line, marked
+// as cut off, so the next command's interrupted_before tag names it. The system prompt tells the model to reverse an
+// earlier action itself when asked to undo, and a call the model never hears of would let it reach past the cut-off call.
+func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall, isAnUndo bool) {
 	run.actionLines = append(run.actionLines, voiceToolCutOffActionLine(cancelledCall))
-	run.noteChange(appliedChange{tool: cancelledCall.Name, input: inputWithoutConfirmation(cancelledCall.Input), effectIsUnknown: true})
+	run.noteChange(appliedChange{
+		tool:            cancelledCall.Name,
+		input:           inputWithoutConfirmation(cancelledCall.Input),
+		effectIsUnknown: !aCutOffCallHasRun(cancelledCall.Name, isAnUndo),
+	})
+}
+
+// aCutOffCallHasRun is true for a page call a press cut off that is not an undo. The app runs a page tool's JavaScript in
+// its own web view, which answers in a few milliseconds, so the call has almost surely changed the scene, and its inverse
+// is exact. Without it, the model works out the reverse of an angle itself and got it wrong in 7 of 10 runs of
+// session-undo-after-cut-off. A video call goes to Chrome over Apple Events, and play_video waits about 1.6 seconds on its
+// play check, so it may not have run. A cut-off undo stays a change with no inverse, so the change it reversed is not
+// undone twice.
+func aCutOffCallHasRun(tool toolName, isAnUndo bool) bool {
+	return !isAnUndo && changeTargets[tool] == targetsThePage
 }
 
 // noteTheScreenChanged records a call the app finished, when its outcome says the screen changed. A hand-off counts, as
@@ -428,9 +444,10 @@ func appliedChangesOfASeed(messages []anthropic.MessageParam, interruptedActionL
 		if !callDidNotFail {
 			continue
 		}
-		// A cut-off line is never read as an undo, since the real harness cannot tell either: it records the call with no
-		// inverse and leaves the change the call may have reversed in the record.
-		if !change.effectIsUnknown && len(changesOldestFirst) > 0 && changesOldestFirst[len(changesOldestFirst)-1].isReversedBy(change) {
+		// A cut-off line is never read as an undo, since the real harness cannot tell either: it records the call as a new
+		// change (with its inverse for a page call) and leaves the change the call may have reversed in the record.
+		lineWasCutOff := strings.HasSuffix(actionLine, "-> "+cutOffResultWord)
+		if !lineWasCutOff && len(changesOldestFirst) > 0 && changesOldestFirst[len(changesOldestFirst)-1].isReversedBy(change) {
 			changesOldestFirst = withoutTheNewest(changesOldestFirst)
 			continue
 		}
@@ -463,7 +480,8 @@ func (change appliedChange) isReversedBy(later appliedChange) bool {
 }
 
 // appliedChangeOfActionLine reads a call back out of its action line, `name {input} -> ok`, which voiceToolActionLine
-// writes. A line that ends `-> cut off, may have run` (voiceToolCutOffActionLine) reads as a change with an unknown effect.
+// writes. A line that ends `-> cut off, may have run` (voiceToolCutOffActionLine) reads as a change with an unknown effect,
+// unless it is a page call, which keeps its inverse (aCutOffCallHasRun).
 // It is false for a line of a failed call and for a line it cannot read. The input is read as one JSON value, since it can
 // hold " -> " inside a string.
 func appliedChangeOfActionLine(actionLine string) (appliedChange, bool) {
@@ -480,7 +498,8 @@ func appliedChangeOfActionLine(actionLine string) (appliedChange, bool) {
 	case "-> ok":
 		return appliedChange{tool: toolName(name), input: input}, true
 	case "-> " + cutOffResultWord:
-		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: true}, true
+		// A seed cannot tell a cut-off undo from a new call, so it reads the line as a new call, as the harness records one.
+		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: !aCutOffCallHasRun(toolName(name), false)}, true
 	default:
 		return appliedChange{}, false
 	}

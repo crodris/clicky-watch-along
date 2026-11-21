@@ -263,7 +263,7 @@ func (brain *brainRunner) runToolCalls(
 			if result.ToolUseID == callToRun.ID {
 				run.noteFinishedCall(callToRun, knownOutcomeOf(result), voiceToolResultText(result), isAnUndo)
 			} else if callWasSent && !isALookup(voiceCommand.Tools, callToRun.Name) {
-				run.noteACallWhoseEffectIsUnknown(callToRun)
+				run.noteACallWhoseEffectIsUnknown(callToRun, isAnUndo)
 			}
 			return nil, nil, err
 		}
