@@ -77,6 +77,8 @@ func (driver *protocolDriver) expectLineWithin(expectedType string, timeout time
 				return line
 			case actualType == "log":
 				driver.logs = append(driver.logs, line)
+			case actualType == "approval_settled":
+				driver.settledLines = append(driver.settledLines, line)
 			default:
 				driver.t.Fatalf("expected a %s line, got %s", expectedType, line)
 			}
@@ -757,7 +759,7 @@ func TestAWaitThatSeesAQueuedResultAndACancelRecordsTheCallsActionLine(t *testin
 		command.toolResults <- toolResultMessage{ToolUseID: "toolu_left", Content: mustMarshal(`{"ok":true,"state":null}`), Outcome: voiceToolChanged}
 		run := session.begin("turn it left", json.RawMessage(`{}`))
 
-		_, _, err := brain.runToolCalls(commandContext, command, "command-1", []toolCall{call}, map[toolName]bool{"rotate_model": true}, 0, run)
+		_, _, err := brain.runToolCalls(commandContext, command, voiceCommandMessage{TaskID: "command-1"}, []toolCall{call}, map[toolName]bool{"rotate_model": true}, approvalOffer{}, 0, run)
 
 		if want := []string{`rotate_model {"yawDegrees":-45} -> ok`}; !slices.Equal(run.actionLines, want) {
 			t.Fatalf("attempt %d (error %v): the action lines were %q, want %q", attempt, err, run.actionLines, want)

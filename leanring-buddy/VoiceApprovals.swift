@@ -44,6 +44,11 @@ nonisolated struct ApprovalVoiceAnswer: Equatable, Sendable {
     let approved: Bool
     let scope: HarnessApprovalScope
 
+    init(approved: Bool, scope: HarnessApprovalScope) {
+        self.approved = approved
+        self.scope = scope
+    }
+
     /// Nil when `approved` is missing or is not a boolean, so a malformed call never answers by guessing.
     init?(toolInput: [String: JSONValue]) {
         guard let approved = toolInput["approved"]?.boolValue else { return nil }
@@ -70,6 +75,9 @@ private let approvalAnswerFillerWords: Set<String> = [
     "go", "ahead", "do", "it", "that", "this", "one", "please", "always", "all", "right", "and", "thanks", "thank", "you", "hey", "clicky", "of", "course",
 ]
 
+/// This is the old path's check. On the harness path the harness runs the same check in harness/voiceapproval.go, and
+/// harness/testdata/approval-voice-answers.json, which both sides' tests read, keeps the two the same until this one is deleted.
+///
 /// The model's answer when the learner's own words support it, or nil when they do not. The router model also reads
 /// text a page wrote, such as a video title, which could talk it into a yes, so a yes counts only when the whole
 /// transcript is a short answer: it says yes, holds no word of no, and has no word outside the answer's vocabulary, so

@@ -266,6 +266,7 @@
 				"$(SRCROOT)/harness/protocol.go",
 				"$(SRCROOT)/harness/skills.go",
 				"$(SRCROOT)/harness/taskagent.go",
+				"$(SRCROOT)/harness/voiceapproval.go",
 				"$(SRCROOT)/tools/build-agent-harness.sh",
 			);
 			name = "Build Agent Harness";

@@ -53,6 +53,34 @@ struct VoiceApprovalTests {
         #expect(approvalVoiceAnswerTheLearnerSaid(no, transcript: "what is this") == no)
     }
 
+    /// harness/voiceapproval_test.go reads the same file, so the Go check the harness runs and this Swift check cannot
+    /// differ while both exist. PR 9 of docs/plans/go-one-brain-harness.md deletes the Swift check and this test.
+    @Test func theSharedFixtureGivesEveryTranscriptTheSameAnswerAsTheHarness() throws {
+        let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        let fixtureData = try Data(contentsOf: repositoryRootURL.appendingPathComponent("harness/testdata/approval-voice-answers.json"))
+        let fixture = try JSONDecoder().decode(JSONValue.self, from: fixtureData)
+        let fixtureCases = try #require(fixture["cases"]?.arrayValue)
+        #expect(!fixtureCases.isEmpty)
+
+        for fixtureCase in fixtureCases {
+            let caseName = fixtureCase["name"]?.stringValue ?? "unnamed"
+            let transcript = try #require(fixtureCase["transcript"]?.stringValue, "\(caseName) has no transcript")
+            let modelInput = try #require(fixtureCase["modelInput"]?.objectValue, "\(caseName) has no modelInput")
+            let expectedAnswer = try #require(fixtureCase["expected"], "\(caseName) has no expected")
+
+            let keptAnswer = ApprovalVoiceAnswer(toolInput: modelInput).flatMap { modelAnswer in
+                approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript: transcript)
+            }
+            if expectedAnswer == .null {
+                #expect(keptAnswer == nil, "\(caseName): \(transcript.debugDescription) was kept as \(String(describing: keptAnswer))")
+            } else {
+                let expectedApproved = try #require(expectedAnswer["approved"]?.boolValue, "\(caseName) has no approved")
+                let expectedScope = try #require(HarnessApprovalScope(rawValue: expectedAnswer["scope"]?.stringValue ?? ""), "\(caseName) has no scope")
+                #expect(keptAnswer == ApprovalVoiceAnswer(approved: expectedApproved, scope: expectedScope), "\(caseName): \(transcript.debugDescription) was kept as \(String(describing: keptAnswer))")
+            }
+        }
+    }
+
     @Test func theRouterTakesEveryCommandWhileARequestWaitsExceptAQuizAnswerOrASceneStillBuilding() {
         let takesTheTranscript = { (approvalIsWaiting: Bool, quizAnswerIsWaiting: Bool, sceneIsBuilding: Bool) in
             voiceCommandRouterTakesTheTranscript(
@@ -80,20 +108,17 @@ struct VoiceApprovalTests {
         #expect(ApprovalVoiceAnswer(toolInput: ["always": .bool(true)]) == nil)
     }
 
-    @Test func theChipSaysWhatTheAnswerDid() {
-        func chipPhrase(_ toolInput: [String: JSONValue]) -> String? {
-            VoiceToolCall(id: "answer", name: "answer_approval", input: toolInput).chipPhrase
-        }
-        #expect(chipPhrase(["approved": .bool(true), "always": .bool(false), "confirmation": .string("allowed it")]) == "Allowed it")
-        #expect(chipPhrase(["approved": .bool(false), "always": .bool(false)]) == "Declined it")
-        #expect(chipPhrase(["approved": .bool(true), "always": .bool(true)]) == "Allowed it for this task")
-        #expect(chipPhrase(["approved": .bool(false), "always": .bool(true)]) == "Declined it")
-        #expect(chipPhrase([:]) == nil)
+    /// The harness's approval_settled shows the one chip, with the answer its gate took, so the call shows none of its own.
+    /// A voice yes on the old path would otherwise show it twice.
+    @Test func theAnswerCallShowsNoChipSinceTheSettlementShowsTheOutcome() {
+        #expect(ApprovalVoiceAnswer(approved: true, scope: .once).chipPhrase == "Allowed it")
+        #expect(ApprovalVoiceAnswer(approved: true, scope: .always).chipPhrase == "Allowed it for this task")
+        #expect(ApprovalVoiceAnswer(approved: false, scope: .once).chipPhrase == "Declined it")
 
-        let answer = VoiceToolCall(id: "answer", name: "answer_approval", input: ["approved": .bool(true)])
-        #expect(answer.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: ["answer_approval"]) == "Allowed it")
-        #expect(answer.chipPhraseToShow(at: .afterTheCall(.failed(error: "No request is waiting for an answer", state: nil)), offeredToolNames: ["answer_approval"]) == nil)
-        #expect(answer.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: []) == nil, "a tool the turn did not offer shows nothing")
+        let answer = VoiceToolCall(id: "answer", name: "answer_approval", input: ["approved": .bool(true), "always": .bool(false), "confirmation": .string("allowed it")])
+        #expect(answer.chipPhrase == nil)
+        #expect(answer.chipPhraseToShow(at: .beforeTheCall, offeredToolNames: ["answer_approval"]) == nil)
+        #expect(answer.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: ["answer_approval"]) == nil)
     }
 
     // MARK: - What the router reads

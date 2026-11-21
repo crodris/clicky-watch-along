@@ -114,6 +114,7 @@ $V app-wait 240
 `app-launch --brain "<steps>"` also passes `--brain-takes-every-request`, so the voice command router takes every first utterance, as with the `brainTakesEveryRequest` default on, without changing the defaults the everyday Clicky shares.
 `app-launch --harness-brain "<steps>"` also passes `--brain-runs-in-the-harness`, so each voice command runs on the brain in the agent harness instead of `POST /voice-command`, as with the `brainRunsInTheHarness` default on.
 The two flags go in either order, such as `app-launch --brain --harness-brain "<steps>"`.
+`app-launch --no-app-secret` makes the Debug app act as if no app secret were set, and `--wrong-app-secret` as if the Worker refused it. Both pass the app's `--app-secret-mode none|wrong` launch argument, so they never write or delete the defaults the everyday Clicky shares.
 
 Steps are separated by `|`.
 The app waits 3 seconds, then sends each step as if it were spoken.
@@ -165,7 +166,7 @@ worker-up [port] [-- wrangler args]
 worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch [--brain] [--harness-brain] [--every-permission] "<steps>"
+app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).

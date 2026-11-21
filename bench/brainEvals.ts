@@ -29,6 +29,13 @@
 // they are scored apart from the parity gate's cases. `session-run` measures a 10 command session against the same ten
 // commands with no memory.
 //
+// The harness decides voice approvals itself and handles `answer_approval` without sending it to the app, so the harness
+// backend scores the cases of a context with a waiting request (`approvalWaiting`) from what the harness's approval gate
+// settled. It seeds a waiting request with the bench-only `seed_approval_request`, names it in `approvalIDSeenAtPress`, and
+// reads the answer from the `approval_settled` line or the `Brain: approval` log line. An unrelated command passes only
+// with its own tool call and no settlement. The Worker backend still sends `approvalWaiting` in the scene state and scores
+// the tool's input, as the app's old path does.
+//
 // How a request is built. The app sends { messages, tools } to the Worker, which adds the model, the system prompt, and a
 // `confirmation` property on every tool. `voiceCommandUserMessageText` mirrors the app's function of the same name in
 // leanring-buddy/VoiceCommandTools.swift, and the tool list is the catalog filtered to the tools the context offers, in the
@@ -325,11 +332,17 @@ export function seedMessagesFor(earlierCommands: EarlierCommand[], sceneState: u
 }
 
 /**
- * The lines the harness backend sends before a case's `voice_command`: a reset, so cases stay independent, and a seed when
- * the case needs earlier commands or an interrupted one.
+ * The lines the harness backend sends before a case's `voice_command`: a reset, so cases stay independent, a seed when
+ * the case needs earlier commands or an interrupted one, and, for a case in a context with a waiting request, a
+ * `seed_approval_request` named by the command's ID, so the voice answer has a request in the harness's gate to settle.
  */
-export function sessionLinesFor(brainCase: BrainCase, evalFile: BrainEvalFile): Array<Record<string, unknown>> {
+export function sessionLinesFor(brainCase: BrainCase, evalFile: BrainEvalFile, commandID?: string): Array<Record<string, unknown>> {
   const lines: Array<Record<string, unknown>> = [{ type: "reset_session" }];
+  const waitingCapability = waitingApprovalCapabilityOf(brainCase, evalFile);
+  if (waitingCapability !== undefined && commandID !== undefined) {
+    // The request a voice answer can settle, in the harness's approval gate with no task behind it.
+    lines.push({ type: "seed_approval_request", approvalID: approvalIDFor(commandID), capability: waitingCapability });
+  }
   if (brainCase.earlierCommands !== undefined || brainCase.interruptedBefore !== undefined) {
     lines.push({
       type: "seed_session",
@@ -489,6 +502,29 @@ export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exc
     return nameOutcome;
   }
   return everyCallHoldsExpectedInput(toolCalls, brainCase.input ?? {}) ? "pass" : "wrongInput";
+}
+
+/**
+ * The outcome of a case whose command could answer a waiting request, on the harness backend. The harness handles
+ * `answer_approval` itself and never sends it to the app, so the call arrives with no known input, and the answer is read
+ * from what the harness's gate settled for the seeded request instead (`approval_settled`, or the `Brain: approval` log line):
+ * a case that expects the answer passes only when the model called the tool and the gate took the expected answer, and a
+ * case that expects no answer passes only with its own tool call and no settlement. The rest of the case's input is checked as usual.
+ */
+export function scoreApprovalCase(toolCalls: ToolCall[], settlement: ApprovalSettlement | null, brainCase: BrainCase): Exclude<Outcome, "error"> {
+  const { answer_approval: expectedAnswer, ...otherExpectedInput } = brainCase.input ?? {};
+  const otherOutcome = scoreBrainCase(toolCalls, { ...brainCase, input: otherExpectedInput });
+  if (otherOutcome !== "pass") {
+    return otherOutcome;
+  }
+  if (!toolCalls.some((toolCall) => toolCall.name === "answer_approval")) {
+    return settlement === null ? "pass" : "wrongInput";
+  }
+  if (settlement === null || expectedAnswer === undefined) {
+    return "wrongInput";
+  }
+  const expectedScope = expectedAnswer.always === true ? "always" : "once";
+  return settlement.approved === expectedAnswer.approved && settlement.scope === expectedScope ? "pass" : "wrongInput";
 }
 
 /**
@@ -812,7 +848,16 @@ export type HarnessCommandRecord = {
   endedMs: number | null;
   ending: HarnessCommandEnding | null;
   logLines: string[];
+  /** The request the command could answer, seeded before it, or null when none waited. */
+  approvalID: string | null;
+  /** What the harness's gate settled for that request, from an `approval_settled` line or, failing that, the `Brain: approval` log line. Null when nothing was settled. */
+  approvalSettlement: ApprovalSettlement | null;
 };
+
+export type ApprovalSettlement = { approved: boolean; scope: "once" | "always" };
+
+// Matches harness/voiceapproval.go: "Brain: approval %s given (once)" or "declined (once)", with the scope in parentheses.
+const brainApprovalLinePattern = /^Brain: approval (\S+) (given|declined) \((once|always)\)$/;
 
 /**
  * Reads one voice command's lines from the harness and says what to send back. It records each `tool_call` with its
@@ -820,13 +865,15 @@ export type HarnessCommandRecord = {
  * and no process, so a recorded line stream can be replayed through it.
  */
 export class HarnessCommandRecorder {
-  readonly record: HarnessCommandRecord = { toolCalls: [], turns: [], firstToolCallMs: null, endedMs: null, ending: null, logLines: [] };
+  readonly record: HarnessCommandRecord;
   private readonly brainCase: BrainCase;
   private readonly commandID: string;
 
-  constructor(brainCase: BrainCase, commandID: string) {
+  /** `approvalID` is the request the command may answer, which `voiceCommandMessageFor` names in `approvalIDSeenAtPress`. */
+  constructor(brainCase: BrainCase, commandID: string, approvalID: string | null = null) {
     this.brainCase = brainCase;
     this.commandID = commandID;
+    this.record = { toolCalls: [], turns: [], firstToolCallMs: null, endedMs: null, ending: null, logLines: [], approvalID, approvalSettlement: null };
   }
 
   get hasEnded(): boolean {
@@ -843,6 +890,15 @@ export class HarnessCommandRecorder {
       if (turn !== null) {
         this.record.turns.push(turn);
       }
+      // The log line is the fallback for a harness whose approval_settled line was not read, and the line wins when both come.
+      const approvalLine = brainApprovalLinePattern.exec(logMessage);
+      if (approvalLine !== null && approvalLine[1] === this.record.approvalID && this.record.approvalSettlement === null) {
+        this.record.approvalSettlement = { approved: approvalLine[2] === "given", scope: approvalLine[3] as "once" | "always" };
+      }
+      return null;
+    }
+    if (message.type === "approval_settled" && message.approvalID === this.record.approvalID && typeof message.approved === "boolean") {
+      this.record.approvalSettlement = { approved: message.approved, scope: message.scope === "always" ? "always" : "once" };
       return null;
     }
     if (message.taskID !== this.commandID) {
@@ -920,26 +976,52 @@ export function sampleFromHarnessRecord(brainCase: BrainCase, runIndex: number, 
     return { ...baseSample, totalMs: record.endedMs ?? 0, outcome: "error", toolCalls: [], spokenText: reason };
   }
   const scoredCalls = brainCase.scoreWholeCommand === true ? wholeCommandToolCalls(record) : firstTurnToolCalls(record);
+  const outcome =
+    brainCase.scoreWholeCommand === true
+      ? scoreWholeCommand(scoredCalls, brainCase)
+      : record.approvalID !== null
+        ? scoreApprovalCase(scoredCalls, record.approvalSettlement, brainCase)
+        : scoreBrainCase(scoredCalls, brainCase);
   return {
     ...baseSample,
     totalMs: record.firstToolCallMs ?? record.endedMs ?? 0,
-    outcome: brainCase.scoreWholeCommand === true ? scoreWholeCommand(scoredCalls, brainCase) : scoreBrainCase(scoredCalls, brainCase),
+    outcome,
     toolCalls: scoredCalls,
     spokenText: record.ending.spokenLine,
   };
 }
 
 /**
- * The `voice_command` line for one case, with the same words, scene state, and tools the Worker request has. It carries no
- * recent actions, since the harness keeps earlier commands in its session, which `sessionLinesFor` sets up.
+ * The kind of action a case's waiting request asks for, such as "sends", or undefined when no request waits. The Worker
+ * backend reads it from the scene state, as the app's old path sends it. The harness backend takes it out of the scene state
+ * and seeds a request with it instead (`seed_approval_request`), since on the harness path the app sends no approvalWaiting
+ * and the harness reads the kind of action from its own approval gate.
+ */
+export function waitingApprovalCapabilityOf(brainCase: BrainCase, evalFile: BrainEvalFile): string | undefined {
+  const capabilityWord = sceneStateOf(brainCase, evalFile).approvalWaiting;
+  return typeof capabilityWord === "string" ? capabilityWord : undefined;
+}
+
+/** The ID of the request a case's command answers, which the bench seeds before the command and names in `approvalIDSeenAtPress`. */
+export function approvalIDFor(commandID: string): string {
+  return `approval-${commandID}`;
+}
+
+/**
+ * The `voice_command` line for one case, with the same words and tools the Worker request has. It carries no recent
+ * actions, since the harness keeps earlier commands in its session, which `sessionLinesFor` sets up. A case in a context
+ * with a waiting request names that request in `approvalIDSeenAtPress`, as the app does when the learner had seen its card
+ * at the press, and its scene state has no `approvalWaiting`, which only the Worker backend sends.
  */
 export function voiceCommandMessageFor(brainCase: BrainCase, evalFile: BrainEvalFile, toolCatalog: ToolCatalog, commandID: string) {
+  const { approvalWaiting: _approvalWaiting, ...sceneStateWithoutApproval } = sceneStateOf(brainCase, evalFile);
   return {
     type: "voice_command",
     taskID: commandID,
     transcript: brainCase.say,
-    sceneState: sceneStateOf(brainCase, evalFile),
+    sceneState: sceneStateWithoutApproval,
     tools: requestBodyFor(brainCase, evalFile, toolCatalog).tools,
+    approvalIDSeenAtPress: waitingApprovalCapabilityOf(brainCase, evalFile) === undefined ? null : approvalIDFor(commandID),
   };
 }
 
@@ -1035,7 +1117,7 @@ export async function startHarnessBrain(
   return {
     runCommand: (voiceCommand, brainCase, sessionLines = []) =>
       new Promise((resolve) => {
-        const recorder = new HarnessCommandRecorder(brainCase, voiceCommand.taskID);
+        const recorder = new HarnessCommandRecorder(brainCase, voiceCommand.taskID, voiceCommand.approvalIDSeenAtPress);
         let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         let startedAt = performance.now();
         const finish = () => {
@@ -1182,6 +1264,12 @@ async function runOneSample(brainCase: BrainCase, runIndex: number, requestBody:
   const { toolCalls, spokenText } = toolCallsIn(replyText);
   const outcome = scoreBrainCase(toolCalls, brainCase);
   return { ...emptySample, httpStatus: response.status, totalMs, outcome, toolCalls, spokenText, usageLines, costUSD };
+}
+
+/** Runs one case on the started harness: the session lines (a reset, a seeded session, a seeded approval request) and then the command, with an ID that names its own request. */
+export function runCaseOnTheHarness(harnessBrain: HarnessBrainProcess, brainCase: BrainCase, evalFile: BrainEvalFile, toolCatalog: ToolCatalog): Promise<HarnessCommandRecord> {
+  const commandID = `eval-${randomUUID()}`;
+  return harnessBrain.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, commandID), brainCase, sessionLinesFor(brainCase, evalFile, commandID));
 }
 
 function commandLineOption(optionName: string): string | undefined {
@@ -1354,11 +1442,7 @@ async function runBrainEvals() {
           const sample =
             backend === "worker" || harnessBrain === undefined
               ? await runOneSample(brainCase, runIndex, requestBody, port, logPath)
-              : sampleFromHarnessRecord(
-                  brainCase,
-                  runIndex,
-                  await harnessBrain.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase, sessionLinesFor(brainCase, evalFile)),
-                );
+              : sampleFromHarnessRecord(brainCase, runIndex, await runCaseOnTheHarness(harnessBrain, brainCase, evalFile, toolCatalog));
           samples.push(sample);
           logSample(backend, brainCase, runIndex, sample);
         }
@@ -1370,7 +1454,7 @@ async function runBrainEvals() {
     ];
     for (const { brainCase, suite } of harnessBrain === undefined ? [] : harnessOnlyCases) {
       for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
-        const record = await harnessBrain?.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase, sessionLinesFor(brainCase, evalFile));
+        const record = harnessBrain === undefined ? undefined : await runCaseOnTheHarness(harnessBrain, brainCase, evalFile, toolCatalog);
         if (record === undefined) {
           continue;
         }

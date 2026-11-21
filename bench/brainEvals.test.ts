@@ -5,6 +5,7 @@ import { describe, it, mock } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   acceptedAnswersOf,
+  approvalIDFor,
   cacheReadShare,
   earlierActionLine,
   escapedLine,
@@ -31,7 +32,9 @@ import {
   parseBrainTurnLine,
   percentile,
   requestBodyFor,
+  runCaseOnTheHarness,
   sampleFromHarnessRecord,
+  scoreApprovalCase,
   scoreBrainCase,
   scoreToolCalls,
   skillInputDescription,
@@ -44,6 +47,7 @@ import {
   toolsWithStaleDescriptions,
   validateBrainEvals,
   voiceCommandMessageFor,
+  waitingApprovalCapabilityOf,
   voiceCommandUserMessageText,
   withSkills,
   type BrainCase,
@@ -1266,5 +1270,113 @@ describe("the planning cases", () => {
       /does not call/,
     );
     assert.throws(() => validateBrainEvals(withCase({ ...validCase, accept: ["none"] }), toolCatalog), /at least one call/);
+  });
+});
+
+describe("the approval cases on the harness backend", () => {
+  const fakeHarness = { command: process.execPath, args: [join(benchDirectory, "fixtures", "fake-brain-harness.ts")] };
+  const approvalCases = evalFile.cases.filter((brainCase) => waitingApprovalCapabilityOf(brainCase, evalFile) !== undefined);
+  const settled = (approved: boolean, scope: "once" | "always") => ({ approved, scope });
+
+  it("covers the seven cases of the approvalWaiting context, and every one has a score path", () => {
+    assert.equal(approvalCases.filter((brainCase) => brainCase.context === "approvalWaiting").length, 7);
+    // The injection case of the session suite also runs with a waiting request, so it is scored the same way.
+    assert.ok(approvalCases.length >= 7);
+    for (const brainCase of approvalCases) {
+      const wantsAnAnswer = acceptedAnswersOf(brainCase).some((answer) => answer.includes("answer_approval"));
+      const calledTheTool = [{ name: "answer_approval", input: {}, inputIsUnknown: true }];
+      const expected = brainCase.input?.answer_approval;
+      assert.equal(
+        scoreApprovalCase(calledTheTool, expected === undefined ? null : settled(expected.approved === true, expected.always === true ? "always" : "once"), brainCase),
+        wantsAnAnswer ? "pass" : "wrongTool",
+        brainCase.id,
+      );
+    }
+  });
+
+  it("sends the request's ID in approvalIDSeenAtPress with no approvalWaiting in the scene state, and a null ID when nothing waits", () => {
+    const yes = voiceCommandMessageFor(fixtureCase("approval-yes"), evalFile, toolCatalog, "cmd-1");
+    assert.equal(yes.approvalIDSeenAtPress, approvalIDFor("cmd-1"));
+    assert.ok(!("approvalWaiting" in yes.sceneState), "the app sends no approvalWaiting on the harness path");
+    assert.equal(voiceCommandMessageFor(fixtureCase("video-seek-back"), evalFile, toolCatalog, "cmd-1").approvalIDSeenAtPress, null);
+    // The Worker backend still sends the word the old path sends.
+    assert.equal(sceneStateOf(fixtureCase("approval-yes"), evalFile).approvalWaiting, "sends");
+  });
+
+  it("seeds the waiting request after the reset, with the kind of action the context names", () => {
+    assert.deepEqual(sessionLinesFor(fixtureCase("approval-yes"), evalFile, "cmd-1"), [
+      { type: "reset_session" },
+      { type: "seed_approval_request", approvalID: approvalIDFor("cmd-1"), capability: "sends" },
+    ]);
+    assert.deepEqual(sessionLinesFor(fixtureCase("video-seek-back"), evalFile, "cmd-1"), [{ type: "reset_session" }]);
+  });
+
+  it("passes a case that expects an answer only when the gate settled the expected one", () => {
+    const calledTheTool = [{ name: "answer_approval", input: {}, inputIsUnknown: true }];
+    const yes = fixtureCase("approval-yes");
+    const always = fixtureCase("approval-always");
+    const no = fixtureCase("approval-no");
+
+    assert.equal(scoreApprovalCase(calledTheTool, settled(true, "once"), yes), "pass");
+    assert.equal(scoreApprovalCase(calledTheTool, settled(true, "always"), yes), "wrongInput", "an always the case did not expect");
+    assert.equal(scoreApprovalCase(calledTheTool, settled(false, "once"), yes), "wrongInput");
+    assert.equal(scoreApprovalCase(calledTheTool, null, yes), "wrongInput", "the tool was called and the harness settled nothing");
+    assert.equal(scoreApprovalCase(calledTheTool, settled(true, "always"), always), "pass");
+    assert.equal(scoreApprovalCase(calledTheTool, settled(true, "once"), always), "wrongInput");
+    assert.equal(scoreApprovalCase(calledTheTool, settled(false, "once"), no), "pass");
+    assert.equal(scoreApprovalCase([], null, yes), "missedTool");
+  });
+
+  it("passes an unrelated command only with its own tool call and no settlement", () => {
+    const pause = fixtureCase("approval-unrelated-pause");
+    const calledPause = [{ name: "pause_video", input: {} }];
+
+    assert.equal(scoreApprovalCase(calledPause, null, pause), "pass");
+    assert.equal(scoreApprovalCase(calledPause, settled(true, "once"), pause), "wrongInput", "a request settled by an unrelated command");
+    assert.equal(scoreApprovalCase([{ name: "answer_approval", input: {}, inputIsUnknown: true }], settled(true, "once"), pause), "wrongTool");
+    assert.equal(scoreApprovalCase([{ name: "play_video", input: {} }], null, pause), "wrongTool");
+  });
+
+  it("reads the line and the messages harness/voiceapproval.go and protocol.go write", () => {
+    const voiceApprovalSource = readFileSync(join(benchDirectory, "..", "harness", "voiceapproval.go"), "utf8");
+    const protocolSource = readFileSync(join(benchDirectory, "..", "harness", "protocol.go"), "utf8");
+    // The log line is "Brain: approval <id> given|declined (<scope>)", which the recorder's pattern reads.
+    assert.ok(voiceApprovalSource.includes('"Brain: approval %s %s (%s)"'));
+    assert.ok(voiceApprovalSource.includes('logVerdict, answerWord = "given", "allowed"') && voiceApprovalSource.includes('logVerdict, answerWord := "declined", "declined"'));
+    assert.ok(protocolSource.includes('Type: "approval_settled"'));
+    assert.ok(protocolSource.includes('case "seed_approval_request":'));
+  });
+
+  it("reads the settlement from approval_settled, or from the Brain: approval log line, for the seeded request only", () => {
+    const yes = fixtureCase("approval-yes");
+    const fromTheLine = new HarnessCommandRecorder(yes, "cmd-1", approvalIDFor("cmd-1"));
+    fromTheLine.receive({ type: "approval_settled", approvalID: approvalIDFor("cmd-1"), approved: true, scope: "always" }, 10);
+    assert.deepEqual(fromTheLine.record.approvalSettlement, settled(true, "always"));
+
+    const fromTheLog = new HarnessCommandRecorder(yes, "cmd-1", approvalIDFor("cmd-1"));
+    fromTheLog.receive({ type: "log", message: `Brain: approval ${approvalIDFor("cmd-1")} declined (once)` }, 10);
+    assert.deepEqual(fromTheLog.record.approvalSettlement, settled(false, "once"));
+
+    const forAnotherRequest = new HarnessCommandRecorder(yes, "cmd-1", approvalIDFor("cmd-1"));
+    forAnotherRequest.receive({ type: "approval_settled", approvalID: "approval-someone-else", approved: true, scope: "once" }, 10);
+    forAnotherRequest.receive({ type: "log", message: "Brain: approval approval-someone-else given (once)" }, 11);
+    assert.equal(forAnotherRequest.record.approvalSettlement, null);
+  });
+
+  it("scores a command end to end from the harness's approval_settled line, and scores the wrong settlement as a wrong input", async () => {
+    const harnessBrain = await startHarnessBrain(fakeHarness, 1, "s3cret");
+    try {
+      const yes = { ...fixtureCase("approval-yes"), say: "approve it" };
+      const settledRecord = await runCaseOnTheHarness(harnessBrain, yes, evalFile, toolCatalog);
+      assert.deepEqual(settledRecord.approvalSettlement, settled(true, "once"));
+      assert.equal(sampleFromHarnessRecord(yes, 0, settledRecord).outcome, "pass");
+
+      const no = { ...fixtureCase("approval-no"), say: "deny it" };
+      assert.equal(sampleFromHarnessRecord(no, 0, await runCaseOnTheHarness(harnessBrain, no, evalFile, toolCatalog)).outcome, "pass");
+      // The model asked for the wrong answer: the case wants a yes, and the harness settled a no.
+      assert.equal(sampleFromHarnessRecord({ ...yes, say: "deny it" }, 0, await runCaseOnTheHarness(harnessBrain, { ...yes, say: "deny it" }, evalFile, toolCatalog)).outcome, "wrongInput");
+    } finally {
+      harnessBrain.stop();
+    }
   });
 });

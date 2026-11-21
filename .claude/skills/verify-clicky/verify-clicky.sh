@@ -22,12 +22,17 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down [port]        Stop the Workers this script started, or only the one on that port.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch [--brain] [--harness-brain] [--every-permission] "<steps>"
+  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain also passes --brain-takes-every-request, so the router takes every first utterance
                           without writing the flag into the defaults the everyday Clicky shares.
                           --harness-brain also passes --brain-runs-in-the-harness, so voice commands run on the brain in
                           the agent harness instead of POST /voice-command. The two flags go in either order.
+                          --no-app-secret makes the Debug app act as if no secret were set, and --wrong-app-secret as if
+                          the secret were one the Worker refuses, so the upgrade paths of the harness brain can be driven:
+                          with no secret, voice commands use the old Worker router from the start, and with a wrong one,
+                          the first command is re-sent on it. They pass the app's own --app-secret-mode none|wrong launch
+                          argument and never write or delete the defaults the everyday Clicky shares.
                           --every-permission quits the app and fails when it starts without every permission or onboarding,
                           since its permissions panel would cover a recorded take. record-shot.sh passes it.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
@@ -348,6 +353,59 @@ command_build() {
   fi
 }
 
+# The app secret in a .dev.vars file, or nothing. Callers compare it and never print it.
+dev_vars_app_secret() {
+  grep -E '^CLICKY_APP_SECRET=' "$1" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true
+}
+
+# Says whether the Debug app's secret is missing, refused, or fine, without printing it. The harness brain calls the Worker's
+# /v1/messages, which refuses a request without the secret in worker/.dev.vars. With no secret the app runs voice commands on
+# the old Worker router from launch, and with a wrong one it re-sends the first command there and stays there. Args: the
+# .dev.vars file, the Debug app's bundle ID (empty when it is not built), the last app log.
+report_app_secret_state() {
+  local dev_vars_file="$1" bundle_id="$2" app_log_file="$3"
+  local worker_secret app_secret
+  worker_secret="$(dev_vars_app_secret "$dev_vars_file")"
+  if [[ -z "$worker_secret" ]]; then
+    echo "app secret: worker/.dev.vars has no CLICKY_APP_SECRET, so the Worker refuses the harness's /v1/messages calls. Voice commands fall back to the old Worker router, and task agents and study guides fail. Copy it from the main checkout."
+  elif [[ -z "$bundle_id" ]]; then
+    echo "app secret: set in worker/.dev.vars. The Debug app is not built, so its defaults were not checked."
+  else
+    app_secret="$(defaults read "$bundle_id" clickyAppSecret 2>/dev/null || true)"
+    if [[ -z "$app_secret" ]]; then
+      echo "app secret: MISSING from the Debug app's defaults, so voice commands use the old Worker router and the harness gets 401 on every call. app-launch copies it from worker/.dev.vars."
+    elif [[ "$app_secret" != "$worker_secret" ]]; then
+      echo "app secret: REFUSED. The Debug app's secret differs from worker/.dev.vars, so the Worker answers 401 to the harness. The first voice command is re-sent on the old Worker router and later ones stay there. app-launch copies the right one."
+    else
+      echo "app secret: set in the Debug app's defaults, and the same as worker/.dev.vars"
+    fi
+  fi
+  if [[ -f "$app_log_file" ]]; then
+    if grep -q 'Brain: no app secret' "$app_log_file" 2>/dev/null; then
+      echo "app secret: the last launch's log says it had no app secret"
+    fi
+    if grep -q 'the Worker refused the app secret' "$app_log_file" 2>/dev/null; then
+      echo "app secret: the last launch's log says the Worker refused it"
+    fi
+  fi
+}
+
+# Copies the real secret into the Debug app's defaults before it starts, only in the default mode (copy). In none and wrong the
+# app gets --app-secret-mode and acts as if the secret were missing or wrong, so the defaults, which the everyday Clicky
+# shares, are never written or deleted. Args: the mode, the bundle ID, the real secret.
+apply_app_secret_mode() {
+  local mode="$1" bundle_id="$2" real_secret="$3"
+  case "$mode" in
+    copy)
+      # .dev.vars may have none, and then the defaults keep what they hold.
+      if [[ -n "$real_secret" ]]; then defaults write "$bundle_id" clickyAppSecret -string "$real_secret"; fi
+      ;;
+    none|wrong) ;;
+    *) echo "unknown app secret mode $mode" >&2; return 1 ;;
+  esac
+  return 0
+}
+
 command_doctor() {
   echo "checkout: $checkout_root"
   echo "branch: $(git -C "$checkout_root" branch --show-current) at $(git -C "$checkout_root" log -1 --format='%h %s')"
@@ -401,6 +459,8 @@ command_doctor() {
       echo "debug app: does NOT support --live-scene-rehearsal. Run this script's build command."
     fi
   fi
+
+  report_app_secret_state "$checkout_root/worker/.dev.vars" "${app_path:+$(plutil -extract CFBundleIdentifier raw "$app_path/Contents/Info.plist")}" "$current_run_link/app.log"
 
   local clicky_pids our_app_id
   clicky_pids="$(running_clicky_pids | paste -sd, -)"
@@ -591,13 +651,27 @@ command_grant() {
   echo "The next app-launch prints 'accessibility: true' once the grant holds."
 }
 
-# Reads app-launch's flags into app_launch_flag_arguments, the app's own launch arguments for them, and the steps after
-# them into app_launch_rehearsal_steps.
+# Reads app-launch's flags into app_launch_flag_arguments, the app's own launch arguments for them (--no-app-secret and
+# --wrong-app-secret become --app-secret-mode none|wrong), and the steps after them into app_launch_rehearsal_steps.
 parse_app_launch_arguments() {
   app_launch_flag_arguments=()
   app_launch_needs_every_permission=false
+  app_launch_app_secret_mode=copy
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --no-app-secret|--wrong-app-secret)
+        local requested_mode=none
+        if [[ "$1" == "--wrong-app-secret" ]]; then requested_mode=wrong; fi
+        if [[ "$app_launch_app_secret_mode" != copy && "$app_launch_app_secret_mode" != "$requested_mode" ]]; then
+          echo "--no-app-secret and --wrong-app-secret cannot go together" >&2
+          exit 1
+        fi
+        # Without this guard a second flag would add a second --app-secret-mode argument.
+        if [[ "$app_launch_app_secret_mode" == copy ]]; then
+          app_launch_flag_arguments+=(--app-secret-mode "$requested_mode")
+        fi
+        app_launch_app_secret_mode="$requested_mode"
+        ;;
       --brain) app_launch_flag_arguments+=(--brain-takes-every-request) ;;
       --harness-brain) app_launch_flag_arguments+=(--brain-runs-in-the-harness) ;;
       --every-permission) app_launch_needs_every_permission=true ;;
@@ -627,15 +701,14 @@ command_app_launch() {
   move_the_previous_launch_files_aside "$run_dir"
   echo "$rehearsal_steps" >"$run_dir/rehearsal-steps.txt"
   worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
-  # The Worker's Notion routes need the app's secret, which the app reads from its defaults. It is copied from
-  # .dev.vars without ever being printed, so a guide or a task page works on the first launch.
-  local app_secret
-  app_secret="$(grep -E '^CLICKY_APP_SECRET=' "$checkout_root/worker/.dev.vars" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)"
-  if [[ -n "$app_secret" ]]; then
-    local bundle_id
-    bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
-    defaults write "$bundle_id" clickyAppSecret -string "$app_secret"
-  fi
+  # The Worker's Notion routes and /v1/messages (the task agents and the voice command brain) need the app's secret, which
+  # the app reads from its defaults. It is copied from .dev.vars without ever being printed, so a guide, a task page, or a
+  # brain command works on the first launch. --no-app-secret and --wrong-app-secret leave the defaults alone, since the
+  # everyday Clicky shares them, and pass the app --app-secret-mode, so an upgrade path that starts with no secret or a
+  # refused one is on screen from the first command.
+  local bundle_id
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Contents/Info.plist")"
+  apply_app_secret_mode "$app_launch_app_secret_mode" "$bundle_id" "$(dev_vars_app_secret "$checkout_root/worker/.dev.vars")"
   # NSUnbufferedIO makes Swift print() reach the log file line by line, as it does under Xcode.
   open -n "$app_path" --env NSUnbufferedIO=YES --stdout "$run_dir/app.log" --stderr "$run_dir/app.err" \
     --args --voice-tool-debug-server ${app_launch_flag_arguments[@]+"${app_launch_flag_arguments[@]}"} --live-scene-rehearsal "$rehearsal_steps"

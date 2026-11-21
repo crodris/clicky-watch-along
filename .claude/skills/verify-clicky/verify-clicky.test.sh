@@ -3,7 +3,9 @@
 # running_clicky_pids, which `app-launch` uses to refuse a second Clicky, parse_app_launch_arguments, which reads
 # `app-launch`'s flags, command_worker_down, which stops one Worker when given its port,
 # move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait,
-# accessibility_grant_warning, which tells app-launch to name the grant command, and the scroll
+# accessibility_grant_warning, which tells app-launch to name the grant command, apply_app_secret_mode and
+# report_app_secret_state, which the --no-app-secret and --wrong-app-secret flags and doctor use (the flags pass the app
+# --app-secret-mode and never write the defaults the everyday Clicky shares), and the scroll
 # command's usage line and refusal of a value that is not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
@@ -89,6 +91,62 @@ check "both brain flags pass their launch arguments" "${app_launch_flag_argument
 check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
 parse_app_launch_arguments "pop this out"
 check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
+# --no-app-secret and --wrong-app-secret pass the app's own --app-secret-mode argument, so the upgrade paths of the harness
+# brain work on the first try without touching the defaults. The default copies the real secret and passes nothing.
+parse_app_launch_arguments "turn it to the left"
+check "app-launch copies the real secret by default" "${#app_launch_flag_arguments[@]} $app_launch_app_secret_mode" "0 copy"
+parse_app_launch_arguments --no-app-secret "turn it to the left"
+check "--no-app-secret passes --app-secret-mode none" "${app_launch_flag_arguments[*]} $app_launch_app_secret_mode" "--app-secret-mode none none"
+parse_app_launch_arguments --harness-brain --wrong-app-secret "turn it to the left"
+check "--wrong-app-secret passes --app-secret-mode wrong and keeps the other flags" "${app_launch_flag_arguments[*]} $app_launch_app_secret_mode" "--brain-runs-in-the-harness --app-secret-mode wrong wrong"
+check "steps still follow the secret flags" "$app_launch_rehearsal_steps" "turn it to the left"
+parse_app_launch_arguments --no-app-secret --no-app-secret "x"
+check "the same secret flag twice passes one argument" "${app_launch_flag_arguments[*]}" "--app-secret-mode none"
+conflict_error="$( (parse_app_launch_arguments --no-app-secret --wrong-app-secret "x") 2>&1)" || true
+check "the two secret flags cannot go together" "$conflict_error" "--no-app-secret and --wrong-app-secret cannot go together"
+check "usage lists both secret flags" "$(usage | grep -c -e '--no-app-secret|--wrong-app-secret')" "1"
+
+# The defaults command is shadowed, so these checks write nothing to this Mac's defaults.
+defaults_calls_file="$test_directory/defaults-calls.txt"
+fake_defaults_secret=""
+defaults() {
+  case "$1" in
+    read) [[ -n "$fake_defaults_secret" ]] && echo "$fake_defaults_secret" || return 1 ;;
+    *) printf '%s\n' "$*" >>"$defaults_calls_file" ;;
+  esac
+}
+: >"$defaults_calls_file"
+apply_app_secret_mode none com.example.clicky real-secret
+check "--no-app-secret never writes or deletes the defaults" "$(cat "$defaults_calls_file")" ""
+apply_app_secret_mode wrong com.example.clicky real-secret
+check "--wrong-app-secret never writes or deletes the defaults" "$(cat "$defaults_calls_file")" ""
+: >"$defaults_calls_file"
+apply_app_secret_mode copy com.example.clicky real-secret
+check "the default copies the real secret" "$(cat "$defaults_calls_file")" "write com.example.clicky clickyAppSecret -string real-secret"
+: >"$defaults_calls_file"
+apply_app_secret_mode copy com.example.clicky ""
+check "the default writes nothing when .dev.vars has no secret" "$(cat "$defaults_calls_file")" ""
+
+# doctor says whether the secret is missing, refused, or fine, and never prints it.
+printf 'ANTHROPIC_API_KEY=sk-x\nCLICKY_APP_SECRET="real-secret"\n' >"$test_directory/dev-vars-with-secret"
+printf 'ANTHROPIC_API_KEY=sk-x\n' >"$test_directory/dev-vars-without-secret"
+fake_defaults_secret=""
+secret_report="$(report_app_secret_state "$test_directory/dev-vars-with-secret" com.example.clicky "$test_directory/no-such-log")"
+check "doctor reports a secret missing from the Debug app's defaults" "$(grep -c '^app secret: MISSING' <<<"$secret_report")" "1"
+fake_defaults_secret="some-other-secret"
+secret_report="$(report_app_secret_state "$test_directory/dev-vars-with-secret" com.example.clicky "$test_directory/no-such-log")"
+check "doctor reports a secret the Worker refuses" "$(grep -c '^app secret: REFUSED' <<<"$secret_report")" "1"
+fake_defaults_secret="real-secret"
+secret_report="$(report_app_secret_state "$test_directory/dev-vars-with-secret" com.example.clicky "$test_directory/no-such-log")"
+check "doctor reports a matching secret" "$(grep -c "^app secret: set in the Debug app's defaults, and the same" <<<"$secret_report")" "1"
+check "doctor never prints a secret" "$(grep -c -e 'real-secret' -e 'some-other-secret' <<<"$secret_report" || true)" "0"
+secret_report="$(report_app_secret_state "$test_directory/dev-vars-without-secret" com.example.clicky "$test_directory/no-such-log")"
+check "doctor reports a .dev.vars with no secret" "$(grep -c 'has no CLICKY_APP_SECRET' <<<"$secret_report")" "1"
+printf '%s\n' "Brain: the Worker refused the app secret, so this command goes to the Worker router once" >"$test_directory/refused.log"
+secret_report="$(report_app_secret_state "$test_directory/dev-vars-with-secret" com.example.clicky "$test_directory/refused.log")"
+check "doctor reports a refusal the last launch's log recorded" "$(grep -c "last launch's log says the Worker refused it" <<<"$secret_report")" "1"
+unset -f defaults
+
 # The usage text is how a driver learns the scroll primitive, and a bad value must stop before any event is posted.
 check "usage lists the scroll command" "$(usage | grep -c 'scroll <points>')" "1"
 # The function exits on a bad value, which ends only the command substitution, so its failure status is tolerated outside it.
@@ -138,4 +196,4 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, the Accessibility warning and the permissions panel check, and scroll usage and argument checks"
+echo "ok: verify-clicky build freshness, running-app detection, app-launch flags and secret modes, the doctor secret report, app log rotation, the Accessibility warning and the permissions panel check, and scroll usage and argument checks"

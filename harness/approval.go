@@ -42,6 +42,16 @@ func (kind capability) needsApproval() bool {
 	return kind != capabilityNone
 }
 
+// isAKindOfApproval is true for the four capabilities a request for approval can name. needsApproval is true for any
+// value but "none", so it also says yes to a word that is no capability at all.
+func (kind capability) isAKindOfApproval() bool {
+	switch kind {
+	case capabilitySends, capabilityDeletes, capabilitySpends, capabilityReadsPrivate:
+		return true
+	}
+	return false
+}
+
 // appToolCapabilities is every tool the app runs, and what each may do. A tool missing from it is not the app's.
 var appToolCapabilities = map[toolName]capability{
 	reportStepTool:        capabilityNone,
@@ -137,11 +147,20 @@ type standingGrantKey struct {
 	tool       toolName
 }
 
-// approvalGate asks the app for approval and remembers "always" answers until the task that gave them ends.
+// waitingApproval is one request the gate holds until an answer arrives: the channel its tool waits on, and what the tool
+// may do, which the brain reads as a capability word when the learner answers by voice.
+type waitingApproval struct {
+	answers    chan approvalResultMessage
+	capability capability
+}
+
+// approvalGate asks the app for approval and remembers "always" answers until the task that gave them ends. It takes the
+// first answer to a request and refuses the rest, whether the answer is a click's approval_result or a voice command's
+// answer_approval, since both go through deliver.
 type approvalGate struct {
 	mutex          sync.Mutex
 	standingGrants map[standingGrantKey]bool
-	waiting        map[string]chan approvalResultMessage
+	waiting        map[string]waitingApproval
 }
 
 // newApprovalID is random, not a count. A count starts again at 1 in a new harness process, so an answer the app still
@@ -155,7 +174,7 @@ func newApprovalID() string {
 }
 
 func newApprovalGate() *approvalGate {
-	return &approvalGate{standingGrants: map[standingGrantKey]bool{}, waiting: map[string]chan approvalResultMessage{}}
+	return &approvalGate{standingGrants: map[standingGrantKey]bool{}, waiting: map[string]waitingApproval{}}
 }
 
 // authorize decides whether one call may run. For a call that needs an answer it sends approval_request through send
@@ -177,7 +196,7 @@ func (gate *approvalGate) authorize(
 	}
 	approvalID := newApprovalID()
 	answers := make(chan approvalResultMessage, 1)
-	gate.waiting[approvalID] = answers
+	gate.waiting[approvalID] = waitingApproval{answers: answers, capability: needed}
 	gate.mutex.Unlock()
 
 	send(newApprovalRequestMessage(taskID, approvalID, needed, summary))
@@ -215,16 +234,34 @@ func (gate *approvalGate) forgetGrantsOfTask(taskID string) {
 }
 
 // deliver hands an answer to the call that waits for it. It returns false for an answer that matches no waiting call,
-// such as one that arrives after its task ended.
+// such as one that arrives after its task ended, or after another answer settled the request. The first answer wins,
+// because the request leaves the map under the mutex before anything is sent.
 func (gate *approvalGate) deliver(answer approvalResultMessage) bool {
 	gate.mutex.Lock()
-	answers, isWaiting := gate.waiting[answer.ApprovalID]
+	waiting, isWaiting := gate.waiting[answer.ApprovalID]
 	delete(gate.waiting, answer.ApprovalID)
 	gate.mutex.Unlock()
 	if isWaiting {
-		answers <- answer
+		waiting.answers <- answer
 	}
 	return isWaiting
+}
+
+// waitingCapability is what the request with this ID may do, and whether the gate holds it as waiting. A voice command
+// reads it to offer answer_approval and to name the kind of action in the scene state, and never reads the summary.
+func (gate *approvalGate) waitingCapability(approvalID string) (capability, bool) {
+	gate.mutex.Lock()
+	defer gate.mutex.Unlock()
+	waiting, isWaiting := gate.waiting[approvalID]
+	return waiting.capability, isWaiting
+}
+
+// seed puts a waiting request in the gate with no task behind it, so the brain evals have one to answer. Only a harness
+// started with CLICKY_BENCH=1 calls it. Nothing waits on the request's channel, and the answer ends in the buffer.
+func (gate *approvalGate) seed(approvalID string, needed capability) {
+	gate.mutex.Lock()
+	defer gate.mutex.Unlock()
+	gate.waiting[approvalID] = waitingApproval{answers: make(chan approvalResultMessage, 1), capability: needed}
 }
 
 // declinedToolResult is what the model reads when a tool did not run because the learner said no.

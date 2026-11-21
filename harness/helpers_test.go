@@ -167,6 +167,8 @@ type protocolDriver struct {
 	runFinished chan error
 	stopOnce    sync.Once
 	logs        []string
+	// settledLines are the approval_settled lines skipped on the way to another line.
+	settledLines []string
 }
 
 // startHarness runs the harness against a Worker URL and checks that it announces itself first.
@@ -247,6 +249,10 @@ func (driver *protocolDriver) expectLine(expectedType string) string {
 			return line
 		case actualType == "log":
 			driver.logs = append(driver.logs, line)
+		case actualType == "approval_settled":
+			// A click or a voice answer is announced to the app right after the gate takes it, so a test that does not
+			// wait for it skips it. The tests of the answer itself expect it by name.
+			driver.settledLines = append(driver.settledLines, line)
 		default:
 			driver.t.Fatalf("expected a %s line, got %s", expectedType, line)
 		}

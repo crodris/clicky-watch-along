@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -20,6 +21,9 @@ type brainRunner struct {
 	client  anthropic.Client
 	writer  *protocolWriter
 	session *brainSession
+	// approvals is the gate the task agents also use. A voice answer settles a request through it, so the first answer
+	// to a request, by voice or by click, wins.
+	approvals *approvalGate
 	// planningTurnTimeout is the Sonnet turn's time limit. Zero means brainPlanningTurnTimeout.
 	planningTurnTimeout time.Duration
 }
@@ -48,13 +52,15 @@ func (brain *brainRunner) logTheCancel(turnNumber int) {
 // The command gets up to mostBrainHaikuTurns turns on Haiku. When the last of them still needs the model, it gets one
 // more turn on Sonnet (the turn budget rule) before the gave-up line, with the same tools and the same history.
 func (brain *brainRunner) runCommand(commandContext context.Context, command *runningTask, voiceCommand voiceCommandMessage) {
-	tools, err := brainTools(voiceCommand.Tools)
+	// The gate decides whether a request can be answered by voice, from the ID the app says the learner had seen.
+	approvalOffer := brain.approvals.answerableApproval(voiceCommand.ApprovalIDSeenAtPress)
+	tools, err := brainTools(offersForACommand(voiceCommand.Tools, approvalOffer))
 	if err != nil {
 		brain.send(commandContext, newTaskFailedMessage(voiceCommand.TaskID, err.Error()))
 		return
 	}
 	offered := offeredToolNames(tools)
-	run := brain.session.begin(voiceCommand.Transcript, voiceCommand.SceneState)
+	run := brain.session.begin(voiceCommand.Transcript, sceneStateForACommand(voiceCommand.SceneState, approvalOffer))
 
 	for turnIndex := 0; turnIndex <= mostBrainHaikuTurns; turnIndex++ {
 		turnNumber := turnIndex + 1
@@ -81,7 +87,7 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 		}
 		run.addReply(reply)
 
-		outcomes, toolResultBlocks, err := brain.runToolCalls(commandContext, command, voiceCommand.TaskID, reply.toolCalls, offered, turnIndex, run)
+		outcomes, toolResultBlocks, err := brain.runToolCalls(commandContext, command, voiceCommand, reply.toolCalls, offered, approvalOffer, turnIndex, run)
 		if err != nil {
 			brain.logTheCancel(turnNumber)
 			run.abandon()
@@ -137,12 +143,40 @@ func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessi
 		if errors.Is(requestContext.Err(), context.DeadlineExceeded) && commandContext.Err() == nil {
 			return turn{}, fmt.Errorf("turn %d got no reply from Claude within %s", turnNumber, timeout)
 		}
+		if theWorkerRefusedTheAppSecret(err) {
+			return turn{}, errAppSecretRefused
+		}
 		return turn{}, fmt.Errorf("the request to Claude failed: %w", err)
 	}
 	brain.session.noteRequest(startedAt)
 	reply := newTurn(*message)
 	brain.send(commandContext, newLogMessage(brainUsageLine(turnNumber, model, reply, time.Since(startedAt))))
 	return reply, nil
+}
+
+// errAppSecretRefused is the failure of a turn the Worker's own app secret check refused. Its text is the reason the
+// command's task_failed carries, which the app reads: it then sends the same command once on the old path, which needs
+// no secret, and uses that path for the rest of the launch. leanring-buddy/VoiceCommandTools.swift
+// (`harnessFailureReasonAppSecretRefused`) holds the same words.
+var errAppSecretRefused = errors.New("app secret refused")
+
+// theWorkerRefusedTheAppSecret tells the Worker's secret check from Anthropic's own 401, which /v1/messages passes
+// through. Both are a 401, and the Worker's body is {"error":"Missing or wrong x-clicky-app-secret"} (worker/src/index.ts),
+// where the error is a string. Anthropic's is {"type":"error","error":{"type":"authentication_error",...}}, where it is an
+// object. An Anthropic 401 is a router failure like any other, and the old path would hit it too.
+func theWorkerRefusedTheAppSecret(err error) bool {
+	var apiError *anthropic.Error
+	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusUnauthorized {
+		return false
+	}
+	var body struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal([]byte(apiError.RawJSON()), &body) != nil {
+		return false
+	}
+	var message string
+	return json.Unmarshal(body.Error, &message) == nil && message == "Missing or wrong "+appSecretHeaderName
 }
 
 // runToolCalls runs the calls of one turn in order, one at a time, as the app ran them before, and returns each call's
@@ -153,12 +187,14 @@ func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessi
 func (brain *brainRunner) runToolCalls(
 	commandContext context.Context,
 	command *runningTask,
-	commandID string,
+	voiceCommand voiceCommandMessage,
 	calls []toolCall,
 	offered map[toolName]bool,
+	approvalOffer approvalOffer,
 	turnIndex int,
 	run *sessionRun,
 ) ([]voiceToolOutcome, []anthropic.ContentBlockParamUnion, error) {
+	commandID := voiceCommand.TaskID
 	var outcomes []voiceToolOutcome
 	var toolResultBlocks []anthropic.ContentBlockParamUnion
 	requestWasHandedOff := false
@@ -170,6 +206,18 @@ func (brain *brainRunner) runToolCalls(
 		if !offered[call.Name] {
 			outcomes = append(outcomes, voiceToolFailed)
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, voiceToolFailureText(fmt.Sprintf("%s is not available right now", call.Name)), true))
+			continue
+		}
+		if call.Name == answerApprovalTool {
+			// The harness settles an approval itself, so this call never reaches the app. A press that cancelled the command
+			// first leaves the request waiting.
+			if commandContext.Err() != nil {
+				return nil, nil, commandContext.Err()
+			}
+			outcome, resultText := brain.answerTheApproval(call, approvalOffer, turnIndex, voiceCommand.Transcript)
+			outcomes = append(outcomes, outcome)
+			run.actionLines = append(run.actionLines, voiceToolActionLine(call, outcome, resultText))
+			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, resultText, outcome == voiceToolFailed))
 			continue
 		}
 		brain.send(commandContext, newVoiceToolCallMessage(commandID, call.ID, call.Name, inputWithoutConfirmation(call.Input), turnIndex))

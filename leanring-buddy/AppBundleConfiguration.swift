@@ -27,17 +27,57 @@ enum AppBundleConfiguration {
     }
 }
 
-/// The secret the Worker's Notion routes require in x-clicky-app-secret. It is read from this app's defaults, so it
+/// The secret the Worker's gated routes require in x-clicky-app-secret: the Notion routes and /v1/messages, which the
+/// task agents and the voice command brain in the harness use. It is read from this app's defaults, so it
 /// never sits in git or in the built app. `verify-clicky.sh app-launch` copies it there from worker/.dev.vars, and
 /// `defaults write com.crodris.clicky-watch-along clickyAppSecret <secret>` sets it by hand.
 enum ClickyAppSecret {
     static let headerName = "x-clicky-app-secret"
     static let defaultsKey = "clickyAppSecret"
 
+    /// A Debug build launched with `--app-secret-mode none` acts as if no secret were set, and with
+    /// `--app-secret-mode wrong` as if the secret were one the Worker refuses. `verify-clicky.sh app-launch
+    /// --no-app-secret` and `--wrong-app-secret` pass it, so the upgrade paths of the harness brain can be driven without
+    /// writing to the defaults that the everyday Clicky shares. A Release build ignores it.
+    static let debugLaunchArgument = "--app-secret-mode"
+    static let secretTheWorkerRefuses = "not-the-worker-secret"
+
+    /// The secret to send, or nil when none is set. Every reader goes through here, so the Debug launch argument
+    /// changes the Worker requests and the harness's environment together.
+    static func current(
+        in userDefaults: UserDefaults = .standard,
+        launchArguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> String? {
+        #if DEBUG
+        if let modeArgumentIndex = launchArguments.firstIndex(of: debugLaunchArgument),
+           launchArguments.indices.contains(modeArgumentIndex + 1) {
+            switch launchArguments[modeArgumentIndex + 1] {
+            case "none": return nil
+            case "wrong": return secretTheWorkerRefuses
+            default: break
+            }
+        }
+        #endif
+        let savedSecret = userDefaults.string(forKey: defaultsKey) ?? ""
+        return savedSecret.isEmpty ? nil : savedSecret
+    }
+
+    /// Whether a secret is set, which the voice command brain needs (`VoiceCommandBackend`).
+    static func isSet(
+        in userDefaults: UserDefaults = .standard,
+        launchArguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        current(in: userDefaults, launchArguments: launchArguments) != nil
+    }
+
     /// A request with no secret set goes out without the header, and the Worker answers it with 401. Tests pass their
     /// own defaults, since the hosted tests share Clicky.app's defaults, which hold the real secret.
-    static func add(to request: inout URLRequest, from userDefaults: UserDefaults = .standard) {
-        guard let secret = userDefaults.string(forKey: defaultsKey), !secret.isEmpty else { return }
+    static func add(
+        to request: inout URLRequest,
+        from userDefaults: UserDefaults = .standard,
+        launchArguments: [String] = ProcessInfo.processInfo.arguments
+    ) {
+        guard let secret = current(in: userDefaults, launchArguments: launchArguments) else { return }
         request.setValue(secret, forHTTPHeaderField: headerName)
     }
 }

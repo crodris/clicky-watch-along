@@ -72,11 +72,23 @@ func (outcome voiceToolOutcome) isKnown() bool {
 // voiceCommandMessage starts one voice command on the brain. SceneState is the JSON object the app builds of what is
 // on screen, and Tools are the tools this command may call, already filtered by the app. The message has no
 // recentActions, since the brain's session holds every earlier command, and a line that carries one is read with it left out.
+// ApprovalIDSeenAtPress is the approval request whose whole summary the app's card had shown for a second when the learner
+// pressed push-to-talk, or nil. It is the one fact about approvals only the app knows (the card's scroll state and the
+// desk's clock). The harness decides the rest: it offers answer_approval only while the gate holds that request as
+// waiting, and it names the request's kind of action in the scene state itself, so the app sends no approvalWaiting.
 type voiceCommandMessage struct {
-	TaskID     string           `json:"taskID"`
-	Transcript string           `json:"transcript"`
-	SceneState json.RawMessage  `json:"sceneState"`
-	Tools      []voiceToolOffer `json:"tools"`
+	TaskID                string           `json:"taskID"`
+	Transcript            string           `json:"transcript"`
+	SceneState            json.RawMessage  `json:"sceneState"`
+	Tools                 []voiceToolOffer `json:"tools"`
+	ApprovalIDSeenAtPress *string          `json:"approvalIDSeenAtPress"`
+}
+
+// seedApprovalRequestMessage puts a waiting request in the approval gate with no task behind it, so the brain evals have
+// a request for a voice answer to settle. Only a harness started with CLICKY_BENCH=1 takes it.
+type seedApprovalRequestMessage struct {
+	ApprovalID string     `json:"approvalID"`
+	Capability capability `json:"capability"`
 }
 
 // resetSessionMessage empties the brain's session. Only a harness started with CLICKY_BENCH=1 takes it, so the brain
@@ -120,13 +132,14 @@ const (
 	approvalScopeAlways = "always"
 )
 
-func (startTaskMessage) inboundMessage()      {}
-func (toolResultMessage) inboundMessage()     {}
-func (cancelTaskMessage) inboundMessage()     {}
-func (approvalResultMessage) inboundMessage() {}
-func (voiceCommandMessage) inboundMessage()   {}
-func (resetSessionMessage) inboundMessage()   {}
-func (seedSessionMessage) inboundMessage()    {}
+func (startTaskMessage) inboundMessage()           {}
+func (toolResultMessage) inboundMessage()          {}
+func (cancelTaskMessage) inboundMessage()          {}
+func (approvalResultMessage) inboundMessage()      {}
+func (voiceCommandMessage) inboundMessage()        {}
+func (resetSessionMessage) inboundMessage()        {}
+func (seedSessionMessage) inboundMessage()         {}
+func (seedApprovalRequestMessage) inboundMessage() {}
 
 // parseInboundMessage checks one line from the app at the boundary and returns the typed message, or an error that
 // names what is wrong with the line.
@@ -175,6 +188,15 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		var message seedSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
 			return nil, fmt.Errorf("seed_session is malformed: %w", err)
+		}
+		return message, nil
+	case "seed_approval_request":
+		var message seedApprovalRequestMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil, fmt.Errorf("seed_approval_request is malformed: %w", err)
+		}
+		if message.ApprovalID == "" || !message.Capability.isAKindOfApproval() {
+			return nil, fmt.Errorf("seed_approval_request needs an approvalID and a capability that sends, deletes, spends, or reads_private")
 		}
 		return message, nil
 	case "cancel_task":
@@ -280,6 +302,17 @@ type voiceCommandFinishedMessage struct {
 	GaveUp     bool   `json:"gaveUp"`
 }
 
+// approvalSettledMessage tells the app which answer the gate took for a request, whoever gave it: a click's
+// approval_result or a voice command's answer_approval. The first answer wins, so this is the one outcome the app's
+// desk shows, and the desk drops the request's card only when it arrives. Scope is "always" only for a yes the learner
+// asked to remember, since a no is never remembered.
+type approvalSettledMessage struct {
+	Type       string `json:"type"`
+	ApprovalID string `json:"approvalID"`
+	Approved   bool   `json:"approved"`
+	Scope      string `json:"scope"`
+}
+
 // logMessage is a line the app prints, since stdout carries only protocol lines.
 type logMessage struct {
 	Type string `json:"type"`
@@ -295,6 +328,7 @@ func (taskFinishedMessage) outboundMessage()         {}
 func (taskFailedMessage) outboundMessage()           {}
 func (logMessage) outboundMessage()                  {}
 func (voiceCommandFinishedMessage) outboundMessage() {}
+func (approvalSettledMessage) outboundMessage()      {}
 
 func newReadyMessage() readyMessage {
 	return readyMessage{Type: "ready"}
@@ -313,6 +347,13 @@ func newVoiceToolCallMessage(taskID string, toolUseID string, name toolName, inp
 
 func newVoiceCommandFinishedMessage(taskID string, spokenLine string, gaveUp bool) voiceCommandFinishedMessage {
 	return voiceCommandFinishedMessage{Type: "voice_command_finished", TaskID: taskID, SpokenLine: spokenLine, GaveUp: gaveUp}
+}
+
+func newApprovalSettledMessage(approvalID string, approved bool, scope string) approvalSettledMessage {
+	if !approved || scope != approvalScopeAlways {
+		scope = approvalScopeOnce
+	}
+	return approvalSettledMessage{Type: "approval_settled", ApprovalID: approvalID, Approved: approved, Scope: scope}
 }
 
 func newApprovalRequestMessage(taskID string, approvalID string, needed capability, summary string) approvalRequestMessage {

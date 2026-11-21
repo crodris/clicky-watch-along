@@ -185,8 +185,16 @@ final class CompanionManager: ObservableObject {
         agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
             self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
         }
+        // The harness's gate takes the first answer to a request, a click's or a voice answer's, and says which one won.
+        agentHarness.approvalDesk.onApprovalSettled = { approved, scope in
+            let settledAnswer = ApprovalVoiceAnswer(approved: approved, scope: scope)
+            VoiceToolCallChip.shared.show(settledAnswer.chipPhrase)
+        }
         return agentHarness
     }()
+    /// Where this launch's voice commands run: the harness brain, or the old Worker router when no app secret is set or
+    /// the Worker refused it. Read once at launch, since the harness takes the secret from its environment when it starts.
+    private var voiceCommandBackend = VoiceCommandBackend(flagIsOn: BrainRunsInTheHarness.isOn(), appSecretIsSet: ClickyAppSecret.isSet())
     /// The request a voice answer from the latest push-to-talk press may reach: the oldest, when the approval card had
     /// shown its whole summary for a second at the press, and it is still waiting. The router takes the command, offers
     /// `answer_approval`, and names the request's capability only for this one, so a yes the app would refuse is never
@@ -442,8 +450,11 @@ final class CompanionManager: ObservableObject {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
-        if BrainRunsInTheHarness.isOn() {
+        if voiceCommandBackend.runsInTheHarness {
             agentHarness.prewarm()
+        }
+        if let noAppSecretLogLine = voiceCommandBackend.noAppSecretLogLine {
+            print(noAppSecretLogLine)
         }
         #if DEBUG
         // Off unless asked for, since any process on this Mac can reach a loopback port.
@@ -2589,21 +2600,23 @@ final class CompanionManager: ObservableObject {
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
         let offeredToolNames = Set(tools.map(\.name))
-        let sceneState = voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState)
         // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
         // screen while they spoke or while the model ran, such as after the shown one's task ended.
         let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
-        if BrainRunsInTheHarness.isOn() {
-            await runVoiceCommandInTheHarness(
+        if voiceCommandBackend.runsInTheHarness {
+            // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
+            let commandIsResentOnTheOldPath = await runVoiceCommandInTheHarness(
                 transcript: transcript,
-                sceneState: sceneState,
+                sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
                 tools: tools,
                 offeredToolNames: offeredToolNames,
                 approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
                 commandStartedAt: commandStartedAt
             )
-            return
+            guard commandIsResentOnTheOldPath else { return }
+            print("Brain: the Worker refused the app secret, so this command goes to the Worker router once, and so does every command until Clicky restarts")
         }
+        let sceneState = voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: true)
         let userMessageText = voiceCommandUserMessageText(
             transcript: transcript,
             sceneState: sceneState,
@@ -2688,7 +2701,8 @@ final class CompanionManager: ObservableObject {
     }
 
     /// The voice command with the harness flag on: the brain in the harness runs the model's turns, and each tool call
-    /// it sends runs here through `runOneVoiceToolCall`, as on the old path.
+    /// it sends runs here through `runOneVoiceToolCall`, as on the old path. Returns true only when the Worker refused the
+    /// app secret before any tool of the command ran, so the caller sends the same command once on the old path.
     private func runVoiceCommandInTheHarness(
         transcript: String,
         sceneState: JSONValue,
@@ -2696,7 +2710,7 @@ final class CompanionManager: ObservableObject {
         offeredToolNames: Set<String>,
         approvalIDWaitingWhenTheCommandStarted: String?,
         commandStartedAt: Date
-    ) async {
+    ) async -> Bool {
         let commandID = UUID()
         let standardInputWriter = agentHarness.standardInputWriter
         let commandLines = HarnessVoiceCommandLines(taskID: commandID) { harnessCommand in
@@ -2708,15 +2722,17 @@ final class CompanionManager: ObservableObject {
                 taskID: commandID,
                 transcript: transcript,
                 sceneState: sceneState,
-                tools: tools
+                tools: tools,
+                approvalIDSeenAtPress: approvalIDWaitingWhenTheCommandStarted
             )
         } catch {
             await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
-            return
+            return false
         }
         #if DEBUG
         harnessVoiceCommandsSent += 1
         #endif
+        var aToolOfTheCommandRan = false
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
@@ -2729,6 +2745,7 @@ final class CompanionManager: ObservableObject {
                 )
             },
             runTool: { toolCall, approvalIDTheLearnerIsAnswering in
+                aToolOfTheCommandRan = true
                 // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
                 // the call it sends is what the switch can show.
                 self.logVoiceCommandJSONIfEnabled("tool call from the harness", [.object([
@@ -2752,28 +2769,35 @@ final class CompanionManager: ObservableObject {
 
         switch commandEnding {
         case .cancelled:
-            return
+            return false
         case .failed(let reason):
-            guard !Task.isCancelled else { return }
-            await runTheRouterFailureFallback(transcript: transcript, failureDescription: reason)
+            guard !Task.isCancelled else { return false }
+            switch nextStepAfterTheHarnessFailedACommand(reason: reason, aToolOfTheCommandRan: aToolOfTheCommandRan, backend: &voiceCommandBackend) {
+            case .resendOnTheOldPath:
+                return true
+            case .routerFailureFallback:
+                await runTheRouterFailureFallback(transcript: transcript, failureDescription: reason)
+                return false
+            }
         case .finished(let spokenLine, let gaveUp):
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             // The harness sends the line whole, and this is the one cut, since only Swift counts characters as the
             // speech does, by grapheme cluster.
             let lineToSpeak = String(spokenLine.prefix(longestSpokenVoiceCommandLine))
             if !lineToSpeak.isEmpty {
                 // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                 await agentTokenDockController.waitForTheServeToLand()
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 await speakLiveSceneLine(lineToSpeak)
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             if gaveUp {
                 await speakLiveSceneLine(voiceCommandGaveUpLine)
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
+            return false
         }
     }
 
@@ -3935,7 +3959,9 @@ final class CompanionManager: ObservableObject {
     }
 
     /// What the model reads about the screen: which page shows, its camera pose and labels, and the video in front.
-    private func voiceCommandSceneState(pageState: JSONValue?, frontVideoState: JSONValue?) -> JSONValue {
+    /// `namesTheWaitingApproval` is true on the old path, where the app tells the router what kind of action a waiting request
+    /// asks for. On the harness path it is false, since the harness reads that from its own approval gate.
+    private func voiceCommandSceneState(pageState: JSONValue?, frontVideoState: JSONValue?, namesTheWaitingApproval: Bool) -> JSONValue {
         var sceneStateFields = pageState?.objectValue ?? [:]
         let pageName: String
         switch liveScenePageOnScreen {
@@ -3957,7 +3983,7 @@ final class CompanionManager: ObservableObject {
             sceneStateFields["predictionQuestion"] = .string(simulationLesson.predictionQuestion)
         }
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
-        if let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
+        if namesTheWaitingApproval, let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
         }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
