@@ -817,9 +817,13 @@ const render = (now) => {
       };
     });
   // A label's center stays this far plus half its size inside the viewport, so none leaves the screen.
+  // The size is read from the window each time, not from pageWidth and pageHeight, which the scene took when it loaded:
+  // a window that changes size afterward (a display change) would otherwise leave labels outside what shows.
   const labelViewportMargin = 8;
   const keepLabelAxisInViewport = (position, halfSize, viewportSize) =>
     Math.min(viewportSize - labelViewportMargin - halfSize, Math.max(labelViewportMargin + halfSize, position));
+  const keepLabelXInViewport = (position, halfSize) => keepLabelAxisInViewport(position, halfSize, innerWidth);
+  const keepLabelYInViewport = (position, halfSize) => keepLabelAxisInViewport(position, halfSize, innerHeight);
   // Labels that land on each other are pushed apart, so none hides another.
   for (let pass = 0; pass < 12; pass++) {
     for (let first = 0; first < placements.length; first++) for (let second = first + 1; second < placements.length; second++) {
@@ -837,8 +841,8 @@ const render = (now) => {
     }
     // Clamping inside each pass lets the next pass push labels apart again, instead of overlapping at an edge.
     for (const placement of placements) {
-      placement.labelX = keepLabelAxisInViewport(placement.labelX, placement.halfWidth, pageWidth);
-      placement.labelY = keepLabelAxisInViewport(placement.labelY, placement.halfHeight, pageHeight);
+      placement.labelX = keepLabelXInViewport(placement.labelX, placement.halfWidth);
+      placement.labelY = keepLabelYInViewport(placement.labelY, placement.halfHeight);
     }
   }
   // Each label follows its part exactly, and its offset from the part glides toward the new layout.
@@ -854,8 +858,8 @@ const render = (now) => {
       entry.offsetY += (placement.labelY - pointY - entry.offsetY) * glide;
     }
     // Offsets held still during a drag, and the glide between layouts, can carry a label past the edge, so the final position is clamped too.
-    const labelX = keepLabelAxisInViewport(pointX + entry.offsetX, halfWidth, pageWidth);
-    const labelY = keepLabelAxisInViewport(pointY + entry.offsetY, halfHeight, pageHeight);
+    const labelX = keepLabelXInViewport(pointX + entry.offsetX, halfWidth);
+    const labelY = keepLabelYInViewport(pointY + entry.offsetY, halfHeight);
     entry.anchorX = pointX; entry.anchorY = pointY;
     // A transform keeps the label at sub-pixel positions like its SVG line. Left and top snap to
     // whole pixels in WebKit, which made labels shimmer against their lines.

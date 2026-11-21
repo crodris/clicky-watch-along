@@ -26,7 +26,10 @@ class OverlayWindow: NSPanel {
         // Make window transparent and non-interactive
         self.isOpaque = false
         self.backgroundColor = .clear
-        self.level = .screenSaver  // Always on top, above submenus and popups
+        // One level above .screenSaver (see OverlayWindowManager.cursorOverlayWindowLevel, which sets it), so the cursor
+        // draws over the live scene window, the status label, submenus, and popups. The .screenSaver here is only the
+        // level before the manager replaces it.
+        self.level = .screenSaver
         self.ignoresMouseEvents = true  // Click-through
         self.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         self.isReleasedWhenClosed = false
@@ -113,6 +116,20 @@ enum BuddyNavigationMode {
     case pointingAtTarget
 }
 
+/// How the buddy gets from where it is to a target, or back to the mouse.
+enum CursorFlightMotion: Equatable {
+    /// Travels along the bezier arc, swooping and turning toward its direction of travel.
+    case travelAlongArc
+    /// Reduce Motion: fades out where it is, then fades in at the destination, with no travel between.
+    case fadeToDestination
+}
+
+/// Reduce Motion replaces the swooping arc with a short fade, so nothing crosses the screen. Both motions
+/// report arrival the same way, so the pointing hold and the narration's wait for arrival work either way.
+func cursorFlightMotion(reduceMotionIsOn: Bool) -> CursorFlightMotion {
+    reduceMotionIsOn ? .fadeToDestination : .travelAlongArc
+}
+
 /// How long the buddy keeps pointing once it reaches a detected element.
 enum BuddyPointingHold: Equatable {
     /// A few seconds after its bubble text appears, then it flies back to the cursor.
@@ -181,6 +198,9 @@ struct BlueCursorView: View {
     @State private var bubbleSize: CGSize = .zero
     @State private var bubbleOpacity: Double = 1.0
     @State private var cursorOpacity: Double = 0.0
+    /// Multiplies the cursor's and the ring's opacity. Reduce Motion's flight fades it to 0 at the start and back to 1
+    /// at the destination, in place of travelling along the arc.
+    @State private var flightFadeOpacity: Double = 1.0
 
     // MARK: - Buddy Navigation State
 
@@ -435,7 +455,7 @@ struct BlueCursorView: View {
                 .rotationEffect(.degrees(buddyRotationDegrees))
                 .shadow(color: themeSettings.shownTheme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
-                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy ? cursorOpacity * flightFadeOpacity : 0)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -460,7 +480,7 @@ struct BlueCursorView: View {
                 audioPowerLevel: companionManager.currentAudioPowerLevel,
                 color: themeSettings.shownTheme.cursorColor
             )
-                .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity * flightFadeOpacity : 0)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -655,6 +675,14 @@ struct BlueCursorView: View {
     ) {
         navigationAnimationTimer?.invalidate()
 
+        // Read from the system on each flight, so a change in System Settings applies to the next flight.
+        let motion = cursorFlightMotion(reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        if motion == .fadeToDestination {
+            fadeCursorToDestination(destination, onComplete: onComplete)
+            return
+        }
+        flightFadeOpacity = 1.0
+
         let startPosition = cursorPosition
         let endPosition = destination
 
@@ -724,6 +752,24 @@ struct BlueCursorView: View {
         }
     }
 
+    /// Reduce Motion's flight: fades the cursor out, puts it at the destination, and fades it back in. It calls
+    /// `onComplete` once the cursor is at the destination, as the arc does, and a cancel invalidates the timer
+    /// like the arc's, with `finishNavigationAndResumeFollowing` putting the opacity back.
+    private func fadeCursorToDestination(_ destination: CGPoint, onComplete: @escaping () -> Void) {
+        let fadeDurationSeconds = 0.12
+        withAnimation(.easeOut(duration: fadeDurationSeconds)) {
+            flightFadeOpacity = 0.0
+        }
+        navigationAnimationTimer = Timer.scheduledTimer(withTimeInterval: fadeDurationSeconds, repeats: false) { _ in
+            self.navigationAnimationTimer = nil
+            self.cursorPosition = destination
+            withAnimation(.easeIn(duration: fadeDurationSeconds)) {
+                self.flightFadeOpacity = 1.0
+            }
+            onComplete()
+        }
+    }
+
     /// Transitions to pointing mode — shows a speech bubble with a bouncy
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
@@ -736,7 +782,8 @@ struct BlueCursorView: View {
         navigationBubbleText = ""
         navigationBubbleOpacity = 1.0
         navigationBubbleSize = .zero
-        navigationBubbleScale = 0.5
+        // Reduce Motion skips the pop-in: the bubble starts at full size, so only its opacity fades in.
+        navigationBubbleScale = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1.0 : 0.5
 
         // Use custom bubble text from the companion manager (the onboarding demo's comment, or the
         // sentence a narration is speaking) if available, otherwise fall back to a random pointer phrase
@@ -876,6 +923,7 @@ struct BlueCursorView: View {
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
         buddyFlightScale = 1.0
+        flightFadeOpacity = 1.0
         finishNavigationAndResumeFollowing()
     }
 
@@ -891,6 +939,7 @@ struct BlueCursorView: View {
         // pointer angle like the triangle, instead of spinning back to an old facing with old streaks.
         volleyballFollowMotion = .atRest
         buddyFlightScale = 1.0
+        flightFadeOpacity = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
@@ -904,25 +953,36 @@ struct BlueCursorView: View {
             self.bubbleOpacity = 1.0
         }
 
+        // Reduce Motion shows the whole message at once instead of typing it one character at a time.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            welcomeText = fullWelcomeMessage
+            holdThenHideTheWelcomeMessage()
+            return
+        }
+
         var currentIndex = 0
         Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
             guard currentIndex < self.fullWelcomeMessage.count else {
                 timer.invalidate()
-                // Hold the text for 2 seconds, then fade it out
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    self.bubbleOpacity = 0.0
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                    self.showWelcome = false
-                    // Start the onboarding video right after the welcome text disappears
-                    self.companionManager.setupOnboardingVideo()
-                }
+                self.holdThenHideTheWelcomeMessage()
                 return
             }
 
             let index = self.fullWelcomeMessage.index(self.fullWelcomeMessage.startIndex, offsetBy: currentIndex)
             self.welcomeText.append(self.fullWelcomeMessage[index])
             currentIndex += 1
+        }
+    }
+
+    /// Holds the finished welcome text for 2 seconds, fades it out, then starts the onboarding video.
+    private func holdThenHideTheWelcomeMessage() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.bubbleOpacity = 0.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            self.showWelcome = false
+            // Start the onboarding video right after the welcome text disappears
+            self.companionManager.setupOnboardingVideo()
         }
     }
 }

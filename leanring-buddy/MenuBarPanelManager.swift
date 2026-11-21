@@ -32,12 +32,18 @@ final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
+    /// A global monitor never sees a click the window server delivers to this app's own window, so a click on the
+    /// shadow around the card needs this local one to count as outside.
+    private var clickOnShadowMarginMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
     private var savedThemesSubscription: AnyCancellable?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 320
+    private let panelWidth: CGFloat = CompanionPanelView.contentWidth
+    /// The window is wider and taller than the card by the shadow margin, so the card's shadow is not clipped.
+    private let shadowMargin = CompanionPanelView.shadowMargin
+    private var windowWidth: CGFloat { panelWidth + shadowMargin.leading + shadowMargin.trailing }
     private let panelHeight: CGFloat = 380
 
     init(companionManager: CompanionManager) {
@@ -64,6 +70,9 @@ final class MenuBarPanelManager: NSObject {
 
     deinit {
         if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = clickOnShadowMarginMonitor {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = dismissPanelObserver {
@@ -161,15 +170,15 @@ final class MenuBarPanelManager: NSObject {
 
     private func createPanel() {
         let companionPanelView = CompanionPanelView(companionManager: companionManager)
-            .frame(width: panelWidth)
+            .frame(width: windowWidth)
 
         let hostingView = NSHostingView(rootView: companionPanelView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
+        hostingView.frame = NSRect(x: 0, y: 0, width: windowWidth, height: panelHeight)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
 
         let menuBarPanel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -211,17 +220,20 @@ final class MenuBarPanelManager: NSObject {
         let statusItemFrame = buttonWindow.frame
         let gapBelowMenuBar: CGFloat = 4
 
-        // Calculate the panel's content height from the hosting view's fitting size
-        // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
-        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
+        // Calculate the window's height from the hosting view's fitting size so it snugly wraps the
+        // SwiftUI content (the card plus its shadow margin) instead of using a fixed height.
+        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: windowWidth, height: panelHeight)
         let actualPanelHeight = fittingSize.height
 
-        // Horizontally center the panel beneath the status item icon
-        let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
-        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
+        // Horizontally center the card beneath the status item icon. The margins on both sides are equal,
+        // so centering the window centers the card.
+        let panelOriginX = statusItemFrame.midX - (windowWidth / 2)
+        // The card's top edge, not the window's, sits the gap below the menu bar, so the window starts
+        // the top margin higher.
+        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar + shadowMargin.top
 
         panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
+            NSRect(x: panelOriginX, y: panelOriginY, width: windowWidth, height: actualPanelHeight),
             display: true
         )
     }
@@ -235,15 +247,26 @@ final class MenuBarPanelManager: NSObject {
     private func installClickOutsideMonitor() {
         removeClickOutsideMonitor()
 
+        clickOnShadowMarginMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self, let panel = self.panel, event.window === panel else { return event }
+            let cardFrame = Self.cardFrame(inWindowFrame: panel.frame, shadowMargin: self.shadowMargin)
+            if !cardFrame.contains(NSEvent.mouseLocation) {
+                self.hidePanel()
+            }
+            return event
+        }
+
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             guard let self, let panel = self.panel else { return }
 
-            // Check if the click is inside the status item button — if so, the
-            // statusItemClicked handler will toggle the panel, so don't also hide.
+            // A click on the card keeps the panel open. The transparent shadow margin around the card does not count.
             let clickLocation = NSEvent.mouseLocation
-            if panel.frame.contains(clickLocation) {
+            let cardFrame = Self.cardFrame(inWindowFrame: panel.frame, shadowMargin: self.shadowMargin)
+            if cardFrame.contains(clickLocation) {
                 return
             }
 
@@ -268,5 +291,19 @@ final class MenuBarPanelManager: NSObject {
             NSEvent.removeMonitor(monitor)
             clickOutsideMonitor = nil
         }
+        if let monitor = clickOnShadowMarginMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickOnShadowMarginMonitor = nil
+        }
+    }
+
+    /// The card's frame inside the panel window, which is larger than the card by the shadow margin.
+    static func cardFrame(inWindowFrame windowFrame: NSRect, shadowMargin: EdgeInsets) -> NSRect {
+        NSRect(
+            x: windowFrame.minX + shadowMargin.leading,
+            y: windowFrame.minY + shadowMargin.bottom,
+            width: windowFrame.width - shadowMargin.leading - shadowMargin.trailing,
+            height: windowFrame.height - shadowMargin.top - shadowMargin.bottom
+        )
     }
 }
