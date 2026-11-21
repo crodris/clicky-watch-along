@@ -408,7 +408,7 @@ enum DS {
     ///
     /// Today's timings, and the move each becomes as the Tether PRs adopt these tokens:
     /// - The pointing bubble's spring(0.4, 0.6) scale and 0.5 s fade: Pop.
-    /// - The status label's and chip's 0.2 s ease-out at scale 0.4: Pop in, and the Pop played backward at 0.7x speed out.
+    /// - The status label's and chip's 0.2 s ease-out at scale 0.4: Pop in, and the Pop played backward in 0.7 of its time out.
     /// - The dial token's, disc hover's, fan's, and fan ball's 0.1 to 0.14 s ease-outs and spring(0.18, 0.8): Snap.
     /// - The dial's spring(0.22, 0.78) open: Glide. Its fan items' spring(0.26, 0.72) with a 14 ms stagger: Pop.
     /// - The dial's, agent list's, studio's, and panel's close, which is `orderOut` today: Glide close at 0.7x.
