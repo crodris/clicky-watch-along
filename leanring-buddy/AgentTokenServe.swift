@@ -46,10 +46,11 @@ func agentTokenServePlan(
 /// form is a fade in at the target that leaves a still ring there (`DS.Move.send.reduceMotionForm`).
 let agentTokenServeStillRingSeconds: TimeInterval = 1
 
-/// How wide the still ring is: as wide as the disc's panel allows, and a point less than the panel is tall, so a menu bar
-/// only a little taller than the 22 point disc, such as a 24 point bar on a display with no notch, never cuts it off.
+/// How wide the still ring is: as wide as the disc's panel allows, and one line width (1.5 points) less than the panel is
+/// tall, since the line draws half outside its frame on each side. A menu bar only a little taller than the 22 point disc,
+/// such as a 24 point bar on a display with no notch, then never cuts the ring off.
 func agentTokenStillRingDiameter(panelHeight: CGFloat) -> CGFloat {
-    min(AgentTokenMetrics.panelWidth - 2, panelHeight - 1)
+    min(AgentTokenMetrics.panelWidth - 2, panelHeight - 1.5)
 }
 
 /// Whether the tether of a flight that has left must end at once. It must when a disc had to wait under that very flight, since

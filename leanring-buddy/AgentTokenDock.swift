@@ -431,7 +431,8 @@ final class AgentTokenDockController {
             guard existingDisc.panel.frame != panelFrame else { return }
             // The slide happens when the carried token leaves, which refreshes the dock (`forgetTheLingeringFlight`).
             guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else {
-                flightWhoseDiscWaitedToSlide = lingeringFlight ?? flight
+                // The disc waits under the flight it is named for: the lingering one when it sits on this disc, else the one in the air.
+                flightWhoseDiscWaitedToSlide = discID == discIDTheLingeringFlightSitsOn ? lingeringFlight : flight
                 return
             }
             if reduceMotionIsOn {

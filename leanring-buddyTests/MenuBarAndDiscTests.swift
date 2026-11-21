@@ -363,7 +363,7 @@ struct MenuBarAndDiscTests {
 
     @Test func theStillRingFitsAMenuBarOf24PointsAndAFullSizeOneAtTheDiscsPanelWidth() throws {
         // A 24 point bar, as a display with no notch has, is only 2 points taller than the disc.
-        #expect(agentTokenStillRingDiameter(panelHeight: 24) == 23)
+        #expect(agentTokenStillRingDiameter(panelHeight: 24) == 22.5)
         #expect(agentTokenStillRingDiameter(panelHeight: 37) == AgentTokenMetrics.panelWidth - 2)
 
         let store = makeBackgroundAgentStore()
