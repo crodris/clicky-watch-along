@@ -45,3 +45,22 @@ struct VoiceCommandTimingTests {
         #expect(recorder.timing.commandSentAt == released.addingTimeInterval(0.8))
     }
 }
+
+struct VoiceCommandScreenReadTests {
+    private func screenRead(pressCount: Int) -> VoiceCommandScreenRead {
+        VoiceCommandScreenRead(
+            pressCount: pressCount,
+            frontVideoState: .object(["paused": .bool(false)]),
+            pageRead: Task {
+                VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date())
+            }
+        )
+    }
+
+    @Test func aTranscriptUsesOnlyTheReadOfItsOwnPress() {
+        #expect(screenReadForTheTranscript(of: 4, from: screenRead(pressCount: 4))?.pressCount == 4)
+        // A read from an older press, or no read, is never used for a newer press's transcript.
+        #expect(screenReadForTheTranscript(of: 5, from: screenRead(pressCount: 4)) == nil)
+        #expect(screenReadForTheTranscript(of: 4, from: nil) == nil)
+    }
+}

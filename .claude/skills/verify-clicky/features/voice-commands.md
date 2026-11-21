@@ -75,6 +75,11 @@ Preconditions:
 - **The brain's Sonnet turn.** It runs only after 3 Haiku turns that each needed the model, which no ordinary command reaches, so a log with no `Brain: planning on` line is normal.
   When one does, the log shows `Brain: turn 3` on `claude-haiku-5-5`, then `Brain: planning on claude-sonnet-5-5`, then `Brain: turn 4 on claude-sonnet-5-5`, and Clicky speaks the Sonnet turn's own confirmation or the gave-up line.
   The Go tests in `harness/brainloop_test.go` drive this path against a fake Worker, since no real command reaches it on demand.
+- **Timing marks and the read at release.** Chrome's front tab needs a YouTube video playing. Run `$V app-launch --harness-brain "pause it|play it|go back ten seconds|play it at one and a half speed|pause it|play it|skip ahead ten seconds|pause it"`, then `$V app-wait`.
+  Each routed command ends with `Voice command timing: release_to_transcript_ms=… release_to_screen_state_ms=… transcript_to_request_ms=… request_to_first_call_ms=… first_call_to_first_line_ms=… release_to_first_line_ms=…`, and a `-` is a mark the command never reached.
+  A rehearsal step waits 0.7 seconds between its simulated release and its transcript, so `release_to_transcript_ms` is about 730 there and is not a measure of real transcription.
+  The screen read starts at the release, so `release_to_screen_state_ms` is about 300 and `transcript_to_request_ms` is under 15 (the first command of a launch about 90). On 2026-11-20 the same eight steps before the read at release gave a `transcript_to_request_ms` median of 326 and `release_to_first_line_ms` of 2188, and after it 8 and 1934.
+  A command that asks for what the video's state already shows, such as `pause it` on an ended video, gets no tool call from the model and a `-` for the call marks, which is the model's answer and not a failure.
 - **A press during a brain turn.** Run `$V app-launch --harness-brain "^skip to where they talk about the engine|pause it"`.
   The log shows `Live scene rehearsal: pressing push-to-talk during the voice command`, then `Brain: command cancelled during turn 1`, and no `Voice command:` line of the first command after the press.
   The press handler's audio stop is unchanged code that runs before any router code, so this step proves the cancel, not the audio stop.
