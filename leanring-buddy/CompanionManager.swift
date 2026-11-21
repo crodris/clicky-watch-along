@@ -2760,6 +2760,8 @@ final class CompanionManager: ObservableObject {
         } else {
             pageRead = await readThePageForTheVoiceCommand(frontVideoState: frontVideoState)
         }
+        // A press during the read cancelled this command, so it must not send anything to the harness or the Worker.
+        guard !Task.isCancelled else { return }
         timing.mark(\.screenStateReadyAt, at: pageRead.finishedAt)
         let pageTools = pageRead.pageTools
         let pageState = pageRead.pageState
