@@ -509,7 +509,7 @@ struct AgentHarnessTests {
         #expect(answers.map(\.approved) == [false], "an action the app cannot name is declined at once")
     }
 
-    /// The card dims Yes and Always from `approvalAnswerReadiness`, and the desk's click check reads the same function, so
+    /// The card dims Allow once and For this task from `approvalAnswerReadiness`, and the desk's click check reads the same function, so
     /// at every moment the card looks ready exactly when `answerByClick` counts a yes.
     @Test func theCardLooksReadyExactlyWhenAYesCounts() {
         var now = Date(timeIntervalSince1970: 1_000)
