@@ -282,6 +282,8 @@ final class CompanionManager: ObservableObject {
     /// current design started (`themeStudioLineMayStart`).
     private var pushToTalkPressCount = 0
     private var pushToTalkPressCountWhenTheThemeDesignStarted = 0
+    /// When the last press was released, which the press's transcript reads to time its voice command.
+    private var lastPushToTalkRelease: PushToTalkRelease?
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -937,6 +939,8 @@ final class CompanionManager: ObservableObject {
 
             ClickyAnalytics.trackPushToTalkStarted()
 
+            // The transcript of this press may arrive after a newer press began, so it carries its own press number.
+            let pressCountOfThisPress = pushToTalkPressCount
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = Task {
                 await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
@@ -948,7 +952,7 @@ final class CompanionManager: ObservableObject {
                         self?.lastTranscript = finalTranscript
                         print("🗣️ Companion received transcript: \(finalTranscript)")
                         ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
-                        self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript)
+                        self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript, pushToTalkPressCount: pressCountOfThisPress)
                     }
                 )
             }
@@ -958,6 +962,7 @@ final class CompanionManager: ObservableObject {
             // Without this, a quick press-and-release drops the release event and
             // leaves the listening ring stuck on screen indefinitely.
             ClickyAnalytics.trackPushToTalkReleased()
+            lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
             // The media rect is read beside the router call. It draws a loop only if the request becomes a look at it.
             cursorLoopController.pushToTalkWasReleased()
             pendingKeyboardShortcutStartTask?.cancel()
@@ -1038,6 +1043,9 @@ final class CompanionManager: ObservableObject {
     /// A transcript that starts with "^" presses push-to-talk through the real press handler 0.3 seconds after its
     /// voice_command line goes to the harness, and releases it 0.2 seconds later, so it needs the harness flag on.
     func runLiveSceneRehearsal(transcripts: [String]) async {
+        // The microphone keeps listening 0.5 seconds after the release (`secondsToKeepListeningAfterTheShortcutIsReleased`),
+        // and the provider's final transcript follows, so a rehearsal step uses 0.7 seconds for both together.
+        let secondsBetweenAReleaseAndItsTranscriptInARehearsal = 0.7
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStepWithWait in transcripts {
             let (waitSeconds, rehearsalStep) = rehearsalStepWait(rehearsalStepWithWait)
@@ -1089,8 +1097,12 @@ final class CompanionManager: ObservableObject {
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
+            lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
+            // A real transcript arrives after the microphone's tail and the provider's final result, so the step waits
+            // the same before it speaks, and the timing line's release marks mean what they mean for a real press.
+            try? await Task.sleep(for: .seconds(secondsBetweenAReleaseAndItsTranscriptInARehearsal))
             let harnessVoiceCommandsSentBeforeThisStep = harnessVoiceCommandsSent
-            sendTranscriptToClaudeWithScreenshot(transcript: transcript)
+            sendTranscriptToClaudeWithScreenshot(transcript: transcript, pushToTalkPressCount: pushToTalkPressCount)
             if stepPressesPushToTalkDuringTheCommand {
                 await pressPushToTalkOnceTheVoiceCommandGoesOut(afterCount: harnessVoiceCommandsSentBeforeThisStep)
             }
@@ -1171,7 +1183,8 @@ final class CompanionManager: ObservableObject {
     /// the thinking dots (processing state) until TTS audio begins playing.
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
-    private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
+    private func sendTranscriptToClaudeWithScreenshot(transcript: String, pushToTalkPressCount pressCountOfTheTranscript: Int) {
+        let transcriptReadyAt = Date()
         let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         if videoQuizPhrasesAreMatchedAheadOfTheRouter(
             themeStudioIsOpen: themeStudioController.isOpen,
@@ -1228,7 +1241,13 @@ final class CompanionManager: ObservableObject {
             brainTakesEveryRequest: brainTakesEveryRequest
         )
         if routerTakesTheTranscript {
-            startVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
+            // Only the release of this transcript's own press counts, never an older press's.
+            let releaseOfThisPress = lastPushToTalkRelease?.pressCount == pressCountOfTheTranscript ? lastPushToTalkRelease : nil
+            startVoiceCommand(
+                transcript: transcript,
+                frontVideoState: frontVideoState,
+                timing: VoiceCommandTimingRecorder(pushToTalkReleasedAt: releaseOfThisPress?.releasedAt, transcriptReadyAt: transcriptReadyAt)
+            )
             return
         }
         respondByTheKeywordPath(transcript: transcript)
@@ -2217,7 +2236,11 @@ final class CompanionManager: ObservableObject {
             LiveSceneOverlay.shared.highlightPart(labelText: quiz.answerLabel)
             await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply)
         case .sceneCommand:
-            startVoiceCommand(transcript: transcript, frontVideoState: videoQuizSession.frontVideoStateForVoiceCommands())
+            startVoiceCommand(
+                transcript: transcript,
+                frontVideoState: videoQuizSession.frontVideoStateForVoiceCommands(),
+                timing: VoiceCommandTimingRecorder(pushToTalkReleasedAt: nil, transcriptReadyAt: Date())
+            )
             return
         }
         guard !Task.isCancelled else { return }
@@ -2549,7 +2572,7 @@ final class CompanionManager: ObservableObject {
     /// A follow-up command while a scene is on screen or a video plays in Chrome's front tab. A fast model picks tools the page
     /// and the app offer, the screen changes, and Clicky says the model's short confirmation after that.
     /// A request that needs a new scene or a screenshot answer hands off to respondToTranscript.
-    private func startVoiceCommand(transcript: String, frontVideoState: JSONValue?) {
+    private func startVoiceCommand(transcript: String, frontVideoState: JSONValue?, timing: VoiceCommandTimingRecorder) {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         voiceState = .processing
@@ -2557,7 +2580,7 @@ final class CompanionManager: ObservableObject {
             // The dictation session's own idle reaches voiceState after this call returns, so the state is set again
             // here, the way respondToTranscript's task does, or the thinking dots vanish for the whole router call.
             self.voiceState = .processing
-            await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState)
+            await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState, timing: timing)
         }
     }
 
@@ -2586,13 +2609,16 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?) async {
+    private func runVoiceCommand(transcript: String, frontVideoState: JSONValue?, timing: VoiceCommandTimingRecorder) async {
+        // Every exit logs the line once: a finished, cancelled, failed, or handed-off command.
+        defer { timing.logTheLineOnce() }
         let commandStartedAt = Date()
         // The two page reads wait on WebKit, and the study guide check may wait on the Worker, not on each other.
         async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
         async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
         async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
         let (pageTools, pageState, studyGuideExistsForTheFrontVideo) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
+        timing.mark(\.screenStateReadyAt)
         let appToolContext = appVoiceToolContext(
             pageState: pageState,
             frontVideoState: frontVideoState,
@@ -2611,7 +2637,8 @@ final class CompanionManager: ObservableObject {
                 tools: tools,
                 offeredToolNames: offeredToolNames,
                 approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
-                commandStartedAt: commandStartedAt
+                commandStartedAt: commandStartedAt,
+                timing: timing
             )
             guard commandIsResentOnTheOldPath else { return }
             print("Brain: the Worker refused the app secret, so this command goes to the Worker router once, and so does every command until Clicky restarts")
@@ -2631,6 +2658,7 @@ final class CompanionManager: ObservableObject {
             theTurnsRanOut = false
             let reply: VoiceCommandReply
             do {
+                timing.mark(\.commandSentAt)
                 reply = try await voiceCommandClient.requestToolCalls(messages: messages, tools: tools)
             } catch is CancellationError {
                 return
@@ -2642,6 +2670,7 @@ final class CompanionManager: ObservableObject {
                 return
             }
             guard !Task.isCancelled else { return }
+            if !reply.toolCalls.isEmpty { timing.mark(\.firstToolCallReceivedAt) }
             logVoiceCommandJSONIfEnabled("reply", reply.assistantContent)
 
             var outcomes: [VoiceToolOutcome] = []
@@ -2686,14 +2715,14 @@ final class CompanionManager: ObservableObject {
                     // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                     await agentTokenDockController.waitForTheServeToLand()
                     guard !Task.isCancelled else { return }
-                    await speakLiveSceneLine(spokenLine)
+                    if await speakLiveSceneLine(spokenLine) { timing.mark(\.firstLineAudioStartedAt) }
                 }
             }
             break
         }
         guard !Task.isCancelled else { return }
         if theTurnsRanOut {
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2709,7 +2738,8 @@ final class CompanionManager: ObservableObject {
         tools: [VoiceToolDescriptor],
         offeredToolNames: Set<String>,
         approvalIDWaitingWhenTheCommandStarted: String?,
-        commandStartedAt: Date
+        commandStartedAt: Date,
+        timing: VoiceCommandTimingRecorder
     ) async -> Bool {
         let commandID = UUID()
         let standardInputWriter = agentHarness.standardInputWriter
@@ -2729,6 +2759,7 @@ final class CompanionManager: ObservableObject {
             await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
             return false
         }
+        timing.mark(\.commandSentAt)
         #if DEBUG
         harnessVoiceCommandsSent += 1
         #endif
@@ -2746,6 +2777,7 @@ final class CompanionManager: ObservableObject {
             },
             runTool: { toolCall, approvalIDTheLearnerIsAnswering in
                 aToolOfTheCommandRan = true
+                timing.mark(\.firstToolCallReceivedAt)
                 // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
                 // the call it sends is what the switch can show.
                 self.logVoiceCommandJSONIfEnabled("tool call from the harness", [.object([
@@ -2788,11 +2820,11 @@ final class CompanionManager: ObservableObject {
                 // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                 await agentTokenDockController.waitForTheServeToLand()
                 guard !Task.isCancelled else { return false }
-                await speakLiveSceneLine(lineToSpeak)
+                if await speakLiveSceneLine(lineToSpeak) { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
-                await speakLiveSceneLine(voiceCommandGaveUpLine)
+                if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             voiceState = .idle
