@@ -222,13 +222,16 @@ struct InstantReplayStage {
     var reduceMotionIsOn: () -> Bool
     /// Throws when the replay's task is cancelled.
     var sleep: (_ seconds: Double) async throws -> Void
-    var showControl: () -> Void
+    /// Shows the control. Its number is `controlVersion` when the show was asked for, and a show that finishes after a later
+    /// hide checks `controlShowIsStillWanted` and draws nothing.
+    var showControl: (_ controlVersion: Int) -> Void
     var hideControl: () -> Void
 }
 
 /// Runs the replay. Every way a replay changes course (a step, End, Escape, push-to-talk, a new Replay, a narration
-/// starting, a new scene) first
-/// bumps `travelGeneration` and cancels the travel task, so no pending step of the old travel moves the camera or the cursor.
+/// starting, a new scene) first bumps `travelGeneration` and cancels the travel task, so no pending step of the old
+/// travel moves the camera or the cursor. Every show and hide of the control bumps `controlVersion` the same way, so a
+/// show that waits on the page cannot draw the control after a later hide.
 @MainActor
 final class InstantReplayController: ObservableObject {
     /// The stops of the latest narration on the scene numbered `recordedSceneNumber`.
@@ -241,6 +244,7 @@ final class InstantReplayController: ObservableObject {
     /// Counts narrations, so only the newest one may offer its stops: a narration a tap cancelled can unwind after the
     /// next one started.
     private var narrationGeneration = 0
+    private var controlVersion = 0
     private var travelTask: Task<Void, Never>?
     private let stage: InstantReplayStage
 
@@ -260,7 +264,7 @@ final class InstantReplayController: ObservableObject {
     func narrationStarted() -> Int {
         narrationGeneration += 1
         if isOpen { endTheReplay(freezing: false) }
-        stage.hideControl()
+        hideTheControl()
         return narrationGeneration
     }
 
@@ -271,7 +275,7 @@ final class InstantReplayController: ObservableObject {
         if !recordedStops.isEmpty {
             offer(recordedStops, sceneNumber: sceneNumber)
         } else if stopsAreRecorded(forSceneNumber: sceneNumber) {
-            stage.showControl()
+            showTheControl()
         }
     }
 
@@ -281,7 +285,7 @@ final class InstantReplayController: ObservableObject {
         if isOpen { endTheReplay(freezing: false) }
         stops = recordedStops
         recordedSceneNumber = sceneNumber
-        stage.showControl()
+        showTheControl()
         print("Instant replay: recorded \(recordedStops.count) stops")
     }
 
@@ -360,6 +364,21 @@ final class InstantReplayController: ObservableObject {
         phase = .notOpen
         stops = []
         recordedSceneNumber = nil
+        hideTheControl()
+    }
+
+    /// False once the control was hidden or shown again after the show with this number was asked for.
+    func controlShowIsStillWanted(controlVersion versionOfTheShow: Int) -> Bool {
+        versionOfTheShow == controlVersion
+    }
+
+    private func showTheControl() {
+        controlVersion += 1
+        stage.showControl(controlVersion)
+    }
+
+    private func hideTheControl() {
+        controlVersion += 1
         stage.hideControl()
     }
 

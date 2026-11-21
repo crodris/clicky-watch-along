@@ -189,7 +189,7 @@ final class CompanionManager: ObservableObject {
         clearTheFocus: { LiveSceneOverlay.shared.highlightPart(labelText: "") },
         reduceMotionIsOn: { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
         sleep: { seconds in try await Task.sleep(for: .seconds(seconds)) },
-        showControl: { [unowned self] in self.showTheInstantReplayControl() },
+        showControl: { [unowned self] controlVersion in self.showTheInstantReplayControl(controlVersion: controlVersion) },
         hideControl: { [unowned self] in self.instantReplayPanelController.hide() }
     ))
     /// The Chrome tab each Notion page opened in, a guide's or a task agent's, so open_study_guide switches to it
@@ -4517,9 +4517,11 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func showTheInstantReplayControl() {
+    private func showTheInstantReplayControl(controlVersion: Int) {
         Task {
+            // The media read waits on the page, and a narration that started meanwhile hid the control, so a stale show draws nothing.
             guard let mediaRectOnScreen = await LiveSceneOverlay.shared.mediaRectOnScreen(),
+                  self.instantReplay.controlShowIsStillWanted(controlVersion: controlVersion),
                   self.replayStopsAreRecordedForTheSceneOnScreen,
                   let visibleFrame = NSScreen.screens.first(where: { screen in screen.frame.intersects(mediaRectOnScreen) })?.visibleFrame else {
                 return

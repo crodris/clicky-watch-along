@@ -15,6 +15,7 @@ private final class RecordingReplayStage {
     /// Each sleep waits here until the test lets it go, so a test decides when a dwell ends.
     var pendingSleeps: [CheckedContinuation<Void, Error>] = []
     var labelPointReads = 0
+    var lastControlVersion = 0
     /// When true, each label read waits here until the test lets it go, as the page does while the camera turns.
     var holdsLabelReads = false
     var pendingLabelReads: [CheckedContinuation<Void, Never>] = []
@@ -43,7 +44,10 @@ private final class RecordingReplayStage {
         sleep: { [unowned self] _ in
             try await withCheckedThrowingContinuation { continuation in self.pendingSleeps.append(continuation) }
         },
-        showControl: { [unowned self] in self.calls.append("showControl") },
+        showControl: { [unowned self] controlVersion in
+            self.lastControlVersion = controlVersion
+            self.calls.append("showControl")
+        },
         hideControl: { [unowned self] in self.calls.append("hideControl") }
     )
 
@@ -281,6 +285,17 @@ struct InstantReplayTests {
         let narrationOnAGoneScene = replay.narrationStarted()
         replay.narrationEnded(narrationNumber: narrationOnAGoneScene, recordedStops: threeStops, sceneNumber: 4, sceneIsStillOnScreen: false)
         #expect(recorder.calls.last == "hideControl")
+    }
+
+    @Test func aShowThatFinishesAfterALaterHideDrawsNothing() {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        let versionOfTheShow = recorder.lastControlVersion
+        #expect(replay.controlShowIsStillWanted(controlVersion: versionOfTheShow))
+        // A tap starts the next narration while the show still waits on the page.
+        _ = replay.narrationStarted()
+        #expect(!replay.controlShowIsStillWanted(controlVersion: versionOfTheShow))
     }
 
     @Test func aNarrationStartingEndsAnOpenReplay() async {
