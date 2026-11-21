@@ -408,7 +408,7 @@ enum DS {
     ///
     /// Today's timings, and the move each becomes as the Tether PRs adopt these tokens:
     /// - The pointing bubble's spring(0.4, 0.6) scale and 0.5 s fade: Pop.
-    /// - The status label's and chip's 0.2 s ease-out at scale 0.4: Pop in, and a fade-rise out at 0.7x.
+    /// - The status label's and chip's 0.2 s ease-out at scale 0.4: Pop in, and the Pop played backward at 0.7x speed out.
     /// - The dial token's, disc hover's, fan's, and fan ball's 0.1 to 0.14 s ease-outs and spring(0.18, 0.8): Snap.
     /// - The dial's spring(0.22, 0.78) open: Glide. Its fan items' spring(0.26, 0.72) with a 14 ms stagger: Pop.
     /// - The dial's, agent list's, studio's, and panel's close, which is `orderOut` today: Glide close at 0.7x.
@@ -606,7 +606,7 @@ nonisolated enum MoveCurve: Equatable, Sendable {
 
     /// A spring has settled once the envelope its swing decays inside falls under this share of the whole move. The swing
     /// itself can be up to `1 / sqrt(1 - dampingFraction²)` times the envelope, about 0.5% of the move for the Glide, which
-    /// is under a point on a 300 point card when the move snaps to its end.
+    /// is about a point at the far edge of a 300 point card when the move snaps to its end.
     private static let springSettledShare = 0.002
 
     /// How long the move takes. A spring's time is how long it takes to settle.
@@ -616,8 +616,11 @@ nonisolated enum MoveCurve: Equatable, Sendable {
         case .spring(let response, let dampingFraction):
             let naturalFrequency = 2 * Double.pi / response
             guard dampingFraction < 1 else {
-                // Critically damped, the distance left is (1 + ωt)e^(-ωt), which takes about 9.2 / ω to fall under 0.2%.
-                return 9.2 / naturalFrequency
+                // Critically damped, the distance left is (1 + ωt)e^(-ωt). It has no closed form for its time, so step ωt in
+                // hundredths until the distance falls under the settled share.
+                var scaledTime = 0.0
+                while (1 + scaledTime) * exp(-scaledTime) >= Self.springSettledShare { scaledTime += 0.01 }
+                return scaledTime / naturalFrequency
             }
             return -log(Self.springSettledShare) / (dampingFraction * naturalFrequency)
         case .timed(let seconds, _):
@@ -671,7 +674,9 @@ nonisolated enum MoveCurve: Equatable, Sendable {
     func animation(travelingPoints: Double = 0) -> SwiftUI.Animation? {
         switch self {
         case .spring(let response, let dampingFraction):
-            return .spring(response: response, dampingFraction: dampingFraction)
+            // SwiftUI would play a damping fraction above 1 as an overdamped spring, slower than the carrier's critically
+            // damped samples, so both get the same curve.
+            return .spring(response: response, dampingFraction: min(dampingFraction, 1))
         case .timed(_, let bezier), .pacedByDistance(_, _, _, let bezier):
             return .timingCurve(bezier.x1, bezier.y1, bezier.x2, bezier.y2, duration: seconds(travelingPoints: travelingPoints))
         case .decayingShake:

@@ -2,8 +2,8 @@
 //  TetherCarrierTests.swift
 //  leanring-buddyTests
 //
-//  The carrier's plans for Send, Glide from origin, and the Glide close, the layer transform that places a pose, and the
-//  tether line's keyframes. The panel itself only plays these.
+//  The carrier's plans for Send, Glide from origin, and the Glide close, the layer transform that places a pose, the
+//  tether line's keyframes, and that a move lands once, after `play` returns.
 //
 
 import CoreGraphics

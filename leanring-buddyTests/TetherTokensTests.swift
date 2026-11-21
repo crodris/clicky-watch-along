@@ -91,7 +91,10 @@ struct TetherTokensTests {
         let progresses = stride(from: 0.0, through: seconds, by: 0.005).map { criticalCurve.progress(atSeconds: $0) }
         #expect(progresses.allSatisfy { !$0.isNaN && $0 <= 1 })
         #expect(zip(progresses, progresses.dropFirst()).allSatisfy { $0 <= $1 })
-        #expect(abs(criticalCurve.progress(atSeconds: seconds - 0.001) - 1) < 0.003)
+        // It settles where its distance left reaches the same 0.2% share an under-damped spring uses, neither before
+        // nor long after.
+        let distanceLeftJustBeforeTheEnd = 1 - criticalCurve.progress(atSeconds: seconds - 0.001)
+        #expect(distanceLeftJustBeforeTheEnd > 0.0015 && distanceLeftJustBeforeTheEnd < 0.0025)
     }
 
     @Test func everyReduceMotionFormSaysHowLongItsFadeTakes() {
