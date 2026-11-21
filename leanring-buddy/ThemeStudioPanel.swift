@@ -414,11 +414,11 @@ struct ThemeStudioCardView: View {
             ThemeStudioButton(
                 title: "Save",
                 style: .primary(accentHex: highlightedIdea?.accentHex),
-                isEnabled: studio.state.isShowingIdeas
+                isEnabled: shownState.isShowingIdeas
             ) {
                 onSaveClicked(studio.saveTheHighlightedIdea())
             }
-            ThemeStudioButton(title: "Close", style: .plain, isEnabled: studio.state.isOpen) {
+            ThemeStudioButton(title: "Close", style: .plain, isEnabled: true) {
                 studio.close()
             }
             Spacer(minLength: 0)
@@ -450,6 +450,9 @@ private struct ThemeStudioTileView: View {
     /// The gap between one tile's landing and the next one's.
     private static let secondsBetweenLandings = 0.09
     private static let tileWidth: CGFloat = (ThemeStudioPanelController.cardWidth - 28 - 20) / 3
+    /// A tile lands from this scale. It is larger than a Callout's Pop start (`DS.Move.popStartScale`), since a tile is
+    /// large and a Pop from 0.4 would sweep over its neighbors.
+    private static let landingStartScale: CGFloat = 0.85
     private var accentColor: Color { Color(hex: idea.accentHex) }
 
     init(
@@ -556,7 +559,7 @@ private struct ThemeStudioTileView: View {
         .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotion), value: isStamped)
         // Each tile lands with a Pop, 90 ms after the one before it. With Reduce Motion it only fades in.
         .opacity(hasLanded ? 1 : 0)
-        .scaleEffect(hasLanded || reduceMotion ? 1 : DS.Move.popStartScale + 0.45)
+        .scaleEffect(hasLanded || reduceMotion ? 1 : Self.landingStartScale)
         .onAppear {
             guard !hasLanded else { return }
             withAnimation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotion)?.delay(Double(ideaIndex) * Self.secondsBetweenLandings)) {

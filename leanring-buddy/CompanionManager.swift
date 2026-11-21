@@ -609,7 +609,7 @@ final class CompanionManager: ObservableObject {
         pinchCancellable?.cancel()
         escapeKeyCancellable?.cancel()
         settingsDialCancellable?.cancel()
-        settingsDialController.close()
+        settingsDialController.closeAtOnce()
         agentListPanelController.close()
         agentTokenDockController.stop()
         voiceStateCancellable?.cancel()
@@ -3361,7 +3361,8 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
         }
-        allowTryingAgain(agentID) {
+        allowTryingAgain(agentID) { [weak self] in
+            guard let self else { return false }
             _ = self.startTheTaskAgent(goal: goal, skillName: skillName)
             return true
         }
@@ -3536,7 +3537,10 @@ final class CompanionManager: ObservableObject {
     /// read and checked again, since it may have changed while the card showed.
     private func installTheConfirmedThemePackage(_ confirmedInstall: PendingThemeInstall) {
         do {
-            let installedTheme = try themeSettings.installAndApply(packageAt: confirmedInstall.packageURL)
+            let installedTheme = try themeSettings.installAndApply(
+                packageAt: confirmedInstall.packageURL,
+                expectedPreview: CustomThemeStore.ThemePackagePreview(theme: confirmedInstall.theme, pictureJPEG: confirmedInstall.pictureJPEG)
+            )
             print("Themes: installed \(confirmedInstall.packageURL.lastPathComponent) as \(installedTheme.id)")
             VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
             installedTheme.sounds.done.play()
@@ -3656,8 +3660,11 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
         }
-        allowTryingAgain(agentID) {
-            if case .failed = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind) { return false }
+        allowTryingAgain(agentID) { [weak self] in
+            // The same rules the voice tools keep: one experiment builds at a time, a question owns the scene while it is
+            // open, and a 3D model is built from a video in front.
+            guard let self, self.sceneAgentMayBeTriedAgain(agentKind: agentKind) else { return false }
+            _ = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind)
             return true
         }
         return .changed(state: .object(["backgroundScene": .string("started")]))
@@ -3901,7 +3908,11 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
-        allowTryingAgain(agentID) {
+        allowTryingAgain(agentID) { [weak self] in
+            // A guide is written from the video in front, so a retry waits for the video the first one was for.
+            guard let self,
+                  let frontVideoURL = self.videoQuizSession.frontTabURLOfTheFrontWindow(),
+                  studyGuideVideoKey(forVideoURL: frontVideoURL) == videoKey else { return false }
             if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
             return true
         }
@@ -4114,6 +4125,16 @@ final class CompanionManager: ObservableObject {
         tryAgainActionsByAgentID = tryAgainActionsByAgentID.filter { agentIDsInTheStore.contains($0.key) }
         tryAgainActionsByAgentID[agentID] = start
         backgroundAgentStore.allowTryingAgain(agentID)
+    }
+
+    /// Whether a failed 3D model or experiment may be built again now.
+    private func sceneAgentMayBeTriedAgain(agentKind: BackgroundAgentKind) -> Bool {
+        guard !videoQuizQuestionIsActive else { return false }
+        switch agentKind {
+        case .experiment: return currentExperimentRequestStep == .startBuilding
+        case .threeDModel: return videoQuizSession.frontVideoStateForVoiceCommands() != nil
+        case .studyGuide, .studyGuideUpdate, .task: return true
+        }
     }
 
     /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed

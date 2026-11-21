@@ -19,6 +19,8 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case themeIDIsNotAValidFolderName
     /// A rename or delete named a theme id that has no folder, such as a theme already deleted.
     case noThemeHasThatID
+    /// The package on disk is not the one the "Add theme?" card showed.
+    case packageChangedSinceItWasPreviewed
     /// A new name is empty after trimming, or longer than `ClickyTheme.longestName`.
     case themeNameIsNotValid
     /// An opened file is not a `.clickytheme` folder with a theme.json in it.
@@ -150,7 +152,7 @@ nonisolated struct CustomThemeStore: Sendable {
     // MARK: - Installing a package
 
     /// What a package holds, read and checked the way an install reads it, for the "Add theme?" card to show.
-    struct ThemePackagePreview {
+    struct ThemePackagePreview: Equatable {
         let theme: ClickyTheme
         let pictureJPEG: Data?
     }
@@ -200,9 +202,16 @@ nonisolated struct CustomThemeStore: Sendable {
     /// Every file is read before anything is written, and a theme.json that does not parse throws its
     /// `CustomThemeParseError` before any folder is made. A portrait the roster names but the package lacks is left out,
     /// and that face shows its initials.
+    ///
+    /// With `expectedPreview`, the package is read once and compared with what the "Add theme?" card showed, and a package
+    /// that changed since throws `packageChangedSinceItWasPreviewed` before anything is written, so the learner installs
+    /// what they agreed to.
     @discardableResult
-    func install(packageAt packageURL: URL) throws -> ClickyTheme {
+    func install(packageAt packageURL: URL, expectedPreview: ThemePackagePreview? = nil) throws -> ClickyTheme {
         let package = try readPackage(at: packageURL)
+        if let expectedPreview, ThemePackagePreview(theme: package.theme, pictureJPEG: package.pictureJPEG) != expectedPreview {
+            throw CustomThemeStoreError.packageChangedSinceItWasPreviewed
+        }
         let packagedTheme = package.theme
         let pictureJPEG = package.pictureJPEG
         let portraitDataByFileName = package.portraitDataByFileName

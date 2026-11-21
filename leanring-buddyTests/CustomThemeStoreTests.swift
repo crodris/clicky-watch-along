@@ -548,3 +548,31 @@ extension CustomThemeStoreRenameAndDeleteTests {
         }
     }
 }
+
+// MARK: - Installing what the card showed
+
+extension CustomThemeStoreRenameAndDeleteTests {
+    @Test func installingTheSamePackageThePreviewShowedInstallsIt() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let preview = try store.previewPackage(at: packageURL)
+            let installedTheme = try store.install(packageAt: packageURL, expectedPreview: preview)
+            #expect(installedTheme.name == "Moonlit")
+        }
+    }
+
+    @Test func aPackageThatChangedSinceThePreviewIsRefusedAndNothingIsWritten() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let preview = try store.previewPackage(at: packageURL)
+            // The package is replaced by another valid theme while the card shows.
+            try JSONEncoder().encode(replacingField(in: goodVersion2ThemeJSON, at: ["name"], with: .string("Other")))
+                .write(to: packageURL.appendingPathComponent(CustomThemeStore.themeFileName))
+            #expect(throws: CustomThemeStoreError.packageChangedSinceItWasPreviewed) {
+                try store.install(packageAt: packageURL, expectedPreview: preview)
+            }
+            #expect(store.loadSavedThemes().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
+    }
+}

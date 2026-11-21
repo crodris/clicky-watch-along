@@ -52,6 +52,8 @@ final class ThemeInstallCardPanelController: ThemeInstallCardPresenting {
     func hide() {
         guard let closingPanel = panel else { return }
         panel = nil
+        // The card fades for a moment, and a click on it then must not reach its buttons.
+        closingPanel.ignoresMouseEvents = true
         NSAnimationContext.runAnimationGroup({ animationContext in
             animationContext.duration = DS.Move.fadeSeconds
             closingPanel.animator().alphaValue = 0
@@ -68,8 +70,15 @@ struct ThemeInstallCardView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hasAppeared = false
+    @State private var buttonsCount = false
 
     private var theme: ClickyTheme { pendingInstall.theme }
+
+    /// The card grows in place from this scale, since a double-click in Finder gives it no origin to Glide out of.
+    private static let entranceStartScale: CGFloat = 0.97
+    /// How long the buttons ignore clicks after the card appears, so a second click of a fast double-click on the card
+    /// before cannot answer this one.
+    private static let secondsTheButtonsWaitBeforeTheyCount = 0.4
 
     var body: some View {
         VStack(spacing: 14) {
@@ -98,8 +107,8 @@ struct ThemeInstallCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                ThemeStudioButton(title: "Cancel", style: .plain, isEnabled: true) { decide(false) }
-                ThemeStudioButton(title: "Add theme", style: .primary(accentHex: theme.accentHex), isEnabled: true) { decide(true) }
+                ThemeStudioButton(title: "Cancel", style: .plain, isEnabled: buttonsCount) { decide(false) }
+                ThemeStudioButton(title: "Add theme", style: .primary(accentHex: theme.accentHex), isEnabled: buttonsCount) { decide(true) }
             }
         }
         .padding(20)
@@ -107,7 +116,7 @@ struct ThemeInstallCardView: View {
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
         .tetherCard()
-        .scaleEffect(hasAppeared || reduceMotion ? 1 : DS.Move.glideStartScale + 0.9, anchor: .top)
+        .scaleEffect(hasAppeared || reduceMotion ? 1 : Self.entranceStartScale, anchor: .top)
         .opacity(hasAppeared ? 1 : 0)
         // The window is larger than the Card, so the Card's shadow has room to draw.
         .padding(EdgeInsets(
@@ -118,6 +127,10 @@ struct ThemeInstallCardView: View {
         ))
         .onAppear {
             withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { hasAppeared = true }
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(Self.secondsTheButtonsWaitBeforeTheyCount))
+            buttonsCount = true
         }
     }
 }

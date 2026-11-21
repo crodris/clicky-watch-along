@@ -143,6 +143,11 @@ final class SettingsDialController {
         return choice
     }
 
+    /// Removes the dial's window at once, with no move, as the app stopping does.
+    func closeAtOnce() {
+        removeThePanel()
+    }
+
     /// Cancels the dial: it fades out in 120 ms.
     func close() {
         guard isOpen else { return }
@@ -224,6 +229,10 @@ struct SettingsDialView: View {
         viewModel.selection.openFanLayout(in: fans) == nil ? nil : viewModel.selection.slice
     }
 
+    /// The dial opens from this scale. It is the dial's own: a Glide from a disc starts at `DS.Move.glideStartScale`, but the
+    /// dial grows out of the cursor's own place, so it only has a little way to grow.
+    private static let dialStartScale: CGFloat = 0.9
+
     private var centerAnchor: UnitPoint {
         UnitPoint(x: centerInView.x / SettingsDialPlacement.panelSize.width, y: centerInView.y / SettingsDialPlacement.panelSize.height)
     }
@@ -244,7 +253,7 @@ struct SettingsDialView: View {
     private var dialScale: CGFloat {
         guard !viewModel.reduceMotion else { return 1 }
         if isFlyingIntoTheCursor { return DS.Move.glideStartScale }
-        return viewModel.isPresented ? 1 : 0.9
+        return viewModel.isPresented ? 1 : Self.dialStartScale
     }
 
     private var dialOpacity: Double {

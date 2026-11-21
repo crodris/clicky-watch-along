@@ -92,6 +92,28 @@ struct AgentListLiveLineTests {
     @Test func theHeaderCountsRunningAgentsAndThoseNeedingAnOK() {
         #expect(agentListHeaderCounts(runningAgentCount: 3, agentsNeedingAnOKCount: 0) == (running: "3 running", needsYou: nil))
         #expect(agentListHeaderCounts(runningAgentCount: 3, agentsNeedingAnOKCount: 1) == (running: "3 running", needsYou: "1 needs you"))
+        #expect(agentListHeaderCounts(runningAgentCount: 3, agentsNeedingAnOKCount: 2) == (running: "3 running", needsYou: "2 need you"))
+    }
+
+    @Test func theApprovalCardReportsToTheDeskOnlyWhileTheListIsListening() {
+        let uiState = AgentListUIState(expandedAgentID: nil)
+        var reports: [String] = []
+        // The hidden panel, and the copy that plays on the carrier, report while the list is not listening: nothing reaches the desk.
+        uiState.report(toTheDesk: { reports.append("shown whole") })
+        #expect(reports.isEmpty)
+
+        // The report waits and goes out when the real panel is on screen, so its clock starts then and never earlier.
+        uiState.startListeningForTheDesk()
+        #expect(reports == ["shown whole"])
+        uiState.report(toTheDesk: { reports.append("not whole") })
+        #expect(reports == ["shown whole", "not whole"])
+
+        // Once the list starts to close, the copy that plays while it closes reports nothing.
+        uiState.stopListeningForTheDesk()
+        uiState.report(toTheDesk: { reports.append("late") })
+        #expect(reports == ["shown whole", "not whole"])
+        uiState.startListeningForTheDesk()
+        #expect(reports == ["shown whole", "not whole"])
     }
 
     @Test func theLiveLineNamesTheSiteWithoutWwwAndOnlyForALinkWithAHost() {
@@ -121,6 +143,16 @@ struct AgentListWindowPlacementTests {
         let windowFrame = AgentListWindowMargins.windowFrame(cardTopLeft: cardTopLeft, windowSize: windowSize, visibleFrame: visibleFrame)
         #expect(windowFrame.minX == 500 - AgentListWindowMargins.leading)
         #expect(windowFrame.maxY == 600 + AgentListWindowMargins.top)
+    }
+
+    @Test func aClickInTheShadowMarginIsOutsideTheCard() {
+        let windowFrame = AgentListWindowMargins.windowFrame(cardTopLeft: CGPoint(x: 500, y: 600), windowSize: windowSize, visibleFrame: visibleFrame)
+        let cardFrame = AgentListWindowMargins.cardFrame(inWindowFrame: windowFrame)
+        #expect(cardFrame == CGRect(x: 500, y: 600 - (windowSize.height - AgentListWindowMargins.vertical), width: 300, height: windowSize.height - AgentListWindowMargins.vertical))
+        // 20 points under the card is inside the window, in the margin where the shadow draws.
+        let clickInTheShadow = CGPoint(x: cardFrame.midX, y: cardFrame.minY - 20)
+        #expect(windowFrame.contains(clickInTheShadow))
+        #expect(!cardFrame.contains(clickInTheShadow))
     }
 
     @Test func aCardAtTheScreenEdgeIsKeptOnScreenWhileItsMarginMayReachPastIt() {
@@ -248,6 +280,18 @@ struct ThemeInstallConfirmationTests {
         #expect(card.shownInstalls == [first, second])
         card.answerTheNewestCard(added: true)
         #expect(installed == [second])
+    }
+
+    @Test func theSameFileOpenedTwiceIsAskedAboutOnce() throws {
+        let card = RecordingInstallCard()
+        var installed: [PendingThemeInstall] = []
+        let confirmation = ThemeInstallConfirmation(cardPresenter: card, install: { installed.append($0) })
+        confirmation.ask(about: try pendingInstall(named: "Moonlit"))
+        confirmation.ask(about: try pendingInstall(named: "Moonlit"))
+        card.answerTheNewestCard(added: true)
+        #expect(installed.count == 1)
+        #expect(card.shownInstalls.count == 1)
+        #expect(!confirmation.isOpen)
     }
 
     @Test func aLateAnswerFromACardTheNextOneReplacedChangesNothing() throws {

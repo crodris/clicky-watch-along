@@ -13,6 +13,9 @@ import Foundation
 
 /// A package the learner opened that passed the checks and waits for their answer.
 struct PendingThemeInstall: Equatable {
+    /// Names this card, so a late answer from a card that was replaced is told from the answer of the one that shows, even
+    /// when both are for the same file.
+    let id = UUID()
     let packageURL: URL
     let theme: ClickyTheme
     /// The package's picture, when the theme's cursor or faces use it.
@@ -60,7 +63,11 @@ final class ThemeInstallConfirmation {
     var isOpen: Bool { showingInstall != nil }
 
     /// Asks the learner about `pendingInstall`: now, or after the ones before it.
+    /// A package that is already showing or waiting is not asked about twice, since the learner would then install it twice.
     func ask(about pendingInstall: PendingThemeInstall) {
+        let alreadyAsked = showingInstall?.packageURL == pendingInstall.packageURL
+            || waitingInstalls.contains { $0.packageURL == pendingInstall.packageURL }
+        guard !alreadyAsked else { return }
         waitingInstalls.append(pendingInstall)
         showTheNextInstallIfNoneShows()
     }
@@ -78,7 +85,7 @@ final class ThemeInstallConfirmation {
         showingInstall = nextInstall
         cardPresenter.show(nextInstall) { [weak self] learnerAddedIt in
             // A card replaced by the next one answers for itself only.
-            guard let self, self.showingInstall == nextInstall else { return }
+            guard let self, self.showingInstall?.id == nextInstall.id else { return }
             self.decide(learnerAddedIt: learnerAddedIt)
         }
     }

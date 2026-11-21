@@ -45,6 +45,16 @@ enum AgentListWindowMargins {
         CGPoint(x: cardTopLeft.x - leading, y: cardTopLeft.y + top)
     }
 
+    /// The Card's frame inside a window frame: the window without its margins. A click in the margin is outside the Card.
+    static func cardFrame(inWindowFrame windowFrame: CGRect) -> CGRect {
+        CGRect(
+            x: windowFrame.minX + leading,
+            y: windowFrame.minY + bottom,
+            width: windowFrame.width - horizontal,
+            height: windowFrame.height - vertical
+        )
+    }
+
     /// The frame that keeps the window's Card inside `visibleFrame` when the window is kept inside it, which is how
     /// `agentListPanelOrigin` clamps a panel.
     static func frameToKeepTheWindowIn(forCardVisibleFrame visibleFrame: CGRect) -> CGRect {
@@ -209,8 +219,38 @@ struct AgentListActions {
 final class AgentListUIState: ObservableObject {
     @Published var expandedAgentID: UUID?
 
+    /// Whether the approval card of the list that shows may start the approval desk's one second clock. The list is only
+    /// listening from the moment its real panel is on screen until it starts to close, so the copies of the list that play on
+    /// the carrier while it opens and closes, and the panel while it is still hidden, never start the clock for a card the
+    /// learner cannot see.
+    private(set) var deskIsListening = false
+    private var hasClosed = false
+    /// What the approval card last said about its summary, kept so the report goes out when the list starts listening.
+    private var latestReportToTheDesk: (() -> Void)?
+
     init(expandedAgentID: UUID?) {
         self.expandedAgentID = expandedAgentID
+    }
+
+    /// The approval card's report on whether it has shown the whole summary. It reaches the desk now when the list is
+    /// listening, and when it starts to.
+    func report(toTheDesk report: @escaping () -> Void) {
+        guard !hasClosed else { return }
+        latestReportToTheDesk = report
+        if deskIsListening { report() }
+    }
+
+    func startListeningForTheDesk() {
+        guard !hasClosed else { return }
+        deskIsListening = true
+        latestReportToTheDesk?()
+    }
+
+    /// The list is closing, for good: it reports nothing and cannot start listening again.
+    func stopListeningForTheDesk() {
+        hasClosed = true
+        deskIsListening = false
+        latestReportToTheDesk = nil
     }
 }
 
@@ -244,6 +284,9 @@ final class AgentListPanelController {
     private let approvalDesk: HarnessApprovalDesk
     private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
+    /// Sees a click that lands on the window's own shadow margin, which the global monitor never gets, since the window
+    /// server delivers it to this panel.
+    private var clickInTheShadowMonitor: Any?
     /// Where the Card's top-left corner sits, fixed when it opens so a row that expands grows the Card downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
@@ -361,6 +404,7 @@ final class AgentListPanelController {
         guard let glideOrigin, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             agentListPanel.alphaValue = 0
             agentListPanel.orderFrontRegardless()
+            uiState.startListeningForTheDesk()
             NSAnimationContext.runAnimationGroup { animationContext in
                 animationContext.duration = DS.Move.fadeSeconds
                 agentListPanel.animator().alphaValue = 1
@@ -378,6 +422,7 @@ final class AgentListPanelController {
                 guard let self, let agentListPanel, self.panel === agentListPanel else { return }
                 self.openingFlight = nil
                 agentListPanel.orderFrontRegardless()
+                self.uiState.startListeningForTheDesk()
             }
         )
     }
@@ -480,10 +525,16 @@ final class AgentListPanelController {
     /// Marks the list closed and removes what watches for clicks and resizes, and returns the panel for the caller to hide.
     private func tearDownTheOpenList() -> NonKeyFloatingPanel? {
         discTheListWasOpenedFrom = nil
+        // The copy that plays while the list closes shares this state, so it reports nothing to the desk.
+        uiState.stopListeningForTheDesk()
         approvalDesk.theCardHasNotShownTheWholeSummary()
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
+        }
+        if let clickInTheShadowMonitor {
+            NSEvent.removeMonitor(clickInTheShadowMonitor)
+            self.clickInTheShadowMonitor = nil
         }
         if let resizeObserver {
             NotificationCenter.default.removeObserver(resizeObserver)
@@ -515,13 +566,27 @@ final class AgentListPanelController {
         panel.setFrame(AgentListWindowMargins.windowFrame(cardTopLeft: anchorTopLeft, windowSize: windowSize, visibleFrame: visibleFrame), display: true)
     }
 
-    /// A global monitor sees only clicks that go to other apps, so a click inside the panel never closes it.
+    /// A global monitor sees only clicks that go to other apps, so a click on the Card never closes it. A click in the
+    /// window's shadow margin is outside the Card, so it closes the list whether it reaches another app (the global monitor)
+    /// or lands on this panel (the local one).
     private func installClickOutsideMonitor() {
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             Task { @MainActor in
-                guard let self, let panel = self.panel, !panel.frame.contains(NSEvent.mouseLocation) else { return }
+                guard let self, let panel = self.panel,
+                      !AgentListWindowMargins.cardFrame(inWindowFrame: panel.frame).contains(NSEvent.mouseLocation) else { return }
                 self.closeWithGlide()
             }
+        }
+        clickInTheShadowMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, let panel = self.panel, event.window === panel else { return }
+                let clickInTheWindow = event.locationInWindow
+                let clickOnTheScreen = CGPoint(x: panel.frame.minX + clickInTheWindow.x, y: panel.frame.minY + clickInTheWindow.y)
+                if !AgentListWindowMargins.cardFrame(inWindowFrame: panel.frame).contains(clickOnTheScreen) {
+                    self.closeWithGlide()
+                }
+            }
+            return event
         }
     }
 }
@@ -637,7 +702,7 @@ nonisolated func agentListLiveLine(for agent: BackgroundAgent, approvalState: Ag
 
 /// What the list's header counts: the agents running, and the agents that wait for the learner's OK.
 nonisolated func agentListHeaderCounts(runningAgentCount: Int, agentsNeedingAnOKCount: Int) -> (running: String, needsYou: String?) {
-    ("\(runningAgentCount) running", agentsNeedingAnOKCount > 0 ? "\(agentsNeedingAnOKCount) needs you" : nil)
+    ("\(runningAgentCount) running", agentsNeedingAnOKCount > 0 ? "\(agentsNeedingAnOKCount) \(agentsNeedingAnOKCount == 1 ? "needs" : "need") you" : nil)
 }
 
 /// The site a link points to, for a row's live line: its host in lowercase with a leading "www." cut off. Nil for a link
@@ -748,11 +813,13 @@ private struct AgentListView: View {
                     summaryShownSince: approvalDesk.oldestRequestVisibleSince,
                     answerApproval: actions.answerApproval,
                     summaryWasShownWhole: { summaryWasShownWhole in
-                        if summaryWasShownWhole {
-                            approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: oldestRequest.approvalID)
-                        } else {
-                            approvalDesk.theCardHasNotShownTheWholeSummary()
-                        }
+                        uiState.report(toTheDesk: {
+                            if summaryWasShownWhole {
+                                approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: oldestRequest.approvalID)
+                            } else {
+                                approvalDesk.theCardHasNotShownTheWholeSummary()
+                            }
+                        })
                     }
                 )
                 // A new request gets a new card, so its summary is measured from the top.
