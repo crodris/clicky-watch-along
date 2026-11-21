@@ -12,12 +12,24 @@ import SwiftUI
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
-    @State private var emailInput: String = ""
     #if DEBUG
     @AppStorage(CompanionManager.logsVoiceToolCallJSONDefaultsKey) private var logsVoiceToolCallJSON = false
     #endif
 
+    /// The panel card's width, without the shadow margin around it.
+    static let contentWidth: CGFloat = 320
+
+    /// Transparent space around the card for its drop shadow (radius 20, 10 points down, so it reaches about 30 below,
+    /// 20 to the sides and 10 above). A window clips what it draws, so without this margin the shadow is cut off at the edge.
+    /// `MenuBarPanelManager` sizes and places the window with it.
+    static let shadowMargin = EdgeInsets(top: 12, leading: 24, bottom: 32, trailing: 24)
+
     var body: some View {
+        panelCard
+            .padding(Self.shadowMargin)
+    }
+
+    private var panelCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             panelHeader
             Divider()
@@ -45,7 +57,8 @@ struct CompanionPanelView: View {
                 #endif
             }
 
-            if !companionManager.allPermissionsGranted {
+            // Also shown during first run with everything granted, so the optional Chrome row can be reached before Start.
+            if !companionManager.allPermissionsGranted || !companionManager.hasCompletedOnboarding {
                 Spacer()
                     .frame(height: 16)
 
@@ -61,20 +74,11 @@ struct CompanionPanelView: View {
                     .padding(.horizontal, 16)
             }
 
-            // Show Clicky toggle — hidden for now
-            // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            //     Spacer()
-            //         .frame(height: 16)
-            //
-            //     showClickyCursorToggleRow
-            //         .padding(.horizontal, 16)
-            // }
-
             if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
                 Spacer()
                     .frame(height: 16)
 
-                dmFarzaButton
+                reportProblemButton
                     .padding(.horizontal, 16)
             }
 
@@ -89,7 +93,7 @@ struct CompanionPanelView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
         }
-        .frame(width: 320)
+        .frame(width: Self.contentWidth)
         .background(panelBackground)
     }
 
@@ -129,6 +133,7 @@ struct CompanionPanelView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
+            .panelControlHoverHighlight()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -143,16 +148,6 @@ struct CompanionPanelView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if companionManager.allPermissionsGranted && !companionManager.hasSubmittedEmail {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Drop your email to get started.")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-                Text("If I keep building this, I'll keep you in the loop.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.allPermissionsGranted {
             Text("You're all set. Hit Start to meet Clicky.")
                 .font(.system(size: 12, weight: .medium))
@@ -165,7 +160,7 @@ struct CompanionPanelView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text("Some permissions were revoked. Grant all four below to keep using Clicky.")
+                Text("Some permissions were revoked. Grant the ones listed below to keep using Clicky.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -173,82 +168,45 @@ struct CompanionPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Hi, I'm Farza. This is Clicky.")
+                Text("Welcome to Clicky")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text("A side project I made for fun to help me learn stuff as I use my computer.")
+                Text("Hold control + option, ask about what's on your screen, and Clicky points at it.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Nothing runs in the background. Clicky will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
+                Text("Clicky captures a screenshot of every connected display only when you ask a question by holding the shortcut. It sends the screenshots through Clicky's server to the AI model.")
                     .font(.system(size: 11))
-                    .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
+                    .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - Email + Start Button
+    // MARK: - Start Button
 
     @ViewBuilder
     private var startButton: some View {
         if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            if !companionManager.hasSubmittedEmail {
-                VStack(spacing: 8) {
-                    TextField("Enter your email", text: $emailInput)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .fill(Color.white.opacity(0.08))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                        )
-
-                    Button(action: {
-                        companionManager.submitEmail(emailInput)
-                    }) {
-                        Text("Submit")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                    .fill(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                          ? DS.Colors.accent.opacity(0.4)
-                                          : DS.Colors.accent)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            } else {
-                Button(action: {
-                    companionManager.triggerOnboarding()
-                }) {
-                    Text("Start")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+            Button(action: {
+                companionManager.triggerOnboarding()
+            }) {
+                Text("Start")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DS.Colors.textOnAccent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                            .fill(DS.Colors.accent)
+                    )
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .panelControlHoverHighlight()
         }
     }
 
@@ -264,6 +222,10 @@ struct CompanionPanelView: View {
 
             microphonePermissionRow
 
+            if companionManager.buddyDictationManager.transcriptionProviderRequiresSpeechRecognitionPermission {
+                speechRecognitionPermissionRow
+            }
+
             accessibilityPermissionRow
 
             screenRecordingPermissionRow
@@ -272,7 +234,38 @@ struct CompanionPanelView: View {
                 screenContentPermissionRow
             }
 
+            chromeControlPermissionRow
         }
+    }
+
+    /// The green dot and "Granted" label every permission row shows once it is done.
+    private var grantedBadge: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(DS.Colors.success)
+                .frame(width: 6, height: 6)
+            Text("Granted")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(DS.Colors.success)
+        }
+    }
+
+    /// The filled capsule button every permission row uses for its main action.
+    private func permissionActionButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(DS.Colors.textOnAccent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(DS.Colors.accent)
+                )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .panelControlHoverHighlight()
     }
 
     private var accessibilityPermissionRow: some View {
@@ -292,33 +285,14 @@ struct CompanionPanelView: View {
             Spacer()
 
             if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
+                grantedBadge
             } else {
                 HStack(spacing: 6) {
-                    Button(action: {
+                    permissionActionButton(title: "Grant") {
                         // Triggers the system accessibility prompt (AXIsProcessTrustedWithOptions)
                         // on first attempt, then opens System Settings on subsequent attempts.
                         WindowPositionManager.requestAccessibilityPermission()
-                    }) {
-                        Text("Grant")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(DS.Colors.accent)
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
 
                     Button(action: {
                         // Reveals the app in Finder so the user can drag it into
@@ -333,12 +307,14 @@ struct CompanionPanelView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                             .background(
+                                // strokeBorder keeps the line inside the button, so the hover brightness never clips it.
                                 Capsule()
-                                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
+                                    .strokeBorder(DS.Colors.borderSubtle, lineWidth: 0.8)
                             )
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
+                    .panelControlHoverHighlight()
                 }
             }
         }
@@ -370,33 +346,14 @@ struct CompanionPanelView: View {
             Spacer()
 
             if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
+                grantedBadge
             } else {
-                Button(action: {
+                permissionActionButton(title: "Grant") {
                     // Triggers the native macOS screen recording prompt on first
                     // attempt (auto-adds app to the list), then opens System Settings
                     // on subsequent attempts.
                     WindowPositionManager.requestScreenRecordingPermission()
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
             }
         }
         .padding(.vertical, 6)
@@ -419,30 +376,11 @@ struct CompanionPanelView: View {
             Spacer()
 
             if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
+                grantedBadge
             } else {
-                Button(action: {
+                permissionActionButton(title: "Grant") {
                     companionManager.requestScreenContentPermission()
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
             }
         }
         .padding(.vertical, 6)
@@ -465,16 +403,9 @@ struct CompanionPanelView: View {
             Spacer()
 
             if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
+                grantedBadge
             } else {
-                Button(action: {
+                permissionActionButton(title: "Grant") {
                     // Triggers the native macOS microphone permission dialog on
                     // first attempt. If already denied, opens System Settings.
                     let status = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -485,38 +416,22 @@ struct CompanionPanelView: View {
                             NSWorkspace.shared.open(url)
                         }
                     }
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
             }
         }
         .padding(.vertical, 6)
     }
 
-    private func permissionRow(
-        label: String,
-        iconName: String,
-        isGranted: Bool,
-        settingsURL: String
-    ) -> some View {
-        HStack {
+    private var speechRecognitionPermissionRow: some View {
+        let isGranted = companionManager.hasSpeechRecognitionPermission
+        return HStack {
             HStack(spacing: 8) {
-                Image(systemName: iconName)
+                Image(systemName: "waveform")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warning)
                     .frame(width: 16)
 
-                Text(label)
+                Text("Speech Recognition")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -524,66 +439,70 @@ struct CompanionPanelView: View {
             Spacer()
 
             if isGranted {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DS.Colors.success)
-                        .frame(width: 6, height: 6)
-                    Text("Granted")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.success)
-                }
+                grantedBadge
             } else {
-                Button(action: {
-                    if let url = URL(string: settingsURL) {
-                        NSWorkspace.shared.open(url)
-                    }
-                }) {
-                    Text("Grant")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(DS.Colors.accent)
-                        )
+                permissionActionButton(title: "Grant") {
+                    companionManager.requestSpeechRecognitionPermission()
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
             }
         }
         .padding(.vertical, 6)
     }
 
-
-
-    // MARK: - Show Clicky Cursor Toggle
-
-    private var showClickyCursorToggleRow: some View {
-        HStack {
+    /// Chrome control is optional (only the video features use it), so its icon never turns the warning color.
+    /// macOS can report this permission without a prompt only while Chrome runs, so with Chrome closed the row
+    /// asks the learner to open it instead of offering an action that could not show the prompt.
+    private var chromeControlPermissionRow: some View {
+        let chromeAutomationStatus = companionManager.chromeAutomationPermissionStatus
+        return HStack {
             HStack(spacing: 8) {
-                Image(systemName: "cursorarrow")
+                Image(systemName: "globe")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DS.Colors.textTertiary)
                     .frame(width: 16)
 
-                Text("Show Clicky")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Chrome control")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(DS.Colors.textSecondary)
+
+                    Text(chromeControlCaption(for: chromeAutomationStatus))
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
             }
 
             Spacer()
 
-            Toggle("", isOn: Binding(
-                get: { companionManager.isClickyCursorEnabled },
-                set: { companionManager.setClickyCursorEnabled($0) }
-            ))
-            .toggleStyle(.switch)
-            .labelsHidden()
-            .tint(DS.Colors.accent)
-            .scaleEffect(0.8)
+            switch chromeAutomationStatus {
+            case .granted:
+                grantedBadge
+            case .notAskedYet:
+                permissionActionButton(title: "Allow") {
+                    companionManager.requestChromeAutomationPermission()
+                }
+            case .denied:
+                permissionActionButton(title: "Open Settings") {
+                    companionManager.requestChromeAutomationPermission()
+                }
+            case .chromeIsNotRunning:
+                EmptyView()
+            }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+    }
+
+    private func chromeControlCaption(for status: ChromeAutomationPermissionStatus) -> String {
+        switch status {
+        case .granted:
+            return "Optional: video quizzes and pop-outs"
+        case .notAskedYet:
+            return "Optional: video quizzes and pop-outs"
+        case .denied:
+            return "Turned off for Clicky"
+        case .chromeIsNotRunning:
+            return "Open Chrome to check or allow"
+        }
     }
 
     #if DEBUG
@@ -614,28 +533,6 @@ struct CompanionPanelView: View {
     }
     #endif
 
-    private var speechToTextProviderRow: some View {
-        HStack {
-            HStack(spacing: 8) {
-                Image(systemName: "mic.badge.waveform")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 16)
-
-                Text("Speech to Text")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-
-            Spacer()
-
-            Text(companionManager.buddyDictationManager.transcriptionProviderDisplayName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
-        .padding(.vertical, 4)
-    }
-
     // MARK: - Model Picker
 
     private var modelPickerRow: some View {
@@ -664,58 +561,15 @@ struct CompanionPanelView: View {
 
     private func modelOptionButton(label: String, modelID: String) -> some View {
         let isSelected = companionManager.selectedModel == modelID
-        return Button(action: {
+        return ModelOptionButton(label: label, isSelected: isSelected) {
             companionManager.setSelectedModel(modelID)
-        }) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
-                )
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
-    // MARK: - DM Farza Button
+    // MARK: - Report a Problem Button
 
-    private var dmFarzaButton: some View {
-        Button(action: {
-            if let url = URL(string: "https://x.com/farzatv") {
-                NSWorkspace.shared.open(url)
-            }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 12, weight: .medium))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Got feedback? DM me")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Bugs, ideas, anything — I read every message.")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-            .foregroundColor(DS.Colors.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
+    private var reportProblemButton: some View {
+        ReportProblemButton()
     }
 
     // MARK: - Footer
@@ -735,6 +589,7 @@ struct CompanionPanelView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
+            .panelControlHoverHighlight()
 
             if companionManager.hasCompletedOnboarding {
                 Spacer()
@@ -752,6 +607,7 @@ struct CompanionPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
+                .panelControlHoverHighlight()
             }
         }
     }
@@ -798,6 +654,95 @@ struct CompanionPanelView: View {
         }
     }
 
+}
+
+// MARK: - Panel control hover
+
+private extension View {
+    /// Brightens a panel control while the pointer is over it, so every clickable control answers a hover.
+    /// The pointing-hand cursor comes from `pointerCursor()`, which each control also applies.
+    func panelControlHoverHighlight() -> some View {
+        modifier(PanelControlHoverHighlight())
+    }
+}
+
+private struct PanelControlHoverHighlight: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .brightness(isHovered ? 0.18 : 0)
+            .onHover { isHovered = $0 }
+    }
+}
+
+/// One side of the Sonnet and Opus switch. The hovered option gets a faint fill, like the theme buttons.
+private struct ModelOptionButton: View {
+    let label: String
+    let isSelected: Bool
+    let select: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: select) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(isSelected || isHovered ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.white.opacity(isSelected ? 0.1 : (isHovered ? 0.06 : 0)))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
+    }
+}
+
+/// Opens a new issue on this fork's GitHub repository.
+private struct ReportProblemButton: View {
+    static let newIssueURLString = "https://github.com/crodris/clicky-watch-along/issues/new"
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: {
+            if let newIssueURL = URL(string: Self.newIssueURLString) {
+                NSWorkspace.shared.open(newIssueURL)
+            }
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.bubble")
+                    .font(.system(size: 12, weight: .medium))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Report a problem")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Opens a new issue on GitHub.")
+                        .font(.system(size: 10))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+            }
+            .foregroundColor(isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                    .fill(Color.white.opacity(isHovered ? 0.1 : 0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
+    }
 }
 
 // MARK: - Team Theme Picker

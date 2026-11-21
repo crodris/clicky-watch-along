@@ -37,7 +37,10 @@ final class MenuBarPanelManager: NSObject {
     private var savedThemesSubscription: AnyCancellable?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 320
+    private let panelWidth: CGFloat = CompanionPanelView.contentWidth
+    /// The window is wider and taller than the card by the shadow margin, so the card's shadow is not clipped.
+    private let shadowMargin = CompanionPanelView.shadowMargin
+    private var windowWidth: CGFloat { panelWidth + shadowMargin.leading + shadowMargin.trailing }
     private let panelHeight: CGFloat = 380
 
     init(companionManager: CompanionManager) {
@@ -161,15 +164,15 @@ final class MenuBarPanelManager: NSObject {
 
     private func createPanel() {
         let companionPanelView = CompanionPanelView(companionManager: companionManager)
-            .frame(width: panelWidth)
+            .frame(width: windowWidth)
 
         let hostingView = NSHostingView(rootView: companionPanelView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
+        hostingView.frame = NSRect(x: 0, y: 0, width: windowWidth, height: panelHeight)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
 
         let menuBarPanel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -211,17 +214,20 @@ final class MenuBarPanelManager: NSObject {
         let statusItemFrame = buttonWindow.frame
         let gapBelowMenuBar: CGFloat = 4
 
-        // Calculate the panel's content height from the hosting view's fitting size
-        // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
-        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
+        // Calculate the window's height from the hosting view's fitting size so it snugly wraps the
+        // SwiftUI content (the card plus its shadow margin) instead of using a fixed height.
+        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: windowWidth, height: panelHeight)
         let actualPanelHeight = fittingSize.height
 
-        // Horizontally center the panel beneath the status item icon
-        let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
-        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
+        // Horizontally center the card beneath the status item icon. The margins on both sides are equal,
+        // so centering the window centers the card.
+        let panelOriginX = statusItemFrame.midX - (windowWidth / 2)
+        // The card's top edge, not the window's, sits the gap below the menu bar, so the window starts
+        // the top margin higher.
+        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar + shadowMargin.top
 
         panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
+            NSRect(x: panelOriginX, y: panelOriginY, width: windowWidth, height: actualPanelHeight),
             display: true
         )
     }
@@ -240,10 +246,15 @@ final class MenuBarPanelManager: NSObject {
         ) { [weak self] event in
             guard let self, let panel = self.panel else { return }
 
-            // Check if the click is inside the status item button — if so, the
-            // statusItemClicked handler will toggle the panel, so don't also hide.
+            // A click on the card keeps the panel open. The transparent shadow margin around the card does not count.
             let clickLocation = NSEvent.mouseLocation
-            if panel.frame.contains(clickLocation) {
+            let cardFrame = NSRect(
+                x: panel.frame.minX + self.shadowMargin.leading,
+                y: panel.frame.minY + self.shadowMargin.bottom,
+                width: self.panelWidth,
+                height: panel.frame.height - self.shadowMargin.top - self.shadowMargin.bottom
+            )
+            if cardFrame.contains(clickLocation) {
                 return
             }
 
