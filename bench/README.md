@@ -218,6 +218,22 @@ Ten runs of the four cases that missed in either run were `planning-find-seek-po
 `session-run` (3 runs, `results/undo-session-measure-baseline-brain-evals-a1b20c9711fa.json` and `results/undo-session-measure-after-brain-evals-a1b20c9711fa.json`) passes 30 of 30 commands as one session on both.
 The cache read share fell from 0.9443 to 0.9303 and the first-turn cost rose from $0.000152 to $0.000165, since the tool list changes when `undo_last_change` appears or goes away, and a changed tool list costs a cache write.
 
+### Warming the prompt cache (measured, not shipped)
+
+On 2026-11-21 a prototype warmed the brain's prompt cache at push-to-talk press, with one `max_tokens` 1 request on the command's own prefix, and it was not merged.
+On the harness alone, against a real Worker with the cache made cold by a unique line in one tool description, 12 runs per arm gave these medians for the first tool call:
+
+| Context | Cached prefix | Cold | Warmed | Gain |
+|---|---|---|---|---|
+| Video in front | 5,912 tokens | 649 ms | 635 ms | about 14 ms |
+| Nothing on screen | 3,424 tokens | 633 ms | 595 ms | about 38 ms |
+| Video, padded prompt | 48K tokens | 914 ms | 764 ms | 150 ms |
+
+A cache write of the prefix costs about 3 ms per 1,000 tokens of the request, so at the brain's 3,400 to 7,000 token prefix the gain sits inside the run-to-run noise of about 40 ms.
+The warm needed the offered tools at the press, so the app read Chrome then, which blocked the main actor for about 240 ms while the learner spoke.
+A warm cost about $0.0004 to $0.0007, and one the command did not use wasted under $0.001.
+Revisit it when the brain's cached prefix reaches tens of thousands of tokens, for example if the brain keeps screenshots in its history, and remove the press-time read before shipping it.
+
 ### Planning cases
 
 A planning case is a request whose steps depend on each other, such as "go back to where he explains the swim bladder and pop it out" (`seek_to_moment` finds the line and seeks in one call, then `pop_out` comes last in the same reply).
@@ -291,7 +307,7 @@ Each run of a case ends in one outcome.
 
 - `pass`: the tools the router called match one of the case's accepted answers. Order and repeated calls do not matter.
 - `wrongTool`: it called a tool, and no accepted answer is that tool or set of tools.
-- `wrongInput`: the tools called match an accepted answer, but a call's input differs from the case's `input`.
+- `wrongInput`: the tools called match an accepted answer, but a call's input differs from the case's `input`, or a string input lacks a word of the case's `inputContains` or holds a word of its `inputOmits`.
 - `missedTool`: it called no tool, and every accepted answer holds a tool.
 - `spuriousTool`: it called a tool, and the only accepted answer is a plain spoken reply.
 - `error`: the Worker answered with an error or not at all.
@@ -312,6 +328,13 @@ A case may also hold `input`, a map from a tool name to the input that tool's ca
 Each listed key must equal the call's value, and `null` means the key must be absent, so `{ "skill": null }` checks that no skill was passed.
 Keys not listed are not checked, and every call of that tool must match.
 A tool named in `input` must be one an accepted answer calls.
+An input the learner's words fill in, such as the `query` of `seek_to_moment`, has no one correct value, so a case checks its words with `inputContains` and `inputOmits`, such as `{ "seek_to_moment": { "query": ["swim", "bladder"] } }`.
+Every listed word must be a whole word of the input (`inputContains`), or must not be one (`inputOmits`), compared in lower case, and every call of that tool must pass.
+Each listed word must itself be exactly one lower case word as the scorer splits text (letters and digits only), so "pop it out", "x-ray", and "he's" are refused when the fixture loads, since they could never match.
+`inputContains` fails an empty or missing query, and `inputOmits` fails a query that repeats the whole request, such as "swim bladder and pop it out".
+List in `inputOmits` only words that belong to another step of the request or to its framing and that a caption about the topic would not hold, such as "pop" for a pop-out step, "ten" and "seconds" for a relative seek, "half" and "speed" for a speed change, and "where" and "he" for a lone seek.
+Do not list common words a good query can hold ("up", "out", "go", "back"), or a verb the router sometimes keeps in a correct query: it called `explains the gills` for the gills case in the recorded run (`results/query-words-fixed-brain-evals-8f2f1a182413.json`, the five `seek_to_moment` cases on the harness backend, 3 runs each, 15 of 15).
+Both are lists of lower case words, and the tool must be one an accepted answer calls.
 A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them, which only the Worker backend reads, and the same actions as `earlierCommands` for the harness backend.
 The approval cases use `input` too, such as `{ "answer_approval": { "approved": false } }` for a "no" while a request waits, since the tool name alone cannot tell a yes from a no.
 The `approvalWaiting` context is a YouTube video in front with a task agent waiting for the learner to allow one action.

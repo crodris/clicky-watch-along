@@ -1,12 +1,6 @@
 {
   "images" : [
     {
-      "filename" : "1024-mac.png",
-      "idiom" : "ios-marketing",
-      "scale" : "1x",
-      "size" : "1024x1024"
-    },
-    {
       "filename" : "16-mac.png",
       "idiom" : "mac",
       "scale" : "1x",
