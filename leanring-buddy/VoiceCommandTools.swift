@@ -1078,55 +1078,64 @@ nonisolated let secondsAroundALineThatBreakATie: Double = 30
 /// The caption lines that say the query's words, best first. A line counts only when it says one of them
 /// itself, so a seek lands where it is said, and the line after it adds weight because captions split sentences.
 /// Short and common words do not count.
-/// Lines that score the same are ordered by how often the captions within `secondsAroundALineThatBreakATie` of the line
-/// say the query's words, since an explanation repeats its terms across nearby lines and an intro teaser does not.
-/// Only when that ties too does the earliest line come first.
+/// Words from how the learner framed the request, such as "explains" in "where she explains the crater", never make a
+/// line count on their own while the query has a topic word, so a teaser that says "explains" cannot win. They only
+/// break a tie, so "the long jump" prefers a line that says "long jump" to one that says only "long". When the query
+/// has nothing but framing words, as in "the jump", they are the topic.
+/// Lines that score the same are ordered by the framing words they say, then by how often the captions within
+/// `secondsAroundALineThatBreakATie` of the line say the topic words, since an explanation repeats its terms across
+/// nearby lines and an intro teaser does not. Only when those tie too does the earliest line come first.
 nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [VideoQuizTranscriptLine], limit: Int = 3) -> [VideoCaptionMoment] {
     let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says"]
-    // Words from how the learner framed the request, as in "go back to where she explains the crater". They are dropped
-    // from the query only while other words are left, since "jump" or "back" can be the topic itself, as in "the jump".
     let framingWordsOfTheRequest: Set<String> = ["explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"]
     func words(in text: String) -> Set<String> {
         Set(text.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count > 2 && !wordsThatSayNothing.contains($0) })
     }
-    let queryWordsWithTheFraming = words(in: query)
-    let queryWordsWithoutTheFraming = queryWordsWithTheFraming.subtracting(framingWordsOfTheRequest)
-    let queryWords = queryWordsWithoutTheFraming.isEmpty ? queryWordsWithTheFraming : queryWordsWithoutTheFraming
-    guard !queryWords.isEmpty else { return [] }
+    let allQueryWords = words(in: query)
+    let topicWordsBesideTheFraming = allQueryWords.subtracting(framingWordsOfTheRequest)
+    let topicWords = topicWordsBesideTheFraming.isEmpty ? allQueryWords : topicWordsBesideTheFraming
+    let framingWordsBesideTheTopic = topicWordsBesideTheFraming.isEmpty ? [] : allQueryWords.intersection(framingWordsOfTheRequest)
+    guard !topicWords.isEmpty else { return [] }
     struct ScoredMoment {
         let score: Int
-        let queryWordsSaidNearby: Int
+        let framingWordsSaid: Int
+        let topicWordsSaidNearby: Int
         let moment: VideoCaptionMoment
     }
-    let queryWordMatchesPerLine = captionLines.map { captionLine in queryWords.intersection(words(in: captionLine.text)).count }
+    let wordsPerLine = captionLines.map { captionLine in words(in: captionLine.text) }
+    let topicWordMatchesPerLine = wordsPerLine.map { lineWords in topicWords.intersection(lineWords).count }
+    let framingWordMatchesPerLine = wordsPerLine.map { lineWords in framingWordsBesideTheTopic.intersection(lineWords).count }
     var scoredMoments: [ScoredMoment] = []
     for lineIndex in captionLines.indices {
-        let lineMatches = queryWordMatchesPerLine[lineIndex]
+        let lineMatches = topicWordMatchesPerLine[lineIndex]
         guard lineMatches > 0 else { continue }
         let nextLineIndex = lineIndex + 1
         let nextLineText = nextLineIndex < captionLines.count ? captionLines[nextLineIndex].text : ""
-        let nextLineMatches = nextLineIndex < captionLines.count ? queryWordMatchesPerLine[nextLineIndex] : 0
+        let nextLineMatches = nextLineIndex < captionLines.count ? topicWordMatchesPerLine[nextLineIndex] : 0
+        let framingWordsSaid = framingWordMatchesPerLine[lineIndex] + (nextLineIndex < captionLines.count ? framingWordMatchesPerLine[nextLineIndex] : 0)
         let momentText = nextLineText.isEmpty ? captionLines[lineIndex].text : "\(captionLines[lineIndex].text) \(nextLineText)"
         // The line and the one after it already count in the score, so the tie-break reads only the lines around them.
         let lineSeconds = captionLines[lineIndex].seconds
-        let queryWordsSaidNearby = captionLines.indices
+        let topicWordsSaidNearby = captionLines.indices
             .filter { otherLineIndex in
                 otherLineIndex != lineIndex && otherLineIndex != nextLineIndex
                     && abs(captionLines[otherLineIndex].seconds - lineSeconds) <= secondsAroundALineThatBreakATie
             }
-            .reduce(0) { total, otherLineIndex in total + queryWordMatchesPerLine[otherLineIndex] }
+            .reduce(0) { total, otherLineIndex in total + topicWordMatchesPerLine[otherLineIndex] }
         scoredMoments.append(ScoredMoment(
             score: lineMatches * 2 + nextLineMatches,
-            queryWordsSaidNearby: queryWordsSaidNearby,
+            framingWordsSaid: framingWordsSaid,
+            topicWordsSaidNearby: topicWordsSaidNearby,
             moment: VideoCaptionMoment(seconds: lineSeconds, text: momentText)
         ))
     }
     return scoredMoments
         .sorted { first, second in
             if first.score != second.score { return first.score > second.score }
-            if first.queryWordsSaidNearby != second.queryWordsSaidNearby { return first.queryWordsSaidNearby > second.queryWordsSaidNearby }
+            if first.framingWordsSaid != second.framingWordsSaid { return first.framingWordsSaid > second.framingWordsSaid }
+            if first.topicWordsSaidNearby != second.topicWordsSaidNearby { return first.topicWordsSaidNearby > second.topicWordsSaidNearby }
             return first.moment.seconds < second.moment.seconds
         }
         .prefix(limit)

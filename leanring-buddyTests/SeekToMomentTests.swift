@@ -106,6 +106,17 @@ struct SeekToMomentTests {
         #expect(videoCaptionMomentsMatching(query: "explains the jump", captionLines: longJumpCaptionLines).first?.seconds == 30)
     }
 
+    // A framing word inside a topic of two words, as in "the long jump", breaks the tie between lines that say the other
+    // word, so a line that says only "long" does not win by coming first.
+    @Test func aFramingWordInsideATopicPrefersTheLineThatSaysTheWholeTopic() {
+        let captionLines = [
+            VideoQuizTranscriptLine(seconds: 10, text: "how long does the run up take"),
+            VideoQuizTranscriptLine(seconds: 14, text: "that depends on the athlete"),
+            VideoQuizTranscriptLine(seconds: 60, text: "the long jump starts with a sprint"),
+        ]
+        #expect(videoCaptionMomentsMatching(query: "the long jump", captionLines: captionLines).first?.seconds == 60)
+    }
+
     // Known limit: when the nearby captions tie too, the earliest line wins, which in an explainer video can be the teaser,
     // so seek_to_moment's description sends "the last time", "the second time", and "that was the wrong spot" to
     // find_moment, where the model sees every candidate.
