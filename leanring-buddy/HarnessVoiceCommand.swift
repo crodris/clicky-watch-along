@@ -19,6 +19,10 @@ import os
 /// cancel handler, seeing the mark, sends the handedOff result for the current call instead of cancel_task. The harness
 /// then marks the command complete.
 ///
+/// A call that finished in the app right before a press has a real outcome the harness has not heard. `callFinished`
+/// records it, and the cancel handler then writes the call's result before `cancel_task`, so the harness adds the call's
+/// action line to the rollback's `interrupted_before` line. A call still running at the press sends only `cancel_task`.
+///
 /// The cancel handler of `withTaskCancellationHandler` runs wherever the cancel happens, off the main actor, so this
 /// state sits behind a lock. Each call has one line to send, and the cancel handler and the normal path both claim it
 /// under the lock before they write, so exactly one of them sends it.
@@ -28,6 +32,8 @@ nonisolated final class HarnessVoiceCommandLines: Sendable {
         var currentToolUseID: String?
         /// A branch of runAppVoiceTool is about to hand the request to a slow path for the current call.
         var handOffHasStarted = false
+        /// The current call has run, and this is its real outcome. Nil while it runs.
+        var currentCallFinishedWith: VoiceToolOutcome?
         /// The current call's line went out, from the normal path or the cancel handler.
         var currentCallLineWasSent = false
         /// The command's task was cancelled, so no later result goes out.
@@ -49,7 +55,18 @@ nonisolated final class HarnessVoiceCommandLines: Sendable {
         lineState.withLock { state in
             state.currentToolUseID = toolUseID
             state.handOffHasStarted = false
+            state.currentCallFinishedWith = nil
             state.currentCallLineWasSent = false
+        }
+    }
+
+    /// The current call has run and has this outcome, before its result line goes out. A press that cancels the command
+    /// after this point still writes the result ahead of `cancel_task`. It does nothing once the command was cancelled,
+    /// since a call that was still running at the press has no outcome Clicky shows or records.
+    func callFinished(with outcome: VoiceToolOutcome) {
+        lineState.withLock { state in
+            guard !state.commandWasCancelled else { return }
+            state.currentCallFinishedWith = outcome
         }
     }
 
@@ -79,6 +96,10 @@ nonisolated final class HarnessVoiceCommandLines: Sendable {
             guard !state.commandWasCancelled else { return }
             state.commandWasCancelled = true
             guard state.handOffHasStarted else {
+                if let toolUseID = state.currentToolUseID, !state.currentCallLineWasSent, let finishedOutcome = state.currentCallFinishedWith {
+                    state.currentCallLineWasSent = true
+                    sendLine(.voiceToolResult(taskID: taskID, toolUseID: toolUseID, outcome: finishedOutcome))
+                }
                 sendLine(.cancelTask(taskID: taskID))
                 return
             }
