@@ -19,6 +19,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
   It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
 - `studio-router` sends every word spoken with the card open to `/voice-command`, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
   A failed router request says "Sorry, I couldn't do that one." and leaves the card as it was, instead of answering the words as a question about the screen.
+- `studio-manage` renames or deletes a saved theme from its row under "Team theme" in the menu bar panel (`SavedThemeRow`, `CompanionThemeSettings.renameSavedTheme` and `deleteSavedTheme`). A rename changes only the name in `theme.json`, and a delete removes the theme's folder.
 - `studio-agents` gives each new agent the first theme agent color no running agent or waiting result has, and the picture as its round face when the theme uses it.
 
 ## How to get to it (user POV)
@@ -27,6 +28,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - With the card open, say "two", "two, but make the cursor a star that spins while it thinks", "use this picture instead", "save it", or "never mind".
 - Click a tile, Save, or Close on the card, or press Escape.
 - Click a saved theme under "Team theme" in the menu bar panel to switch to it later.
+- Hover a saved theme there for a pencil, which renames it, and a trash can, which deletes it after a second click.
 
 ## Driving it with verify-clicky.sh
 
@@ -68,6 +70,18 @@ Preconditions:
   The card closes, a "Theme saved" chip shows under the cursor for about 1.4 seconds, and `companionTheme` is `custom:<id>`.
   Run `chmod a-w ~/Library/Application\ Support/Clicky/Themes`, open the card, and click Save again: the card stays open and the chip says "Couldn't save the theme".
   Put it back with `chmod u+w` on the same folder.
+- **Rename and delete.** Start from a saved theme (the Save step) and the idle Debug app, then click the Clicky menu bar icon with the real mouse, reading the point from a `$V shot`.
+  The theme shows as a full-width row under the built-in themes.
+  Move the mouse over the row: a pencil and a trash can show at its right edge, the pointer is the pointing hand over each, and each lights up under the pointer.
+  Run `$V shot theme-row-hover` and zoom a crop at 2x: both tiles sit inside the row and the name stays inside it.
+  Click the pencil: the name becomes a text field with the keyboard focus.
+  Select all with `osascript -e 'tell application "System Events" to keystroke "a" using command down'`, type with `keystroke "Night Owl"` in the same way, then press Return with `key code 36`.
+  The row shows the new name, `theme.json` has it, the folder keeps its name, and `companionTheme` is still `custom:<id>` when this was the theme in use.
+  Open the field again and press Return on an empty field, then on a name of 25 characters: the field stays open, its border turns red, and the row says "1 to 24 characters".
+  Press `$V key escape`: the field closes and the old name stays. Open it once more and click another theme in the panel: the field closes and that theme is picked.
+  Move the mouse over the row and click the trash can once: it turns into a red "Delete" button, which goes back to the trash can after 3 seconds with no second click.
+  Click the trash can and then "Delete": the row goes, the theme's folder is gone from `~/Library/Application Support/Clicky/Themes/`, and when it was the theme in use, `companionTheme` is `clickyBlue` and the cursor is the blue triangle.
+  Seed agents with `debug_seed_agents` before the delete: they keep their colors after it.
 - **Close and Escape.** Open the card again, then post `close_theme_studio`, or run `$V key escape`.
   The card closes, the cursor goes back to the saved theme, and the saved `companionTheme` is unchanged.
 - **Closing stops the studio's own line.** Open the card and, while Clicky is still saying the ideas' line (about 5 seconds after the tiles show), post `close_theme_studio`, or click Save.
@@ -88,4 +102,6 @@ Preconditions:
 - A hand-edited `theme.json` that breaks a rule (a path with an arc, an accent too dark to read) is skipped at load, not repaired.
 - With Show Clicky off, the cursor overlay fades a second after the last interaction (transient cursor mode), so the preview shows on the card's tiles only until the next push-to-talk.
 - Agents started while only a preview shows take the saved theme's colors, not the preview's.
+- The menu bar panel's frame is fitted to its content when the panel opens. After a delete or a rename, check that no row is clipped and the panel does not float away from the menu bar, and reopen the panel if it does.
+- Escape in the rename field also reaches the global Escape handler, which can skip a reply Clicky is giving. Rename with Clicky idle.
 - Seeded agents never end on their own. Cancel them from the agent list or quit the app.

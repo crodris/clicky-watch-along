@@ -404,11 +404,6 @@ final class CompanionThemeSettings: ObservableObject {
         )
     }
 
-    /// What the menu bar panel's "Team theme" section lists: the built-in choices, then the themes the learner designed and saved.
-    var menuBarThemeChoices: [CompanionTheme] {
-        CompanionTheme.allChoices + savedCustomThemes.map(CompanionTheme.custom)
-    }
-
     /// What every view that draws the theme reads: the preview while the studio is open, else the saved theme.
     var shownTheme: CompanionTheme { previewTheme ?? theme }
 

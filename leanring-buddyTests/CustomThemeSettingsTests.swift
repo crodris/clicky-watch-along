@@ -59,16 +59,7 @@ struct CustomThemeSettingsTests {
         #expect(CompanionTheme.allChoices.count == 12)
     }
 
-    @Test func theMenuBarPanelListsTheBuiltInThemesThenTheSavedCustomOnes() throws {
-        try withATemporaryThemeStore { store in
-            let themeSettings = makeThemeSettings(customThemeStore: store)
-            #expect(themeSettings.menuBarThemeChoices == CompanionTheme.allChoices)
-            let savedTheme = try themeSettings.saveAndApply(try customTheme(id: "idea-1"), pictureJPEG: nil)
-            #expect(themeSettings.menuBarThemeChoices == CompanionTheme.allChoices + [.custom(savedTheme)])
-        }
-    }
-
-    @Test func theDialsTeamFanListsTheNewestSavedThemesFirstWhileTheMenuBarPanelKeepsNameOrder() throws {
+    @Test func theDialsTeamFanListsTheNewestSavedThemesFirstWhileTheSavedListKeepsNameOrder() throws {
         try withATemporaryThemeStore { store in
             // A day ahead of the clock, in whole seconds, so the dates are exact and APFS leaves the creation dates alone.
             let dayFromNow = Date().timeIntervalSinceReferenceDate.rounded() + 86_400
@@ -84,7 +75,7 @@ struct CustomThemeSettingsTests {
                 )
             }
             let themeSettings = makeThemeSettings(customThemeStore: store)
-            #expect(themeSettings.menuBarThemeChoices.suffix(3).map(\.displayName) == ["Alpha", "Beta", "Gamma"])
+            #expect(themeSettings.savedCustomThemes.map(\.name) == ["Alpha", "Beta", "Gamma"])
             let fans = SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
             #expect(fans.teamThemes.suffix(3).map(\.displayName) == ["Gamma", "Alpha", "Beta"])
         }
