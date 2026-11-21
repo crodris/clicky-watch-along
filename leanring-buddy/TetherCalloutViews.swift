@@ -11,6 +11,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - Where a Callout sits
@@ -52,6 +53,15 @@ func speechCalloutCenter(cursorPosition: CGPoint, calloutSize: CGSize, screenSiz
     let leftEdge = min(max(tipX - tailTipX, screenEdgeMargin), max(screenSize.width - screenEdgeMargin - calloutSize.width, screenEdgeMargin))
     let centerY = max(tipY - calloutSize.height / 2, calloutSize.height / 2)
     return CGPoint(x: leftEdge + calloutSize.width / 2, y: centerY)
+}
+
+/// Where the tail's tip is in the overlay, as a share of the screen: just above the triangle at `cursorPosition`. A Callout
+/// placed by `speechCalloutCenter` pivots its Pop about this point.
+func speechCalloutPivot(cursorPosition: CGPoint, screenSize: CGSize) -> UnitPoint {
+    UnitPoint(
+        x: cursorPosition.x / max(screenSize.width, 1),
+        y: (cursorPosition.y - tetherCalloutTipRiseAboveTheCursor) / max(screenSize.height, 1)
+    )
 }
 
 // MARK: - Presence: Pop in, fade-rise out, Recall
@@ -106,36 +116,130 @@ func tetherCalloutAnimation(isAppearing: Bool, exit: TetherCalloutExit, reduceMo
     }
 }
 
-private struct TetherCalloutPresenceEffect: ViewModifier {
+struct TetherCalloutPresenceEffect: ViewModifier {
     let pose: TetherCalloutPresencePose
+    /// The pivot of the scale as a share of the view's own size, or nil to find the tail's tip from the Callout's width. A
+    /// Callout placed with `.position` fills its parent, so it passes the tip's place in the parent instead.
+    var pivotInTheView: UnitPoint?
 
     func body(content: Content) -> some View {
-        content
-            // The pivot is the tail's tip, found from the Callout's own width, so a Pop or a Recall keeps the tail where it is.
-            .visualEffect { calloutContent, geometry in
-                let tipX = TetherCalloutShape.tailTip(inCalloutOfSize: geometry.size).x
-                return calloutContent
-                    .scaleEffect(pose.scale, anchor: UnitPoint(x: tipX / max(geometry.size.width, 1), y: 1))
-            }
-            .offset(y: pose.riseOffset)
-            .opacity(pose.opacity)
+        if let pivotInTheView {
+            content
+                .scaleEffect(pose.scale, anchor: pivotInTheView)
+                .offset(y: pose.riseOffset)
+                .opacity(pose.opacity)
+        } else {
+            content
+                // The pivot is the tail's tip, found from the Callout's own width, so a Pop or a Recall keeps the tail where it is.
+                .visualEffect { calloutContent, geometry in
+                    let tipX = TetherCalloutShape.tailTip(inCalloutOfSize: geometry.size).x
+                    return calloutContent
+                        .scaleEffect(pose.scale, anchor: UnitPoint(x: tipX / max(geometry.size.width, 1), y: 1))
+                }
+                .offset(y: pose.riseOffset)
+                .opacity(pose.opacity)
+        }
     }
 }
 
 extension AnyTransition {
-    /// How a Callout enters and leaves the view tree: a Pop out of its tail's tip, and a fade-rise or Recall out. With
-    /// Reduce Motion on, both are a fade in place.
-    static func tetherCallout(exit: TetherCalloutExit, reduceMotionIsOn: Bool) -> AnyTransition {
+    /// For a Callout that a view's own condition puts in and takes out of the tree: it pops from its tail's tip going in, and
+    /// leaves with a 6 point rise and a fade. With Reduce Motion on, both are a fade in place.
+    /// `pivotInTheView` is where the tail's tip sits in the view the Callout is placed in.
+    static func tetherCalloutPopAndFadeRise(reduceMotionIsOn: Bool, pivotInTheView: UnitPoint) -> AnyTransition {
         .asymmetric(
             insertion: .modifier(
-                active: TetherCalloutPresenceEffect(pose: .appearing(reduceMotionIsOn: reduceMotionIsOn)),
-                identity: TetherCalloutPresenceEffect(pose: .resting)
+                active: TetherCalloutPresenceEffect(pose: .appearing(reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
+                identity: TetherCalloutPresenceEffect(pose: .resting, pivotInTheView: pivotInTheView)
             ),
             removal: .modifier(
-                active: TetherCalloutPresenceEffect(pose: .leaving(exit, reduceMotionIsOn: reduceMotionIsOn)),
-                identity: TetherCalloutPresenceEffect(pose: .resting)
+                active: TetherCalloutPresenceEffect(pose: .leaving(.fadeRise, reduceMotionIsOn: reduceMotionIsOn), pivotInTheView: pivotInTheView),
+                identity: TetherCalloutPresenceEffect(pose: .resting, pivotInTheView: pivotInTheView)
             )
         )
+    }
+}
+
+/// Whether a Callout is on screen, and how it is leaving. The Callout stays in the view tree while it leaves, and its pose
+/// (`TetherCalloutPresencePose.leaving`) animates, so the exit style is known when the leave starts and never depends on the
+/// order a run loop turn runs in. The model removes the Callout from the tree once the leave has played.
+@MainActor
+final class TetherCalloutPresence: ObservableObject {
+    @Published private(set) var isInTheViewTree = false
+    /// How the Callout is leaving, or nil while it stays.
+    @Published private(set) var leavingExit: TetherCalloutExit?
+    /// Counts each appear and leave, so a removal waiting for a leave to play never removes a Callout that appeared since.
+    private var removalGeneration = 0
+
+    /// The Callout pops in, or comes back from a leave that has not finished.
+    func appear() {
+        removalGeneration += 1
+        isInTheViewTree = true
+        leavingExit = nil
+    }
+
+    /// The Callout leaves the way `exit` says, and leaves the view tree when that has played. Nothing happens when it is not
+    /// on screen, and a Recall can take over a fade-rise already under way.
+    func leave(_ exit: TetherCalloutExit, reduceMotionIsOn: Bool) {
+        guard isInTheViewTree, leavingExit != exit else { return }
+        removalGeneration += 1
+        let generationOfThisLeave = removalGeneration
+        leavingExit = exit
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsToLeave(exit, reduceMotionIsOn: reduceMotionIsOn)) { [weak self] in
+            guard let self, self.removalGeneration == generationOfThisLeave else { return }
+            self.isInTheViewTree = false
+            self.leavingExit = nil
+        }
+    }
+
+    /// How long a leave takes: the 150 ms crossfade with Reduce Motion on, else 0.7 of the Pop's time for a fade-rise and the
+    /// Recall's 180 ms.
+    nonisolated static func secondsToLeave(_ exit: TetherCalloutExit, reduceMotionIsOn: Bool) -> Double {
+        if reduceMotionIsOn { return DS.Move.fadeSeconds }
+        switch exit {
+        case .fadeRise: return DS.Move.pop.curve.seconds() * 0.7
+        case .recall: return DS.Move.recall.curve.seconds()
+        }
+    }
+}
+
+extension View {
+    /// Draws a Callout with the pose its presence says: the Pop as it comes into the tree, and the leave pose while it leaves.
+    func tetherCalloutPose(_ presence: TetherCalloutPresence, reduceMotionIsOn: Bool) -> some View {
+        modifier(TetherCalloutPoseModifier(presence: presence, reduceMotionIsOn: reduceMotionIsOn))
+    }
+
+    /// Plays the Pop as the Callout comes into the tree and the leave as its presence starts one. Put it on the container that
+    /// holds the Callout, since an animation does not play for the insertion of the view it is on.
+    func tetherCalloutAnimations(_ presence: TetherCalloutPresence, reduceMotionIsOn: Bool) -> some View {
+        self
+            .animation(
+                tetherCalloutAnimation(isAppearing: true, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn),
+                value: presence.isInTheViewTree
+            )
+            .animation(
+                tetherCalloutAnimation(isAppearing: presence.leavingExit == nil, exit: presence.leavingExit ?? .fadeRise, reduceMotionIsOn: reduceMotionIsOn),
+                value: presence.leavingExit
+            )
+    }
+}
+
+private struct TetherCalloutPoseModifier: ViewModifier {
+    @ObservedObject var presence: TetherCalloutPresence
+    let reduceMotionIsOn: Bool
+
+    func body(content: Content) -> some View {
+        let leavingPose = presence.leavingExit.map { TetherCalloutPresencePose.leaving($0, reduceMotionIsOn: reduceMotionIsOn) }
+        content
+            .modifier(TetherCalloutPresenceEffect(pose: leavingPose ?? .resting))
+            // Only the insertion is a transition. A Callout leaves by changing its pose, so the exit is chosen before it starts.
+            .transition(.asymmetric(
+                insertion: .modifier(
+                    active: TetherCalloutPresenceEffect(pose: .appearing(reduceMotionIsOn: reduceMotionIsOn)),
+                    identity: TetherCalloutPresenceEffect(pose: .resting)
+                ),
+                removal: .identity
+            ))
     }
 }
 
@@ -233,8 +337,16 @@ enum SpeechCalloutLayout {
             }
         }
 
+        // A line is the slice of the sentence from its first word to its last, so every character of the line sits at its own
+        // offset even when the sentence has a double space or a line break between words. A tab or a line break inside a
+        // line shows as one space, character for character, so nothing shifts.
+        let sentenceCharacters = Array(sentence)
         return wordsOfEachLine.map { lineWords in
-            SpeechCalloutLine(text: lineWords.map(\.text).joined(separator: " "), startOffset: lineWords[0].startOffset)
+            let firstOffset = lineWords[0].startOffset
+            let lastWord = lineWords[lineWords.count - 1]
+            let endOffset = lastWord.startOffset + lastWord.text.count
+            let lineText = String(sentenceCharacters[firstOffset..<endOffset].map { $0.isWhitespace ? " " : $0 })
+            return SpeechCalloutLine(text: lineText, startOffset: firstOffset)
         }
     }
 

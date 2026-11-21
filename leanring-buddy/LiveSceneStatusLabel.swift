@@ -16,11 +16,12 @@ import SwiftUI
 @MainActor
 final class LiveSceneStatusLabelModel: ObservableObject {
     @Published var statusLine: LiveSceneStatusLine?
+    /// Whether the label counts as showing. It goes false the moment a hide starts, while the Callout is still playing its
+    /// leave, so the overlay's ring and every caller see the hide at once.
     @Published var isVisible = false
-    /// How the label leaves, which the view reads as the label goes. Set one turn before `isVisible` goes false, since a
-    /// view's removal transition is the one it had in its last drawing.
-    @Published var exit: TetherCalloutExit = .fadeRise
-    /// The Callout's measured width, which decides whether it fits right of the cursor. Not published, since the
+    /// Whether the Callout is on screen and how it is leaving.
+    let presence = TetherCalloutPresence()
+    /// The Callout's measured width, which lets the panel slide left to stay on the screen. Not published, since the
     /// cursor-follow timer reads it 30 times a second.
     var contentWidth: CGFloat = 0
     /// When the current line appeared, so its loop starts from the beginning.
@@ -46,6 +47,7 @@ enum StatusLabelPlacement {
 
 private struct LiveSceneStatusLabelView: View {
     @ObservedObject var statusLabelModel: LiveSceneStatusLabelModel
+    @ObservedObject var presence: TetherCalloutPresence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// 30 frames a second is smooth enough for the icon and keeps the loop light on 120 Hz displays.
@@ -53,8 +55,8 @@ private struct LiveSceneStatusLabelView: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // The label leaves the view tree when hidden, which stops the TimelineView's loop.
-            if statusLabelModel.isVisible, let statusLine = statusLabelModel.statusLine {
+            // The label leaves the view tree when its leave has played, which stops the TimelineView's loop.
+            if presence.isInTheViewTree, let statusLine = statusLabelModel.statusLine {
                 // With Reduce Motion on the label is still, so the timeline stops ticking.
                 TimelineView(.animation(minimumInterval: frameIntervalSeconds, paused: reduceMotion)) { timeline in
                     LiveSceneStatusLabelContent(
@@ -70,14 +72,11 @@ private struct LiveSceneStatusLabelView: View {
                 } action: { measuredContentWidth in
                     statusLabelModel.contentWidth = measuredContentWidth
                 }
-                .transition(.tetherCallout(exit: statusLabelModel.exit, reduceMotionIsOn: reduceMotion))
+                .tetherCalloutPose(presence, reduceMotionIsOn: reduceMotion)
             }
         }
         .padding(tetherCalloutPanelMargin)
-        .animation(
-            tetherCalloutAnimation(isAppearing: statusLabelModel.isVisible, exit: statusLabelModel.exit, reduceMotionIsOn: reduceMotion),
-            value: statusLabelModel.isVisible
-        )
+        .tetherCalloutAnimations(presence, reduceMotionIsOn: reduceMotion)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 }
@@ -91,21 +90,18 @@ final class LiveSceneStatusLabel {
     let statusLabelModel = LiveSceneStatusLabelModel()
     private var statusLabelPanel: NSPanel?
     private var cursorFollowTimer: Timer?
-    /// Counts each hide and each show, so a hide that waits one turn for its exit style never hides a line shown since.
-    private var latestHideOrShowCount = 0
 
     func show(_ statusLine: LiveSceneStatusLine) {
         if statusLabelModel.statusLine != statusLine || !statusLabelModel.isVisible {
             statusLabelModel.statusLineShownDate = Date()
         }
-        latestHideOrShowCount += 1
         statusLabelModel.statusLine = statusLine
-        statusLabelModel.exit = .fadeRise
         let panel = statusLabelPanel ?? makeStatusLabelPanel()
         statusLabelPanel = panel
         moveStatusLabelToTheCursor()
         panel.orderFrontRegardless()
         statusLabelModel.isVisible = true
+        statusLabelModel.presence.appear()
         // Runs only while the label is up, so it costs nothing the rest of the time.
         if cursorFollowTimer == nil {
             cursorFollowTimer = Timer.scheduledTimer(withTimeInterval: Self.cursorFollowInterval, repeats: true) { [weak self] _ in
@@ -132,20 +128,13 @@ final class LiveSceneStatusLabel {
     /// the cursor (a Recall). A set hides only when the current line is in it, so each owner hides only its own lines, and
     /// the label leaves with a fade-rise.
     func hide(onlyIfShowingOneOf statusLines: Set<LiveSceneStatusLine>? = nil) {
-        guard LiveSceneStatusLine.lineShowing(
-            afterHidingOnlyIfShowingOneOf: statusLines,
-            whileShowing: visibleStatusLine
-        ) == nil else { return }
+        guard let lineBeingHidden = visibleStatusLine,
+              LiveSceneStatusLine.lineShowing(afterHidingOnlyIfShowingOneOf: statusLines, whileShowing: lineBeingHidden) == nil
+        else { return }
         cursorFollowTimer?.invalidate()
         cursorFollowTimer = nil
-        // The exit is set first and the label hides one turn later, so the view's removal uses it.
-        statusLabelModel.exit = statusLines == nil ? .recall : .fadeRise
-        latestHideOrShowCount += 1
-        let thisHideCount = latestHideOrShowCount
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.latestHideOrShowCount == thisHideCount else { return }
-            self.statusLabelModel.isVisible = false
-        }
+        statusLabelModel.isVisible = false
+        statusLabelModel.presence.leave(statusLines == nil ? .recall : .fadeRise, reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
 
     /// The line on screen right now, or nil while the label is hidden.
@@ -178,7 +167,7 @@ final class LiveSceneStatusLabel {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(
-            rootView: LiveSceneStatusLabelView(statusLabelModel: statusLabelModel)
+            rootView: LiveSceneStatusLabelView(statusLabelModel: statusLabelModel, presence: statusLabelModel.presence)
         )
         return panel
     }

@@ -96,7 +96,8 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 2 Tokens and carrier | Merged: [#72](https://github.com/crodris/clicky-watch-along/pull/72) |
 | 3 Theme files | Merged: [#74](https://github.com/crodris/clicky-watch-along/pull/74) |
 | 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). Dark, tinted, and clear modes still need the layers imported into Icon Composer by hand. |
-| 4, 5, 6, 7, 9, 10, 11 | Building in parallel |
+| 4 Callouts and speech | In review: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
+| 5, 6, 7, 9, 10, 11 | Building in parallel |
 | 8 Panel, onboarding, keyboard | Waiting for PRs 2, 3, and 7 |
 | 13 Theme Studio designs motion | After the build order |
 | 14 The loop carries background work | After the build order |

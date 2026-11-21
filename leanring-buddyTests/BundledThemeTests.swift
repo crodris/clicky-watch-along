@@ -446,8 +446,12 @@ struct BundledThemeTests {
         // Callout reaches above the triangle.
         #expect(chipOriginInTheMiddle.y + tetherCalloutPanelMargin > 500 - 25)
         #expect(abs(chipOriginInTheMiddle.x + tetherCalloutPanelMargin + tetherSingleLineCalloutTailTipX - (500 + 35)) < 0.001)
-        let chipOriginAtTheRightEdge = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1700, y: 500), screenFrame: screenFrame)
-        #expect(chipOriginAtTheRightEdge.x + VoiceToolCallChip.panelSize.width <= screenFrame.maxX + 2 * tetherCalloutPanelMargin)
+        // A 200 point chip whose tail would stand at the cursor but run past the screen's edge slides left, and a chip that
+        // fits keeps its tail on the cursor.
+        let chipOriginAtTheRightEdge = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1700, y: 500), screenFrame: screenFrame, calloutWidth: 200)
+        #expect(abs(chipOriginAtTheRightEdge.x + tetherCalloutPanelMargin + 200 - screenFrame.maxX) < 0.001)
+        let chipOriginThatFits = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1000, y: 500), screenFrame: screenFrame, calloutWidth: 200)
+        #expect(abs(chipOriginThatFits.x + tetherCalloutPanelMargin + tetherSingleLineCalloutTailTipX - (1000 + 35)) < 0.001)
         let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 1100), screenFrame: screenFrame)
         #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height <= screenFrame.maxY)
         let chipOriginAtTheBottom = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 10), screenFrame: screenFrame)

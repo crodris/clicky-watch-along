@@ -233,9 +233,7 @@ struct BlueCursorView: View {
             : (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
     }
 
-    /// Scale factor for the navigation speech bubble's pop-in entrance.
     /// Starts at 0.5 and springs to 1.0 when the first character appears.
-    @State private var navigationBubbleScale: CGFloat = 1.0
 
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
@@ -261,13 +259,24 @@ struct BlueCursorView: View {
         "found it!"
     ]
 
+    /// Whether each speech Callout is on screen, which drives its Pop in and its leave.
+    private var navigationBubbleIsShowing: Bool {
+        buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty && navigationBubbleOpacity > 0
+    }
+    private var welcomeBubbleIsShowing: Bool {
+        isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty
+    }
+    private var onboardingPromptBubbleIsShowing: Bool {
+        isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty
+    }
+
     var body: some View {
         ZStack {
             // Nearly transparent background (helps with compositing)
             Color.black.opacity(0.001)
 
             // Welcome speech bubble (first launch only)
-            if isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty {
+            if welcomeBubbleIsShowing {
                 SpeechCalloutView(sentence: welcomeText, revealedCharacterCount: welcomeText.count, accent: themeSettings.shownTheme.cursorColor)
                     .onGeometryChange(for: CGSize.self) { calloutGeometry in
                         calloutGeometry.size
@@ -278,6 +287,7 @@ struct BlueCursorView: View {
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: bubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.5), value: bubbleOpacity)
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, screenSize: screenFrame.size)))
             }
 
             // Onboarding video — always in the view tree so opacity animation works
@@ -297,7 +307,7 @@ struct BlueCursorView: View {
                 .allowsHitTesting(false)
 
             // Onboarding prompt — "press control + option and say hi" streamed after video ends
-            if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
+            if onboardingPromptBubbleIsShowing {
                 SpeechCalloutView(
                     sentence: companionManager.onboardingPromptText,
                     revealedCharacterCount: companionManager.onboardingPromptText.count,
@@ -312,12 +322,13 @@ struct BlueCursorView: View {
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: onboardingPromptBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.4), value: companionManager.onboardingPromptOpacity)
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, screenSize: screenFrame.size)))
             }
 
-            // Navigation pointer bubble — shown when buddy arrives at a detected element, and while a narration
+            // Navigation pointer bubble - shown when buddy arrives at a detected element, and while a narration
             // speaks. A Callout above the cursor whose tail points at the triangle: it pops out of the tail's tip,
             // its words brighten as the voice reaches them, and it leaves with a fade and a 6 point rise.
-            if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
+            if navigationBubbleIsShowing {
                 SpeechCalloutView(
                     sentence: navigationBubblePhrase,
                     revealedCharacterCount: navigationBubbleText.count,
@@ -328,24 +339,9 @@ struct BlueCursorView: View {
                     } action: { measuredCalloutSize in
                         navigationBubbleSize = measuredCalloutSize
                     }
-                    .scaleEffect(
-                        navigationBubbleScale,
-                        anchor: UnitPoint(
-                            x: TetherCalloutShape.tailTip(inCalloutOfSize: navigationBubbleSize).x / max(navigationBubbleSize.width, 1),
-                            y: 1
-                        )
-                    )
-                    .offset(y: navigationBubbleOpacity == 0 && !reduceMotionIsOn ? -TetherCalloutPresencePose.risePoints : 0)
-                    .opacity(navigationBubbleOpacity)
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .animation(DS.Move.pop.animation(reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleScale)
-                    .animation(
-                        navigationBubbleOpacity > 0
-                            ? .easeOut(duration: DS.Move.popFadeInSeconds)
-                            : tetherCalloutAnimation(isAppearing: false, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn),
-                        value: navigationBubbleOpacity
-                    )
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, screenSize: screenFrame.size)))
             }
 
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.
@@ -404,6 +400,10 @@ struct BlueCursorView: View {
                     value: cursorPosition
                 )
         }
+        // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`).
+        .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
+        .animation(tetherCalloutAnimation(isAppearing: welcomeBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: welcomeBubbleIsShowing)
+        .animation(tetherCalloutAnimation(isAppearing: onboardingPromptBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: onboardingPromptBubbleIsShowing)
         .frame(width: screenFrame.width, height: screenFrame.height)
         .ignoresSafeArea()
         .onAppear {
@@ -693,12 +693,10 @@ struct BlueCursorView: View {
         // Rotate back to default pointer angle now that we've arrived
         triangleRotationDegrees = -35.0
 
-        // Reset navigation bubble state — start small for the scale-bounce entrance
+        // Reset navigation bubble state. The bubble pops in when its first letters appear.
         navigationBubbleText = ""
         navigationBubbleOpacity = 1.0
         navigationBubbleSize = .zero
-        // Reduce Motion skips the pop-in: the bubble starts at full size, so only its opacity fades in.
-        navigationBubbleScale = reduceMotionIsOn ? 1.0 : DS.Move.popStartScale
 
         // Use custom bubble text from the companion manager (the onboarding demo's comment, or the
         // sentence a narration is speaking) if available, otherwise fall back to a random pointer phrase
@@ -728,7 +726,7 @@ struct BlueCursorView: View {
                 }
             }
         }
-        // A phrase Clicky is speaking types along with the voice. Any other phrase types at its own pace.
+        // A phrase Clicky is speaking brightens along with the voice. Any other phrase types at its own pace.
         if companionManager.spokenFractionOfTheLine(phrase) != nil {
             followTheVoiceInTheNavigationBubble(phrase: phrase, typingGeneration: typingGeneration, onComplete: onTypingComplete)
         } else {
@@ -745,10 +743,6 @@ struct BlueCursorView: View {
         let spokenFraction = companionManager.spokenFractionOfTheLine(phrase) ?? 1
         let revealedCharacterCount = SpokenLineProgress.revealedCharacterCount(phraseLength: phrase.count, spokenFraction: spokenFraction)
         if navigationBubbleText.count != revealedCharacterCount {
-            // The scale-bounce entrance plays when the first letters appear.
-            if navigationBubbleText.isEmpty && revealedCharacterCount > 0 {
-                navigationBubbleScale = 1.0
-            }
             navigationBubbleText = String(phrase.prefix(revealedCharacterCount))
         }
         guard revealedCharacterCount < phrase.count else {
@@ -794,11 +788,6 @@ struct BlueCursorView: View {
         let charIndex = phrase.index(phrase.startIndex, offsetBy: characterIndex)
         navigationBubbleText.append(phrase[charIndex])
 
-        // On the first character, trigger the scale-bounce entrance
-        if characterIndex == 0 {
-            navigationBubbleScale = 1.0
-        }
-
         let characterDelay = Double.random(in: 0.03...0.06)
         DispatchQueue.main.asyncAfter(deadline: .now() + characterDelay) {
             self.streamNavigationBubbleCharacter(
@@ -832,7 +821,6 @@ struct BlueCursorView: View {
         navigationAnimationTimer = nil
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        navigationBubbleScale = 1.0
         buddyFlightScale = 1.0
         flightFadeOpacity = 1.0
         finishNavigationAndResumeFollowing()
@@ -853,7 +841,6 @@ struct BlueCursorView: View {
         flightFadeOpacity = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        navigationBubbleScale = 1.0
         companionManager.clearDetectedElementLocation()
     }
 

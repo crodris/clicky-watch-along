@@ -265,7 +265,13 @@ final class CompanionManager: ObservableObject {
         return ThemeStudioController(
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
-                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                speak: { [weak self] line in
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone.
+                    if line == ThemeStudioController.couldNotDesignLine {
+                        VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
+                    }
+                    self?.speakAThemeStudioLine(line)
+                },
                 stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
@@ -274,7 +280,9 @@ final class CompanionManager: ObservableObject {
             cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
                 // The voice tool's chip comes from the router, so only a click on Save needs its own.
                 guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
-                VoiceToolCallChip.shared.show(chipPhrase)
+                let chipSender: VoiceToolCallChipSender
+                if case .failed = saveOutcome { chipSender = .failure } else { chipSender = .voiceToolCall }
+                VoiceToolCallChip.shared.show(chipPhrase, sender: chipSender)
             })
         )
     }()
@@ -1754,6 +1762,7 @@ final class CompanionManager: ObservableObject {
         // A tap while waiting cancels this task, and a line spoken now would cut off the tap's own narration.
         guard !Task.isCancelled else { return }
         if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
             await speakLiveSceneLine(spokenLine)
         }
         voiceState = .idle
@@ -1790,6 +1799,7 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
             await speakLiveSceneLine(spokenLine)
         }
         guard !Task.isCancelled else { return }
@@ -3546,6 +3556,7 @@ final class CompanionManager: ObservableObject {
             chipTexts.primary,
             sender: chipSender(forAgent: waitingAgent.id, kind: waitingAgent.kind),
             secondaryChipText: chipTexts.secondary,
+            survivesARecall: true,
             secondsOnScreen: HarnessApprovalDesk.defaultTimeoutSeconds
         )
     }
@@ -4264,12 +4275,12 @@ final class CompanionManager: ObservableObject {
     }
 
     /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
-    /// The pointing bubble types along with it.
+    /// The speech Callout brightens its words along with it.
     func spokenFractionOfTheLine(_ text: String) -> Double? {
         elevenLabsTTSClient.spokenFraction(ofLine: text)
     }
 
-    /// Says that a command did not work, with the red failure chip next to the cursor, so the failure never rests on the voice alone.
+    /// Says that a command did not work, with the red failure chip above the cursor, so the failure never rests on the voice alone.
     @discardableResult
     private func speakTheGaveUpLine() async -> Bool {
         VoiceToolCallChip.shared.show("Couldn't do that one", sender: .failure)

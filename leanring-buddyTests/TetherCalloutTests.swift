@@ -77,6 +77,48 @@ struct TetherCalloutTests {
         #expect(swings.allSatisfy { abs($0) <= 7 })
     }
 
+    @Test func everyLeaveTakesItsOwnTimeAndAReduceMotionLeaveIsTheOneCrossfade() {
+        #expect(abs(TetherCalloutPresence.secondsToLeave(.fadeRise, reduceMotionIsOn: false) - DS.Move.pop.curve.seconds() * 0.7) < 1e-9)
+        #expect(TetherCalloutPresence.secondsToLeave(.recall, reduceMotionIsOn: false) == 0.18)
+        #expect(TetherCalloutPresence.secondsToLeave(.fadeRise, reduceMotionIsOn: true) == DS.Move.fadeSeconds)
+        #expect(TetherCalloutPresence.secondsToLeave(.recall, reduceMotionIsOn: true) == DS.Move.fadeSeconds)
+    }
+
+    @Test func aCalloutStaysInTheTreeWhileItLeavesThenLeavesTheTree() async throws {
+        let presence = TetherCalloutPresence()
+        presence.leave(.recall, reduceMotionIsOn: false)
+        #expect(!presence.isInTheViewTree && presence.leavingExit == nil, "nothing leaves that is not on screen")
+
+        presence.appear()
+        #expect(presence.isInTheViewTree && presence.leavingExit == nil)
+        presence.leave(.fadeRise, reduceMotionIsOn: false)
+        #expect(presence.isInTheViewTree && presence.leavingExit == .fadeRise, "the exit is chosen before the leave plays")
+        // A Recall takes over a fade-rise under way.
+        presence.leave(.recall, reduceMotionIsOn: false)
+        #expect(presence.leavingExit == .recall)
+
+        let deadline = Date().addingTimeInterval(3)
+        while presence.isInTheViewTree && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        #expect(!presence.isInTheViewTree && presence.leavingExit == nil)
+    }
+
+    @Test func aCalloutThatAppearsDuringItsLeaveIsNotRemovedByThatLeave() async throws {
+        let presence = TetherCalloutPresence()
+        presence.appear()
+        presence.leave(.recall, reduceMotionIsOn: false)
+        presence.appear()
+        #expect(presence.isInTheViewTree && presence.leavingExit == nil)
+        // Past the Recall's 180 ms, the removal that was waiting has been cancelled.
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(presence.isInTheViewTree && presence.leavingExit == nil)
+    }
+
+    @Test func aPressRecallsAChipExceptOneThatWaitsForAnAnswer() {
+        #expect(chipIsRecalledByAPress(isShowing: true, survivesARecall: false))
+        #expect(!chipIsRecalledByAPress(isShowing: true, survivesARecall: true))
+        #expect(!chipIsRecalledByAPress(isShowing: false, survivesARecall: false))
+    }
+
     // MARK: - Speech words
 
     /// A width of 10 points per character, so a test reads the wrap off the character count.
@@ -100,6 +142,20 @@ struct TetherCalloutTests {
         // When the two would not fit together within the width, the word stays where it is.
         let unmovable = SpeechCalloutLayout.lines(of: "a b ccc dddddddddd", wrapWidth: 100, measuredWidth: tenPointsPerCharacter)
         #expect(unmovable.map(\.text) == ["a b ccc", "dddddddddd"])
+    }
+
+    @Test func everyCharacterOfALineSitsAtItsOwnOffsetEvenAfterADoubleSpaceOrALineBreak() {
+        let sentence = "Hi.  The fan\nspins fast"
+        let lines = SpeechCalloutLayout.lines(of: sentence, wrapWidth: 1000, measuredWidth: tenPointsPerCharacter)
+        #expect(lines.count == 1)
+        let line = try! #require(lines.first)
+        let sentenceCharacters = Array(sentence)
+        #expect(line.startOffset == 0 && line.endOffset == sentenceCharacters.count)
+        for (characterIndex, character) in line.text.enumerated() {
+            let sentenceCharacter = sentenceCharacters[line.startOffset + characterIndex]
+            // A whitespace character shows as one space, so the line never breaks, and every other character is itself.
+            #expect(sentenceCharacter.isWhitespace ? character == " " : character == sentenceCharacter)
+        }
     }
 
     @Test func aSingleLongWordIsKeptWholeOnItsOwnLine() {
