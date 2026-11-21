@@ -127,7 +127,8 @@ The menu bar panel's "Team theme" section lists those, then the saved custom the
 Hovering a row shows a pencil and a trash can, each with the pointing hand and a hover state.
 The pencil turns the name into a text field that takes focus: Return saves, Escape or a click away cancels, and a refused name keeps the field open with the phrase "1 to 24 characters".
 The trash can asks once: the first click turns it into a red "Delete" button for 3 seconds, and a second click deletes.
-A row keeps its 44 point height in every state, so a problem is a short red phrase in the row's trailing space, since the panel's frame is fitted to its content when it opens.
+A row keeps its 44 point height in every state, so a problem is a short red phrase in the row's trailing space.
+The panel's frame is fitted to its content when it opens, and again when the saved theme list changes while it is open (`MenuBarPanelManager`), so a delete does not leave the card floating.
 `CompanionThemeSettings` holds the saved `theme`, the studio's `previewTheme` and `previewPicture`, and `shownTheme`, which every view that draws the theme reads (the overlay, the agent list, the pop-out's quiz label, and the sound calls).
 A preview shows everywhere, and only the saved theme is written to UserDefaults. `saveAndApply` saves the idea, makes it the theme, and ends the preview.
 `renameSavedTheme(themeID:to:)` and `deleteSavedTheme(themeID:)` call the store and then reload `savedCustomThemes`.

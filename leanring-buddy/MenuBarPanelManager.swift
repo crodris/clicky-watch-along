@@ -12,6 +12,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 extension Notification.Name {
@@ -33,6 +34,7 @@ final class MenuBarPanelManager: NSObject {
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
+    private var savedThemesSubscription: AnyCancellable?
 
     private let companionManager: CompanionManager
     private let panelWidth: CGFloat = 320
@@ -187,6 +189,19 @@ final class MenuBarPanelManager: NSObject {
 
         menuBarPanel.contentView = hostingView
         panel = menuBarPanel
+
+        // The panel's frame is fitted to its content only when it opens, so a saved theme row deleted while it is open would
+        // leave the card floating with empty space below it. The list publishes before it changes, so the refit waits one
+        // main queue turn for SwiftUI to lay out the new rows.
+        savedThemesSubscription = companionManager.themeSettings.$savedCustomThemesWithSavedDates
+            .dropFirst()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self, self.panel?.isVisible == true else { return }
+                    self.panel?.contentView?.layoutSubtreeIfNeeded()
+                    self.positionPanelBelowStatusItem()
+                }
+            }
     }
 
     private func positionPanelBelowStatusItem() {
