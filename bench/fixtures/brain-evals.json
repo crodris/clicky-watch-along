@@ -617,7 +617,8 @@
       "accept": [
         "set_control"
       ],
-      "why": "A command, not a guess, so it must not go to record_guess."
+      "input": { "set_control": { "name": "angle", "value": 45, "run": null } },
+      "why": "A command, not a guess, so it must not go to record_guess. It sets the value without trying it, so it leaves run out, and in the guess stage set_control with run true is refused."
     },
     {
       "id": "experiment-try-angle",
@@ -1240,9 +1241,11 @@
       "accept": [
         { "calls": ["record_guess", "set_control"], "input": { "set_control": { "name": "angle", "value": 60, "run": true } } },
         { "calls": ["record_guess", "set_control", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": null } } },
-        { "calls": ["set_control", "record_guess", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": null } } }
+        { "calls": ["set_control", "record_guess", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": null } } },
+        { "calls": ["record_guess", "set_control", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": false } } },
+        { "calls": ["set_control", "record_guess", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": false } } }
       ],
-      "why": "The guess must be recorded before the run, since Run is locked until then, and the control must be set before the run. set_control with run true does the set and the run in one call, so record_guess comes first. The older chain with run_simulation is accepted only when set_control leaves run out, so a model that runs twice fails."
+      "why": "The guess must be recorded before the run, since Run is locked until then, and the control must be set before the run. set_control with run true does the set and the run in one call, so record_guess comes first. The older chain with run_simulation is accepted only when set_control leaves run out or passes run false, so a model that runs twice fails."
     }
   ]
 }

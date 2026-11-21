@@ -220,14 +220,14 @@ describe("scene-tools.js simulation tools", () => {
     expect(page.run).not.toHaveBeenCalled();
   });
 
-  it("refuses the run of set_control with run true before the guess, sets the control, and says it did not run", () => {
+  it("refuses set_control with run true before the guess, changes nothing, and says it did not set or run", () => {
     const page = simulationPage();
     const { clickyTools, postedEvents } = loadSceneTools(page);
 
     const refused = clickyTools.call("set_control", { name: "angle", value: 60, run: true });
 
-    expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/did not run it.*has not guessed/s) });
-    expect(page.setControl).toHaveBeenCalledWith("angle", 60);
+    expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/Did not set or run it.*has not guessed/s) });
+    expect(page.setControl).not.toHaveBeenCalled();
     expect(page.run).not.toHaveBeenCalled();
     expect(refused.state.runIsGoing).toBe(false);
     expect(postedEvents).toEqual([]);

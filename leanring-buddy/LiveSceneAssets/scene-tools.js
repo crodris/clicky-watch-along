@@ -587,6 +587,12 @@
       run: (input) => {
         const value = Number(input.value);
         if (!Number.isFinite(value)) return { ok: false, error: "value must be a number" };
+        // A refused call must change nothing, since the app reports it as failed and the harness records no change for it,
+        // so with run true the guess lock is checked before the control moves.
+        if (input.run === true) {
+          const refusal = refuseARunBeforeTheGuess();
+          if (refusal) return { ok: false, error: `Did not set or run it. ${refusal.error}` };
+        }
         const name = String(input.name ?? "");
         // The model saw each name cut to 40 characters, so it matches here on the cut name and the page gets its real one.
         const control = simulationControls().find((candidate) => candidate.name === name || controlSummary(candidate).name === name);
@@ -595,13 +601,7 @@
         }
         abandonTheRunInFlight();
         refreshPanel();
-        if (input.run === true) {
-          // The control is set either way, as it is when run_simulation follows a set_control that the guess lock refuses.
-          // The error says the run did not happen, so the model never claims it did.
-          const refusal = refuseARunBeforeTheGuess();
-          if (refusal) return { ok: false, error: `Set ${control.name} but did not run it. ${refusal.error}` };
-          startRun();
-        }
+        if (input.run === true) startRun();
         return { ok: true };
       },
     },
