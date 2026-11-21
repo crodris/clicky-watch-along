@@ -1071,6 +1071,41 @@
       "why": "The seek's time comes from reading the lookup's three moments, not from taking the best match, so the router must pick the latest one."
     },
     {
+      "id": "planning-find-second-mention",
+      "context": "video",
+      "say": "go to the second time he mentions the liver",
+      "scoreWholeCommand": true,
+      "accept": [["find_moment", "seek_to_time"]],
+      "input": { "seek_to_time": { "seconds": 402 } },
+      "toolResults": {
+        "find_moment": {
+          "outcome": "lookedUp",
+          "result": [
+            { "seconds": 305, "captions": "the shark's liver is full of oil and that oil is what keeps it up" },
+            { "seconds": 470, "captions": "so the liver is the whole secret to how a shark stays level" },
+            { "seconds": 402, "captions": "a big liver can be a quarter of the shark's weight" }
+          ]
+        }
+      },
+      "why": "A particular mention, which seek_to_moment cannot pick, since it lands on the line that best matches the words. The lookup lists its moments best first, so the router must order them by time and seek to the second one, 402."
+    },
+    {
+      "id": "planning-seek-fails-then-pop-out",
+      "context": "video",
+      "say": "go back to where he explains the gills and pop it out",
+      "scoreWholeCommand": true,
+      "accept": [
+        ["seek_to_moment", "pop_out"],
+        ["seek_to_moment", "pop_out", "find_moment"]
+      ],
+      "mustNotReachTheApp": ["pop_out"],
+      "toolResults": {
+        "seek_to_moment": { "outcome": "failed", "error": "No caption line says that. Try other words, or use find_moment." },
+        "find_moment": { "outcome": "lookedUp", "result": [] }
+      },
+      "why": "No caption says gills, so the seek fails. The harness must not run the pop-out that follows it in the same reply, since it would lift the frame the learner is on and hand off, ending the command with the failure never spoken. The model then reads the failure on its next turn."
+    },
+    {
       "id": "planning-rotate-then-zoom-part",
       "context": "scene3D",
       "say": "turn it to the left and then zoom in on the spark plug",

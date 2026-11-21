@@ -931,7 +931,7 @@ describe("the session fixture", () => {
   it("holds the three session cases and the injection case the brain's memory needs", () => {
     assert.deepEqual(
       sessionFile.cases.map((brainCase) => brainCase.id),
-      ["session-undo-first-turn", "session-correction-after-fold", "session-correction-after-interrupt", "session-injection-approve"],
+      ["session-undo-first-turn", "session-correction-after-fold", "session-correction-after-interrupt", "session-correction-after-seek-to-moment", "session-injection-approve"],
     );
     assert.equal(sessionCase("session-undo-first-turn").earlierCommands?.length, 7, "an undo after 7 commands");
     assert.ok((sessionCase("session-correction-after-fold").earlierCommands?.length ?? 0) > 24, "past the 24 command cap, so the session folds before the case");
@@ -1278,13 +1278,13 @@ describe("the planning cases", () => {
     assert.equal(backedUpTheWrongWay.outcome, "wrongInput");
   });
 
-  it("are 8 cases the Worker backend does not run, and the parity cases leave them out", () => {
+  it("are 10 cases the Worker backend does not run, and the parity cases leave them out", () => {
     const planningCases = evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand === true);
     const planningSample = sample({ backend: "harness", suite: "planning" });
     const parityCaseSample = sample({ backend: "harness" });
     const split = splitBySuite([parityCaseSample, planningSample]);
 
-    assert.equal(planningCases.length, 8);
+    assert.equal(planningCases.length, 10);
     assert.deepEqual(split.parityCaseSamples, [parityCaseSample]);
     assert.deepEqual(split.planningSamples, [planningSample]);
     validateBrainEvals(evalFile, toolCatalog);
@@ -1297,6 +1297,43 @@ describe("the planning cases", () => {
     assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "seek_to_moment,pop_out"));
     assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "seek_relative,pop_out"));
     assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "rotate_model,zoom_to_part"));
+  });
+
+  it("fails a pop-out the harness still sent to the app after a failed seek, and passes one it skipped", () => {
+    const failedSeekCase = fixtureCase("planning-seek-fails-then-pop-out");
+    // Both calls are named in the turn line, since the model made both. Only a call the app received has a tool_call line.
+    const harnessSkippedThePopOut = sampleFromHarnessRecord(
+      failedSeekCase,
+      0,
+      replay(failedSeekCase, [[turn1Line("seek_to_moment,pop_out"), 400], [toolCallLine("call-1", "seek_to_moment", { query: "gills" }, 0), 402], [finishedLine("I could not find that."), 430]]).record,
+    );
+    const harnessRanThePopOutAnyway = sampleFromHarnessRecord(
+      failedSeekCase,
+      0,
+      replay(failedSeekCase, [[turn1Line("seek_to_moment,pop_out"), 400], [toolCallLine("call-1", "seek_to_moment", { query: "gills" }, 0), 402], [toolCallLine("call-2", "pop_out", {}, 0), 404], [finishedLine(""), 430]]).record,
+    );
+
+    assert.equal(harnessSkippedThePopOut.outcome, "pass");
+    assert.equal(harnessRanThePopOutAnyway.outcome, "wrongTool");
+    assert.deepEqual(failedSeekCase.mustNotReachTheApp, ["pop_out"]);
+  });
+
+  it("covers a particular mention, which stays on the lookup", () => {
+    const secondMentionCase = fixtureCase("planning-find-second-mention");
+    const seekedToTheSecondMention = scoreSecondTurn(secondMentionCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 402 }, 1), 802]]);
+    const seekedToTheLastMention = scoreSecondTurn(secondMentionCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 470 }, 1), 802]]);
+
+    assert.equal(seekedToTheSecondMention.outcome, "pass");
+    assert.equal(seekedToTheLastMention.outcome, "wrongInput");
+  });
+
+  it("are rejected when mustNotReachTheApp is on a case not scored on the whole command, or names a tool the context does not offer", () => {
+    const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
+    const validCase: BrainCase = { id: "new-planning-case", context: "video", say: "x", why: "x", scoreWholeCommand: true, accept: [["seek_relative", "pop_out"]], mustNotReachTheApp: ["pop_out"] };
+
+    validateBrainEvals(withCase(validCase), toolCatalog);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, scoreWholeCommand: undefined }), toolCatalog), /only a case scored on the whole command/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, mustNotReachTheApp: ["not_a_tool"] }), toolCatalog), /does not offer/);
   });
 
   it("are rejected when a sequence has its own input outside a planning case, calls find_moment with no scripted result, or checks a tool it does not call", () => {

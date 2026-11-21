@@ -370,7 +370,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .findMoment:
             return "Search the video's captions for where something is said, without moving the video. Returns up to 3 moments, best match first, with their times. Use it when the learner asks when or where something is said, wants a particular mention such as the last or the second one, or says seek_to_moment landed in the wrong place. Then call seek_to_time with the time you pick. To go straight to the best match, use seek_to_moment."
         case .seekToMoment:
-            return "Move the video in Chrome's front tab to the caption line that best matches query, in one step. It lands on the single best match, never on the first or last mention. Use it when the learner says go to, go back to, or jump to where something is said or explained, such as \"go back to where he explains the gills\". Put the words they would hear in query. Call every other tool they asked for in the same reply, because this tool needs no result before the next one and tools in one reply run in the order you call them. \"Go to where he explains the gills and back up ten seconds\" is seek_to_moment and then seek_relative with -10, and \"jump to the part about the teeth and pop it out\" is seek_to_moment and then pop_out. When they want the first, last, or another particular mention, or only ask when something is said, use find_moment, and then seek_to_time if they want to go there."
+            return "Move the video in Chrome's front tab to the caption line that best matches query, in one step. It picks the caption line that best matches those words, and cannot pick the first, the last, or another particular mention. Use it when the learner says go to, go back to, or jump to where something is said or explained, such as \"go back to where he explains the gills\". Put the words they would hear in query. Call every other tool they asked for in the same reply, because this tool needs no result before the next one and tools in one reply run in the order you call them. \"Go to where he explains the gills and back up ten seconds\" is seek_to_moment and then seek_relative with -10, and \"jump to the part about the teeth and pop it out\" is seek_to_moment and then pop_out. When they want the first, last, or another particular mention, or only ask when something is said, use find_moment, and then seek_to_time if they want to go there."
         case .endQuiz:
             return "Stop the video quiz."
         case .makeStudyGuide:
@@ -765,6 +765,54 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
     return .speak(String(confirmations.joined(separator: " ").prefix(longestSpokenVoiceCommandLine)))
 }
 
+/// The result of a call that did not run because an earlier call in its reply failed. The words match the harness's
+/// `notRunAfterAFailureResultText` in harness/brainsession.go.
+nonisolated let notRunAfterAFailureResultText = "Not run: an earlier call in this reply failed"
+
+/// A failed call stops the calls after it in the same reply, since a later call that depends on it, such as a pop-out
+/// after a seek that found no moment, would act on the wrong screen and the hand-off would end the command with the
+/// learner never hearing the failure. Each skipped call still gets a tool_result, since the API refuses a tool_use with
+/// none, and the model is asked again with them. These are the blocks for the calls after the failed one.
+nonisolated func notRunAfterAFailureToolResultBlocks(toolCalls: [VoiceToolCall], failedCallIndex: Int) -> [JSONValue] {
+    toolCalls.dropFirst(failedCallIndex + 1).map { skippedCall in
+        .object([
+            "type": .string("tool_result"),
+            "tool_use_id": .string(skippedCall.id),
+            "content": .string(notRunAfterAFailureResultText),
+            "is_error": .bool(false),
+        ])
+    }
+}
+
+/// Runs one reply's calls in order on the old path and collects each call's outcome and tool_result block. A hand-off
+/// stops the loop and adds no block, since the command ends. A failed call stops it too and gives each later call the
+/// `Not run` block, since the model is asked again. `runOne` returns nil when a push-to-talk press cancelled the
+/// command during the call, which ends the loop with nil.
+func runVoiceToolCallsInOrder(
+    _ toolCalls: [VoiceToolCall],
+    runOne: (VoiceToolCall) async -> VoiceToolOutcome?
+) async -> (outcomes: [VoiceToolOutcome], toolResultBlocks: [JSONValue])? {
+    var outcomes: [VoiceToolOutcome] = []
+    var toolResultBlocks: [JSONValue] = []
+    for (toolCallIndex, toolCall) in toolCalls.enumerated() {
+        guard !Task.isCancelled else { return nil }
+        guard let outcome = await runOne(toolCall) else { return nil }
+        outcomes.append(outcome)
+        if outcome == .handedOff { break }
+        toolResultBlocks.append(.object([
+            "type": .string("tool_result"),
+            "tool_use_id": .string(toolCall.id),
+            "content": .string(outcome.toolResultText),
+            "is_error": .bool(outcome.isFailure),
+        ]))
+        if outcome.isFailure {
+            toolResultBlocks += notRunAfterAFailureToolResultBlocks(toolCalls: toolCalls, failedCallIndex: toolCallIndex)
+            break
+        }
+    }
+    return (outcomes, toolResultBlocks)
+}
+
 /// What Clicky says when the router's turns run out with the model still waiting on a lookup or a failure, so the learner
 /// is never left in silence. It is always this apology, never the model's last words: the Worker tells the model that
 /// text next to a tool call is never spoken, so that text was written before the call ran and can claim a success that failed.
@@ -1024,16 +1072,17 @@ nonisolated struct VideoCaptionMoment: Equatable, Sendable {
     let text: String
 }
 
+/// How far on each side of a caption line the tie-break counts the query's words said by other lines.
+nonisolated let secondsAroundALineThatBreakATie: Double = 30
+
 /// The caption lines that say the query's words, best first. A line counts only when it says one of them
 /// itself, so a seek lands where it is said, and the line after it adds weight because captions split sentences.
 /// Short and common words do not count.
 /// Lines that score the same are ordered by how often the captions within `secondsAroundALineThatBreakATie` of the line
 /// say the query's words, since an explanation repeats its terms across nearby lines and an intro teaser does not.
 /// Only when that ties too does the earliest line come first.
-nonisolated let secondsAroundALineThatBreakATie: Double = 30
-
 nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [VideoQuizTranscriptLine], limit: Int = 3) -> [VideoCaptionMoment] {
-    let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says"]
+    let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says", "explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"]
     func words(in text: String) -> Set<String> {
         Set(text.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)

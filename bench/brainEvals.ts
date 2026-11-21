@@ -115,6 +115,13 @@ export type BrainCase = {
    */
   scoreWholeCommand?: true;
   /**
+   * Tools the harness must never send to the app in this command, on a planning case. The model's own calls are read
+   * from the `Brain: turn` line, which names a call the harness skipped, so this reads the `tool_call` lines the app
+   * actually received. It pins the rule that a failed call stops the later calls of its reply: a case that scripts
+   * `seek_to_moment` as failed and lists `pop_out` here fails when the pop-out still reaches the app.
+   */
+  mustNotReachTheApp?: string[];
+  /**
    * The router's recent tool call lines, as the app writes them, for a command that corrects the last action. Only the
    * Worker backend reads them, since the harness keeps its own session. A case that has them must also list the same
    * actions as `earlierCommands`, which the harness backend seeds, and brainEvals.test.ts checks that they agree.
@@ -409,6 +416,14 @@ export function validateBrainEvals(evalFile: BrainEvalFile, toolCatalog: ToolCat
       }
       if (acceptedAnswersOf(brainCase).flat().includes("find_moment") && brainCase.toolResults?.find_moment?.result === undefined) {
         throw new Error(`Case ${brainCase.id} accepts find_moment, so it must script the lookup's result, or the router has nothing to act on.`);
+      }
+    }
+    if (brainCase.mustNotReachTheApp !== undefined && brainCase.scoreWholeCommand !== true) {
+      throw new Error(`Case ${brainCase.id} lists mustNotReachTheApp, which only a case scored on the whole command checks.`);
+    }
+    for (const toolName of brainCase.mustNotReachTheApp ?? []) {
+      if (!context.tools.includes(toolName)) {
+        throw new Error(`Case ${brainCase.id} lists ${toolName} in mustNotReachTheApp, which context ${brainCase.context} does not offer.`);
       }
     }
     for (const toolName of Object.keys(brainCase.toolResults ?? {})) {
@@ -978,7 +993,7 @@ export function sampleFromHarnessRecord(brainCase: BrainCase, runIndex: number, 
   const scoredCalls = brainCase.scoreWholeCommand === true ? wholeCommandToolCalls(record) : firstTurnToolCalls(record);
   const outcome =
     brainCase.scoreWholeCommand === true
-      ? scoreWholeCommand(scoredCalls, brainCase)
+      ? scoreWholeCommandAndTheCallsTheAppReceived(scoredCalls, record, brainCase)
       : record.approvalID !== null
         ? scoreApprovalCase(scoredCalls, record.approvalSettlement, brainCase)
         : scoreBrainCase(scoredCalls, brainCase);
@@ -989,6 +1004,13 @@ export function sampleFromHarnessRecord(brainCase: BrainCase, runIndex: number, 
     toolCalls: scoredCalls,
     spokenText: record.ending.spokenLine,
   };
+}
+
+/** `scoreWholeCommand`, then a failure when the app received a call the case says must never reach it. */
+function scoreWholeCommandAndTheCallsTheAppReceived(scoredCalls: ToolCall[], record: HarnessCommandRecord, brainCase: BrainCase): Exclude<Outcome, "error"> {
+  const wholeCommandOutcome = scoreWholeCommand(scoredCalls, brainCase);
+  const aForbiddenCallReachedTheApp = record.toolCalls.some((sentCall) => brainCase.mustNotReachTheApp?.includes(sentCall.name) === true);
+  return wholeCommandOutcome === "pass" && aForbiddenCallReachedTheApp ? "wrongTool" : wholeCommandOutcome;
 }
 
 /**

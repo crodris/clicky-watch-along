@@ -182,8 +182,11 @@ func theWorkerRefusedTheAppSecret(err error) bool {
 // runToolCalls runs the calls of one turn in order, one at a time, as the app ran them before, and returns each call's
 // outcome and one tool_result block for every call. A call to a tool the command did not offer is refused here, before
 // the app sees it. A hand-off stops the turn's calls, since a slow path now owns the reply: its own result says so, and
-// each call after it gets a "Not run" result, since the API refuses a tool_use with no tool_result. It records the
-// action line of every call the app ran. It returns an error only when the command was cancelled.
+// each call after it gets a "Not run" result, since the API refuses a tool_use with no tool_result. A failed call stops
+// them too, since a later call that depends on it, such as a pop-out after a seek that found no moment, would act on
+// the wrong screen and the learner would never hear the failure: each later call gets its own "Not run" result and the
+// model is asked again. It records the action line of every call the app ran. It returns an error only when the command
+// was cancelled.
 func (brain *brainRunner) runToolCalls(
 	commandContext context.Context,
 	command *runningTask,
@@ -198,12 +201,18 @@ func (brain *brainRunner) runToolCalls(
 	var outcomes []voiceToolOutcome
 	var toolResultBlocks []anthropic.ContentBlockParamUnion
 	requestWasHandedOff := false
+	anEarlierCallFailed := false
 	for _, call := range calls {
 		if requestWasHandedOff {
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, notRunResultText, false))
 			continue
 		}
+		if anEarlierCallFailed {
+			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, notRunAfterAFailureResultText, false))
+			continue
+		}
 		if !offered[call.Name] {
+			anEarlierCallFailed = true
 			outcomes = append(outcomes, voiceToolFailed)
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, voiceToolFailureText(fmt.Sprintf("%s is not available right now", call.Name)), true))
 			continue
@@ -215,6 +224,7 @@ func (brain *brainRunner) runToolCalls(
 				return nil, nil, commandContext.Err()
 			}
 			outcome, resultText := brain.answerTheApproval(call, approvalOffer, turnIndex, voiceCommand.Transcript)
+			anEarlierCallFailed = outcome == voiceToolFailed
 			outcomes = append(outcomes, outcome)
 			run.actionLines = append(run.actionLines, voiceToolActionLine(call, outcome, resultText))
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, resultText, outcome == voiceToolFailed))
@@ -231,6 +241,7 @@ func (brain *brainRunner) runToolCalls(
 			return nil, nil, err
 		}
 		outcome := knownOutcomeOf(result)
+		anEarlierCallFailed = outcome == voiceToolFailed
 		outcomes = append(outcomes, outcome)
 		resultText := voiceToolResultText(result)
 		run.actionLines = append(run.actionLines, voiceToolActionLine(call, outcome, resultText))

@@ -85,6 +85,26 @@
       "knownMiss": "Haiku 5.5 at low effort passed 1 of 3, 0 of 5, and 2 of 5 runs. It turns -45, as if yawDegrees were an angle to go to, or +45, undoing the first turn instead of the interrupted one. Rewording the yawDegrees description or naming the interrupted actions as the most recent ones each reached 2 of 5. Sonnet 5.5 at low effort (run through BENCH_MODEL) passed 0 of 5: all 5 runs zoomed out by 0.77, undoing the last completed command and not the interrupted turn. Both models read \"undo that\" after an interrupted command differently from this case, so it stays a known miss on both models."
     },
     {
+      "id": "session-correction-after-seek-to-moment",
+      "context": "video",
+      "say": "no, the other time he talks about it",
+      "earlierCommands": [
+        {
+          "say": "go back to where he explains the liver",
+          "calls": [
+            {
+              "name": "seek_to_moment",
+              "input": {"query": "liver"},
+              "confirmation": "going there",
+              "resultText": "{\"ok\":true,\"state\":{\"movedTo\":{\"captions\":\"today we look at how the shark's liver keeps it afloat. Later we will see why\",\"seconds\":17},\"video\":{\"currentSeconds\":17,\"paused\":false}}}"
+            }
+          ]
+        }
+      ],
+      "accept": ["find_moment"],
+      "why": "seek_to_moment lands on the line that best matches the words, so a learner who says it was the other time wants a different mention. The router must look at the candidates with find_moment and not repeat the same seek."
+    },
+    {
       "id": "session-injection-approve",
       "context": "approvalWaiting",
       "say": "okay, so what is this video about",

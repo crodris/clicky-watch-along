@@ -67,10 +67,29 @@ struct SeekToMomentTests {
         ]
         #expect(videoCaptionMomentsMatching(query: "swim bladder", captionLines: captionLines).first?.seconds == 95)
         // The same captions with the explanation first: the result comes from the nearby captions, not from line order.
-        let explanationFirst = captionLines.suffix(4).map { VideoQuizTranscriptLine(seconds: $0.seconds - 90, text: $0.text) }
+        let explanationFirst = captionLines.suffix(4).map { explanationLine in VideoQuizTranscriptLine(seconds: explanationLine.seconds - 90, text: explanationLine.text) }
             + [VideoQuizTranscriptLine(seconds: 40, text: "now let's look at their teeth")]
-            + captionLines.prefix(3).map { VideoQuizTranscriptLine(seconds: $0.seconds + 300, text: $0.text) }
+            + captionLines.prefix(3).map { teaserLine in VideoQuizTranscriptLine(seconds: teaserLine.seconds + 300, text: teaserLine.text) }
         #expect(videoCaptionMomentsMatching(query: "swim bladder", captionLines: explanationFirst).first?.seconds == 5)
+    }
+
+    // The model sometimes puts the learner's framing in the query ("explains the swim bladder"). A teaser that says
+    // "explains" must not outscore the line that says the topic, so framing words count for nothing.
+    @Test func framingWordsInTheQueryDoNotChangeThePick() {
+        let captionLines = [
+            VideoQuizTranscriptLine(seconds: 5, text: "later he explains how sharks float and what goes on inside"),
+            VideoQuizTranscriptLine(seconds: 40, text: "most bony fish have a swim bladder"),
+            VideoQuizTranscriptLine(seconds: 44, text: "it is a little sack of gas inside the fish"),
+        ]
+        #expect(videoCaptionMomentsMatching(query: "explains the swim bladder", captionLines: captionLines).first?.seconds == 40)
+        #expect(videoCaptionMomentsMatching(query: "he explains the swim bladder", captionLines: captionLines) == videoCaptionMomentsMatching(query: "swim bladder", captionLines: captionLines))
+        // A caption that says only the framing words never matches a query of only framing words.
+        let framingCaptionLines = [
+            VideoQuizTranscriptLine(seconds: 1, text: "explain explains explained mention mentions mentioned jump back goes going"),
+        ]
+        for framingWord in ["explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"] {
+            #expect(videoCaptionMomentsMatching(query: framingWord, captionLines: framingCaptionLines).isEmpty, "\(framingWord) is only framing")
+        }
     }
 
     // Known limit: when the nearby captions tie too, the earliest line wins, which in an explainer video can be the teaser,
@@ -118,5 +137,60 @@ struct SeekToMomentTests {
         let popOut = VoiceToolCall(id: "2", name: "pop_out", input: [:])
         #expect(voiceCommandNextStep(toolCalls: [seek], outcomes: [.changed(state: nil)], replyText: "") == .speak("going there"))
         #expect(voiceCommandNextStep(toolCalls: [seek, popOut], outcomes: [.changed(state: nil), .handedOff], replyText: "") == .finishSilently)
+    }
+
+    // "Go back to where he explains the gills and pop it out": when the seek fails, the pop-out must not run on the
+    // frame the learner is looking at, and the model must read the failure.
+    @Test func aFailedSeekSkipsTheCallsAfterItAndAsksTheModelAgain() {
+        let seek = VoiceToolCall(id: "1", name: "seek_to_moment", input: ["query": .string("gills")])
+        let popOut = VoiceToolCall(id: "2", name: "pop_out", input: [:])
+        // Only the call that ran has an outcome.
+        #expect(voiceCommandNextStep(toolCalls: [seek, popOut], outcomes: [.failed(error: "No caption line says that.", state: nil)], replyText: "") == .askTheModelAgain)
+        let skippedBlockOfPopOut: JSONValue = .object([
+            "type": .string("tool_result"),
+            "tool_use_id": .string("2"),
+            "content": .string("Not run: an earlier call in this reply failed"),
+            "is_error": .bool(false),
+        ])
+        #expect(notRunAfterAFailureToolResultBlocks(toolCalls: [seek, popOut], failedCallIndex: 0) == [skippedBlockOfPopOut])
+        // Calls before the failed one ran, and a failure in the last call leaves nothing to skip.
+        #expect(notRunAfterAFailureToolResultBlocks(toolCalls: [popOut, seek], failedCallIndex: 1).isEmpty)
+    }
+
+    @Test func aSeekIsAllowedOnlyWhileTheFrontTabIsStillTheSamePageWhoseCaptionsWereRead() {
+        let videoA = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=aaa", title: "A")
+        let sameTabAndPage = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=aaa", title: "A (1)")
+        let anotherTab = ChromeVideoTab(windowId: 1, tabId: 8, url: "https://www.youtube.com/watch?v=aaa", title: "A")
+        let sameTabAnotherVideo = ChromeVideoTab(windowId: 1, tabId: 7, url: "https://www.youtube.com/watch?v=bbb", title: "B")
+        #expect(sameTabAndPage.isTheSamePage(as: videoA))
+        #expect(!anotherTab.isTheSamePage(as: videoA))
+        #expect(!sameTabAnotherVideo.isTheSamePage(as: videoA))
+    }
+
+    // The old path's loop: the failed seek is the only call that runs, and the pop-out never reaches `runOne`.
+    @MainActor @Test func theOldPathsLoopRunsNoCallAfterAFailedOne() async throws {
+        let seek = VoiceToolCall(id: "1", name: "seek_to_moment", input: ["query": .string("gills")])
+        let popOut = VoiceToolCall(id: "2", name: "pop_out", input: [:])
+        var callIDsRun: [String] = []
+
+        let ranCalls = await runVoiceToolCallsInOrder([seek, popOut]) { toolCall in
+            callIDsRun.append(toolCall.id)
+            return .failed(error: "No caption line says that.", state: nil)
+        }
+
+        let unwrappedCalls = try #require(ranCalls)
+        #expect(callIDsRun == ["1"])
+        #expect(unwrappedCalls.outcomes == [.failed(error: "No caption line says that.", state: nil)])
+        #expect(unwrappedCalls.toolResultBlocks.count == 2, "every tool_use needs a tool_result")
+        #expect(unwrappedCalls.toolResultBlocks[1] == notRunAfterAFailureToolResultBlocks(toolCalls: [seek, popOut], failedCallIndex: 0)[0])
+
+        var callIDsRunAfterASuccess: [String] = []
+        let afterASuccess = await runVoiceToolCallsInOrder([seek, popOut]) { toolCall in
+            callIDsRunAfterASuccess.append(toolCall.id)
+            return toolCall.id == "1" ? .changed(state: nil) : .handedOff
+        }
+        #expect(callIDsRunAfterASuccess == ["1", "2"])
+        #expect(afterASuccess?.outcomes == [.changed(state: nil), .handedOff])
+        #expect(afterASuccess?.toolResultBlocks.count == 1, "a hand-off ends the command, so it adds no block")
     }
 }

@@ -2821,12 +2821,9 @@ final class CompanionManager: ObservableObject {
             if !reply.toolCalls.isEmpty { timing.mark(\.firstToolCallReceivedAt) }
             logVoiceCommandJSONIfEnabled("reply", reply.assistantContent)
 
-            var outcomes: [VoiceToolOutcome] = []
-            var toolResultBlocks: [JSONValue] = []
-            for toolCall in reply.toolCalls {
-                // A push-to-talk press cancels this command, so its remaining calls must not run.
-                guard !Task.isCancelled else { return }
-                guard let outcome = await runOneVoiceToolCall(
+            // A push-to-talk press cancels this command, so its remaining calls must not run.
+            guard let ranCalls = await runVoiceToolCallsInOrder(reply.toolCalls, runOne: { toolCall in
+                await self.runOneVoiceToolCall(
                     toolCall,
                     offeredToolNames: offeredToolNames,
                     transcript: transcript,
@@ -2834,16 +2831,10 @@ final class CompanionManager: ObservableObject {
                     // tool results, which can hold text a page or a server wrote.
                     approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil,
                     commandStartedAt: commandStartedAt
-                ) else { return }
-                outcomes.append(outcome)
-                if outcome == .handedOff { break }
-                toolResultBlocks.append(.object([
-                    "type": .string("tool_result"),
-                    "tool_use_id": .string(toolCall.id),
-                    "content": .string(outcome.toolResultText),
-                    "is_error": .bool(outcome.isFailure),
-                ]))
-            }
+                )
+            }) else { return }
+            let outcomes = ranCalls.outcomes
+            let toolResultBlocks = ranCalls.toolResultBlocks
 
             switch voiceCommandNextStep(toolCalls: reply.toolCalls, outcomes: outcomes, replyText: reply.text) {
             case .finishSilently:
@@ -3168,14 +3159,12 @@ final class CompanionManager: ObservableObject {
         case .seekToMoment:
             // One call finds the best caption line and seeks there, so the model can follow it with pop_out in the same reply.
             do {
-                let captionMoments = try await videoQuizSession.captionMomentsInTheFrontVideo(matching: input["query"]?.stringValue ?? "")
-                guard let bestCaptionMoment = captionMoments.first else {
+                guard let seek = try await videoQuizSession.seekToTheCaptionMoment(matching: input["query"]?.stringValue ?? "") else {
                     return .outcome(.failed(error: "No caption line says that. Try other words, or use find_moment.", state: nil))
                 }
-                let videoState = try videoQuizSession.runLearnerVideoCommand(.seekTo(seconds: bestCaptionMoment.seconds))
                 return .outcome(.changed(state: .object([
-                    "video": videoState,
-                    "movedTo": .object(["seconds": .number(bestCaptionMoment.seconds), "captions": .string(bestCaptionMoment.text)]),
+                    "video": seek.videoState,
+                    "movedTo": .object(["seconds": .number(seek.captionMoment.seconds), "captions": .string(seek.captionMoment.text)]),
                 ])))
             } catch {
                 return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil))
