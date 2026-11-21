@@ -679,6 +679,9 @@ Pushes and same-repo pull requests run it on the self-hosted Mac runner `clicky-
 That runner runs as a separate macOS user and builds into the job's temp folder.
 The developer's Screen Recording and Accessibility grants belong to the `Clicky.app` their Xcode builds, and CI never replaces that app.
 The test host only checks those permissions and never requests them.
+macOS keeps one Accessibility grant per bundle ID for the whole Mac, across users, and an unsigned app with that ID that checks it resets the grant, so CI builds with `CLICKY_BUNDLE_ID_SUFFIX=.ci` and its app is `com.crodris.clicky-watch-along.ci`.
+The project's app bundle ID is `com.crodris.clicky-watch-along$(CLICKY_BUNDLE_ID_SUFFIX)`, and the suffix is empty everywhere else.
+Before that, on 2026-11-20, each CI test run on the Mac runner could turn off the developer's Accessibility grant.
 The developer's home folder must stay mode 700, so CI jobs cannot read their files or tokens.
 The hosted tests need a desktop session to reach `testmanagerd`, so after a restart, log in to the runner's user once through fast user switching, then switch back, and the runner keeps running in that background session.
 While the Mac sleeps or the runner's user is logged out, these jobs wait, and GitHub cancels a job that waits over 24 hours.
