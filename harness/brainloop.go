@@ -38,9 +38,12 @@ func (brain *brainRunner) logTheCancel(turnNumber int) {
 	brain.writer.send(newLogMessage(fmt.Sprintf("Brain: command cancelled during turn %d", turnNumber)))
 }
 
-// runCommand runs one voice command to its end: voice_command_finished with the spoken line, or task_failed when a turn
-// fails, which sends the app down its router failure fallback. A cancelled command writes only the cancel log line. A
-// cancelled or failed command is rolled back out of the session, and a command that ends whole stays in it.
+// runCommand runs one voice command to its end: voice_command_finished with the spoken line, or task_failed when a Haiku
+// turn fails, which sends the app down its router failure fallback. A failed Sonnet turn ends the command as gave up
+// instead, since the command's earlier calls already changed the screen. A cancelled command writes only the cancel log
+// line. A cancelled or Haiku-failed command is rolled back out of the session, and a command that ends whole, or gave up
+// after a failed Sonnet turn, stays in it. A cancel is checked before the Sonnet failure, so a press during the Sonnet
+// turn rolls the command back like one during a Haiku turn.
 //
 // The command gets up to mostBrainHaikuTurns turns on Haiku. When the last of them still needs the model, it gets one
 // more turn on Sonnet (the turn budget rule) before the gave-up line, with the same tools and the same history.

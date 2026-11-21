@@ -471,7 +471,7 @@ The results are in `bench/results/planning-haiku-brain-evals-52c4e4ef169c.json`,
   Only that turn runs on Sonnet.
   If it ends the command, the command ends normally.
   If it still needs the model, times out, or fails, the command ends as gave up, not as `task_failed`, because its earlier calls already changed the screen and the keyword path would repeat them.
-  PR 6's session rules hold: every `tool_use` gets a `tool_result`, a cancel or a failure rolls the command back, and the `Brain: turn` line names the model and the calls.
+  PR 6's session rules hold: every `tool_use` gets a `tool_result`, a cancel or a Haiku failure rolls the command back, a failed Sonnet turn is committed and ends as gave up, and the `Brain: turn` line names the model and the calls.
 - **Sonnet's time limit.** PR 4's 8 second timeout is for Haiku.
   The Sonnet turn gets 30 seconds.
   The harness writes a `Brain: planning on claude-sonnet-5-5` log line with the command's `taskID` when it starts, the app turns that line into an event, and its deadline then waits 35 seconds from that line instead of 10, so it stays above the harness's own limit.

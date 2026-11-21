@@ -137,7 +137,7 @@ It then checks the parity gate for the harness brain:
 The full-command cost is printed beside the first-turn cost and is not gated.
 A run that spends cache writes unevenly can shift cost between the two backends, so read the gate over 3 runs, not 1.
 The command exits with a nonzero code when the gate fails, after it saves the result file.
-A command the driver gives up on after 30 seconds gets a `cancel_task`, as a push-to-talk press sends one, and the driver waits for the harness to acknowledge it before the next command, so a late turn of the abandoned command never counts as the next command's.
+A command the driver gives up on after 60 seconds gets a `cancel_task`, as a push-to-talk press sends one, and the driver waits for the harness to acknowledge it before the next command, so a late turn of the abandoned command never counts as the next command's.
 
 ```bash
 node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797

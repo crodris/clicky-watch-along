@@ -291,7 +291,9 @@ func TestAThirdHaikuTurnThatStillNeedsTheModelGetsOneSonnetTurnThenGivesUp(t *te
 	}
 
 	// The planning line names the command and comes before the Sonnet turn's token line, which names Sonnet.
-	planningLine := fmt.Sprintf(`{"type":"log","taskID":"command-1","message":%q}`, brainPlanningLogLine)
+	// The line is spelled out, not built from brainPlanningLogLine, since the app matches this text
+	// (harnessPlanningLogLinePrefix in HarnessVoiceCommand.swift) and a rename on either side must fail a test.
+	planningLine := `{"type":"log","taskID":"command-1","message":"Brain: planning on claude-sonnet-5-5"}`
 	if !slices.Contains(driver.logs, planningLine) {
 		t.Errorf("the planning line %s was missing: %v", planningLine, driver.logs)
 	}
@@ -351,6 +353,54 @@ func TestASonnetTurnThatGetsNoReplyInItsTimeLimitGivesUpInsteadOfFailing(t *test
 	}
 	if len(worker.requests()) != 4 {
 		t.Errorf("the Worker got %d requests, want 4, with no retry", len(worker.requests()))
+	}
+}
+
+// A push-to-talk press during the Sonnet turn is a cancel, not a failed Sonnet turn: the command is rolled back out of
+// the session as one cancelled during a Haiku turn is, with its finished calls in the next command's interrupted lines,
+// and the cancel is logged. Treating the aborted request as a Sonnet failure would commit the command as gave up.
+func TestACancelDuringTheSonnetTurnRollsTheCommandBackLikeOneDuringAHaikuTurn(t *testing.T) {
+	sonnetRequestArrived := make(chan struct{}, 1)
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, request *http.Request, recorded recordedRequest, requestNumber int) {
+		switch {
+		case requestNumber <= 3:
+			writeBrainReply(writer, "tool_use", brainToolUse(fmt.Sprintf("toolu_find_%d", requestNumber), "find_moment", fmt.Sprintf(`{"query":"part %d"}`, requestNumber)))
+		case requestNumber == 4:
+			sonnetRequestArrived <- struct{}{}
+			<-request.Context().Done()
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"Done."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(voiceCommandLine("command-1", "find every part"))
+	for turnIndex := 0; turnIndex < 3; turnIndex++ {
+		driver.expectLine("tool_call")
+		driver.send(voiceToolResultLine("command-1", fmt.Sprintf("toolu_find_%d", turnIndex+1), voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	}
+	select {
+	case <-sonnetRequestArrived:
+	case <-time.After(testTimeout):
+		t.Fatal("the Sonnet turn's request never reached the Worker")
+	}
+
+	driver.send(cancelTaskLine("command-1"))
+
+	// The cancel line is spelled out, since verify runs and the bench read it as the evidence of a cancel.
+	driver.expectLineContaining("Brain: command cancelled during turn 4")
+	driver.send(voiceCommandLine("command-2", "never mind"))
+	if got := driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-2"`); !strings.Contains(got, `"gaveUp":false`) {
+		t.Fatalf("the next command ended as %s", got)
+	}
+
+	nextRequest := worker.requests()[4].body
+	requestText := string(mustMarshal(nextRequest))
+	if strings.Contains(requestText, "toolu_find") || strings.Contains(requestText, "find every part") {
+		t.Errorf("the cancelled command's messages are in the next request: %s", requestText)
+	}
+	wantInterrupted := `<interrupted_before>find_moment {"query":"part 1"} -> ok; find_moment {"query":"part 2"} -> ok; find_moment {"query":"part 3"} -> ok</interrupted_before>`
+	if got := lastUserText(t, nextRequest); !strings.Contains(got, wantInterrupted) {
+		t.Errorf("the next message did not list the three finished calls:\n got %s\nwant %s", got, wantInterrupted)
 	}
 }
 

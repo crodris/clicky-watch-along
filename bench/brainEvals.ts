@@ -956,7 +956,9 @@ export type HarnessBrainProcess = {
   stop: () => void;
 };
 
-const harnessCommandTimeoutMs = 30_000;
+// A command that ends as gave up can run three Haiku turns at their 8 second limit and then the Sonnet turn at its 30
+// second limit, which is 54 seconds before any tool wait, so the driver waits past that and records the harness's own ending.
+const harnessCommandTimeoutMs = 60_000;
 /** How long an abandoned command gets to show its cancel, so the next command never reads the last lines of the one before. */
 const cancelAcknowledgementMs = 2000;
 
