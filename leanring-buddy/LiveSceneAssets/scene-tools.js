@@ -232,8 +232,9 @@
   // The panel covers the bottom of the view, so the camera's view moves up by half the panel's height and the scene
   // stays centered in the space above it. The view offset is part of the projection, so the labels the page projects follow.
   // The lift starts from the height the panel reaches with a full trials table, and with 3 controls whose Run button
-  // wraps to its own row, so the scene stays still as rows arrive.
-  const panelHeightWithAFullTable = 300;
+  // wraps to its own row, so the scene stays still as rows arrive. The dark Card measured 368 points in headless Chrome
+  // with 3 controls, 3 readouts, a two-line challenge line, and 5 trials.
+  const panelHeightWithAFullTable = 370;
   let sceneLift = 0;
   let panelHeightTheLiftFits = 0;
   const applySceneLift = () => {

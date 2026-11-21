@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <style>
-/* Labels, the quiz label, and the ring burst take their look from scene-style.css, which the overlay adds to every page.
-   The quiz label's colors come from the page data too, so the page also renders right in a browser outside the app. */
+/* Labels, the quiz label, and the ring burst take their look from scene-style.css, which the overlay adds to every page. */
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
 canvas { display: block; position: absolute; inset: 0; }
 #backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
@@ -25,9 +24,8 @@ body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -w
 <script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
 <script type="module">
 const popout = window.__framePopout;
-// Both come from Swift as hex strings it built itself, so the cursor and the quiz label always share a color.
+// It comes from Swift as a hex string it built itself, so the cursor and the quiz label always share a color.
 if (popout.quizLabelColor) document.documentElement.style.setProperty('--clicky-accent', popout.quizLabelColor);
-if (popout.quizLabelTextColor) document.documentElement.style.setProperty('--clicky-accent-ink', popout.quizLabelTextColor);
 const labelEntries = [];
 let focusedEntry = null;
 let tourDone = false;
@@ -591,7 +589,8 @@ for (const part of popout.parts) {
   // An accent dot marks where the leader meets its part.
   const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   dot.setAttribute("r", "3.5");
-  dot.setAttribute("fill", "var(--clicky-accent)");
+  // A CSS variable resolves in a style property, which an SVG presentation attribute does not promise.
+  dot.style.fill = "var(--clicky-accent)";
   dot.setAttribute("stroke", "#ffffff");
   dot.setAttribute("stroke-width", "1.5");
   leaders.appendChild(dot);

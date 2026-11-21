@@ -90,8 +90,10 @@ enum LiveSceneRevealOutcome: String, Equatable {
 nonisolated func firstWrongAnswerSpokenLine(judgeSpokenReply: String) -> String {
     let hintOffer = "Say hint if you want a clue."
     let trimmedReply = judgeSpokenReply.trimmingCharacters(in: .whitespacesAndNewlines)
-    // A sentence that already offers a hint needs no second offer.
-    if trimmedReply.range(of: "hint", options: .caseInsensitive) != nil { return trimmedReply }
+    // A sentence that already offers a hint or a clue needs no second offer.
+    if trimmedReply.range(of: "hint", options: .caseInsensitive) != nil || trimmedReply.range(of: "clue", options: .caseInsensitive) != nil {
+        return trimmedReply
+    }
     if trimmedReply.isEmpty { return hintOffer }
     return "\(trimmedReply) \(hintOffer)"
 }

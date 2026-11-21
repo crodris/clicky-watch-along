@@ -34,7 +34,7 @@ struct VideoQuizSummaryTests {
         #expect(summary.scoreText == "2 of 4 right")
         #expect(summary.missedQuestions.map(\.question) == ["What does the vent do?", "What is the chamber called?"])
         #expect(summary.missedQuestions.map(\.timestampText) == ["2:14", "3:20"])
-        #expect(summary.captionText == "2 to look at again. Click one to jump back and see its pop-out again.")
+        #expect(summary.captionText == "2 to look at again. Click one to jump back to it.")
     }
 
     @Test func theCaptionSaysWhenEveryAnswerWasRightOrOneWasMissed() throws {
@@ -44,7 +44,7 @@ struct VideoQuizSummaryTests {
         let oneRight = try #require(VideoQuizSummary(quizResults: [quizResult("A?", at: 30, .gotIt)]))
         #expect(oneRight.captionText == "You got it right.")
         let oneMissed = try #require(VideoQuizSummary(quizResults: [quizResult("A?", at: 30, .missed)]))
-        #expect(oneMissed.captionText == "One to look at again. Click it to jump back and see the pop-out again.")
+        #expect(oneMissed.captionText == "One to look at again. Click it to jump back to it.")
     }
 
     @Test func aTimestampIsWrittenAsYouTubeWritesIt() {
@@ -87,8 +87,9 @@ struct VideoQuizSummaryTests {
         #expect(firstWrongAnswerSpokenLine(judgeSpokenReply: "Not quite, that part sits under the volcano.")
             == "Not quite, that part sits under the volcano. Say hint if you want a clue.")
         #expect(firstWrongAnswerSpokenLine(judgeSpokenReply: "  ") == "Say hint if you want a clue.")
-        // A sentence that already offers a hint is kept as it is.
+        // A sentence that already offers a hint or a clue is kept as it is.
         #expect(firstWrongAnswerSpokenLine(judgeSpokenReply: "Close. Want a Hint?") == "Close. Want a Hint?")
+        #expect(firstWrongAnswerSpokenLine(judgeSpokenReply: "Close. Want a clue?") == "Close. Want a clue?")
     }
 
     // MARK: - The scene stylesheet
@@ -96,13 +97,28 @@ struct VideoQuizSummaryTests {
     @Test func theStylesheetScriptSetsTheAccentAndAddsTheStyleAheadOfThePage() {
         let script = sceneStyleUserScriptSource(
             styleSheet: ":root .scene-label { color: #fff; } /* \"</script> */",
-            accentColors: LiveSceneAccentColors(accentHex: "#E0313B", inkOnAccentHex: "#FFFFFF")
+            accentHex: "#E0313B"
         )
         #expect(script.contains(##"root.style.setProperty("--clicky-accent", "#E0313B");"##))
-        #expect(script.contains(##"root.style.setProperty("--clicky-accent-ink", "#FFFFFF");"##))
+        // Text on the accent keeps the stylesheet's Tether ink, so the script never sets it from the theme.
+        #expect(!script.contains("--clicky-accent-ink"))
         #expect(script.contains("root.prepend(style);"))
         // The stylesheet is a JSON string, so its quotes cannot end the script's string.
         #expect(script.contains(##"style.textContent = ":root .scene-label { color: #fff; } \/* \"<\/script> *\/";"##))
+    }
+
+    // MARK: - The panel
+
+    @Test func theCardCountsAsShowingWhileItGlidesInSoEscapeCanCloseIt() throws {
+        // The panel orders front only when the Glide lands, so a check on the window's visibility missed Escape during the Glide.
+        try #require(!NSScreen.screens.isEmpty, "the test host has no screen to show the Card on")
+        let summary = try #require(VideoQuizSummary(quizResults: [quizResult("What does the vent do?", at: 134, .missed)]))
+        let controller = VideoQuizSummaryPanelController()
+        #expect(!controller.isShowing)
+        controller.show(summary: summary, videoRect: CGRect(x: 200, y: 300, width: 800, height: 450), accentColor: Color(hex: "#3380FF"), goBackToTheMissedQuestion: { _ in })
+        #expect(controller.isShowing)
+        controller.close(animated: false)
+        #expect(!controller.isShowing)
     }
 
     // MARK: - The Card at 2x

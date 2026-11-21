@@ -458,6 +458,8 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
+            // A scene rises over the video the quiz summary sits on, so the Card goes back into the video.
+            self?.videoQuizSummaryPanelController.close(animated: true)
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
@@ -465,9 +467,8 @@ final class CompanionManager: ObservableObject {
         videoQuizSession.onQuizEnded = { [weak self] summary in
             self?.showTheVideoQuizSummary(summary)
         }
-        LiveSceneOverlay.shared.accentColorsForTheNextPage = { [weak self] in
-            guard let shownTheme = self?.themeSettings.shownTheme else { return .clickyBlue }
-            return LiveSceneAccentColors(accentHex: shownTheme.cursorColorHex, inkOnAccentHex: shownTheme.cursorContrastColorHex)
+        LiveSceneOverlay.shared.accentHexForTheNextPage = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColorHex ?? DS.Colors.overlayCursorBlueHex
         }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
@@ -2432,7 +2433,7 @@ final class CompanionManager: ObservableObject {
         let spokenLine: String
         switch videoQuizCommand {
         case .start:
-            videoQuizSummaryPanelController.close(animated: false)
+            videoQuizSummaryPanelController.close(animated: true)
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
@@ -2673,12 +2674,32 @@ final class CompanionManager: ObservableObject {
     private func goBackToTheMissedQuizQuestion(_ missedQuestion: VideoQuizMissedQuestion) {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
+        // A scene still building would replace the pop-out when it finishes, so it is cancelled as "stop the quiz" cancels one.
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestTask?.cancel()
+            liveSceneRequestTask = nil
+            liveSceneRequestGeneration += 1
+            LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
+            liveScenePhase = .idle
+        }
         // The video is about to move back to the question, so a scene on screen goes without its "back to the video".
         clearFinishedLiveScene(resumesTheVideo: false)
-        guard let framePopout = videoQuizSession.goBackToTheMissedQuestion(missedQuestion),
-              let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
+        let framePopout: VideoFramePopout
+        switch videoQuizSession.goBackToTheMissedQuestion(missedQuestion) {
+        case .showsItsPopout(let popoutOfTheQuestion):
+            framePopout = popoutOfTheQuestion
+        case .playsFromBeforeIt:
+            return
+        case .couldNotGoBack:
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        guard let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
+            // No pop-out opened, so nothing will clear it and resume the video the go-back paused.
+            videoQuizSession.resumeVideoAfterRequestedScene()
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
             return
         }
         liveScenePhase = .touring(quizToAskAfterTour: nil)
@@ -2690,6 +2711,13 @@ final class CompanionManager: ObservableObject {
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
         }
+    }
+
+    private func sayTheQuizQuestionCouldNotBeShownAgain() async {
+        await speakLiveSceneLine("Sorry, I couldn't go back to that question.")
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     private func skipTheVideoQuizQuestion() {

@@ -758,8 +758,8 @@ describe("scene-tools.js simulation tools", () => {
   });
 
   it.each([
-    { panelHeight: 92, lift: 158 },
-    { panelHeight: 340, lift: 178 },
+    { panelHeight: 92, lift: 193 },
+    { panelHeight: 400, lift: 208 },
   ])("moves the camera's view up by half the panel's full height from the start, so the scene stays still as rows arrive (panel $panelHeight)", ({ panelHeight, lift }) => {
     const fakeElement = (): Record<string, unknown> => ({
       style: {},
@@ -783,7 +783,7 @@ describe("scene-tools.js simulation tools", () => {
 
     clickyTools.call("set_control", { name: "angle", value: 30 });
 
-    // Reduce Motion is on in this harness, so the lift jumps straight to half of the full-table height, 300, or of a
+    // Reduce Motion is on in this harness, so the lift jumps straight to half of the full-table height, 370, or of a
     // taller panel, plus its 16 point margin.
     expect(setViewOffset).toHaveBeenLastCalledWith(800, 450, 0, lift, 800, 450);
   });

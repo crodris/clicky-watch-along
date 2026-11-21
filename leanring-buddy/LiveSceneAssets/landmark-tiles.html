@@ -9,7 +9,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: transparent;
 #stage canvas { display: block; position: absolute; inset: 0; transition: opacity 1s; }
 #frame { position: absolute; object-fit: cover; transition: opacity 1.2s; pointer-events: none; }
 /* The place name takes its look from scene-style.css, which the overlay adds to every page. */
-.scene-label { position: absolute; transform: translate(-50%, -100%); pointer-events: none; opacity: 0; transition: opacity 0.6s; }
+.scene-label { position: absolute; transform: translate(-50%, -100%); pointer-events: none; opacity: 0; }
+/* The id outranks the stylesheet's label rule, so the place name keeps its slower fade. */
+#placeName { transition: opacity 0.6s; }
 #loadingShimmer { opacity: 0.7; }
 #attribution { position: absolute; right: 10px; bottom: 8px; font-size: 11px; color: rgba(255, 255, 255, 0.9); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
 </style>

@@ -1,7 +1,7 @@
 /*
   The one stylesheet for what Clicky draws inside a live scene: part labels, the quiz label, the experiment panel,
   and the landmark page's loading state. LiveSceneOverlay adds it to every page before the page's own markup,
-  bundled and generated alike, and sets --clicky-accent and --clicky-accent-ink from the shown theme.
+  bundled and generated alike, and sets --clicky-accent from the shown theme.
   Rules start with :root, so they win over a generated page's own .scene-label rule, which sets only its position.
   It sets only how things look, never where they sit, since each page places its labels itself.
   The timings mirror DS.Move in DesignSystem.swift: Pop (a 0.32 s spring from 0.4 scale), Glide, and Shake (0.45 s, 7 points).
@@ -9,7 +9,8 @@
 */
 :root {
   --clicky-accent: #3380ff;
-  --clicky-accent-ink: #ffffff;
+  /* Text on an accent fill, near black on every accent, as on the Callout's icon disc. Mirrors DS.Colors.inkOnAccent. */
+  --clicky-accent-ink: #0b0c0e;
   /* Mirrors DS.Colors.success. */
   --clicky-success-green: #34d399;
   --clicky-success-ink: #04291b;
@@ -20,7 +21,8 @@
   --clicky-card-top: #121419;
   --clicky-card-bottom: #171a21;
   --clicky-text: #eceeed;
-  --clicky-caption: #a7b0ad;
+  /* Mirrors DS.Colors.textSecondary. */
+  --clicky-caption: #adb5b2;
   --clicky-miss-amber: #ffcf75;
   /* A spring with Pop's overshoot, as a CSS curve. */
   --clicky-pop-curve: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -66,8 +68,10 @@
   animation: clicky-label-pop 0.42s var(--clicky-pop-curve) both;
   animation-delay: calc(var(--clicky-label-order, 0) * 120ms);
 }
+/* The opacity is in the first keyframe only, so a label waiting for its turn stays hidden, and the page's own fade takes
+   over once it has popped. */
 @keyframes clicky-label-pop {
-  from { scale: 0.4; }
+  from { scale: 0.4; opacity: 0; }
   to { scale: 1; }
 }
 

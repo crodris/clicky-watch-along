@@ -369,8 +369,8 @@ nonisolated struct VideoQuizSummary: Equatable, Sendable {
     var captionText: String {
         switch missedQuestions.count {
         case 0: return questionCount == 1 ? "You got it right." : "You got every one right."
-        case 1: return "One to look at again. Click it to jump back and see the pop-out again."
-        default: return "\(missedQuestions.count) to look at again. Click one to jump back and see its pop-out again."
+        case 1: return "One to look at again. Click it to jump back to it."
+        default: return "\(missedQuestions.count) to look at again. Click one to jump back to it."
         }
     }
 }
@@ -738,31 +738,49 @@ final class VideoQuizSession {
         return true
     }
 
-    /// For a question the summary lists: brings the quiz video's tab forward, moves the video to where the question paused
-    /// and holds it paused for the pop-out, and returns that question's pop-out with every label named. Clearing the pop-out
-    /// resumes the video, as for a pop-out the learner asked for. A question asked by voice alone had no pop-out, so its
-    /// video plays again from 10 seconds before the question instead, and this returns nil.
-    func goBackToTheMissedQuestion(_ missedQuestion: VideoQuizMissedQuestion) -> VideoFramePopout? {
-        guard let quizVideoTab = currentVideoTab else { return nil }
-        if !((try? ChromeVideoTab.bringTabForward(tabID: quizVideoTab.tabId)) ?? false) {
-            print("Video quiz: could not bring the quiz tab forward to go back to a question")
+    /// What going back to a missed question did.
+    enum GoingBackToAMissedQuestion {
+        /// The video waits paused at the question, and this is its pop-out with every label named.
+        case showsItsPopout(VideoFramePopout)
+        /// The question was asked by voice alone, so the video plays again from 10 seconds before it.
+        case playsFromBeforeIt
+        /// The quiz tab is gone or shows another video now, or Chrome refused the script, so nothing moved.
+        case couldNotGoBack
+    }
+
+    /// For a question the summary lists: brings the quiz video's tab forward, moves the video to where the question paused,
+    /// and holds it paused for the pop-out. Clearing the pop-out resumes the video, as for a pop-out the learner asked for.
+    func goBackToTheMissedQuestion(_ missedQuestion: VideoQuizMissedQuestion) -> GoingBackToAMissedQuestion {
+        guard let quizVideoTab = currentVideoTab else { return .couldNotGoBack }
+        // The learner may have closed the tab or moved it to another video since the quiz ended, and seeking that one
+        // to the old time would lift the old frame over a different video.
+        guard (try? ChromeVideoTab.bringTabForward(tabID: quizVideoTab.tabId)) == true,
+              let frontVideoTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
+              frontVideoTab.isTheSamePage(as: quizVideoTab) else {
+            print("Video quiz: the quiz video is no longer in its tab, so it cannot go back to \(missedQuestion.timestampText)")
+            return .couldNotGoBack
         }
         guard var framePopout = questionPopoutsByAskedSeconds[missedQuestion.askedAtSeconds] else {
             do {
                 try ChromeVideoTab.runJavaScript(LearnerVideoCommand.seekTo(seconds: max(0, missedQuestion.askedAtSeconds - 10)).javaScript, in: quizVideoTab)
                 try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: quizVideoTab)
-                print("Video quiz: went back to \(missedQuestion.timestampText), a question with no pop-out")
             } catch {
                 print("Video quiz: could not go back to \(missedQuestion.timestampText): \(error)")
+                return .couldNotGoBack
             }
-            return nil
+            print("Video quiz: went back to \(missedQuestion.timestampText), a question with no pop-out")
+            return .playsFromBeforeIt
         }
         do {
             try ChromeVideoTab.runJavaScript(LearnerVideoCommand.seekTo(seconds: missedQuestion.askedAtSeconds).javaScript, in: quizVideoTab)
             try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: quizVideoTab)
         } catch {
             print("Video quiz: could not go back to \(missedQuestion.timestampText): \(error)")
-            return nil
+            return .couldNotGoBack
+        }
+        // Clicky holds one pause at a time, so a pause it held on another tab's video for a scene is let go first.
+        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: quizVideoTab) {
+            playTheVideoClickyPaused()
         }
         videoPausedByClicky = VideoPausedByClicky(reason: .requestedScene, tab: quizVideoTab)
         // The question is over, so no label waits to be named, and the video's printed labels may show the answer again.
@@ -771,7 +789,7 @@ final class VideoQuizSession {
         }
         framePopout.textBoxesToHide = []
         print("Video quiz: went back to \(missedQuestion.timestampText) and shows its pop-out again")
-        return framePopout
+        return .showsItsPopout(framePopout)
     }
 
     // MARK: Lifting the subject out of the frame
