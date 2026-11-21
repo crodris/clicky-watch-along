@@ -3362,7 +3362,7 @@ final class CompanionManager: ObservableObject {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
         }
         allowTryingAgain(agentID) { [weak self] in
-            guard let self else { return false }
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: .task) else { return false }
             _ = self.startTheTaskAgent(goal: goal, skillName: skillName)
             return true
         }
@@ -3663,7 +3663,7 @@ final class CompanionManager: ObservableObject {
         allowTryingAgain(agentID) { [weak self] in
             // The same rules the voice tools keep: one experiment builds at a time, a question owns the scene while it is
             // open, and a 3D model is built from a video in front.
-            guard let self, self.sceneAgentMayBeTriedAgain(agentKind: agentKind) else { return false }
+            guard let self, self.agentMayBeTriedAgainNow(agentKind: agentKind) else { return false }
             _ = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind)
             return true
         }
@@ -3911,6 +3911,7 @@ final class CompanionManager: ObservableObject {
         allowTryingAgain(agentID) { [weak self] in
             // A guide is written from the video in front, so a retry waits for the video the first one was for.
             guard let self,
+                  self.agentMayBeTriedAgainNow(agentKind: studyGuideJob.agentKind),
                   let frontVideoURL = self.videoQuizSession.frontTabURLOfTheFrontWindow(),
                   studyGuideVideoKey(forVideoURL: frontVideoURL) == videoKey else { return false }
             if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
@@ -4127,14 +4128,15 @@ final class CompanionManager: ObservableObject {
         backgroundAgentStore.allowTryingAgain(agentID)
     }
 
-    /// Whether a failed 3D model or experiment may be built again now.
-    private func sceneAgentMayBeTriedAgain(agentKind: BackgroundAgentKind) -> Bool {
-        guard !videoQuizQuestionIsActive else { return false }
-        switch agentKind {
-        case .experiment: return currentExperimentRequestStep == .startBuilding
-        case .threeDModel: return videoQuizSession.frontVideoStateForVoiceCommands() != nil
-        case .studyGuide, .studyGuideUpdate, .task: return true
-        }
+    /// Whether a failed agent's work may start again now, by the rules the voice tools that start it keep.
+    private func agentMayBeTriedAgainNow(agentKind: BackgroundAgentKind) -> Bool {
+        backgroundAgentMayBeTriedAgain(
+            agentKind: agentKind,
+            aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive,
+            experimentRequestStep: currentExperimentRequestStep,
+            anExperimentIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
+            aVideoIsInFront: agentKind == .threeDModel ? videoQuizSession.frontVideoStateForVoiceCommands() != nil : false
+        )
     }
 
     /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed

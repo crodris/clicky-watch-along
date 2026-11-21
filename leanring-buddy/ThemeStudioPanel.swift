@@ -159,6 +159,8 @@ final class ThemeStudioPanelController {
         highlightedTileCursorCenterInTheWindow = nil
         flightToEnd?.landAtOnce()
         guard let closingPanel else { return }
+        // The card stays on screen for the stamp and the flight, and a click on it then must not reach its buttons.
+        closingPanel.ignoresMouseEvents = true
 
         switch reason {
         case .dismissed:

@@ -70,14 +70,14 @@ struct ThemeInstallCardView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hasAppeared = false
-    @State private var buttonsCount = false
+    @State private var buttonsAcceptClicks = false
 
     private var theme: ClickyTheme { pendingInstall.theme }
 
     /// The card grows in place from this scale, since a double-click in Finder gives it no origin to Glide out of.
     private static let entranceStartScale: CGFloat = 0.97
-    /// How long the buttons ignore clicks after the card appears, so a second click of a fast double-click on the card
-    /// before cannot answer this one.
+    /// How long the buttons ignore clicks after the card appears, so the second click of a double-click that answered the
+    /// card before cannot answer this one.
     private static let secondsTheButtonsWaitBeforeTheyCount = 0.4
 
     var body: some View {
@@ -107,9 +107,11 @@ struct ThemeInstallCardView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                ThemeStudioButton(title: "Cancel", style: .plain, isEnabled: buttonsCount) { decide(false) }
-                ThemeStudioButton(title: "Add theme", style: .primary(accentHex: theme.accentHex), isEnabled: buttonsCount) { decide(true) }
+                ThemeStudioButton(title: "Cancel", style: .plain, isEnabled: buttonsAcceptClicks) { decide(false) }
+                ThemeStudioButton(title: "Add theme", style: .primary(accentHex: theme.accentHex), isEnabled: buttonsAcceptClicks) { decide(true) }
             }
+            // The buttons dim while they wait, and come up to full strength with the same fade as every crossfade.
+            .animation(.easeOut(duration: DS.Move.fadeSeconds), value: buttonsAcceptClicks)
         }
         .padding(20)
         .frame(width: ThemeInstallCardPanelController.cardWidth)
@@ -130,7 +132,7 @@ struct ThemeInstallCardView: View {
         }
         .task {
             try? await Task.sleep(for: .seconds(Self.secondsTheButtonsWaitBeforeTheyCount))
-            buttonsCount = true
+            buttonsAcceptClicks = true
         }
     }
 }

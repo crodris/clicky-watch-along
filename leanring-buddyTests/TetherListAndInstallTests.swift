@@ -95,6 +95,24 @@ struct AgentListLiveLineTests {
         #expect(agentListHeaderCounts(runningAgentCount: 3, agentsNeedingAnOKCount: 2) == (running: "3 running", needsYou: "2 need you"))
     }
 
+    @Test func aFailedAgentIsTriedAgainOnlyByTheRulesTheVoiceToolsKeep() {
+        func mayRetry(_ kind: BackgroundAgentKind, quiz: Bool = false, step: ExperimentRequestStep = .startBuilding, experimentOnScreen: Bool = false, video: Bool = true) -> Bool {
+            backgroundAgentMayBeTriedAgain(agentKind: kind, aQuizQuestionIsOpen: quiz, experimentRequestStep: step, anExperimentIsOnScreen: experimentOnScreen, aVideoIsInFront: video)
+        }
+        #expect(mayRetry(.experiment))
+        #expect(!mayRetry(.experiment, step: .sayItIsStillBuilding))
+        #expect(!mayRetry(.experiment, step: .showTheReadyExperiment))
+        #expect(!mayRetry(.experiment, experimentOnScreen: true))
+        #expect(mayRetry(.threeDModel))
+        #expect(!mayRetry(.threeDModel, video: false))
+        #expect(mayRetry(.task))
+        #expect(mayRetry(.studyGuide))
+        // An open quiz question owns every kind of work.
+        for kind in [BackgroundAgentKind.experiment, .threeDModel, .task, .studyGuide, .studyGuideUpdate] {
+            #expect(!mayRetry(kind, quiz: true))
+        }
+    }
+
     @Test func theApprovalCardReportsToTheDeskOnlyWhileTheListIsListening() {
         let uiState = AgentListUIState(expandedAgentID: nil)
         var reports: [String] = []

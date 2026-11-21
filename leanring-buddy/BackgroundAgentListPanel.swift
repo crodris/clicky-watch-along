@@ -700,6 +700,24 @@ nonisolated func agentListLiveLine(for agent: BackgroundAgent, approvalState: Ag
     }
 }
 
+/// Whether a failed agent's work may start again now, by the rules the voice tools that start it keep: nothing starts while a
+/// quiz question is open, one experiment builds at a time and none starts while one is on screen, and a 3D model is built
+/// from a video in front. `aVideoIsInFront` only matters for a 3D model.
+nonisolated func backgroundAgentMayBeTriedAgain(
+    agentKind: BackgroundAgentKind,
+    aQuizQuestionIsOpen: Bool,
+    experimentRequestStep: ExperimentRequestStep,
+    anExperimentIsOnScreen: Bool,
+    aVideoIsInFront: Bool
+) -> Bool {
+    guard !aQuizQuestionIsOpen else { return false }
+    switch agentKind {
+    case .experiment: return experimentRequestStep == .startBuilding && !anExperimentIsOnScreen
+    case .threeDModel: return aVideoIsInFront
+    case .studyGuide, .studyGuideUpdate, .task: return true
+    }
+}
+
 /// What the list's header counts: the agents running, and the agents that wait for the learner's OK.
 nonisolated func agentListHeaderCounts(runningAgentCount: Int, agentsNeedingAnOKCount: Int) -> (running: String, needsYou: String?) {
     ("\(runningAgentCount) running", agentsNeedingAnOKCount > 0 ? "\(agentsNeedingAnOKCount) \(agentsNeedingAnOKCount == 1 ? "needs" : "need") you" : nil)
