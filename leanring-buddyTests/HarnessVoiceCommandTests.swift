@@ -169,6 +169,8 @@ struct HarnessVoiceCommandTests {
         #expect(secondsToWaitForAPlanningTurn == 35)
 
         // After the planning line the larger wait applies: the finish comes after the normal wait, and still counts.
+        // The planning wait is a minute, far past the 300 ms finish, so a busy CI runner that stalls this test
+        // for seconds cannot run it out. On 2026-11-21 a 5 second wait ran out on main's CI run for 30862e4.
         let (planningEvents, planningContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
         planningContinuation.yield(.planningTurnStarted)
         let sendsTheFinishLater = Task {
@@ -182,7 +184,7 @@ struct HarnessVoiceCommandTests {
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
             approvalIDWaitingWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
-            secondsToWaitAfterAPlanningLine: 5,
+            secondsToWaitAfterAPlanningLine: 60,
             whenNoEventArrivesInTime: { waitRanOutAfterThePlanningLine = true },
             runTool: { _, _ in .changed(state: nil) }
         )
@@ -190,7 +192,7 @@ struct HarnessVoiceCommandTests {
         #expect(endingAfterThePlanningLine == .finished(spokenLine: "jumped to it", gaveUp: false))
         #expect(!waitRanOutAfterThePlanningLine)
 
-        // With no planning line the normal wait applies, and the same late finish is too late.
+        // With no planning line the normal wait applies, and it runs out when no event arrives.
         let (plainEvents, plainContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
         let endingWithNoPlanningLine = await runTheVoiceCommandEvents(
             plainEvents,
@@ -205,6 +207,30 @@ struct HarnessVoiceCommandTests {
             runTool: { _, _ in .changed(state: nil) }
         )
         #expect(endingWithNoPlanningLine == .failed(reason: "the agent harness sent nothing in time"))
+
+        // After the planning line a wait still runs, and it runs out when no event arrives. The backstop closes the
+        // stream if no wait runs at all, so that mistake fails the test instead of hanging it.
+        let (silentPlanningEvents, silentPlanningContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        silentPlanningContinuation.yield(.planningTurnStarted)
+        let backstop = Task {
+            // A minute, like the planning wait above, so a stalled runner cannot run it out before the 0.2 second wait.
+            try? await Task.sleep(for: .seconds(60))
+            silentPlanningContinuation.finish()
+        }
+        let endingWhenThePlanningTurnSendsNothing = await runTheVoiceCommandEvents(
+            silentPlanningEvents,
+            lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
+            approvalIDWaitingWhenTheCommandStarted: nil,
+            secondsToWaitForAnEvent: 0.05,
+            secondsToWaitAfterAPlanningLine: 0.2,
+            whenNoEventArrivesInTime: {
+                silentPlanningContinuation.yield(.failed(reason: "the planning wait ran out"))
+                silentPlanningContinuation.finish()
+            },
+            runTool: { _, _ in .changed(state: nil) }
+        )
+        backstop.cancel()
+        #expect(endingWhenThePlanningTurnSendsNothing == .failed(reason: "the planning wait ran out"))
     }
 
     @Test func aCancelJustBeforeTheHandOffMarkSendsCancelAndOneJustAfterSendsOnlyTheHandedOffResult() {
