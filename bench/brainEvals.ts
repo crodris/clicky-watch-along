@@ -1414,6 +1414,10 @@ async function runBrainEvals() {
   }
   for (const backend of backends) {
     const summary = summaryByBackend[backend];
+    // A run limited to planning or session cases has no parity cases, and an empty table of NaN says nothing.
+    if (summary.overall.runs === 0) {
+      continue;
+    }
     console.log(`${backend} backend`);
     console.table([
       ...Object.entries(summary.byContext).filter(([, scoreSummary]) => scoreSummary.runs > 0).map(([name, scoreSummary]) => summaryRow(name, scoreSummary)),
