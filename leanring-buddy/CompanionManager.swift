@@ -997,14 +997,17 @@ final class CompanionManager: ObservableObject {
             if releaseEndsAnAcceptedPress {
                 lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
             }
+            // The loop's media read and the voice command's screen read both begin with Chrome's front tab, so this release
+            // reads it once for both.
+            let frontTabRead = FrontTabReadAtRelease()
             // The media rect is read beside the router call. It draws a loop only if the request becomes a look at it.
-            cursorLoopController.pushToTalkWasReleased()
+            cursorLoopController.pushToTalkWasReleased(frontTabRead: frontTabRead)
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
             buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
             // After the stop is scheduled, since the reads below block the main actor for a moment.
             if releaseEndsAnAcceptedPress {
-                startReadingTheScreenForTheVoiceCommand()
+                startReadingTheScreenForTheVoiceCommand(frontTabRead: frontTabRead)
             }
         case .none:
             break
@@ -1134,9 +1137,10 @@ final class CompanionManager: ObservableObject {
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
-            cursorLoopController.pushToTalkWasReleased()
+            let frontTabRead = FrontTabReadAtRelease()
+            cursorLoopController.pushToTalkWasReleased(frontTabRead: frontTabRead)
             lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
-            startReadingTheScreenForTheVoiceCommand()
+            startReadingTheScreenForTheVoiceCommand(frontTabRead: frontTabRead)
             // A real transcript arrives after the microphone's tail and the provider's final result, so the step waits
             // the same before it speaks, and the timing line's release marks mean what they mean for a real press.
             try? await Task.sleep(for: .seconds(secondsBetweenAReleaseAndItsTranscriptInARehearsal))
@@ -1324,13 +1328,14 @@ final class CompanionManager: ObservableObject {
         respondByTheKeywordPath(transcript: transcript)
     }
 
-    /// Starts the reads a voice command needs from the screen, at the release of push-to-talk. The front video read is
-    /// synchronous Apple Events to Chrome, which must run on the main actor, so it blocks the main actor for a moment, during
-    /// the microphone's tail. That delays nothing the microphone needs: the audio tap runs on the audio thread, and the
-    /// tail's stop is a main queue timer, which fires late only when the read outlasts the tail. The page reads that follow
-    /// wait on WebKit, and the study guide check starts with another synchronous Apple Event (`frontTabURLOfTheFrontWindow`)
-    /// on the main actor and then may wait on the Worker.
-    private func startReadingTheScreenForTheVoiceCommand() {
+    /// Starts the reads a voice command needs from the screen, at the release of push-to-talk. The front tab read, shared
+    /// with the cursor loop's media read through `frontTabRead`, is Apple Events to Chrome, which must run on the main actor,
+    /// so whichever reader asks first blocks the main actor for a moment, during the microphone's tail. That delays nothing
+    /// the microphone needs: the audio tap runs on the audio thread, and the tail's stop is a main queue timer, which fires
+    /// late only when the read outlasts the tail. The page reads that follow wait on WebKit, and the study guide check uses
+    /// the release read's URL and then may wait on the Worker. It reads `frontTabURLOfTheFrontWindow` itself only for a
+    /// command with no release read (the `runVoiceCommand` fallback).
+    private func startReadingTheScreenForTheVoiceCommand(frontTabRead: FrontTabReadAtRelease) {
         let pressCountOfTheRead = pushToTalkPressCount
         forgetTheVoiceCommandScreenRead()
         // A quiz answer goes to the judge and a building scene keeps the keyword path, and neither reads the video.
@@ -1345,12 +1350,16 @@ final class CompanionManager: ObservableObject {
             guard !Task.isCancelled else { return }
             // Nothing below suspends before the read is stored, so no press can arrive in the middle of it.
             let pageIdentityAtRelease = currentVoiceCommandPageIdentity()
-            let frontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
+            // The front tab is the one the loop's media read took, when that ran first, and its URL is the study guide check's.
+            let frontTab = frontTabRead.frontTab()
+            let frontVideoState = frontTab.flatMap { videoQuizSession.frontVideoStateForVoiceCommands(in: $0) }
             voiceCommandScreenRead = VoiceCommandScreenRead(
                 pressCount: pressCountOfTheRead,
                 pageIdentityAtRelease: pageIdentityAtRelease,
                 frontVideoState: frontVideoState,
-                pageRead: Task { await self.readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
+                pageRead: Task {
+                    await self.readThePageForTheVoiceCommand(frontVideoState: frontVideoState, frontVideoURLSource: .releaseRead(frontTab?.url))
+                }
             )
         }
     }
@@ -1383,10 +1392,15 @@ final class CompanionManager: ObservableObject {
 
     /// The page's tools and state and the study guide check. The two page reads wait on WebKit, and the study guide check
     /// may wait on the Worker, not on each other.
-    private func readThePageForTheVoiceCommand(frontVideoState: JSONValue?) async -> VoiceCommandPageRead {
+    /// `frontVideoURLSource` is where the study guide check gets the front video's URL: the tab the release already read, or a
+    /// fresh read of Chrome for a command that has no release read.
+    private func readThePageForTheVoiceCommand(
+        frontVideoState: JSONValue?,
+        frontVideoURLSource: FrontVideoURLSource = .readNow
+    ) async -> VoiceCommandPageRead {
         async let pageToolsRead = LiveSceneOverlay.shared.pageVoiceTools()
         async let pageStateRead = LiveSceneOverlay.shared.pageVoiceState()
-        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState)
+        async let studyGuideExistsRead = studyGuideExistsForTheFrontVideo(frontVideoState: frontVideoState, frontVideoURLSource: frontVideoURLSource)
         let (pageTools, pageState, studyGuideExists) = await (pageToolsRead, pageStateRead, studyGuideExistsRead)
         return VoiceCommandPageRead(
             pageTools: pageTools,
@@ -3803,9 +3817,9 @@ final class CompanionManager: ObservableObject {
 
     /// A guide exists for the video in front only when that video is on YouTube and a guide is saved for it whose page
     /// is still in Notion.
-    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?) async -> Bool {
+    private func studyGuideExistsForTheFrontVideo(frontVideoState: JSONValue?, frontVideoURLSource: FrontVideoURLSource = .readNow) async -> Bool {
         guard frontVideoState?["onYouTube"]?.boolValue == true,
-              let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
+              let frontVideoURL = frontVideoURLSource.url(readNow: { videoQuizSession.frontTabURLOfTheFrontWindow() }) else {
             return false
         }
         return await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: false) != nil
