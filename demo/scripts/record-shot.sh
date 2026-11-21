@@ -3,6 +3,8 @@
 # plays rehearsal steps.
 # Every app log line is stamped with seconds since the recording started, so the edit can sync captions and zooms.
 #
+# It stops before the rehearsal steps run when the app starts without every permission, since the app's permissions
+# panel would cover the take; `verify-clicky.sh grant` opens the Accessibility setting to fix it.
 # Usage: demo/scripts/record-shot.sh <shot-name> "<rehearsal steps>" <url> [video-start-seconds] [mouse-x mouse-y]
 # Run from the main checkout's root, with a Worker that checkout's verify-clicky.sh started on port 8787.
 set -euo pipefail
@@ -163,12 +165,9 @@ if [[ -n "$shot_video_id" ]]; then
 fi
 
 app_was_launched=true
-"$verify_script" app-launch "$rehearsal_steps"
-# Without Accessibility the app opens its "Permissions needed" panel over the shot, so a take recorded then is lost.
-if grep 'Clicky start.* accessibility: false' "$run_folder/app.log" >/dev/null 2>&1; then
-  echo "the app started without Accessibility, so the take would show its permissions panel. Run $verify_script grant, then record again." >&2
-  exit 1
-fi
+# A missing permission opens the app's "Permissions needed" panel over the shot, so app-launch stops the shot before the
+# rehearsal steps run.
+"$verify_script" app-launch --every-permission "$rehearsal_steps"
 tail -n +1 -F "$run_folder/app.log" 2>/dev/null \
   > >(perl -MTime::HiRes=time -ne '$| = 1; printf "%.3f %s", time, $_' > "$events_path.raw") &
 log_tail_pid=$!

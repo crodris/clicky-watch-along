@@ -43,6 +43,19 @@ printf '%s\n' "Clicky start — accessibility: true, screen: true, mic: true" >"
 check "a launch without Accessibility warns and names the grant command" \
   "$(accessibility_grant_warning "$test_directory/no-accessibility.log" | grep -o 'grant command')" "grant command"
 check "a launch with Accessibility prints no warning" "$(accessibility_grant_warning "$test_directory/accessibility.log")" ""
+check "app-launch's permission check prints the warning for a launch without Accessibility" \
+  "$(require_screen_recording_grant "$test_directory/no-accessibility.log" 2>&1 | grep -o 'grant command')" "grant command"
+for missing_permission in accessibility screen mic screenContent onboarded; do
+  printf '%s\n' "Clicky start — accessibility: true, screen: true, mic: true, screenContent: true, onboarded: true" \
+    | sed "s/ $missing_permission: true/ $missing_permission: false/" >"$test_directory/missing-$missing_permission.log"
+  check "a start line without $missing_permission opens the permissions panel" \
+    "$(app_start_line_opens_the_permissions_panel "$test_directory/missing-$missing_permission.log" && echo opens)" "opens"
+done
+printf '%s\n' "Clicky start — accessibility: true, screen: true, mic: true, screenContent: true, onboarded: true" >"$test_directory/every-permission.log"
+check "a start line with every permission opens no panel" \
+  "$(app_start_line_opens_the_permissions_panel "$test_directory/every-permission.log" && echo opens || true)" ""
+parse_app_launch_arguments --every-permission "pop this out"
+check "--every-permission is a check, not an app argument" "${#app_launch_flag_arguments[@]} $app_launch_needs_every_permission" "0 true"
 
 check "an app newer than every source is current" "$(first_source_newer_than "$dylib_path" "$test_directory/sources")" ""
 touch -t 202601030000 "$test_directory/sources/frame-popout.html"
@@ -125,4 +138,4 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, the Accessibility warning, and scroll usage and argument checks"
+echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, the Accessibility warning and the permissions panel check, and scroll usage and argument checks"
