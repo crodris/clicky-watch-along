@@ -114,6 +114,7 @@ var changeTargets = map[toolName]changeTarget{
 	"play_video":      targetsTheVideo,
 	"seek_relative":   targetsTheVideo,
 	"seek_to_time":    targetsTheVideo,
+	"seek_to_moment":  targetsTheVideo,
 	"set_speed":       targetsTheVideo,
 }
 
@@ -166,6 +167,10 @@ type inverseBuilder func(input map[string]any) (inverseCall, bool)
 //   - explode_view sets an absolute amount, and the amount before it is not in the input.
 //   - set_speed sets an absolute rate, and the rate before it is not in the input.
 //   - seek_to_time jumps to an absolute time, and the time before it is not in the input.
+//   - seek_to_moment jumps to the caption line a query matches, and the time before it is not in the input. The result
+//     names the time it landed on, never the time it left. It is still recorded as a change to the video, so an "undo
+//     that" right after it finds no inverse and stands between the learner and an older seek, and a switch to another
+//     video drops it.
 //   - zoom_to_part moves the camera to a part from a pose the input does not name.
 //   - reset_view discards the camera, the explode amount, and the cutaway, none of which the input names.
 //   - set_control sets an absolute value, and the value before it is not in the input.

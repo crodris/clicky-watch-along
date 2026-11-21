@@ -115,6 +115,7 @@ func TestAToolWhoseInverseNeedsStateItsInputLacksHasNoInverse(t *testing.T) {
 		{tool: "explode_view", input: json.RawMessage(`{"amount":1}`)},
 		{tool: "set_speed", input: json.RawMessage(`{"rate":2}`)},
 		{tool: "seek_to_time", input: json.RawMessage(`{"seconds":95}`)},
+		{tool: "seek_to_moment", input: json.RawMessage(`{"query":"the gills"}`)},
 		{tool: "zoom_to_part", input: json.RawMessage(`{"label":"piston"}`)},
 		{tool: "reset_view", input: json.RawMessage(`{}`)},
 		{tool: "set_control", input: json.RawMessage(`{"name":"angle","value":45}`)},
@@ -701,6 +702,68 @@ func TestAnUndoAfterAnExplodeInTheSameCommandFailsAndNeverReachesTheApp(t *testi
 	}
 }
 
+// An undo that cannot run is a failed call, so the calls after it in the reply are not run, as after any failed call.
+func TestAnUndoThatCannotBeUndoneStopsTheLaterCallsOfItsReply(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`))
+		case 2:
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_explode", "explode_view", `{"amount":1,"confirmation":"pulled it apart"}`),
+				brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`),
+				brainToolUse("toolu_pop", "pop_out", `{"confirmation":"popping it out"}`))
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"I can't undo that exactly."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "explode it, undo that, and pop it out"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_explode", voiceToolChanged, `{"ok":true}`))
+	// The next line is the end: the pop-out after the refused undo never reached the app.
+	driver.expectLine("voice_command_finished")
+	notRun := jsonValueAt(t, worker.requests()[2].body, "messages", 4, "content", 2)
+	if jsonValueAt(t, notRun, "tool_use_id") != "toolu_pop" || !strings.Contains(fmt.Sprint(jsonValueAt(t, notRun, "content", 0, "text")), "Not run") {
+		t.Errorf("the pop-out's result was %v", notRun)
+	}
+}
+
+// An inverse the app reports as failed stops the later calls of the reply too.
+func TestAnInverseThatFailedStopsTheLaterCallsOfItsReply(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`))
+		case 2:
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`),
+				brainToolUse("toolu_pop", "pop_out", `{"confirmation":"popping it out"}`))
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"The scene is still loading."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "undo that and pop it out"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_undo-undo", voiceToolFailed, `{"ok":false,"error":"still loading","state":null}`))
+	driver.expectLine("voice_command_finished")
+	notRun := jsonValueAt(t, worker.requests()[2].body, "messages", 4, "content", 1)
+	if jsonValueAt(t, notRun, "tool_use_id") != "toolu_pop" || !strings.Contains(fmt.Sprint(jsonValueAt(t, notRun, "content", 0, "text")), "Not run") {
+		t.Errorf("the pop-out's result was %v", notRun)
+	}
+}
+
 // An answered approval changes what the learner sees and has no inverse, so it stands between "undo that" and an older
 // change, as a hand-off does.
 func TestAnAnsweredApprovalStandsBetweenUndoAndAnOlderChange(t *testing.T) {
@@ -916,6 +979,30 @@ func TestASeekOnVideoAIsNotOfferedOnVideoB(t *testing.T) {
 		if undoIsOfferedTo(run) || len(run.changes) != 0 {
 			t.Errorf("%s: the seek on the first video was still offered, record %v", name, run.changes)
 		}
+	}
+}
+
+// seek_to_moment has no inverse, since the time it left is not in its input, but it is a change to the video: it stands
+// between "undo that" and an older seek, and a switch to another video drops it like any other seek.
+func TestASeekToAMomentIsNotUndoneAndKeepsAnOlderSeekFromBeingUndoneInItsPlace(t *testing.T) {
+	session, _ := newTestSession()
+	beginsInAndMakes(session, videoInFront("Sharks", 612), seekAhead)
+	beginsInAndMakes(session, videoInFront("Sharks", 612), toolCall{Name: "seek_to_moment", Input: json.RawMessage(`{"query":"the gills"}`)})
+	run := session.begin("undo that", json.RawMessage(videoInFront("Sharks", 612)))
+	if undoIsOfferedTo(run) {
+		t.Errorf("undo was offered after a seek_to_moment, which would have reversed the older seek: record %v", run.changes)
+	}
+	if len(run.changes) != 2 {
+		t.Errorf("the seek_to_moment should stay in the record, got %v", run.changes)
+	}
+}
+
+func TestASeekToAMomentOnVideoAIsDroppedOnVideoB(t *testing.T) {
+	session, _ := newTestSession()
+	beginsInAndMakes(session, videoInFront("Sharks", 612), toolCall{Name: "seek_to_moment", Input: json.RawMessage(`{"query":"the gills"}`)})
+	run := session.begin("undo that", json.RawMessage(videoInFront("Whales", 700)))
+	if len(run.changes) != 0 {
+		t.Errorf("the seek on the first video was still in the record: %v", run.changes)
 	}
 }
 
