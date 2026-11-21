@@ -55,7 +55,7 @@ struct TetherTokensTests {
 
     @Test func theTimedBeziersAreExactlySmoothstepAndASquare() {
         for linearProgress in stride(from: 0.0, through: 1.0, by: 0.05) {
-            #expect(abs(MoveBezier.smoothstep.progress(atLinearProgress: linearProgress) - agentTokenServeEasedProgress(linearProgress)) < 1e-9)
+            #expect(abs(MoveBezier.smoothstep.progress(atLinearProgress: linearProgress) - linearProgress * linearProgress * (3 - 2 * linearProgress)) < 1e-9)
             #expect(abs(MoveBezier.quadraticEaseIn.progress(atLinearProgress: linearProgress) - linearProgress * linearProgress) < 1e-9)
         }
         #expect(abs(MoveBezier.cubicEaseInOut.progress(atLinearProgress: 0.5) - 0.5) < 1e-9)
@@ -83,6 +83,21 @@ struct TetherTokensTests {
         let closeCurve = DS.Move.glide.curve.timeScaled(by: DS.Move.glideCloseTimeFactor)
         #expect(abs(closeCurve.seconds() - DS.Move.glide.curve.seconds() * 0.7) < 1e-9)
         #expect(abs(closeCurve.progress(atSeconds: 0.07) - DS.Move.glide.curve.progress(atSeconds: 0.1)) < 1e-9)
+    }
+
+    @Test func aCriticallyDampedSpringRisesWithoutOvershootAndNeverGivesNaN() {
+        let criticalCurve = MoveCurve.spring(response: 0.3, dampingFraction: 1)
+        let seconds = criticalCurve.seconds()
+        let progresses = stride(from: 0.0, through: seconds, by: 0.005).map { criticalCurve.progress(atSeconds: $0) }
+        #expect(progresses.allSatisfy { !$0.isNaN && $0 <= 1 })
+        #expect(zip(progresses, progresses.dropFirst()).allSatisfy { $0 <= $1 })
+        #expect(abs(criticalCurve.progress(atSeconds: seconds - 0.001) - 1) < 0.003)
+    }
+
+    @Test func everyReduceMotionFormSaysHowLongItsFadeTakes() {
+        #expect(ReducedMotionForm.crossfade(seconds: 0.15).fadeSeconds == 0.15)
+        #expect(ReducedMotionForm.fadeAtTheTargetLeavingAStillRing(seconds: 0.2).fadeSeconds == 0.2)
+        #expect(ReducedMotionForm.none.fadeSeconds == 0)
     }
 
     @Test func thePointFlightIsPacedByItsDistanceBetweenItsShortestAndLongestTime() {
@@ -118,8 +133,12 @@ struct TetherTokensTests {
     /// Whether a pixel is within `tolerance` of a `#rrggbb` color in every channel, out of 255.
     private func pixel(_ color: NSColor?, matches expectedHex: String, tolerance: Int = 3) -> Bool {
         guard let color, let expected = ThemeRGBColor(hex: expectedHex) else { return false }
-        return [(color.redComponent, expected.red), (color.greenComponent, expected.green), (color.blueComponent, expected.blue)]
-            .allSatisfy { abs(Int(($0.0 * 255).rounded()) - Int(($0.1 * 255).rounded())) <= tolerance }
+        let channelPairs: [(actualComponent: CGFloat, expectedComponent: Double)] = [
+            (color.redComponent, expected.red), (color.greenComponent, expected.green), (color.blueComponent, expected.blue),
+        ]
+        return channelPairs.allSatisfy { channelPair in
+            abs(Int((channelPair.actualComponent * 255).rounded()) - Int((channelPair.expectedComponent * 255).rounded())) <= tolerance
+        }
     }
 
     @Test func theCalloutIsSolidDarkWithAnAccentRimAndAnAccentDiscOnAWhitePage() throws {

@@ -403,12 +403,12 @@ enum DS {
     /// never writes its own duration or spring. Each move has a `curve` and a Reduce Motion form (`reduceMotionForm`), which
     /// keeps the change of state and drops the travel.
     ///
-    /// A move that crosses windows (Send, and a Card's Glide out of a disc and its Return to source) runs on the shared
+    /// A move that crosses windows (Send, and a Card's Glide out of a disc and its Glide close back into it) runs on the shared
     /// carrier panel (`TetherCarrier`), which samples the same curve for Core Animation.
     ///
     /// Today's timings, and the move each becomes as the Tether PRs adopt these tokens:
-    /// - The pointing bubble's spring(0.4, 0.6) scale and 0.5 s fade, and the status label's and chip's 0.2 s ease-out at
-    ///   scale 0.4: Pop in, and out at 0.7x.
+    /// - The pointing bubble's spring(0.4, 0.6) scale and 0.5 s fade: Pop.
+    /// - The status label's and chip's 0.2 s ease-out at scale 0.4: Pop in, and a fade-rise out at 0.7x.
     /// - The dial token's, disc hover's, fan's, and fan ball's 0.1 to 0.14 s ease-outs and spring(0.18, 0.8): Snap.
     /// - The dial's spring(0.22, 0.78) open: Glide. Its fan items' spring(0.26, 0.72) with a 14 ms stagger: Pop.
     /// - The dial's, agent list's, studio's, and panel's close, which is `orderOut` today: Glide close at 0.7x.
@@ -533,6 +533,14 @@ nonisolated enum ReducedMotionForm: Equatable, Sendable {
     case fadeAtTheTargetLeavingAStillRing(seconds: Double)
     /// Nothing moves. Only the shake has this, so a failure never relies on it alone.
     case none
+
+    /// How long the fade takes, and 0 when nothing animates.
+    var fadeSeconds: Double {
+        switch self {
+        case .crossfade(let seconds), .fadeAtTheTargetLeavingAStillRing(let seconds): return seconds
+        case .none: return 0
+        }
+    }
 }
 
 /// A cubic bezier easing from (0, 0) to (1, 1): the curve CSS `cubic-bezier`, SwiftUI's `timingCurve`, and
@@ -555,6 +563,11 @@ nonisolated struct MoveBezier: Equatable, Sendable {
     func progress(atLinearProgress linearProgress: Double) -> Double {
         guard linearProgress > 0 else { return 0 }
         guard linearProgress < 1 else { return 1 }
+        // With the x control points at a third and two thirds, x is the time itself, so the curve needs no search and
+        // smoothstep comes out exact.
+        if x1 == 1.0 / 3 && x2 == 2.0 / 3 {
+            return Self.coordinate(atParameter: linearProgress, firstControl: y1, secondControl: y2)
+        }
         // The curve's x grows with its parameter, since both x control points lie in 0 to 1, so halving the range 50 times
         // finds the parameter whose x is the time to far below a pixel.
         var lowParameter = 0.0
@@ -580,8 +593,8 @@ nonisolated struct MoveBezier: Equatable, Sendable {
 /// How a move's value travels from its start (0) to its end (1) over time. SwiftUI plays it through `animation`, and the
 /// carrier samples `progress` into Core Animation keyframes, so both draw the same curve.
 nonisolated enum MoveCurve: Equatable, Sendable {
-    /// A damped spring, with the meaning SwiftUI's `spring(response:dampingFraction:)` gives these two values. Every move's
-    /// spring is under-damped (a damping fraction below 1).
+    /// A damped spring, with the meaning SwiftUI's `spring(response:dampingFraction:)` gives these two values. A damping
+    /// fraction of 1 or more never overshoots and is played as critically damped.
     case spring(response: Double, dampingFraction: Double)
     /// A fixed time along a bezier.
     case timed(seconds: Double, bezier: MoveBezier)
@@ -591,7 +604,9 @@ nonisolated enum MoveCurve: Equatable, Sendable {
     /// and it is 0 at the start and at the end.
     case decayingShake(seconds: Double, amplitudePoints: Double, cyclesPerSecond: Double, decayPerSecond: Double)
 
-    /// A spring has settled once its distance from the end stays under this share of the whole move.
+    /// A spring has settled once the envelope its swing decays inside falls under this share of the whole move. The swing
+    /// itself can be up to `1 / sqrt(1 - dampingFraction²)` times the envelope, about 0.5% of the move for the Glide, which
+    /// is under a point on a 300 point card when the move snaps to its end.
     private static let springSettledShare = 0.002
 
     /// How long the move takes. A spring's time is how long it takes to settle.
@@ -600,6 +615,10 @@ nonisolated enum MoveCurve: Equatable, Sendable {
         switch self {
         case .spring(let response, let dampingFraction):
             let naturalFrequency = 2 * Double.pi / response
+            guard dampingFraction < 1 else {
+                // Critically damped, the distance left is (1 + ωt)e^(-ωt), which takes about 9.2 / ω to fall under 0.2%.
+                return 9.2 / naturalFrequency
+            }
             return -log(Self.springSettledShare) / (dampingFraction * naturalFrequency)
         case .timed(let seconds, _):
             return seconds
@@ -619,6 +638,9 @@ nonisolated enum MoveCurve: Equatable, Sendable {
         case .spring(let response, let dampingFraction):
             guard elapsedSeconds < totalSeconds else { return 1 }
             let naturalFrequency = 2 * Double.pi / response
+            guard dampingFraction < 1 else {
+                return 1 - (1 + naturalFrequency * elapsedSeconds) * exp(-naturalFrequency * elapsedSeconds)
+            }
             let dampedFrequency = naturalFrequency * (1 - dampingFraction * dampingFraction).squareRoot()
             let envelope = exp(-dampingFraction * naturalFrequency * elapsedSeconds)
             return 1 - envelope * (cos(dampedFrequency * elapsedSeconds)

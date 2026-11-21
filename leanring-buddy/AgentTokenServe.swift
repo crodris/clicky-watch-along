@@ -94,8 +94,7 @@ func agentTokenServePath(from cursorPoint: CGPoint, to slotPoint: CGPoint) -> Ag
 /// Smoothstep, `3t² - 2t³`, the same easing the cursor's flight uses: it leaves slowly, moves fastest in the middle, and
 /// settles into the slot. Progress outside 0 to 1 is clamped.
 func agentTokenServeEasedProgress(_ linearProgress: Double) -> Double {
-    let clampedProgress = min(1, max(0, linearProgress))
-    return clampedProgress * clampedProgress * (3 - 2 * clampedProgress)
+    DS.Move.send.curve.progress(atSeconds: linearProgress * AgentTokenServePath.flightSeconds)
 }
 
 // MARK: - A disc under a flight stays put

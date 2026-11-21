@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  The carrier: SwiftUI cannot animate across windows, so every Tether move that crosses them (Send, and a Card's Glide out
-//  of its origin and its Return to source) plays on one shared click-through panel per display, at `.screenSaver + 2`,
+//  of its origin and its Glide close back into it) plays on one shared click-through panel per display, at `.screenSaver + 2`,
 //  above the cursor overlay windows. The carrier draws the moving view and a 1 point tether line in the origin's color,
 //  from the origin to the moving view, which fades out 250 ms after the landing.
 //
@@ -69,9 +69,10 @@ struct CarrierFlightPlan: Equatable {
         glide(origin: origin, cardFrame: cardFrame, curve: DS.Move.glide.curve, isOpening: true)
     }
 
-    /// Return to source: the Card in `cardFrame` closes back into `origin`, on the Glide spring at
-    /// `DS.Move.glideCloseTimeFactor`, and fades out as it arrives. It ends hidden, so the caller hides the real Card as it starts.
-    static func returnToSource(from cardFrame: CGRect, into origin: CGPoint) -> CarrierFlightPlan {
+    /// The Glide close, a Card's return to its source: the Card in `cardFrame` closes back into `origin`, on the Glide spring
+    /// at `DS.Move.glideCloseTimeFactor`, and fades out as it arrives. It ends hidden, so the caller hides the real Card as it
+    /// starts. This is not `DS.Move.returnToSource`, the pop-out's 0.8 s flatten into its video, which the page plays itself.
+    static func glideClose(from cardFrame: CGRect, into origin: CGPoint) -> CarrierFlightPlan {
         glide(origin: origin, cardFrame: cardFrame, curve: DS.Move.glide.curve.timeScaled(by: DS.Move.glideCloseTimeFactor), isOpening: false)
     }
 
@@ -330,7 +331,7 @@ final class CarrierFlight {
         hasLanded = true
         carriedView?.layer?.removeAllAnimations()
         // Without its animations the carried view rests in its frame at full size, which is the end of a Send or a Glide.
-        // A Return to source ends hidden.
+        // A Glide close ends hidden.
         if plan.poses.last?.opacity == 0 { carriedView?.isHidden = true }
         onLanded()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsTheCarriedViewStaysAfterLanding) { [self] in
@@ -365,6 +366,8 @@ final class CarrierFlight {
     private static func tetherLayer(from originInPanel: CGPoint, lines: [(length: CGFloat, angle: CGFloat)], color: NSColor, seconds: TimeInterval) -> CALayer {
         let lineLayer = CALayer()
         lineLayer.backgroundColor = color.cgColor
+        // The line turns to every angle, and without smoothing a diagonal 1 point line draws as stairs.
+        lineLayer.allowsEdgeAntialiasing = true
         lineLayer.anchorPoint = CGPoint(x: 0, y: 0.5)
         lineLayer.position = originInPanel
         lineLayer.bounds = CGRect(x: 0, y: 0, width: lines.last?.length ?? 0, height: DS.Move.tetherLineWidth)

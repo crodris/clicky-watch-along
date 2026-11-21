@@ -474,11 +474,9 @@ final class AgentTokenDockController {
         case .fadeInAtTheSlot:
             print("Agent token serve: Reduce Motion is on, so the token fades in at its slot")
             slotDisc.discModel.isAnOpenSlotAwaitingItsToken = false
-            if case .fadeAtTheTargetLeavingAStillRing(let fadeSeconds) = DS.Move.send.reduceMotionForm {
-                NSAnimationContext.runAnimationGroup { animationContext in
-                    animationContext.duration = fadeSeconds
-                    slotDisc.panel.animator().alphaValue = 1
-                }
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
+                slotDisc.panel.animator().alphaValue = 1
             }
         case .fly(let path):
             print("Agent token serve: the token flies to its slot in \(AgentTokenServePath.flightSeconds) s")

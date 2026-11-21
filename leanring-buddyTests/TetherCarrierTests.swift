@@ -2,12 +2,13 @@
 //  TetherCarrierTests.swift
 //  leanring-buddyTests
 //
-//  The carrier's plans for Send, Glide from origin, and Return to source, the layer transform that places a pose, and the
+//  The carrier's plans for Send, Glide from origin, and the Glide close, the layer transform that places a pose, and the
 //  tether line's keyframes. The panel itself only plays these.
 //
 
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Clicky
@@ -39,7 +40,7 @@ struct TetherCarrierTests {
         #expect(plan.poses.count == 61)
     }
 
-    // MARK: - Glide and Return to source
+    // MARK: - Glide from origin and Glide close
 
     private let disc = CGPoint(x: 1000, y: 880)
     private let cardFrame = CGRect(x: 900, y: 500, width: 340, height: 360)
@@ -62,9 +63,9 @@ struct TetherCarrierTests {
         #expect(plan.pivotAtRest == CGPoint(x: 900, y: 860))
     }
 
-    @Test func aReturnToSourceClosesBackIntoTheOriginFasterAndEndsHidden() {
+    @Test func aGlideCloseGoesBackIntoTheOriginFasterAndEndsHidden() {
         let openPlan = CarrierFlightPlan.glideFromOrigin(disc, into: cardFrame)
-        let closePlan = CarrierFlightPlan.returnToSource(from: cardFrame, into: disc)
+        let closePlan = CarrierFlightPlan.glideClose(from: cardFrame, into: disc)
         #expect(closePlan.poses.first == CarrierPose(pivot: closePlan.pivotAtRest, scale: 1, opacity: 1))
         #expect(closePlan.poses.last == CarrierPose(pivot: disc, scale: DS.Move.glideStartScale, opacity: 0))
         #expect(abs(closePlan.seconds - openPlan.seconds * DS.Move.glideCloseTimeFactor) < 1e-9)
@@ -108,5 +109,29 @@ struct TetherCarrierTests {
         #expect(lines[1].angle > .pi)
         #expect(abs(lines[1].angle - lines[0].angle) < 0.3)
         #expect(abs(lines[2].angle - 1.5 * .pi) < 1e-9)
+    }
+
+    // MARK: - Landing
+
+    @Test func aMoveOnADisplayThatIsGoneLandsOnceAfterPlayReturnsAndThenLeaves() async throws {
+        var landedCount = 0
+        var goneCount = 0
+        let plan = CarrierFlightPlan.send(along: agentTokenServePath(from: cursorPoint, to: slotPoint), carriedSize: tokenSize)
+        let flight = TetherCarrier.shared.play(
+            plan,
+            carrying: Color.clear,
+            onDisplay: CGDirectDisplayID.max,
+            tetherColor: .systemBlue,
+            onLanded: { landedCount += 1 },
+            onGone: { _ in goneCount += 1 }
+        )
+        // The caller holds the flight before it lands, so it never keeps a flight that already landed.
+        #expect(landedCount == 0)
+        for _ in 0..<100 where goneCount == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        flight.landAtOnce()
+        #expect(landedCount == 1)
+        #expect(goneCount == 1)
     }
 }
