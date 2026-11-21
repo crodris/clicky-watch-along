@@ -118,7 +118,7 @@ The harness backend would see fewer calls if it read only the `tool_call` lines,
 So the harness's `Brain: turn` line ends with `calls <names>`, the names of every tool the turn called in order, or `calls none`, and the bench scores the first turn from those names.
 A call with a `tool_call` line keeps its input.
 A name with no `tool_call` line is scored as a call with no known input, so `[design_theme, pick_theme_idea]` is a wrong tool on both backends for a case that does not accept it, and a hidden call fails a case that checks that tool's `input`.
-A call after a hand-off tool never runs, so its `input` is not checked on either backend, and only its name counts (`callsThatRan`).
+A call after a hand-off tool in the same reply never runs, so in a one-reply case its `input` is not checked on either backend, and only its name counts (`callsOfOneReplyThatRan`). A planning case checks every call, since a command can go on after a hand-off the harness skipped.
 The line holds names only, since a call's input can hold the learner's words.
 A harness that writes the older line with no `calls` field reads as a command with no turns, which the bench records as an error.
 The harness backend adds a second set of numbers for the whole command:

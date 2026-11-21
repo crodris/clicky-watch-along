@@ -461,7 +461,7 @@ export type Outcome =
 /**
  * One tool call. `inputIsUnknown` marks a call the harness backend knows only by its name, from the turn's log line: the app
  * never saw it, because a hand-off ended the turn before it or the brain refused it. A refused call fails a case's input check
- * for its tool. A call after a hand-off is not checked, since it never ran (`callsThatRan`).
+ * for its tool. A call after a hand-off in the same reply is not checked, since it never ran (`callsOfOneReplyThatRan`).
  */
 export type ToolCall = { name: string; input: Record<string, unknown>; inputIsUnknown?: boolean };
 
@@ -505,20 +505,21 @@ function inputMatches(callInput: Record<string, unknown>, expectedInput: Record<
 }
 
 /**
- * The calls that ran. A hand-off ends the command, so a call after one, in the same turn or a later one, never runs: the app
- * answers `Not run` and the harness never sends it, which is why the harness backend knows it only by name. Its name still
+ * The calls of one reply that ran. A hand-off ends the reply, so a later call in the same reply never runs: the harness
+ * answers it `Not run` and never sends it to the app, which is why the harness backend knows it only by name. Its name still
  * counts for the tool set, and its input is not checked on either backend, since a call that never ran changes nothing.
+ * Only the one-reply scorer cuts here. A whole command can go on after a hand-off that did not run, such as a `pop_out`
+ * skipped after a failed seek, so `scoreWholeCommand` checks every call it has.
  */
-function callsThatRan(toolCalls: ToolCall[]): ToolCall[] {
+function callsOfOneReplyThatRan(toolCalls: ToolCall[]): ToolCall[] {
   const handOffPosition = toolCalls.findIndex((toolCall) => handOffToolNames.has(toolCall.name));
   return handOffPosition === -1 ? toolCalls : toolCalls.slice(0, handOffPosition + 1);
 }
 
-/** Whether every call that ran, of each listed tool, holds that tool's expected input. A call with an unknown input never does. */
+/** Whether every given call, of each listed tool, holds that tool's expected input. A call with an unknown input never does. */
 function everyCallHoldsExpectedInput(toolCalls: ToolCall[], expectedInputByToolName: Record<string, Record<string, unknown>>): boolean {
-  const callsThatRanInOrder = callsThatRan(toolCalls);
   return Object.entries(expectedInputByToolName).every(([toolName, expectedInput]) =>
-    callsThatRanInOrder.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
+    toolCalls.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
   );
 }
 
@@ -528,7 +529,7 @@ export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exc
   if (nameOutcome !== "pass") {
     return nameOutcome;
   }
-  return everyCallHoldsExpectedInput(toolCalls, brainCase.input ?? {}) ? "pass" : "wrongInput";
+  return everyCallHoldsExpectedInput(callsOfOneReplyThatRan(toolCalls), brainCase.input ?? {}) ? "pass" : "wrongInput";
 }
 
 /**

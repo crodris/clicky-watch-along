@@ -36,6 +36,7 @@ import {
   sampleFromHarnessRecord,
   scoreApprovalCase,
   scoreBrainCase,
+  scoreWholeCommand,
   scoreToolCalls,
   skillInputDescription,
   skillInstructionSentence,
@@ -1209,6 +1210,23 @@ describe("a number with a change on the Theme Studio card", () => {
       assert.equal(scoreBrainCase([{ ...design, input: { request: "x", basedOnIdea: otherIdeaNumber } }, hiddenPick], brainCase), "wrongInput", brainCase.id);
       assert.equal(scoreBrainCase([design, { name: "pause_video", input: {}, inputIsUnknown: true }], brainCase), "wrongTool", brainCase.id);
     }
+  });
+
+  it("checks the input of a call after a skipped hand-off in a whole command, since the command went on", () => {
+    // A seek fails, the harness skips the pop_out after it, and the model seeks again in a later turn, so that seek ran.
+    const planningCase: BrainCase = {
+      id: "test-skipped-hand-off",
+      context: "video",
+      say: "go back to where he explains the gills and pop it out",
+      accept: [["seek_to_moment", "pop_out", "seek_to_time"]],
+      input: { seek_to_time: { seconds: 98 } },
+      scoreWholeCommand: true,
+      why: "A seek that fails skips the pop_out after it, and the seek the model makes in a later turn runs, so its input is checked.",
+    };
+    const failedSeek = { name: "seek_to_moment", input: { query: "gills" } };
+    const skippedPopOut = { name: "pop_out", input: {}, inputIsUnknown: true };
+    assert.equal(scoreWholeCommand([failedSeek, skippedPopOut, { name: "seek_to_time", input: { seconds: 98 } }], planningCase), "pass");
+    assert.equal(scoreWholeCommand([failedSeek, skippedPopOut, { name: "seek_to_time", input: { seconds: 5 } }], planningCase), "wrongInput");
   });
 
   it("fails a pick of another idea, a pick alone, and a design of another idea", () => {
