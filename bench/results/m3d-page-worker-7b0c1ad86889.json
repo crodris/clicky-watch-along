@@ -1,0 +1,358 @@
+{
+  "label": "m3d-page",
+  "benchKind": "worker",
+  "commitSHA": "7b0c1ad86889",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-21T23:19:12.894Z",
+  "runCount": 3,
+  "port": 8781,
+  "interleavedWith": [
+    "m3d-kernel"
+  ],
+  "summary": [
+    {
+      "caseId": "live-scene",
+      "route": "/live-scene",
+      "description": "Builds a 3D scene for \"show me the inside of a heart\" over the screen fixture",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 16518,
+        "p95": 18289,
+        "min": 15954,
+        "max": 18289
+      },
+      "firstByteMs": {
+        "p50": 16493,
+        "p95": 18287,
+        "min": 15933,
+        "max": 18287
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2303,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1533,
+      "meanOutputTokens": 5926,
+      "meanCostUSD": 0.36574
+    },
+    {
+      "caseId": "live-scene-engine",
+      "route": "/live-scene",
+      "description": "Builds a 3D model of the jet engine in a cutaway frame",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 20930,
+        "p95": 21704,
+        "min": 15110,
+        "max": 21704
+      },
+      "firstByteMs": {
+        "p50": 20927,
+        "p95": 21703,
+        "min": 15108,
+        "max": 21703
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2208,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1833,
+      "meanOutputTokens": 6950,
+      "meanCostUSD": 0.42258
+    },
+    {
+      "caseId": "live-scene-bicycle",
+      "route": "/live-scene",
+      "description": "Builds a 3D model of the bicycle in a diagram frame",
+      "models": [
+        "gpt-6.1-sol"
+      ],
+      "serviceTiers": [
+        "ultrafast"
+      ],
+      "runs": 3,
+      "qualityPassed": 3,
+      "totalMs": {
+        "p50": 21987,
+        "p95": 23691,
+        "min": 21515,
+        "max": 23691
+      },
+      "firstByteMs": {
+        "p50": 21986,
+        "p95": 23687,
+        "min": 21512,
+        "max": 23687
+      },
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "modelCallsPerRequest": 1,
+      "meanInputTokens": 2207,
+      "meanCacheWriteTokens": 0,
+      "meanCacheReadTokens": 1832,
+      "meanOutputTokens": 8456,
+      "meanCostUSD": 0.51294
+    }
+  ],
+  "samples": [
+    {
+      "caseId": "live-scene",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 15933.389792,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 15953.578625,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 0,
+          "outputTokens": 5416
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.352596,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 16492.639625,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 16517.866625,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2300,
+          "outputTokens": 5772
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.347736,
+      "quality": {
+        "passed": true,
+        "detail": "answer Valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 18286.767707999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 18288.755916000002,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2303,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2300,
+          "outputTokens": 6591
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.396876,
+      "quality": {
+        "passed": true,
+        "detail": "answer Heart valve"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene-engine",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 20927.096542000014,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 20929.88441700001,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1088,
+          "outputTokens": 7996
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.49385280000000004,
+      "quality": {
+        "passed": true,
+        "detail": "answer Fan"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene-engine",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 15108.009749999983,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 15110.298916999993,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2205,
+          "outputTokens": 5101
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.307419,
+      "quality": {
+        "passed": true,
+        "detail": "answer Fan"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene-engine",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 21703.034125000006,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21704.117709000013,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2208,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2205,
+          "outputTokens": 7752
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.466479,
+      "quality": {
+        "passed": true,
+        "detail": "answer Fan"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene-bicycle",
+      "runIndex": 0,
+      "httpStatus": 200,
+      "firstByteMs": 23687.468790999992,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 23690.510083,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 1088,
+          "outputTokens": 9005
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.5543808,
+      "quality": {
+        "passed": true,
+        "detail": "answer Pedals"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene-bicycle",
+      "runIndex": 1,
+      "httpStatus": 200,
+      "firstByteMs": 21512.281667000003,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21514.59066700001,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2204,
+          "outputTokens": 8051
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.48441839999999997,
+      "quality": {
+        "passed": true,
+        "detail": "answer Pedal"
+      },
+      "replyPreview": ""
+    },
+    {
+      "caseId": "live-scene-bicycle",
+      "runIndex": 2,
+      "httpStatus": 200,
+      "firstByteMs": 21985.818917000026,
+      "firstTokenMs": null,
+      "firstAudioMs": null,
+      "totalMs": 21986.94975000003,
+      "usageLines": [
+        {
+          "route": "/live-scene",
+          "model": "gpt-6.1-sol",
+          "serviceTier": "ultrafast",
+          "inputTokens": 2207,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 2204,
+          "outputTokens": 8311
+        }
+      ],
+      "ttsCharacters": 0,
+      "costUSD": 0.5000184,
+      "quality": {
+        "passed": true,
+        "detail": "answer Pedal"
+      },
+      "replyPreview": ""
+    }
+  ]
+}
