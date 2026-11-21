@@ -272,7 +272,9 @@ func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText stri
 }
 
 // brainUsageLine is the token line of one turn, which the app prints, since the Worker logs no usage for /v1/messages.
-// The model is the one that answered, which a benchmark override can change.
+// The model is the one that answered, which a benchmark override can change. It ends with the names of every tool the
+// turn called, in order, because the app never sees a call that is refused or comes after a hand-off, and a benchmark must
+// score what the model chose. Names only: a call's input can hold the learner's words.
 func brainUsageLine(turnNumber int, reply turn, elapsed time.Duration) string {
 	answeringModel := string(reply.message.Model)
 	if answeringModel == "" {
@@ -280,7 +282,19 @@ func brainUsageLine(turnNumber int, reply turn, elapsed time.Duration) string {
 	}
 	usage := reply.message.Usage
 	return fmt.Sprintf(
-		"Brain: turn %d on %s stopped for %s, tokens in %d, cache read %d, cache write %d, out %d, %d ms",
-		turnNumber, answeringModel, reply.stopReason, usage.InputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usage.OutputTokens, elapsed.Milliseconds(),
+		"Brain: turn %d on %s stopped for %s, tokens in %d, cache read %d, cache write %d, out %d, %d ms, calls %s",
+		turnNumber, answeringModel, reply.stopReason, usage.InputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usage.OutputTokens, elapsed.Milliseconds(), calledToolNames(reply.toolCalls),
 	)
+}
+
+// calledToolNames lists the names of a turn's calls in order, joined with commas, or "none" for a turn that called no tool.
+func calledToolNames(calls []toolCall) string {
+	if len(calls) == 0 {
+		return "none"
+	}
+	names := make([]string, len(calls))
+	for callIndex, call := range calls {
+		names[callIndex] = string(call.Name)
+	}
+	return strings.Join(names, ",")
 }

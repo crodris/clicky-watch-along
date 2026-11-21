@@ -262,6 +262,17 @@ func (driver *protocolDriver) logsContain(text string) bool {
 	return false
 }
 
+// logsContainLineEndingWith reports whether a log line starts with prefix and ends with suffix, so a test can pin the end
+// of a line whose middle holds a time.
+func (driver *protocolDriver) logsContainLineEndingWith(prefix string, suffix string) bool {
+	for _, logLine := range driver.logs {
+		if strings.Contains(logLine, prefix) && strings.HasSuffix(strings.TrimSuffix(logLine, `"}`), suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // stop closes the harness's input, as the app does when it quits, and waits for run to return.
 func (driver *protocolDriver) stop() {
 	driver.stopOnce.Do(func() {

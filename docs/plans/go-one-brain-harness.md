@@ -262,7 +262,7 @@ Harness to app:
   Swift keeps the approval ID it read at the press (`approvalIDWaitingWhenTheCommandStarted`) for the whole command, as today.
 - `voice_command_finished` (new): `taskID`, `spokenLine` (the joined confirmations, or empty, sent whole, since Swift cuts it to 300 characters by grapheme cluster), and `gaveUp` (true when the third turn still needed the model, so Swift says `voiceCommandGaveUpLine`).
 - `task_failed` (unchanged): the Worker or Anthropic failed, which sends Swift down the router failure fallback.
-- `log` (unchanged): one `Brain: turn N on <model> stopped for <reason>, tokens in N, cache read N, cache write N, out N, N ms` line per turn, since the Worker logs no usage for `/v1/messages`.
+- `log` (unchanged): one `Brain: turn N on <model> stopped for <reason>, tokens in N, cache read N, cache write N, out N, N ms, calls <names>` line per turn, with every call's name in order (or `none`) and never its input, since the Worker logs no usage for `/v1/messages`.
 
 ### Harness side
 

@@ -55,7 +55,14 @@ Preconditions:
   The result's text is `{"ok":true,"state":{...}}` with `yawDegrees` 45 lower than before, and the model turns on screen.
   The same request with an `Origin` header gets HTTP 403.
 - **The brain in the harness.** On a YouTube video with one clear object, run `$V app-launch --brain --harness-brain "pop this out|turn it to the left|zoom in a bit|no, the other way"`, then `$V app-wait`.
-  The app log shows one `Brain: turn N on claude-haiku-5-5 stopped for ..., N ms` line per turn, the same chips and spoken confirmations as the old path, and the Worker log has no `[/voice-command]` usage line.
+  The app log shows one `Brain: turn N on claude-haiku-5-5 stopped for ..., N ms, calls <names>` line per turn, the same chips and spoken confirmations as the old path, and the Worker log has no `[/voice-command]` usage line.
+- **The brain's evals on both backends.** With `$V worker-up 8797` ready, run `node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797`.
+  It builds the harness, runs every case in `bench/fixtures/brain-evals.json` on the Worker's `/voice-command` and on the harness brain, one after the other, and prints a table for each backend and the parity gate.
+  The gate passes when every harness run passes, its p50 to the first `tool_call` is within 100 ms of the Worker's, and its first-turn cost per call is within 1.5 times the Worker's.
+  The command exits nonzero when the gate fails.
+  The harness backend scores the first turn from the call names in its `Brain: turn` line, so a call the app never saw, after a hand-off or refused, still counts as the model's choice.
+  The harness backend answers each call with the outcome the app gives that tool, so `find_moment` gets `lookedUp` with its scripted caption lines and takes a second turn, and the table's full-command line reports that turn's time and cost beside the first turn's.
+  The result goes to `bench/results/<label>-brain-evals-<commit>.json`.
 - **A press during a brain turn.** Run `$V app-launch --harness-brain "^skip to where they talk about the engine|pause it"`.
   The log shows `Live scene rehearsal: pressing push-to-talk during the voice command`, then `Brain: command cancelled during turn 1`, and no `Voice command:` line of the first command after the press.
   The press handler's audio stop is unchanged code that runs before any router code, so this step proves the cancel, not the audio stop.

@@ -6,20 +6,32 @@ import { fileURLToPath } from "node:url";
 import {
   acceptedAnswersOf,
   appToolDescriptionsIn,
+  appToolStepKindsIn,
   costOfUsageLines,
   descriptionsInAppSource,
+  exitCodeOfGate,
+  firstTurnToolCalls,
+  handOffToolNames,
+  harnessParityGate,
+  HarnessCommandRecorder,
+  lookupToolNames,
   pageToolDescriptionsIn,
+  parseBrainTurnLine,
   percentile,
   requestBodyFor,
+  sampleFromHarnessRecord,
   scoreBrainCase,
   scoreToolCalls,
   skillInputDescription,
   skillInstructionSentence,
+  standInToolResult,
+  startHarnessBrain,
   summarizeByContext,
   summarizeSamples,
   toolCallsIn,
   toolsWithStaleDescriptions,
   validateBrainEvals,
+  voiceCommandMessageFor,
   voiceCommandUserMessageText,
   withSkills,
   type BrainCase,
@@ -35,16 +47,20 @@ const toolCatalog: ToolCatalog = readFixture("brain-evals-tools.json");
 
 function sample(overrides: Partial<BrainSample>): BrainSample {
   return {
+    backend: "worker",
     caseId: "case",
     context: "video",
     runIndex: 0,
     httpStatus: 200,
     totalMs: 1000,
+    fullCommandMs: null,
+    turnCount: 1,
     outcome: "pass",
     toolCalls: [],
     spokenText: "",
     usageLines: [],
     costUSD: 0.001,
+    fullCommandCostUSD: null,
     ...overrides,
   };
 }
@@ -346,6 +362,10 @@ describe("the fixtures", () => {
       () => validateBrainEvals(withCase({ ...validCase, input: { start_background_task: { skill: "flashcards" } } }), toolCatalog),
       /no accepted answer calls/,
     );
+    assert.throws(
+      () => validateBrainEvals(withCase({ ...validCase, toolResults: { show_ready_model: { outcome: "handedOff" } } }), toolCatalog),
+      /scripts the result of show_ready_model/,
+    );
   });
 });
 
@@ -383,5 +403,498 @@ describe("the tool catalog", () => {
     };
 
     assert.deepEqual(toolsWithStaleDescriptions(catalog, { a: "new" }), ["a"]);
+  });
+});
+
+// ---------- The harness backend ----------
+
+const fixtureCase = (caseId: string) => evalFile.cases.find((brainCase) => brainCase.id === caseId) as BrainCase;
+// Copied from the format string in harness/brain.go's brainUsageLine, with numbers filled in.
+const brainGoTurnLine = "Brain: turn 2 on claude-haiku-5-5 stopped for tool_use, tokens in 1200, cache read 3400, cache write 56, out 789, 640 ms, calls design_theme,pick_theme_idea";
+
+/** The lines the harness writes for one command, as harness/brainloop.go writes them, with the time each arrives. */
+function replay(brainCase: BrainCase, lines: Array<[Record<string, unknown>, number]>) {
+  const recorder = new HarnessCommandRecorder(brainCase, "cmd-1");
+  const answers = lines.map(([message, elapsedMs]) => recorder.receive(message, elapsedMs));
+  return { record: recorder.record, answers };
+}
+/** The turn 1 line the harness writes when the model calls the named tools, joined with commas, or "none". */
+const turn1Line = (calls: string) => ({
+  type: "log",
+  message: `Brain: turn 1 on claude-haiku-5-5 stopped for tool_use, tokens in 100, cache read 2000, cache write 0, out 50, 400 ms, calls ${calls}`,
+});
+const toolCallLine = (toolUseID: string, name: string, input: Record<string, unknown>, turnIndex: number) => ({
+  type: "tool_call",
+  taskID: "cmd-1",
+  toolUseID,
+  name,
+  input,
+  turnIndex,
+});
+const finishedLine = (spokenLine: string) => ({ type: "voice_command_finished", taskID: "cmd-1", spokenLine, gaveUp: false });
+
+describe("parseBrainTurnLine", () => {
+  it("reads the line harness/brain.go writes for each turn", () => {
+    assert.deepEqual(parseBrainTurnLine(brainGoTurnLine), {
+      turn: 2,
+      model: "claude-haiku-5-5",
+      stopReason: "tool_use",
+      calledToolNames: ["design_theme", "pick_theme_idea"],
+      inputTokens: 1200,
+      cacheReadTokens: 3400,
+      cacheWriteTokens: 56,
+      outputTokens: 789,
+      elapsedMs: 640,
+    });
+  });
+
+  it("ignores every other harness log line", () => {
+    assert.equal(parseBrainTurnLine("Brain: command cancelled during turn 1"), null);
+    // A line from a harness that does not name its calls is not read, so the run shows no turns instead of a guess.
+    assert.equal(parseBrainTurnLine("Brain: turn 1 on claude-haiku-5-5 stopped for tool_use, tokens in 1, cache read 2, cache write 3, out 4, 5 ms"), null);
+    assert.equal(parseBrainTurnLine("Task agent: turn 1 stopped for end_turn, tokens in 1, cache read 2, cache write 3, out 4"), null);
+  });
+
+  it("still matches the format string in harness/brain.go, so a changed line fails here instead of reading as a command with no cost", () => {
+    const brainSource = readFileSync(join(benchDirectory, "..", "harness", "brain.go"), "utf8");
+
+    assert.ok(brainSource.includes('"Brain: turn %d on %s stopped for %s, tokens in %d, cache read %d, cache write %d, out %d, %d ms, calls %s"'));
+    // "none" for a turn with no call, and names joined with commas otherwise.
+    assert.equal(parseBrainTurnLine(brainGoTurnLine.replace("design_theme,pick_theme_idea", "none"))?.calledToolNames.length, 0);
+    assert.ok(brainSource.includes('return "none"') && brainSource.includes('strings.Join(names, ",")'));
+  });
+});
+
+describe("standInToolResult", () => {
+  const videoCase = fixtureCase("video-seek-back");
+
+  it("answers a lookup with an empty lookedUp result when the case scripts none", () => {
+    const answer = standInToolResult("find_moment", videoCase);
+
+    assert.equal(answer.outcome, "lookedUp");
+    assert.equal(answer.content, '{"ok":true,"result":[]}');
+    assert.equal(answer.isError, false);
+  });
+
+  it("answers the case's scripted lookup with its caption lines", () => {
+    const answer = standInToolResult("find_moment", fixtureCase("video-find-moment"));
+
+    assert.equal(answer.outcome, "lookedUp");
+    assert.deepEqual(JSON.parse(answer.content).result[0], { captions: "so the swim bladder is a gas filled organ that sharks simply do not have", seconds: 98.4 });
+  });
+
+  it("hands off the tools whose step in the app is a hand-off, and says a tool that changes the screen changed it", () => {
+    for (const handOffToolName of handOffToolNames) {
+      assert.equal(standInToolResult(handOffToolName, videoCase).outcome, "handedOff", handOffToolName);
+    }
+    assert.deepEqual(standInToolResult("seek_relative", videoCase), { outcome: "changed", content: '{"ok":true,"state":null}', isError: false });
+  });
+
+  it("agrees with appVoiceToolStep in CompanionManager.swift on which tools hand off and which look something up, so a tool that changes kind there fails here", () => {
+    const appCheckout = join(benchDirectory, "..");
+    const stepKinds = appToolStepKindsIn(
+      readFileSync(join(appCheckout, "leanring-buddy/CompanionManager.swift"), "utf8"),
+      readFileSync(join(appCheckout, "leanring-buddy/VoiceCommandTools.swift"), "utf8"),
+    );
+
+    assert.deepEqual([...handOffToolNames].sort(), stepKinds.handOffToolNames.sort());
+    assert.deepEqual([...lookupToolNames].sort(), stepKinds.lookupToolNames.sort());
+  });
+
+  it("reads a branch's kind from the Swift step: a hand-off, a hand-off behind a failing guard, a lookup, and a tool that ends in an outcome after a hand-off as neither", () => {
+    const toolsSource = 'enum AppVoiceTool { case popOut = "pop_out"\n case findMoment = "find_moment"\n case buildSimulation = "build_simulation"\n case zoomIn = "zoom_in"\n case designTheme = "design_theme"\n struct Context {}';
+    const managerSource = [
+      "private func appVoiceToolStep(",
+      "        case .popOut:",
+      "            return .handOff { self.go() }",
+      "        case .findMoment:",
+      "            return .outcome(.lookedUp(result: .array([])))",
+      "        case .buildSimulation:",
+      "            switch step {",
+      "            case .show:",
+      "                return .handOff { self.show() }",
+      "            case .start:",
+      "                return .outcome(self.start())",
+      "            }",
+      "        case .zoomIn:",
+      "            return .outcome(.changed(state: nil))",
+      "        case .designTheme:",
+      "            guard ok else { return .outcome(.failed(error: \"no\", state: nil)) }",
+      "            return .handOff { self.design() }",
+      "    // MARK: - Next",
+    ].join("\n");
+
+    assert.deepEqual(appToolStepKindsIn(managerSource, toolsSource), { handOffToolNames: ["pop_out", "design_theme"], lookupToolNames: ["find_moment"] });
+  });
+
+  it("answers a scripted failure as an error with its message", () => {
+    const failingCase: BrainCase = { ...videoCase, toolResults: { play_video: { outcome: "failed", error: "The video did not start" } } };
+
+    assert.deepEqual(standInToolResult("play_video", failingCase), {
+      outcome: "failed",
+      content: '{"error":"The video did not start","ok":false,"state":null}',
+      isError: true,
+    });
+  });
+});
+
+describe("the harness backend's scoring", () => {
+  const seekCase = fixtureCase("video-seek-back");
+
+  it("scores a recorded tool_call line stream the same as the equivalent Worker reply", () => {
+    const workerReply = JSON.stringify({ content: [{ type: "tool_use", name: "seek_relative", input: { seconds: -30, confirmation: "back thirty" } }] });
+    const { record } = replay(seekCase, [
+      [turn1Line("seek_relative"), 410],
+      [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412],
+      [finishedLine("back thirty"), 430],
+    ]);
+
+    assert.equal(sampleFromHarnessRecord(seekCase, 0, record).outcome, scoreBrainCase(toolCallsIn(workerReply).toolCalls, seekCase));
+    assert.equal(sampleFromHarnessRecord(seekCase, 0, record).outcome, "pass");
+  });
+
+  it("scores a wrong tool and a spoken reply the way the Worker's scoring does", () => {
+    const wrongToolStream = replay(seekCase, [[turn1Line("pause_video"), 410], [toolCallLine("call-1", "pause_video", {}, 0), 412], [finishedLine("paused"), 430]]);
+    const spokenStream = replay(seekCase, [[turn1Line("none"), 410], [finishedLine("it is a shark"), 415]]);
+
+    assert.equal(sampleFromHarnessRecord(seekCase, 0, wrongToolStream.record).outcome, "wrongTool");
+    const spokenSample = sampleFromHarnessRecord(seekCase, 0, spokenStream.record);
+    assert.equal(spokenSample.outcome, "missedTool");
+    assert.equal(spokenSample.spokenText, "it is a shark");
+  });
+
+  it("scores only the first turn's calls, so a second turn after a lookup changes nothing", () => {
+    const momentCase = fixtureCase("video-find-moment");
+    const { record } = replay(momentCase, [
+      [turn1Line("find_moment"), 410],
+      [toolCallLine("call-1", "find_moment", { query: "swim bladder" }, 0), 412],
+      [{ type: "log", message: "Brain: turn 2 on claude-haiku-5-5 stopped for tool_use, tokens in 200, cache read 2000, cache write 0, out 70, 380 ms, calls seek_to_time" }, 800],
+      [toolCallLine("call-2", "seek_to_time", { seconds: 98 }, 1), 802],
+      [finishedLine("going there"), 820],
+    ]);
+
+    const sample = sampleFromHarnessRecord(momentCase, 0, record);
+
+    assert.equal(sample.outcome, "pass");
+    assert.deepEqual(sample.toolCalls.map((toolCall) => toolCall.name), ["find_moment"]);
+    // The first turn ends at its own tool_call line, not at the second turn's.
+    assert.equal(sample.totalMs, 412);
+    assert.equal(sample.fullCommandMs, 820);
+  });
+
+  it("measures the first turn to the first tool_call line and the full command to voice_command_finished", () => {
+    const { record } = replay(seekCase, [[turn1Line("seek_relative"), 410], [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412], [finishedLine("back thirty"), 430]]);
+
+    const sample = sampleFromHarnessRecord(seekCase, 0, record);
+
+    assert.equal(sample.totalMs, 412);
+    assert.equal(sample.fullCommandMs, 430);
+  });
+
+  it("counts a command that calls no tool as ending with its first turn", () => {
+    const { record } = replay(seekCase, [[turn1Line("none"), 410], [finishedLine("it is a shark"), 415]]);
+
+    assert.equal(sampleFromHarnessRecord(seekCase, 0, record).totalMs, 415);
+  });
+
+  it("records task_failed as an error that keeps its reason, and ignores lines of another command", () => {
+    const { record } = replay(seekCase, [
+      [{ ...toolCallLine("call-9", "pause_video", {}, 0), taskID: "another-command" }, 100],
+      [{ type: "task_failed", taskID: "cmd-1", reason: "the request to Claude failed" }, 200],
+    ]);
+
+    const sample = sampleFromHarnessRecord(seekCase, 0, record);
+
+    assert.equal(sample.outcome, "error");
+    assert.equal(sample.spokenText, "the request to Claude failed");
+    assert.deepEqual(record.toolCalls, []);
+  });
+
+  it("scores a call the app never saw, hidden after a hand-off, as the Worker would: a wrong tool", () => {
+    const themeCase = fixtureCase("video-seek-back");
+    // The model called pop_out and then seek_relative in one turn. The hand-off ended the turn, so only pop_out got a tool_call line.
+    const { record } = replay(themeCase, [[turn1Line("pop_out,seek_relative"), 410], [toolCallLine("call-1", "pop_out", {}, 0), 412], [finishedLine(""), 430]]);
+
+    const sample = sampleFromHarnessRecord(themeCase, 0, record);
+    const workerScore = scoreBrainCase(
+      toolCallsIn(JSON.stringify({ content: [{ type: "tool_use", name: "pop_out", input: {} }, { type: "tool_use", name: "seek_relative", input: { seconds: -30 } }] })).toolCalls,
+      themeCase,
+    );
+
+    assert.deepEqual(sample.toolCalls, [{ name: "pop_out", input: {} }, { name: "seek_relative", input: {}, inputIsUnknown: true }]);
+    assert.equal(sample.outcome, "wrongTool");
+    assert.equal(sample.outcome, workerScore);
+  });
+
+  it("scores a refused call the same way, and a hidden call fails a case that checks that tool's input", () => {
+    const inputCase: BrainCase = { ...fixtureCase("video-seek-back"), accept: [["seek_relative"]], input: { seek_relative: { seconds: -30 } } };
+    // The only call is to a tool the command was not offered, so no tool_call line was sent for it.
+    const { record: refusedRecord } = replay(inputCase, [[turn1Line("close_scene"), 410], [finishedLine("sorry"), 430]]);
+    // The right tool by name, with no input to check.
+    const { record: hiddenRecord } = replay(inputCase, [[turn1Line("seek_relative"), 410], [finishedLine(""), 430]]);
+
+    assert.equal(sampleFromHarnessRecord(inputCase, 0, refusedRecord).outcome, "wrongTool");
+    assert.equal(sampleFromHarnessRecord(inputCase, 0, hiddenRecord).outcome, "wrongInput");
+  });
+
+  it("does not pass a hidden call on an input check that wants a key absent, since nothing is known about its input", () => {
+    const absentKeyCase: BrainCase = { ...fixtureCase("video-seek-back"), accept: [["seek_relative"]], input: { seek_relative: { confirmation: null } } };
+    const { record } = replay(absentKeyCase, [[turn1Line("seek_relative"), 410], [finishedLine(""), 430]]);
+
+    assert.equal(sampleFromHarnessRecord(absentKeyCase, 0, record).outcome, "wrongInput");
+  });
+
+  it("keeps the input of the calls that did get a tool_call line, in order, even when a refused call sits between them", () => {
+    const { record } = replay(fixtureCase("video-seek-back"), [
+      [turn1Line("seek_relative,close_scene,pause_video"), 410],
+      [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412],
+      [toolCallLine("call-3", "pause_video", {}, 0), 414],
+      [finishedLine("done"), 430],
+    ]);
+
+    assert.deepEqual(firstTurnToolCalls(record), [
+      { name: "seek_relative", input: { seconds: -30 } },
+      { name: "close_scene", input: {}, inputIsUnknown: true },
+      { name: "pause_video", input: {} },
+    ]);
+  });
+
+  it("records a finished command with no Brain: turn line as an error, since its first turn's calls are unknown", () => {
+    const { record } = replay(seekCase, [[toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412], [finishedLine("back thirty"), 430]]);
+
+    const sample = sampleFromHarnessRecord(seekCase, 0, record);
+
+    assert.equal(sample.outcome, "error");
+    assert.match(sample.spokenText, /no Brain: turn line/);
+  });
+
+  it("does not count a turn line that arrives after the command ended, since the line names no command", () => {
+    const { record } = replay(seekCase, [
+      [turn1Line("seek_relative"), 410],
+      [toolCallLine("call-1", "seek_relative", { seconds: -30 }, 0), 412],
+      [finishedLine("back thirty"), 430],
+      [turn1Line("pause_video"), 440],
+    ]);
+
+    assert.equal(record.turns.length, 1);
+    assert.deepEqual(record.turns[0]?.calledToolNames, ["seek_relative"]);
+  });
+
+  it("answers each tool_call with the outcome the app would give, so a lookup keeps the command going", () => {
+    const { answers } = replay(fixtureCase("video-find-moment"), [
+      [toolCallLine("call-1", "find_moment", { query: "x" }, 0), 1],
+      [toolCallLine("call-2", "pop_out", {}, 1), 2],
+    ]);
+
+    assert.equal(answers[0]?.outcome, "lookedUp");
+    assert.equal(answers[0]?.toolUseID, "call-1");
+    assert.equal(answers[1]?.outcome, "handedOff");
+  });
+});
+
+describe("driving the harness process", () => {
+  const fakeHarness = { command: process.execPath, args: [join(benchDirectory, "fixtures", "fake-brain-harness.ts")] };
+  const commandFor = (caseId: string, commandID: string) => voiceCommandMessageFor(fixtureCase(caseId), evalFile, toolCatalog, commandID);
+
+  it("sends the case's words, scene state, and tools as one voice_command", () => {
+    const voiceCommand = commandFor("video-seek-back", "cmd-1");
+
+    assert.equal(voiceCommand.type, "voice_command");
+    assert.equal(voiceCommand.transcript, "go back 30 seconds");
+    assert.deepEqual(voiceCommand.sceneState, evalFile.contexts.video.sceneState);
+    assert.deepEqual(voiceCommand.tools, requestBodyFor(fixtureCase("video-seek-back"), evalFile, toolCatalog).tools);
+  });
+
+  it("answers a lookup with lookedUp and its caption lines, so the brain takes a second turn, and counts one turn first and both in full", async () => {
+    const harnessBrain = await startHarnessBrain(fakeHarness, 1, "s3cret");
+    try {
+      const momentCase = fixtureCase("video-find-moment");
+      const record = await harnessBrain.runCommand(commandFor("video-find-moment", "cmd-1"), momentCase);
+      const sample = sampleFromHarnessRecord(momentCase, 0, record);
+
+      // The fake harness's spoken line holds the text it got for the lookup, and then the outcome of the seek.
+      const spokenLine = record.ending?.kind === "finished" ? record.ending.spokenLine : "";
+      assert.ok(spokenLine.includes("so the swim bladder is a gas filled organ"), spokenLine);
+      assert.ok(spokenLine.endsWith('changed {"ok":true,"state":null}'), spokenLine);
+      assert.deepEqual(record.toolCalls.map((toolCall) => [toolCall.name, toolCall.turnIndex]), [["find_moment", 0], ["seek_to_time", 1]]);
+      assert.equal(sample.outcome, "pass");
+      assert.equal(sample.turnCount, 2);
+      // claude-haiku-5-5 costs $0.1 per million input tokens, $0.01 cache read, and $0.5 output. Turn 1 used 100, 2000, and 50. Turn 2 used 200, 2000, and 70.
+      assert.ok(Math.abs((sample.costUSD ?? NaN) - 0.000055) < 1e-9, String(sample.costUSD));
+      assert.ok(Math.abs((sample.fullCommandCostUSD ?? NaN) - 0.00013) < 1e-9, String(sample.fullCommandCostUSD));
+      assert.ok((sample.fullCommandMs ?? 0) >= sample.totalMs);
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+
+  it("runs one command after another on one process, and records a failed command with its reason", async () => {
+    const harnessBrain = await startHarnessBrain(fakeHarness, 1, "s3cret");
+    try {
+      const turned = await harnessBrain.runCommand(commandFor("video-seek-back", "cmd-1"), fixtureCase("video-seek-back"));
+      const failed = await harnessBrain.runCommand({ ...commandFor("video-seek-back", "cmd-2"), transcript: "please fail" }, fixtureCase("video-seek-back"));
+
+      assert.equal(turned.ending?.kind, "finished");
+      assert.deepEqual(failed.ending, { kind: "failed", reason: "the request to Claude failed" });
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+
+  it("scores a command whose turn called two tools but whose second the app never saw as the Worker would score the pair", async () => {
+    const harnessBrain = await startHarnessBrain(fakeHarness, 1, "s3cret");
+    try {
+      // The fake calls pop_out then close_scene. Only pop_out reaches the app, and the turn's log line names both.
+      const bothCase = fixtureCase("video-seek-back");
+      const record = await harnessBrain.runCommand({ ...commandFor("video-seek-back", "cmd-1"), transcript: "do both" }, bothCase);
+      const sample = sampleFromHarnessRecord(bothCase, 0, record);
+
+      assert.deepEqual(record.toolCalls.map((toolCall) => toolCall.name), ["pop_out"]);
+      assert.deepEqual(sample.toolCalls.map((toolCall) => toolCall.name), ["pop_out", "close_scene"]);
+      assert.equal(sample.outcome, "wrongTool");
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+
+  it("cancels a command it gives up on and waits for the cancel, so the command's late turn does not count as the next command's", async () => {
+    const harnessBrain = await startHarnessBrain(fakeHarness, 1, "s3cret", 100);
+    try {
+      // The fake writes this command's turn line 300 ms in, which is after the 100 ms give-up, unless the cancel stops it.
+      const abandonedAt = performance.now();
+      const abandoned = await harnessBrain.runCommand({ ...commandFor("video-seek-back", "cmd-1"), transcript: "please hang" }, fixtureCase("video-seek-back"));
+      const abandonedForMs = performance.now() - abandonedAt;
+      const next = await harnessBrain.runCommand(commandFor("video-seek-back", "cmd-2"), fixtureCase("video-seek-back"));
+
+      assert.equal(abandoned.ending?.kind, "failed");
+      assert.match(abandoned.ending?.kind === "failed" ? abandoned.ending.reason : "", /gave up/);
+      // The fake acknowledges a cancel_task at once. With no cancel the driver would wait out its 2 second acknowledgement limit.
+      assert.ok(abandonedForMs < 1500, `${abandonedForMs} ms`);
+      assert.ok(abandoned.logLines.every((logLine) => !logLine.includes("tokens in 999")), String(abandoned.logLines));
+      // Without the cancel, the late "tokens in 999" turn would be the next command's first turn. Without waiting for the
+      // cancel's acknowledgement, the second stray "tokens in 777" turn would be.
+      assert.deepEqual(next.turns.map((turn) => turn.inputTokens), [100]);
+      assert.equal(sampleFromHarnessRecord(fixtureCase("video-seek-back"), 0, next).outcome, "wrongTool");
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+
+  it("records a command as failed when the harness has already exited, with no write error escaping", async () => {
+    const dyingHarness = { command: process.execPath, args: ["-e", "console.log(JSON.stringify({type:'ready'})); setTimeout(() => process.exit(1), 50)"] };
+    const harnessBrain = await startHarnessBrain(dyingHarness, 1, "s3cret");
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const records = [
+        await harnessBrain.runCommand(commandFor("video-seek-back", "cmd-1"), fixtureCase("video-seek-back")),
+        await harnessBrain.runCommand(commandFor("video-seek-back", "cmd-2"), fixtureCase("video-seek-back")),
+      ];
+
+      for (const record of records) {
+        assert.equal(record.ending?.kind, "failed");
+      }
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+
+  it("records a command as failed at once when the harness closed its input but is still running, without a write error ending the run", async () => {
+    // Closing fd 0 closes the child's end of the pipe, so the driver's next write fails with EPIPE while the process lives on.
+    // The child closes it before it says ready, since a write that lands in the pipe before the close gets no error at all.
+    const deafHarness = { command: process.execPath, args: ["-e", "require('fs').closeSync(0); console.log(JSON.stringify({type:'ready'})); setTimeout(() => {}, 3000)"] };
+    const harnessBrain = await startHarnessBrain(deafHarness, 1, "s3cret", 20_000);
+    try {
+      const writtenAt = performance.now();
+      const record = await harnessBrain.runCommand(commandFor("video-seek-back", "cmd-1"), fixtureCase("video-seek-back"));
+
+      assert.equal(record.ending?.kind, "failed");
+      assert.ok(performance.now() - writtenAt < 1500, "the failed write should end the command without waiting for the harness to exit");
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+
+  it("records a harness that dies as a failed command, with the secret scrubbed from its stderr", async () => {
+    const dyingHarness = { command: process.execPath, args: ["-e", "console.log(JSON.stringify({type:'ready'})); console.error('boom s3cret'); process.exit(1)"] };
+    const harnessBrain = await startHarnessBrain(dyingHarness, 1, "s3cret");
+    try {
+      const record = await harnessBrain.runCommand(commandFor("video-seek-back", "cmd-1"), fixtureCase("video-seek-back"));
+
+      assert.equal(record.ending?.kind, "failed");
+      const reason = record.ending?.kind === "failed" ? record.ending.reason : "";
+      assert.match(reason, /exited with code 1/);
+      assert.ok(reason.includes("boom [secret]") && !reason.includes("s3cret"), reason);
+    } finally {
+      harnessBrain.stop();
+    }
+  });
+});
+
+describe("harnessParityGate", () => {
+  const workerSummary = summarizeSamples([sample({ totalMs: 1000, costUSD: 0.001 }), sample({ totalMs: 1000, costUSD: 0.001 })]);
+  const harnessSummary = (overrides: Partial<BrainSample>) =>
+    summarizeSamples([sample({ backend: "harness", totalMs: 1000, costUSD: 0.001, ...overrides }), sample({ backend: "harness", totalMs: 1000, costUSD: 0.001, ...overrides })]);
+
+  it("passes when every harness run passes, p50 is within 100 ms, and cost is within 1.5 times", () => {
+    const gate = harnessParityGate(workerSummary, harnessSummary({ totalMs: 1100, costUSD: 0.0015 }));
+
+    assert.equal(gate.passed, true);
+    assert.equal(gate.checks.length, 3);
+  });
+
+  it("fails on a harness run that does not pass", () => {
+    const gate = harnessParityGate(workerSummary, summarizeSamples([sample({ backend: "harness" }), sample({ backend: "harness", outcome: "wrongTool" })]));
+
+    assert.equal(gate.passed, false);
+    assert.equal(gate.checks[0].passed, false);
+  });
+
+  it("fails when the harness's p50 is more than 100 ms above the Worker's", () => {
+    const gate = harnessParityGate(workerSummary, harnessSummary({ totalMs: 1101 }));
+
+    assert.deepEqual(gate.checks.map((check) => check.passed), [true, false, true]);
+  });
+
+  it("fails when the first-turn cost is above 1.5 times the Worker's, and when it is unknown", () => {
+    assert.deepEqual(harnessParityGate(workerSummary, harnessSummary({ costUSD: 0.0016 })).checks.map((check) => check.passed), [true, true, false]);
+    assert.deepEqual(harnessParityGate(workerSummary, harnessSummary({ costUSD: null })).checks.map((check) => check.passed), [true, true, false]);
+  });
+});
+
+describe("exitCodeOfGate", () => {
+  it("is what a run sets as its exit code once the result file is saved, which only a run against a live Worker could show", () => {
+    const runSource = readFileSync(join(benchDirectory, "brainEvals.ts"), "utf8");
+
+    assert.ok(runSource.includes("process.exitCode = exitCodeOfGate(gate);"));
+  });
+
+  it("is nonzero only when the gate ran and failed, so a failed parity run stops a script that checks the exit code", () => {
+    assert.equal(exitCodeOfGate({ passed: false }), 1);
+    assert.equal(exitCodeOfGate({ passed: true }), 0);
+    assert.equal(exitCodeOfGate(undefined), 0);
+  });
+});
+
+describe("the full-command columns", () => {
+  it("reports the full command's p50 and mean cost for harness samples, and null for Worker samples", () => {
+    const workerOnly = summarizeSamples([sample({}), sample({})]);
+    const harnessOnly = summarizeSamples([
+      sample({ backend: "harness", fullCommandMs: 800, fullCommandCostUSD: 0.002 }),
+      sample({ backend: "harness", fullCommandMs: 1200, fullCommandCostUSD: 0.004 }),
+    ]);
+
+    assert.equal(workerOnly.fullCommandP50Ms, null);
+    assert.equal(workerOnly.meanFullCommandCostUSD, null);
+    assert.equal(harnessOnly.fullCommandP50Ms, 800);
+    assert.equal(harnessOnly.meanFullCommandCostUSD, 0.003);
+  });
+
+  it("says unknown when a harness command has no cost, so a failed command never reads as free", () => {
+    const summary = summarizeSamples([
+      sample({ backend: "harness", fullCommandMs: 800, fullCommandCostUSD: 0.002 }),
+      sample({ backend: "harness", fullCommandMs: 900, fullCommandCostUSD: null }),
+    ]);
+
+    assert.equal(summary.meanFullCommandCostUSD, null);
   });
 });
