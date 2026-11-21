@@ -427,7 +427,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
 
     /// Resolves the "?" label once an answer is graded. Only the bundled frame pop-out page plays
     /// the answer moment. A generated page still just reveals the name, and keeps its "?" after a first wrong answer.
-    func revealQuizLabel(outcome: LiveSceneRevealOutcome) {
+    /// `correctAnswerSound` is the shown theme's sound for a right answer.
+    func revealQuizLabel(outcome: LiveSceneRevealOutcome, correctAnswerSound: ThemeSound) {
         guard case .showing(isFramePopout: true) = overlayPhase else {
             if outcome != .shakeAndKeepTheQuestionMark {
                 reveal()
@@ -436,7 +437,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         }
         evaluateOnThePage("window.liveScene.answerMoment(outcome)", arguments: ["outcome": outcome.rawValue])
         if outcome == .celebrateCorrectName {
-            NSSound(named: NSSound.Name("Glass"))?.play()
+            correctAnswerSound.play()
         }
     }
 

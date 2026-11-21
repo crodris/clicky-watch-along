@@ -256,16 +256,20 @@ extension VolleyballCursorColors {
 
 // MARK: - Theme
 
-/// What the learner picked in the menu bar panel's "Team theme" section or the settings dial's Team fan.
+/// What the learner picked in the menu bar panel's "Team theme" section or the settings dial's Team fan, or designed in
+/// the Theme Studio.
 enum CompanionTheme: Equatable {
     case clickyBlue
     case school(HaikyuSchool)
     /// Every agent is a player from any team, picked at random among those the agent list does not show, and the
     /// cursor stays Clicky blue.
     case random
+    /// A theme the learner designed in the Theme Studio, which sets the cursor, its colors, the agent colors, and the sounds.
+    case custom(CustomTheme)
 
-    /// Every choice in the order the menu bar panel's picker and the settings dial's Team fan show them: Clicky blue,
-    /// the ten schools, then Random.
+    /// The built-in choices in the order the menu bar panel's picker and the settings dial's Team fan show them: Clicky blue,
+    /// the ten schools, then Random. The saved custom themes are not here, so the dial's Team fan keeps its ring of
+    /// twelve. The menu bar panel lists them after these.
     static let allChoices: [CompanionTheme] =
         [.clickyBlue] + HaikyuSchool.allCases.map(CompanionTheme.school) + [.random]
 
@@ -274,6 +278,7 @@ enum CompanionTheme: Equatable {
         case .clickyBlue: return "Clicky blue"
         case .school(let school): return school.displayName
         case .random: return "Random"
+        case .custom(let customTheme): return customTheme.name
         }
     }
 
@@ -283,14 +288,20 @@ enum CompanionTheme: Equatable {
         case .clickyBlue: return "clickyBlue"
         case .school(let school): return "school:" + school.rawValue
         case .random: return "random"
+        case .custom(let customTheme): return "custom:" + customTheme.id
         }
     }
 
-    init(rawValue: String) {
+    /// `savedCustomThemes` is where a `custom:<id>` is looked up. An id no saved theme has, such as a theme whose
+    /// folder was deleted, reads as Clicky blue.
+    init(rawValue: String, savedCustomThemes: [CustomTheme] = []) {
         if rawValue == "random" {
             self = .random
         } else if rawValue.hasPrefix("school:"), let school = HaikyuSchool(rawValue: String(rawValue.dropFirst("school:".count))) {
             self = .school(school)
+        } else if rawValue.hasPrefix("custom:"),
+                  let customTheme = savedCustomThemes.first(where: { $0.id == String(rawValue.dropFirst("custom:".count)) }) {
+            self = .custom(customTheme)
         } else {
             self = .clickyBlue
         }
@@ -301,13 +312,15 @@ enum CompanionTheme: Equatable {
         switch self {
         case .clickyBlue, .random: return DS.Colors.overlayCursorBlue
         case .school(let school): return school.accentColor
+        case .custom(let customTheme): return Color(hex: customTheme.accentHex)
         }
     }
 
     /// A school theme draws the cursor as a volleyball in these colors. Nil keeps the triangle, so Random stays Clicky blue.
+    /// A custom theme draws its own cursor (`CustomCursorView`), so it has no volleyball either.
     var cursorVolleyballColors: VolleyballCursorColors? {
         switch self {
-        case .clickyBlue, .random: return nil
+        case .clickyBlue, .random, .custom: return nil
         case .school(let school): return school.volleyballColors
         }
     }
@@ -317,6 +330,7 @@ enum CompanionTheme: Equatable {
         switch self {
         case .clickyBlue, .random: return .white
         case .school(let school): return school.contrastColor
+        case .custom(let customTheme): return Color(hex: customTheme.contrastHex)
         }
     }
 
@@ -325,6 +339,7 @@ enum CompanionTheme: Equatable {
         switch self {
         case .clickyBlue, .random: return DS.Colors.overlayCursorBlueHex
         case .school(let school): return school.accentHex
+        case .custom(let customTheme): return customTheme.accentHex
         }
     }
 
@@ -332,11 +347,30 @@ enum CompanionTheme: Equatable {
         switch self {
         case .clickyBlue, .random: return "#ffffff"
         case .school(let school): return school.contrastHex
+        case .custom(let customTheme): return customTheme.contrastHex
         }
+    }
+
+    /// The three sounds Clicky plays for an agent finishing, a right quiz answer, and an agent waiting for the learner's
+    /// OK. Only a custom theme changes them, so a built-in theme keeps the sounds Clicky always had.
+    var sounds: CustomThemeSounds {
+        if case .custom(let customTheme) = self { return customTheme.sounds }
+        return .builtIn
+    }
+}
+
+extension ThemeSound {
+    func play() {
+        NSSound(named: NSSound.Name(rawValue))?.play()
     }
 }
 
 /// The one source of truth for the theme. CompanionManager owns it and passes it to the views and the agent store.
+///
+/// `theme` is the saved theme, the only one written to UserDefaults. While the Theme Studio is open, `previewTheme` is the
+/// idea the learner is trying, and `shownTheme` is what every view that draws the theme reads: the preview, else the
+/// saved theme. A view that read `theme` would not show the preview, and one that read `previewTheme` would show nothing
+/// when no studio is open.
 @MainActor
 final class CompanionThemeSettings: ObservableObject {
     static let userDefaultsKey = "companionTheme"
@@ -345,11 +379,58 @@ final class CompanionThemeSettings: ObservableObject {
         didSet { userDefaults.set(theme.rawValue, forKey: Self.userDefaultsKey) }
     }
 
-    private let userDefaults: UserDefaults
+    /// The custom themes the learner saved, sorted by name, for the menu bar panel's picker.
+    @Published private(set) var savedCustomThemes: [CustomTheme]
 
-    init(userDefaults: UserDefaults = .standard) {
+    /// The idea the Theme Studio is previewing on the real cursor. Nil when the studio is closed. Never saved.
+    @Published private(set) var previewTheme: CompanionTheme?
+    /// The picture the previewed idea uses, since an idea that is not saved yet has no picture.jpg to load.
+    @Published private(set) var previewPicture: NSImage?
+
+    private let userDefaults: UserDefaults
+    private let customThemeStore: CustomThemeStore
+
+    init(userDefaults: UserDefaults = .standard, customThemeStore: CustomThemeStore = .standard()) {
         self.userDefaults = userDefaults
-        theme = CompanionTheme(rawValue: userDefaults.string(forKey: Self.userDefaultsKey) ?? "")
+        self.customThemeStore = customThemeStore
+        let savedCustomThemes = customThemeStore.loadSavedThemes()
+        self.savedCustomThemes = savedCustomThemes
+        theme = CompanionTheme(rawValue: userDefaults.string(forKey: Self.userDefaultsKey) ?? "", savedCustomThemes: savedCustomThemes)
+    }
+
+    /// What the menu bar panel's "Team theme" section lists: the built-in choices, then the themes the learner designed and saved.
+    var menuBarThemeChoices: [CompanionTheme] {
+        CompanionTheme.allChoices + savedCustomThemes.map(CompanionTheme.custom)
+    }
+
+    /// What every view that draws the theme reads: the preview while the studio is open, else the saved theme.
+    var shownTheme: CompanionTheme { previewTheme ?? theme }
+
+    /// The picture the shown custom theme uses, for its cursor and its agent tokens. Nil when it uses none.
+    var shownThemePicture: NSImage? {
+        if previewTheme != nil { return previewPicture }
+        guard case .custom(let customTheme) = theme, customTheme.usesPicture else { return nil }
+        return CustomThemePictureCache.image(forThemeID: customTheme.id)
+    }
+
+    func preview(_ idea: CustomTheme, picture: NSImage?) {
+        previewTheme = .custom(idea)
+        previewPicture = picture
+    }
+
+    func clearPreview() {
+        previewTheme = nil
+        previewPicture = nil
+    }
+
+    /// Saves the idea to disk, makes it the theme, and ends the preview. Nothing changes when the save fails.
+    @discardableResult
+    func saveAndApply(_ idea: CustomTheme, pictureJPEG: Data?) throws -> CustomTheme {
+        let savedTheme = try customThemeStore.save(idea, pictureJPEG: pictureJPEG)
+        savedCustomThemes = customThemeStore.loadSavedThemes()
+        clearPreview()
+        theme = .custom(savedTheme)
+        return savedTheme
     }
 }
 
@@ -378,6 +459,9 @@ func nextHaikyuPlayer(
             return playerNotWorking
         }
         return roster[playersOfRunningAgents.count % roster.count]
+    case .custom:
+        // A custom theme sets its own agent colors, so its agents are not players.
+        return nil
     case .random:
         let everyPlayer = HaikyuSchool.allCases.flatMap(\.roster)
         let unlistedPlayers = everyPlayer.filter { !playersStillListed.contains($0) }
@@ -405,6 +489,22 @@ enum HaikyuPortraitCache {
         let portrait = portraitURL.flatMap { NSImage(contentsOf: $0) }
         portraitsByResourceName[resourceName] = .some(portrait)
         return portrait
+    }
+}
+
+/// Loads the picture a saved custom theme keeps (picture.jpg), once. Nil when the theme has none or the file is unreadable.
+/// Themes never change after they are saved, so an id's picture is cached for the life of the app.
+@MainActor
+enum CustomThemePictureCache {
+    private static var imagesByThemeID: [String: NSImage?] = [:]
+
+    static func image(forThemeID themeID: String) -> NSImage? {
+        if let cachedImage = imagesByThemeID[themeID] {
+            return cachedImage
+        }
+        let image = NSImage(contentsOf: CustomThemeStore.standard().pictureURL(forThemeID: themeID))
+        imagesByThemeID[themeID] = .some(image)
+        return image
     }
 }
 

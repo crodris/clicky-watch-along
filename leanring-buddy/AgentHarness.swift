@@ -50,7 +50,7 @@ nonisolated enum HarnessCapability: Equatable, Sendable {
     }
 }
 
-/// "once" covers one call. "always" covers that tool at that capability for the rest of the harness process.
+/// "once" covers one call. "always" covers that tool at that capability for the rest of the task that asked.
 nonisolated enum HarnessApprovalScope: String, Equatable, Sendable {
     case once
     case always
@@ -136,7 +136,10 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     /// `skill` names a skill file the harness reads from its skills folders, or is nil for a task with no skill.
     case startTask(taskID: UUID, goal: String, frontTabTitle: String?, frontTabURL: String?, skill: String?)
     /// `content` is a string or an array of content blocks, such as the image block look_at_video returns.
-    case toolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool)
+    /// `sourceURL` is the video link a read_video_captions result is about. The harness lets a task cite only that link
+    /// from it and never reads a link out of `content`, which a video's own text can write, so it is set for that tool
+    /// alone and left out of the line otherwise.
+    case toolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool, sourceURL: String? = nil)
     case cancelTask(taskID: UUID)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
@@ -152,14 +155,18 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "frontTabURL": frontTabURL.map(JSONValue.string) ?? .null,
                 "skill": skill.map(JSONValue.string) ?? .null,
             ])
-        case .toolResult(let taskID, let toolUseID, let content, let isError):
-            return .object([
+        case .toolResult(let taskID, let toolUseID, let content, let isError, let sourceURL):
+            var toolResultFields: [String: JSONValue] = [
                 "type": .string("tool_result"),
                 "taskID": .string(taskID.uuidString),
                 "toolUseID": .string(toolUseID),
                 "content": content,
                 "isError": .bool(isError),
-            ])
+            ]
+            if let sourceURL {
+                toolResultFields["sourceURL"] = .string(sourceURL)
+            }
+            return .object(toolResultFields)
         case .cancelTask(let taskID):
             return .object(["type": .string("cancel_task"), "taskID": .string(taskID.uuidString)])
         case .approvalResult(let approvalID, let approved, let scope):
@@ -482,8 +489,8 @@ final class AgentHarness {
         return taskEvents
     }
 
-    func sendToolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool) {
-        write(.toolResult(taskID: taskID, toolUseID: toolUseID, content: content, isError: isError))
+    func sendToolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool, sourceURL: String? = nil) {
+        write(.toolResult(taskID: taskID, toolUseID: toolUseID, content: content, isError: isError, sourceURL: sourceURL))
     }
 
     /// Answers a request the harness is waiting on. Returns false when none is waiting under this ID.

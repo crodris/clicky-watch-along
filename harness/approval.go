@@ -129,13 +129,15 @@ func (phase approvalPhase) mayRun() bool {
 	return phase == approvalNotRequired || phase == approvalAlreadyGranted || phase == approvalGiven
 }
 
-// standingGrantKey is what "always" covers: one tool at one capability, so approving one tool never approves another.
+// standingGrantKey is what "always" covers: one tool at one capability in one task. Approving one tool never approves
+// another, and approving a link in one task never approves the links of a later task, whose goal the learner has not seen.
 type standingGrantKey struct {
+	taskID     string
 	capability capability
 	tool       toolName
 }
 
-// approvalGate asks the app for approval and remembers "always" answers for the life of the harness process.
+// approvalGate asks the app for approval and remembers "always" answers until the task that gave them ends.
 type approvalGate struct {
 	mutex          sync.Mutex
 	standingGrants map[standingGrantKey]bool
@@ -166,7 +168,7 @@ func (gate *approvalGate) authorize(
 	summary string,
 	send func(outboundMessage),
 ) approvalPhase {
-	key := standingGrantKey{capability: needed, tool: tool}
+	key := standingGrantKey{taskID: taskID, capability: needed, tool: tool}
 	gate.mutex.Lock()
 	phase := startingPhase(needed, gate.standingGrants[key])
 	if phase != approvalAwaitingAnswer {
@@ -188,6 +190,9 @@ func (gate *approvalGate) authorize(
 			gate.mutex.Lock()
 			gate.standingGrants[key] = true
 			gate.mutex.Unlock()
+			// Drop the grant when the task ends, so the map does not grow for the life of the harness process. The
+			// function runs at once, in its own goroutine, when the task already ended.
+			context.AfterFunc(taskContext, func() { gate.forgetGrantsOfTask(taskID) })
 		}
 	case <-taskContext.Done():
 		phase = phase.afterTaskEnds()
@@ -196,6 +201,17 @@ func (gate *approvalGate) authorize(
 		gate.mutex.Unlock()
 	}
 	return phase
+}
+
+// forgetGrantsOfTask drops every "always" grant that task gave.
+func (gate *approvalGate) forgetGrantsOfTask(taskID string) {
+	gate.mutex.Lock()
+	defer gate.mutex.Unlock()
+	for key := range gate.standingGrants {
+		if key.taskID == taskID {
+			delete(gate.standingGrants, key)
+		}
+	}
 }
 
 // deliver hands an answer to the call that waits for it. It returns false for an answer that matches no waiting call,

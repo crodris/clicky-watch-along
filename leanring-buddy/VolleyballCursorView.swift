@@ -26,7 +26,7 @@ struct VolleyballCursorView: View {
 
     var body: some View {
         ZStack {
-            VolleyballFlightStreaks()
+            CursorFlightStreaks()
                 .stroke(flightStreakColor, style: StrokeStyle(lineWidth: flightStreakLineWidth, lineCap: .round))
                 .opacity(min(max(streakOpacity, 0), 1))
             // A light ring outside the outline keeps the ball's edge visible on a dark video frame.
@@ -39,12 +39,13 @@ struct VolleyballCursorView: View {
             VolleyballOutline(radiusInBoxUnits: 10)
                 .stroke(Color(hex: volleyballColors.outlineHex), lineWidth: outlineLineWidth)
         }
-        .frame(width: VolleyballBox.sideLength, height: VolleyballBox.sideLength)
+        .frame(width: CursorDrawingBox.sideLength, height: CursorDrawingBox.sideLength)
     }
 }
 
-/// Maps the design's 24 point box onto a drawing rect.
-private enum VolleyballBox {
+/// Maps the design's 24 point box onto a drawing rect. The custom cursors a learner designs (`SVGPathShape`,
+/// `CustomCursorView`) draw in the same box, so they swap with the volleyball at the same size.
+enum CursorDrawingBox {
     static let sideLength: CGFloat = 24
 
     static func point(_ boxX: CGFloat, _ boxY: CGFloat, in rect: CGRect) -> CGPoint {
@@ -58,8 +59,8 @@ private struct VolleyballOutline: Shape {
     let radiusInBoxUnits: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        let center = VolleyballBox.point(12, 12, in: rect)
-        let radius = radiusInBoxUnits * min(rect.width, rect.height) / VolleyballBox.sideLength
+        let center = CursorDrawingBox.point(12, 12, in: rect)
+        let radius = radiusInBoxUnits * min(rect.width, rect.height) / CursorDrawingBox.sideLength
         return Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
     }
 }
@@ -80,7 +81,7 @@ private struct VolleyballSeams: Shape {
 
         var path = Path()
         for seamCurve in seamCurvesInBoxUnits {
-            let curvePoints = seamCurve.map { VolleyballBox.point($0.0, $0.1, in: rect) }
+            let curvePoints = seamCurve.map { CursorDrawingBox.point($0.0, $0.1, in: rect) }
             path.move(to: curvePoints[0])
             path.addCurve(to: curvePoints[3], control1: curvePoints[1], control2: curvePoints[2])
         }
@@ -88,17 +89,29 @@ private struct VolleyballSeams: Shape {
     }
 }
 
-/// Three motion lines below the ball. The overlay turns the cursor to face its direction of travel
-/// with "up" as forward, so lines below the ball trail behind it. They reach past the frame on purpose.
-private struct VolleyballFlightStreaks: Shape {
+/// Up to three motion lines below the cursor: the long middle line, then the two short side lines. The overlay turns the
+/// cursor to face its direction of travel with "up" as forward, so lines below it trail behind it. They reach past the
+/// frame on purpose. The volleyball always draws three. A custom cursor draws `lineCount` of them (1 is the middle line,
+/// 2 is the two side lines).
+struct CursorFlightStreaks: Shape {
+    var lineCount = 3
+
     func path(in rect: CGRect) -> Path {
+        let middleLine = (x: 12.0, startY: 23.5, endY: 34.0)
+        let leftLine = (x: 7.5, startY: 22.0, endY: 29.0)
+        let rightLine = (x: 16.5, startY: 22.0, endY: 29.0)
+        let linesToDraw: [(x: Double, startY: Double, endY: Double)]
+        switch lineCount {
+        case ...0: linesToDraw = []
+        case 1: linesToDraw = [middleLine]
+        case 2: linesToDraw = [leftLine, rightLine]
+        default: linesToDraw = [middleLine, leftLine, rightLine]
+        }
         var path = Path()
-        path.move(to: VolleyballBox.point(12, 23.5, in: rect))
-        path.addLine(to: VolleyballBox.point(12, 34, in: rect))
-        path.move(to: VolleyballBox.point(7.5, 22, in: rect))
-        path.addLine(to: VolleyballBox.point(7.5, 29, in: rect))
-        path.move(to: VolleyballBox.point(16.5, 22, in: rect))
-        path.addLine(to: VolleyballBox.point(16.5, 29, in: rect))
+        for line in linesToDraw {
+            path.move(to: CursorDrawingBox.point(line.x, line.startY, in: rect))
+            path.addLine(to: CursorDrawingBox.point(line.x, line.endY, in: rect))
+        }
         return path
     }
 }

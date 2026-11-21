@@ -98,13 +98,15 @@ struct ApprovalSummarySeenRanges: Equatable {
 
 // MARK: - Panel
 
-private final class AgentListPanel: NSPanel {
+/// A borderless panel that never becomes key or main, so the app under it keeps the keyboard. The agent list and the Theme
+/// Studio card both use it.
+final class NonKeyFloatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
 /// A click on a panel that is not key would otherwise only be swallowed by AppKit.
-private final class AgentListHostingView<Content: View>: NSHostingView<Content> {
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
@@ -147,7 +149,7 @@ final class AgentListPanelController {
     private let actions: AgentListActions
     /// The queue of requests the learner answers with the Yes, Always, and No buttons of the approval card.
     private let approvalDesk: HarnessApprovalDesk
-    private var panel: AgentListPanel?
+    private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
     private var anchorTopLeft: CGPoint = .zero
@@ -214,12 +216,12 @@ final class AgentListPanelController {
         ) { [weak self] contentSize in
             self?.resizePanel(to: contentSize)
         }
-        let hostingView = AgentListHostingView(rootView: agentListView)
+        let hostingView = FirstMouseHostingView(rootView: agentListView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
         let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeightWithAnApprovalCard))
 
-        let agentListPanel = AgentListPanel(
+        let agentListPanel = NonKeyFloatingPanel(
             contentRect: CGRect(origin: .zero, size: initialSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -343,10 +345,15 @@ private struct HoverAndPointerView: NSViewRepresentable {
     }
 }
 
-private extension View {
-    /// Shows the pointing hand over this view and reports whether the mouse is over it.
-    func hoverAndPointer(_ onHoverChange: @escaping (Bool) -> Void) -> some View {
-        overlay(HoverAndPointerView(onHoverChange: onHoverChange))
+extension View {
+    /// Shows the pointing hand over this view and reports whether the mouse is over it. A disabled control passes
+    /// `isEnabled: false`, so it keeps the arrow and never looks clickable.
+    func hoverAndPointer(isEnabled: Bool = true, _ onHoverChange: @escaping (Bool) -> Void) -> some View {
+        overlay {
+            if isEnabled {
+                HoverAndPointerView(onHoverChange: onHoverChange)
+            }
+        }
     }
 }
 
@@ -388,18 +395,18 @@ private struct AgentListView: View {
 
     /// A school theme borders the panel in the team's color. Every other theme keeps today's thin gray border.
     private var panelBorderColor: Color {
-        if case .school(let school) = themeSettings.theme { return school.accentColor }
+        if case .school(let school) = themeSettings.shownTheme { return school.accentColor }
         return DS.Colors.borderSubtle
     }
 
     private var panelBorderWidth: CGFloat {
-        if case .school = themeSettings.theme { return 1.5 }
+        if case .school = themeSettings.shownTheme { return 1.5 }
         return 1
     }
 
     /// "Agents" with Clicky blue, the team's name after a small accent square for a school, or "Random lineup".
     @ViewBuilder private var headerTitle: some View {
-        switch themeSettings.theme {
+        switch themeSettings.shownTheme {
         case .clickyBlue:
             Text("Agents")
                 .font(.system(size: 13, weight: .semibold))
@@ -415,6 +422,21 @@ private struct AgentListView: View {
             Text("Random lineup")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
+        case .custom(let customTheme):
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color(hex: customTheme.accentHex))
+                .frame(width: 10, height: 10)
+            Text(customTheme.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+
+    /// "running" with Clicky blue or a custom theme, and "on court" for the volleyball themes.
+    private var runningAgentsWord: String {
+        switch themeSettings.shownTheme {
+        case .clickyBlue, .custom: return "running"
+        case .school, .random: return "on court"
         }
     }
 
@@ -423,7 +445,7 @@ private struct AgentListView: View {
             HStack(spacing: 8) {
                 headerTitle
                 Spacer()
-                Text("\(store.agents.filter(\.isRunning).count) \(themeSettings.theme == .clickyBlue ? "running" : "on court")")
+                Text("\(store.agents.filter(\.isRunning).count) \(runningAgentsWord)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -563,10 +585,14 @@ private struct AgentRowView: View {
     }
 
     @ViewBuilder private var rowIcon: some View {
-        if let player = agent.player {
+        if case .player(let player) = agent.face {
             HaikyuPortraitView(player: player, size: 28, isGrayscale: agent.phase.isFailed)
                 .overlay(Circle().stroke(agentListPortraitBorderColor(phase: agent.phase, school: player.school), lineWidth: 2))
                 // A finished agent's portrait steps back, as its meter turns green.
+                .opacity(agent.finishedResult == nil ? 1 : 0.5)
+        } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
+            ThemePictureFaceView(picture: themePicture, size: 28, isGrayscale: agent.phase.isFailed)
+                .overlay(Circle().stroke(meterColor, lineWidth: 2))
                 .opacity(agent.finishedResult == nil ? 1 : 0.5)
         } else {
             AgentTriangleView(agent: agent, size: 11)
@@ -657,7 +683,7 @@ private struct AgentRowView: View {
             }
         }
         // Lines up under the title, which starts after the icon.
-        .padding(.leading, agent.player == nil ? 40 : 52)
+        .padding(.leading, agent.face == .triangle ? 40 : 52)
         .padding(.trailing, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -842,7 +868,8 @@ private struct ApprovalCardView: View {
                     answerApproval(approvalRequest.approvalID, false, .once)
                 }
             }
-            Text(verbatim: "Or say yes or no.")
+            // The panel is never key, so a tooltip would not show, and the card says how long Always lasts.
+            Text(verbatim: "Always lasts until this task ends. Or say yes or no.")
                 .font(.system(size: 10))
                 .foregroundColor(DS.Colors.textSecondary)
         }

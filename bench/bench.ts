@@ -366,6 +366,45 @@ function pictureFlowsCase(id: string, frameFileName: string, partLabels: string[
   };
 }
 
+/**
+ * /theme-ideas enforces every theme rule itself (3 ideas, colors, contrast, paths, sounds), and answers 422 for a reply
+ * that breaks one, so a 200 reply already passes them. This check reads the reply the way the app does and adds what the
+ * route cannot know: that a request with no picture never uses one, and that a request with a picture does.
+ */
+function themeIdeasCase(id: string, description: string, requestWords: string, pictureFrameFileName: string | undefined): BenchCase {
+  const hexColor = /^#[0-9A-F]{6}$/;
+  return {
+    id,
+    route: "/theme-ideas",
+    description,
+    requestBody: () => ({
+      request: requestWords,
+      ...(pictureFrameFileName === undefined ? {} : { picture: { jpegBase64: fixtureBase64(pictureFrameFileName), width: 1280, height: 720 } }),
+    }),
+    checkReply: (replyText) => {
+      const reply = parseJSONObject(replyText);
+      const ideas = (Array.isArray(reply?.ideas) ? reply.ideas : []).filter(isRecord);
+      const cursorOf = (idea: Record<string, unknown>) => (isRecord(idea.cursor) ? idea.cursor : {});
+      const pathsOf = (idea: Record<string, unknown>): string[] => {
+        const shapes: unknown = cursorOf(idea).shapes;
+        return (Array.isArray(shapes) ? shapes : []).filter(isRecord).map((shape) => String(shape.d));
+      };
+      const colorsOf = (idea: Record<string, unknown>) => [idea.accent, idea.contrast, ...(Array.isArray(idea.agentColors) ? idea.agentColors : [])];
+      const picturesUsed = ideas.filter((idea) => idea.usesPicture === true).length;
+      const pictureCursors = ideas.filter((idea) => cursorOf(idea).kind === "picture").length;
+      const problems = [
+        ...(ideas.length === 3 ? [] : [`${ideas.length} ideas`]),
+        ...(ideas.every((idea) => colorsOf(idea).every((color) => typeof color === "string" && hexColor.test(color))) ? [] : ["a color is not uppercase #RRGGBB"]),
+        ...(ideas.every((idea) => pathsOf(idea).every((pathData) => !/[Aa]/.test(pathData))) ? [] : ["a path has an arc"]),
+        ...(pictureFrameFileName === undefined && (picturesUsed > 0 || pictureCursors > 0) ? ["uses a picture that was never sent"] : []),
+        ...(pictureFrameFileName !== undefined && picturesUsed === 0 ? ["no idea uses the picture"] : []),
+      ];
+      const names = ideas.map((idea) => String(idea.name)).join(", ");
+      return { passed: problems.length === 0, detail: `${names || "no ideas"}; ${picturesUsed} use the picture${problems.length === 0 ? "" : `: ${problems.join("; ")}`}` };
+    },
+  };
+}
+
 export const benchCases: BenchCase[] = [
   {
     id: "chat-first",
@@ -485,6 +524,8 @@ export const benchCases: BenchCase[] = [
     "Draws air and hot gas through a turbofan cutaway",
   ),
   pictureFlowsCase("picture-flows-bicycle", "bicycle-diagram-frame.jpg", ["Front wheel", "Rear wheel", "Chain", "Pedal"], { kind: "nothingFlows" }, "Draws no flow for a bicycle, whose chain is a moving part"),
+  themeIdeasCase("theme-ideas-words", "Designs three theme ideas from words only: something cozy for night", "something cozy for night", undefined),
+  themeIdeasCase("theme-ideas-picture", "Designs three theme ideas from The Starry Night frame, with at least one that uses the picture", "make my theme from this picture", "starry-night-frame.jpg"),
   {
     id: "landmark",
     route: "/landmark",
