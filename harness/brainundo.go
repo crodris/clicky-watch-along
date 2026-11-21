@@ -319,10 +319,11 @@ func (run *sessionRun) noteChange(change appliedChange) {
 // noteACallWhoseEffectIsUnknown puts a change at the front of the record, for a call a press cancelled while the app was
 // still running it. The app may already have applied it (page JavaScript keeps running, and play_video spends about 1.6
 // seconds on its play check), so "undo that" must not reach past it. A cut-off page call that the app had started keeps
-// its inverse, so "undo that" reverses it (aCutOffCallHasRun), and any other cut-off call is a change with no inverse. For a cancelled undo it
-// also keeps the change the undo reversed from being undone a second time. It also writes the call's action line, marked
-// as cut off, so the next command's interrupted_before tag names it. The system prompt tells the model to reverse an
-// earlier action itself when asked to undo, and a call the model never hears of would let it reach past the cut-off call.
+// its inverse, so "undo that" reverses it (aCutOffCallHasRun), and any other cut-off call is a change with no inverse.
+// For a cancelled undo it also keeps the change the undo reversed from being undone a second time. It also writes the
+// call's action line, marked as cut off, so the next command's interrupted_before tag names it. The system prompt tells
+// the model to reverse an earlier action itself when asked to undo, and a call the model never hears of would let it
+// reach past the cut-off call.
 func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall, isAnUndo bool, theAppHadStartedIt bool) {
 	run.actionLines = append(run.actionLines, voiceToolCutOffActionLine(cancelledCall))
 	run.noteChange(appliedChange{
