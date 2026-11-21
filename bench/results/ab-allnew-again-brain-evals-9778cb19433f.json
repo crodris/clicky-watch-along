@@ -1,0 +1,797 @@
+{
+  "label": "ab-allnew-again",
+  "benchKind": "brain-evals",
+  "commitSHA": "9778cb19433f",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-21T05:03:13.251Z",
+  "runCount": 20,
+  "port": 8797,
+  "backend": "harness",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 20,
+        "passed": 16,
+        "passRate": 0.8,
+        "wrongTool": 4,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 831,
+        "p95Ms": 979,
+        "totalCostUSD": 0.00297,
+        "meanCostUSD": 0.000149,
+        "fullCommandP50Ms": 831,
+        "meanFullCommandCostUSD": 0.000149
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 20,
+          "passed": 16,
+          "passRate": 0.8,
+          "wrongTool": 4,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 831,
+          "p95Ms": 979,
+          "totalCostUSD": 0.00297,
+          "meanCostUSD": 0.000149,
+          "fullCommandP50Ms": 831,
+          "meanFullCommandCostUSD": 0.000149
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    }
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1000.188083,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 94
+        }
+      ],
+      "costUSD": 0.0001441,
+      "fullCommandCostUSD": 0.0001441,
+      "totalMs": 999.9083330000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 929.6782090000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 107
+        }
+      ],
+      "costUSD": 0.0001506,
+      "fullCommandCostUSD": 0.0001506,
+      "totalMs": 929.4536250000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 764.1665830000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 94
+        }
+      ],
+      "costUSD": 0.0001441,
+      "fullCommandCostUSD": 0.0001441,
+      "totalMs": 763.9372910000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 973.0716659999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 134
+        }
+      ],
+      "costUSD": 0.0001641,
+      "fullCommandCostUSD": 0.0001641,
+      "totalMs": 972.8904159999997,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 850.4416660000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 97
+        }
+      ],
+      "costUSD": 0.0001456,
+      "fullCommandCostUSD": 0.0001456,
+      "totalMs": 850.1541659999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 5,
+      "httpStatus": 0,
+      "fullCommandMs": 865.8429580000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 100
+        }
+      ],
+      "costUSD": 0.0001471,
+      "fullCommandCostUSD": 0.0001471,
+      "totalMs": 865.4635829999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 6,
+      "httpStatus": 0,
+      "fullCommandMs": 832.122042,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 97
+        }
+      ],
+      "costUSD": 0.0001456,
+      "fullCommandCostUSD": 0.0001456,
+      "totalMs": 831.9890839999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 7,
+      "httpStatus": 0,
+      "fullCommandMs": 854.2860000000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 120
+        }
+      ],
+      "costUSD": 0.0001571,
+      "fullCommandCostUSD": 0.0001571,
+      "totalMs": 854.0077499999998,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 8,
+      "httpStatus": 0,
+      "fullCommandMs": 804.5344169999989,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 108
+        }
+      ],
+      "costUSD": 0.0001511,
+      "fullCommandCostUSD": 0.0001511,
+      "totalMs": 804.3902079999989,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 9,
+      "httpStatus": 0,
+      "fullCommandMs": 819.3018749999992,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 99
+        }
+      ],
+      "costUSD": 0.00014659999999999999,
+      "fullCommandCostUSD": 0.00014659999999999999,
+      "totalMs": 819.0662499999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 10,
+      "httpStatus": 0,
+      "fullCommandMs": 764.6224590000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 102
+        }
+      ],
+      "costUSD": 0.0001481,
+      "fullCommandCostUSD": 0.0001481,
+      "totalMs": 764.4735000000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 11,
+      "httpStatus": 0,
+      "fullCommandMs": 804.8132919999989,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 105
+        }
+      ],
+      "costUSD": 0.0001496,
+      "fullCommandCostUSD": 0.0001496,
+      "totalMs": 804.6491249999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 12,
+      "httpStatus": 0,
+      "fullCommandMs": 694.4611249999998,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.0001391,
+      "fullCommandCostUSD": 0.0001391,
+      "totalMs": 694.3663329999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 13,
+      "httpStatus": 0,
+      "fullCommandMs": 782.8059159999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 88
+        }
+      ],
+      "costUSD": 0.0001411,
+      "fullCommandCostUSD": 0.0001411,
+      "totalMs": 782.6345000000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 14,
+      "httpStatus": 0,
+      "fullCommandMs": 979.3206249999985,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 113
+        }
+      ],
+      "costUSD": 0.0001536,
+      "fullCommandCostUSD": 0.0001536,
+      "totalMs": 979.1303749999988,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 15,
+      "httpStatus": 0,
+      "fullCommandMs": 800.8009590000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 89
+        }
+      ],
+      "costUSD": 0.0001416,
+      "fullCommandCostUSD": 0.0001416,
+      "totalMs": 800.2989589999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 16,
+      "httpStatus": 0,
+      "fullCommandMs": 830.9245419999988,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 98
+        }
+      ],
+      "costUSD": 0.0001461,
+      "fullCommandCostUSD": 0.0001461,
+      "totalMs": 830.6192919999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 17,
+      "httpStatus": 0,
+      "fullCommandMs": 754.1484579999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 82
+        }
+      ],
+      "costUSD": 0.0001381,
+      "fullCommandCostUSD": 0.0001381,
+      "totalMs": 754.0157920000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "running it now"
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 18,
+      "httpStatus": 0,
+      "fullCommandMs": 882.1598749999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 119
+        }
+      ],
+      "costUSD": 0.00015659999999999998,
+      "fullCommandCostUSD": 0.00015659999999999998,
+      "totalMs": 881.7835840000007,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "experiment-run-locked",
+      "context": "experimentGuess",
+      "runIndex": 19,
+      "httpStatus": 0,
+      "fullCommandMs": 903.3587920000009,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 395,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5760,
+          "outputTokens": 131
+        }
+      ],
+      "costUSD": 0.0001626,
+      "fullCommandCostUSD": 0.0001626,
+      "totalMs": 903.162957999999,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "answer_with_screen",
+          "input": {}
+        }
+      ],
+      "spokenText": ""
+    }
+  ]
+}

@@ -282,7 +282,9 @@ type voiceCommandFinishedMessage struct {
 
 // logMessage is a line the app prints, since stdout carries only protocol lines.
 type logMessage struct {
-	Type    string `json:"type"`
+	Type string `json:"type"`
+	// TaskID names the voice command the line is about, for the few lines the app acts on, and is left out of the rest.
+	TaskID  string `json:"taskID,omitempty"`
 	Message string `json:"message"`
 }
 
@@ -327,6 +329,11 @@ func newTaskFailedMessage(taskID string, reason string) taskFailedMessage {
 
 func newLogMessage(message string) logMessage {
 	return logMessage{Type: "log", Message: message}
+}
+
+// newCommandLogMessage is a log line about one voice command, which the app also reads.
+func newCommandLogMessage(commandID string, message string) logMessage {
+	return logMessage{Type: "log", TaskID: commandID, Message: message}
 }
 
 // protocolWriter writes each message as one line. Tasks run in their own goroutines, so writes are serialized to keep

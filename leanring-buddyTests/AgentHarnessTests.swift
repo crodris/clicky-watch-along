@@ -155,6 +155,29 @@ struct AgentHarnessTests {
         #expect(!router.isTracking(taskID: firstTaskID))
     }
 
+    @Test func theBrainsPlanningLineReachesOnlyTheCommandItNamesAsAnEvent() async throws {
+        let planningLine = #"{"type":"log","taskID":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","message":"Brain: planning on claude-sonnet-5-5"}"#
+        let planningMessage = try HarnessMessage(line: planningLine)
+        #expect(planningMessage == .log(taskID: firstTaskID, message: "Brain: planning on claude-sonnet-5-5"))
+
+        let router = HarnessTaskRouter()
+        let firstCommandEvents = router.register(taskID: firstTaskID)
+        let secondCommandEvents = router.register(taskID: secondTaskID)
+        router.route(planningMessage)
+        // A log line with no command, or about another thing, is only printed.
+        router.route(.log(message: "Brain: planning on claude-sonnet-5-5"))
+        router.route(.log(taskID: secondTaskID, message: "Brain: turn 1 on claude-haiku-5-5 stopped for tool_use"))
+        router.route(.voiceCommandFinished(taskID: firstTaskID, spokenLine: "", gaveUp: false))
+        router.route(.voiceCommandFinished(taskID: secondTaskID, spokenLine: "", gaveUp: false))
+
+        var firstEvents: [HarnessTaskEvent] = []
+        for await event in firstCommandEvents { firstEvents.append(event) }
+        var secondEvents: [HarnessTaskEvent] = []
+        for await event in secondCommandEvents { secondEvents.append(event) }
+        #expect(firstEvents == [.planningTurnStarted, .voiceCommandFinished(spokenLine: "", gaveUp: false)])
+        #expect(secondEvents == [.voiceCommandFinished(spokenLine: "", gaveUp: false)])
+    }
+
     @Test func aVoiceCommandAndItsToolResultAreEachOneLineWithTheFieldsTheBrainReads() throws {
         let rotateTool = VoiceToolDescriptor(
             name: "rotate_model",

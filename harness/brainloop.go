@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,8 @@ type brainRunner struct {
 	client  anthropic.Client
 	writer  *protocolWriter
 	session *brainSession
+	// planningTurnTimeout is the Sonnet turn's time limit. Zero means brainPlanningTurnTimeout.
+	planningTurnTimeout time.Duration
 }
 
 // send writes a message for a command unless the command was cancelled, since a cancelled command sends nothing more.
@@ -35,9 +38,15 @@ func (brain *brainRunner) logTheCancel(turnNumber int) {
 	brain.writer.send(newLogMessage(fmt.Sprintf("Brain: command cancelled during turn %d", turnNumber)))
 }
 
-// runCommand runs one voice command to its end: voice_command_finished with the spoken line, or task_failed when a turn
-// fails, which sends the app down its router failure fallback. A cancelled command writes only the cancel log line. A
-// cancelled or failed command is rolled back out of the session, and a command that ends whole stays in it.
+// runCommand runs one voice command to its end: voice_command_finished with the spoken line, or task_failed when a Haiku
+// turn fails, which sends the app down its router failure fallback. A failed Sonnet turn ends the command as gave up
+// instead, since the command's earlier calls already changed the screen. A cancelled command writes only the cancel log
+// line. A cancelled or Haiku-failed command is rolled back out of the session, and a command that ends whole, or gave up
+// after a failed Sonnet turn, stays in it. A cancel is checked before the Sonnet failure, so a press during the Sonnet
+// turn rolls the command back like one during a Haiku turn.
+//
+// The command gets up to mostBrainHaikuTurns turns on Haiku. When the last of them still needs the model, it gets one
+// more turn on Sonnet (the turn budget rule) before the gave-up line, with the same tools and the same history.
 func (brain *brainRunner) runCommand(commandContext context.Context, command *runningTask, voiceCommand voiceCommandMessage) {
 	tools, err := brainTools(voiceCommand.Tools)
 	if err != nil {
@@ -47,13 +56,23 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 	offered := offeredToolNames(tools)
 	run := brain.session.begin(voiceCommand.Transcript, voiceCommand.SceneState)
 
-	for turnIndex := 0; turnIndex < mostBrainTurns; turnIndex++ {
+	for turnIndex := 0; turnIndex <= mostBrainHaikuTurns; turnIndex++ {
 		turnNumber := turnIndex + 1
-		reply, err := brain.requestTurn(commandContext, run, tools, turnNumber)
+		isThePlanningTurn := turnIndex == mostBrainHaikuTurns
+		if isThePlanningTurn {
+			brain.send(commandContext, newCommandLogMessage(voiceCommand.TaskID, brainPlanningLogLine))
+		}
+		reply, err := brain.requestTurn(commandContext, run, tools, turnNumber, isThePlanningTurn)
 		if commandContext.Err() != nil {
 			brain.logTheCancel(turnNumber)
 			run.abandon()
 			return
+		}
+		if err != nil && isThePlanningTurn {
+			// The extra turn is optional, so its failure leaves the command where Haiku's last turn did: it gives up
+			// and says so, and the app does not run the keyword path over actions the command already ran.
+			brain.send(commandContext, newLogMessage(fmt.Sprintf("Brain: the planning turn failed, so the command gives up: %v", err)))
+			break
 		}
 		if err != nil {
 			run.abandon()
@@ -81,7 +100,7 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 		case askTheModelAgain:
 		}
 	}
-	// The last turn still needed the model, so Clicky says its apology instead of going quiet.
+	// The last turn, the Sonnet one, still needed the model, so Clicky says its apology instead of going quiet.
 	brain.finish(commandContext, run, newVoiceCommandFinishedMessage(voiceCommand.TaskID, "", true))
 }
 
@@ -96,23 +115,33 @@ func (brain *brainRunner) finish(commandContext context.Context, run *sessionRun
 	brain.send(commandContext, finished)
 }
 
+// planningTimeout is the Sonnet turn's time limit: 30 seconds, unless a test set a shorter one.
+func (brain *brainRunner) planningTimeout() time.Duration {
+	return cmp.Or(brain.planningTurnTimeout, brainPlanningTurnTimeout)
+}
+
 // requestTurn sends one request without streaming, since a short tool call needs no stream, and logs its token line.
-// It makes one attempt only: a retry would push the router failure fallback past brainTurnTimeout.
-func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessionRun, tools []anthropic.ToolUnionParam, turnNumber int) (turn, error) {
-	requestContext, cancel := context.WithTimeout(commandContext, brainTurnTimeout)
+// It makes one attempt only: a retry would push the router failure fallback past the turn's time limit, which is
+// brainTurnTimeout on Haiku and the planning limit on the Sonnet turn.
+func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessionRun, tools []anthropic.ToolUnionParam, turnNumber int, isThePlanningTurn bool) (turn, error) {
+	model, timeout := brainModel, brainTurnTimeout
+	if isThePlanningTurn {
+		model, timeout = brainPlanningModel, brain.planningTimeout()
+	}
+	requestContext, cancel := context.WithTimeout(commandContext, timeout)
 	defer cancel()
 
 	startedAt := time.Now()
-	message, err := brain.client.Messages.New(requestContext, brainRequest(run.requestMessages(), tools), option.WithMaxRetries(0))
+	message, err := brain.client.Messages.New(requestContext, brainRequest(model, run.requestMessages(), tools), option.WithMaxRetries(0))
 	if err != nil {
 		if errors.Is(requestContext.Err(), context.DeadlineExceeded) && commandContext.Err() == nil {
-			return turn{}, fmt.Errorf("turn %d got no reply from Claude within %s", turnNumber, brainTurnTimeout)
+			return turn{}, fmt.Errorf("turn %d got no reply from Claude within %s", turnNumber, timeout)
 		}
 		return turn{}, fmt.Errorf("the request to Claude failed: %w", err)
 	}
 	brain.session.noteRequest(startedAt)
 	reply := newTurn(*message)
-	brain.send(commandContext, newLogMessage(brainUsageLine(turnNumber, reply, time.Since(startedAt))))
+	brain.send(commandContext, newLogMessage(brainUsageLine(turnNumber, model, reply, time.Since(startedAt))))
 	return reply, nil
 }
 

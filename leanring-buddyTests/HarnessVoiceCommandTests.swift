@@ -164,6 +164,49 @@ struct HarnessVoiceCommandTests {
         #expect(recorder.lines == [.cancelTask(taskID: commandID)])
     }
 
+    @Test func theWaitForTheNextEventIs35SecondsAfterAPlanningLineAnd10SecondsOtherwise() async {
+        #expect(secondsToWaitForTheNextHarnessVoiceCommandEvent == 10)
+        #expect(secondsToWaitForAPlanningTurn == 35)
+
+        // After the planning line the larger wait applies: the finish comes after the normal wait, and still counts.
+        let (planningEvents, planningContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        planningContinuation.yield(.planningTurnStarted)
+        let sendsTheFinishLater = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            planningContinuation.yield(.voiceCommandFinished(spokenLine: "jumped to it", gaveUp: false))
+            planningContinuation.finish()
+        }
+        var waitRanOutAfterThePlanningLine = false
+        let endingAfterThePlanningLine = await runTheVoiceCommandEvents(
+            planningEvents,
+            lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
+            approvalIDWaitingWhenTheCommandStarted: nil,
+            secondsToWaitForAnEvent: 0.05,
+            secondsToWaitAfterAPlanningLine: 5,
+            whenNoEventArrivesInTime: { waitRanOutAfterThePlanningLine = true },
+            runTool: { _, _ in .changed(state: nil) }
+        )
+        await sendsTheFinishLater.value
+        #expect(endingAfterThePlanningLine == .finished(spokenLine: "jumped to it", gaveUp: false))
+        #expect(!waitRanOutAfterThePlanningLine)
+
+        // With no planning line the normal wait applies, and the same late finish is too late.
+        let (plainEvents, plainContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
+        let endingWithNoPlanningLine = await runTheVoiceCommandEvents(
+            plainEvents,
+            lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
+            approvalIDWaitingWhenTheCommandStarted: nil,
+            secondsToWaitForAnEvent: 0.05,
+            secondsToWaitAfterAPlanningLine: 5,
+            whenNoEventArrivesInTime: {
+                plainContinuation.yield(.failed(reason: "the agent harness sent nothing in time"))
+                plainContinuation.finish()
+            },
+            runTool: { _, _ in .changed(state: nil) }
+        )
+        #expect(endingWithNoPlanningLine == .failed(reason: "the agent harness sent nothing in time"))
+    }
+
     @Test func aCancelJustBeforeTheHandOffMarkSendsCancelAndOneJustAfterSendsOnlyTheHandedOffResult() {
         let cancelledBeforeTheMark = HarnessLineRecorder()
         let linesCancelledBeforeTheMark = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledBeforeTheMark.record(harnessCommand) })

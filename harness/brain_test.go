@@ -249,7 +249,7 @@ func TestTheRequestCarriesBothCacheBreakpointsAndTheOldPathsSettings(t *testing.
 		t.Fatal(err)
 	}
 	var request map[string]any
-	if err := json.Unmarshal(mustMarshal(brainRequest(nil, tools)), &request); err != nil {
+	if err := json.Unmarshal(mustMarshal(brainRequest(brainModel, nil, tools)), &request); err != nil {
 		t.Fatal(err)
 	}
 	checks := []struct {

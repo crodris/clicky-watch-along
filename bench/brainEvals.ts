@@ -18,6 +18,10 @@
 // since that is what the Worker backend returns. A harness command that takes a second turn, such as the one after
 // find_moment's lookup, reports that turn's cost beside the first turn's.
 //
+// A case marked `scoreWholeCommand` is a planning case: its steps depend on each other, so it is scored on the ordered
+// calls of every turn, with a seek's input taken from the timestamp the case scripts, and it reports the cost of all turns.
+// It needs the harness's second and third turns, so only the harness backend runs it, and the parity gate leaves it out.
+//
 // The harness keeps a session across commands, so the harness backend sends `reset_session` before every case, and a case
 // that needs earlier commands (`earlierCommands`, and `interruptedBefore` for a command the learner cut short) puts them in
 // the session with the bench-only `seed_session`. The harness takes both only because the driver starts it with
@@ -71,8 +75,17 @@ export type EvalContext = {
   tools: string[];
 };
 
-/** One acceptable set of tool calls: "none" for a plain spoken answer, a tool name, or several names called together. */
-export type AcceptedAnswer = string | string[];
+/**
+ * An accepted answer of a `scoreWholeCommand` case that carries its own input, for the case where two different sequences
+ * need different inputs: its `input` replaces the case's `input` for the same tool.
+ */
+export type AcceptedSequence = { calls: string[]; input?: Record<string, Record<string, unknown>> };
+
+/**
+ * One acceptable set of tool calls: "none" for a plain spoken answer, a tool name, or several names called together. In a
+ * `scoreWholeCommand` case a list is an ordered sequence across all turns, and an `AcceptedSequence` adds input of its own.
+ */
+export type AcceptedAnswer = string | string[] | AcceptedSequence;
 
 export type BrainCase = {
   id: string;
@@ -86,6 +99,14 @@ export type BrainCase = {
    * the key must be absent. Keys not listed are not checked, and a tool not listed is not checked at all.
    */
   input?: Record<string, Record<string, unknown>>;
+  /**
+   * Set on a planning case, whose steps depend on each other. The case passes when the calls of every turn, in the order
+   * they were made, equal one accepted sequence and carry the expected `input`, so `accept` lists ordered sequences and
+   * not unordered sets. A sequence that may come in several orders is listed once per order. The harness backend runs
+   * these cases, since the Worker backend answers one turn, and the parity gate leaves them out. A sequence that calls
+   * find_moment needs the case's `toolResults` to script its result.
+   */
+  scoreWholeCommand?: true;
   /**
    * The router's recent tool call lines, as the app writes them, for a command that corrects the last action. Only the
    * Worker backend reads them, since the harness keeps its own session. A case that has them must also list the same
@@ -169,8 +190,15 @@ export function voiceCommandUserMessageText(learnerTranscript: string, sceneStat
   return `<scene_state>${stateText}</scene_state>\n<recent_actions>\n${actionsText}\n</recent_actions>\nLearner said: "${learnerTranscript}"`;
 }
 
+/** Each accepted answer as a sequence of tool names, with the input of its own when it has any. "none" is the empty sequence. */
+export function acceptedSequencesOf(brainCase: BrainCase): AcceptedSequence[] {
+  return brainCase.accept.map((answer) =>
+    answer === "none" ? { calls: [] } : typeof answer === "string" ? { calls: [answer] } : Array.isArray(answer) ? { calls: answer } : answer,
+  );
+}
+
 export function acceptedAnswersOf(brainCase: BrainCase): string[][] {
-  return brainCase.accept.map((answer) => (answer === "none" ? [] : typeof answer === "string" ? [answer] : answer));
+  return acceptedSequencesOf(brainCase).map((sequence) => sequence.calls);
 }
 
 /** The sentence `descriptor(skills:)` in VoiceCommandTools.swift adds to start_background_task, kept here word for word. */
@@ -351,6 +379,25 @@ export function validateBrainEvals(evalFile: BrainEvalFile, toolCatalog: ToolCat
         throw new Error(`Case ${brainCase.id} checks the input of ${toolName}, which no accepted answer calls.`);
       }
     }
+    const holdsSequenceWithInput = brainCase.accept.some((answer) => typeof answer === "object" && !Array.isArray(answer));
+    if (holdsSequenceWithInput && brainCase.scoreWholeCommand !== true) {
+      throw new Error(`Case ${brainCase.id} is not scored on the whole command, so it cannot hold an accepted sequence with input of its own.`);
+    }
+    for (const sequence of acceptedSequencesOf(brainCase)) {
+      for (const toolName of Object.keys(sequence.input ?? {})) {
+        if (!sequence.calls.includes(toolName)) {
+          throw new Error(`Case ${brainCase.id} has an accepted sequence that checks the input of ${toolName}, which that sequence does not call.`);
+        }
+      }
+    }
+    if (brainCase.scoreWholeCommand === true) {
+      if (acceptedAnswersOf(brainCase).some((calls) => calls.length === 0)) {
+        throw new Error(`Case ${brainCase.id} is scored on the whole command, so every accepted answer needs at least one call.`);
+      }
+      if (acceptedAnswersOf(brainCase).flat().includes("find_moment") && brainCase.toolResults?.find_moment?.result === undefined) {
+        throw new Error(`Case ${brainCase.id} accepts find_moment, so it must script the lookup's result, or the router has nothing to act on.`);
+      }
+    }
     for (const toolName of Object.keys(brainCase.toolResults ?? {})) {
       if (!context.tools.includes(toolName)) {
         throw new Error(`Case ${brainCase.id} scripts the result of ${toolName}, which context ${brainCase.context} does not offer.`);
@@ -428,16 +475,38 @@ function inputMatches(callInput: Record<string, unknown>, expectedInput: Record<
   );
 }
 
+/** Whether every call of each listed tool holds that tool's expected input. A call with an unknown input never does. */
+function everyCallHoldsExpectedInput(toolCalls: ToolCall[], expectedInputByToolName: Record<string, Record<string, unknown>>): boolean {
+  return Object.entries(expectedInputByToolName).every(([toolName, expectedInput]) =>
+    toolCalls.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
+  );
+}
+
 /** The outcome of one reply: the tool names, then, for a case that lists expected input, every call of that tool. */
 export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const nameOutcome = scoreToolCalls(toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(brainCase));
   if (nameOutcome !== "pass") {
     return nameOutcome;
   }
-  const everyInputMatches = Object.entries(brainCase.input ?? {}).every(([toolName, expectedInput]) =>
-    toolCalls.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
+  return everyCallHoldsExpectedInput(toolCalls, brainCase.input ?? {}) ? "pass" : "wrongInput";
+}
+
+/**
+ * The outcome of a planning case: the calls of every turn, in the order they were made, must equal one accepted sequence,
+ * and then each call must hold the expected input, the case's `input` with the sequence's own input over it. A wrong order
+ * is a `wrongTool`, like a wrong set of tools, and a sequence that is right but takes a seek's time from anywhere but the
+ * scripted lookup is a `wrongInput`.
+ */
+export function scoreWholeCommand(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
+  const calledToolNames = toolCalls.map((toolCall) => toolCall.name);
+  const sequencesInThisOrder = acceptedSequencesOf(brainCase).filter(
+    (sequence) => sequence.calls.length === calledToolNames.length && sequence.calls.every((toolName, position) => toolName === calledToolNames[position]),
   );
-  return everyInputMatches ? "pass" : "wrongInput";
+  if (sequencesInThisOrder.length === 0) {
+    return calledToolNames.length === 0 ? "missedTool" : "wrongTool";
+  }
+  const someSequenceHoldsItsInput = sequencesInThisOrder.some((sequence) => everyCallHoldsExpectedInput(toolCalls, { ...brainCase.input, ...sequence.input }));
+  return someSequenceHoldsItsInput ? "pass" : "wrongInput";
 }
 
 // ---------- Summary ----------
@@ -445,8 +514,8 @@ export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exc
 export type Backend = "worker" | "harness";
 
 export type BrainSample = {
-  /** "sessions" for a case of fixtures/brain-sessions.json, which the parity gate leaves out. */
-  suite?: "sessions";
+  /** "sessions" for a case of fixtures/brain-sessions.json and "planning" for a `scoreWholeCommand` case, which the parity gate leaves out. */
+  suite?: "sessions" | "planning";
   backend: Backend;
   caseId: string;
   context: string;
@@ -539,11 +608,12 @@ export function gatedSessionSamples(sessionSamples: BrainSample[], sessionCases:
   return sessionSamples.filter((sample) => !knownMissCaseIDs.has(sample.caseId));
 }
 
-/** The samples of the cases both backends run, and the samples of the session cases, which only the harness backend runs. */
-export function splitBySuite(samples: BrainSample[]): { parityCaseSamples: BrainSample[]; sessionSamples: BrainSample[] } {
+/** The samples of the cases both backends run, and the samples of the session and planning cases, which only the harness backend runs. */
+export function splitBySuite(samples: BrainSample[]): { parityCaseSamples: BrainSample[]; sessionSamples: BrainSample[]; planningSamples: BrainSample[] } {
   return {
-    parityCaseSamples: samples.filter((sample) => sample.suite !== "sessions"),
+    parityCaseSamples: samples.filter((sample) => sample.suite === undefined),
     sessionSamples: samples.filter((sample) => sample.suite === "sessions"),
+    planningSamples: samples.filter((sample) => sample.suite === "planning"),
   };
 }
 
@@ -803,9 +873,18 @@ export class HarnessCommandRecorder {
  * counts as a wrong or spurious tool, and fails a case that checks that tool's input, as the Worker would score the call.
  */
 export function firstTurnToolCalls(record: HarnessCommandRecord): ToolCall[] {
-  const sentCalls = record.toolCalls.filter((toolCall) => toolCall.turnIndex === 0);
+  return toolCallsOfTurn(record, 0);
+}
+
+/** Every turn's calls, in the order the model made them, each read as `firstTurnToolCalls` reads the first. */
+export function wholeCommandToolCalls(record: HarnessCommandRecord): ToolCall[] {
+  return record.turns.flatMap((_, turnIndex) => toolCallsOfTurn(record, turnIndex));
+}
+
+function toolCallsOfTurn(record: HarnessCommandRecord, turnIndex: number): ToolCall[] {
+  const sentCalls = record.toolCalls.filter((toolCall) => toolCall.turnIndex === turnIndex);
   let nextSentCall = 0;
-  return (record.turns[0]?.calledToolNames ?? []).map((calledToolName) => {
+  return (record.turns[turnIndex]?.calledToolNames ?? []).map((calledToolName) => {
     const sentCall = sentCalls[nextSentCall];
     if (sentCall !== undefined && sentCall.name === calledToolName) {
       nextSentCall += 1;
@@ -817,8 +896,10 @@ export function firstTurnToolCalls(record: HarnessCommandRecord): ToolCall[] {
 
 /**
  * The sample of one harness command. Only the first turn's calls are scored, which is what the Worker backend returns, and
- * a hand-off or a failure after them changes nothing. The first turn's latency is the time to its first tool call, or to
+ * a hand-off or a failure after them changes nothing. A `scoreWholeCommand` case is scored on the calls of every turn
+ * instead, and its sample's `toolCalls` are all of them. The first turn's latency is the time to its first tool call, or to
  * the end of the command when the model calls none, since the harness writes nothing between a turn's reply and its end.
+ * Both kinds of sample keep the full command's time and cost beside the first turn's.
  */
 export function sampleFromHarnessRecord(brainCase: BrainCase, runIndex: number, record: HarnessCommandRecord): BrainSample {
   const baseSample = {
@@ -838,12 +919,12 @@ export function sampleFromHarnessRecord(brainCase: BrainCase, runIndex: number, 
       record.ending === null ? "the command never ended" : record.ending.kind === "failed" ? record.ending.reason : "the harness wrote no Brain: turn line, so the first turn's calls are unknown";
     return { ...baseSample, totalMs: record.endedMs ?? 0, outcome: "error", toolCalls: [], spokenText: reason };
   }
-  const firstTurnCalls = firstTurnToolCalls(record);
+  const scoredCalls = brainCase.scoreWholeCommand === true ? wholeCommandToolCalls(record) : firstTurnToolCalls(record);
   return {
     ...baseSample,
     totalMs: record.firstToolCallMs ?? record.endedMs ?? 0,
-    outcome: scoreBrainCase(firstTurnCalls, brainCase),
-    toolCalls: firstTurnCalls,
+    outcome: brainCase.scoreWholeCommand === true ? scoreWholeCommand(scoredCalls, brainCase) : scoreBrainCase(scoredCalls, brainCase),
+    toolCalls: scoredCalls,
     spokenText: record.ending.spokenLine,
   };
 }
@@ -875,7 +956,9 @@ export type HarnessBrainProcess = {
   stop: () => void;
 };
 
-const harnessCommandTimeoutMs = 30_000;
+// A command that ends as gave up can run three Haiku turns at their 8 second limit and then the Sonnet turn at its 30
+// second limit, which is 54 seconds before any tool wait, so the driver waits past that and records the harness's own ending.
+const harnessCommandTimeoutMs = 60_000;
 /** How long an abandoned command gets to show its cancel, so the next command never reads the last lines of the one before. */
 const cancelAcknowledgementMs = 2000;
 
@@ -1157,18 +1240,24 @@ function loadFixtures(): { evalFile: BrainEvalFile; toolCatalog: ToolCatalog; se
   return { evalFile, toolCatalog, sessionFile };
 }
 
-function describeCalls(toolCalls: ToolCall[]): string {
+function describeCalls(toolCalls: ToolCall[], separator = " + "): string {
   // The confirmation and the goal are the router's own words, which no case checks, so they stay out of the line.
   const inputText = (toolCall: ToolCall) => {
     const checkableInput = Object.fromEntries(Object.entries(toolCall.input).filter(([key]) => key !== "confirmation" && key !== "goal"));
     return Object.keys(checkableInput).length === 0 ? "" : ` ${JSON.stringify(checkableInput)}`;
   };
-  return toolCalls.length === 0 ? "no tool" : toolCalls.map((toolCall) => `${toolCall.name}${inputText(toolCall)}`).join(" + ");
+  return toolCalls.length === 0 ? "no tool" : toolCalls.map((toolCall) => `${toolCall.name}${inputText(toolCall)}`).join(separator);
 }
 
 const acceptedText = (brainCase: BrainCase) => {
   const inputText = brainCase.input === undefined ? "" : ` with input ${JSON.stringify(brainCase.input)}`;
-  return `${acceptedAnswersOf(brainCase).map((answer) => (answer.length === 0 ? "no tool" : answer.join(" + "))).join(" | ")}${inputText}`;
+  // A planning case's sequences are ordered, so they read as a chain, and a sequence's own input shows beside it.
+  const separator = brainCase.scoreWholeCommand === true ? " > " : " + ";
+  const sequenceTexts = acceptedSequencesOf(brainCase).map((sequence) => {
+    const calledText = sequence.calls.length === 0 ? "no tool" : sequence.calls.join(separator);
+    return sequence.input === undefined ? calledText : `${calledText} with input ${JSON.stringify(sequence.input)}`;
+  });
+  return `${sequenceTexts.join(" | ")}${inputText}`;
 };
 
 const backendNames: Backend[] = ["worker", "harness"];
@@ -1193,6 +1282,19 @@ const summaryRow = (name: string, scoreSummary: ScoreSummary) => ({
   p50: scoreSummary.p50Ms,
   p95: scoreSummary.p95Ms,
   usd: scoreSummary.totalCostUSD,
+});
+
+/** A planning case's row: the outcome counts, and the time and cost of the whole command, since the first turn alone says little. */
+const planningRow = (name: string, scoreSummary: ScoreSummary) => ({
+  case: name,
+  pass: `${scoreSummary.passed}/${scoreSummary.runs}`,
+  rate: `${Math.round(scoreSummary.passRate * 100)}%`,
+  wrong: scoreSummary.wrongTool,
+  wrongInput: scoreSummary.wrongInput,
+  missed: scoreSummary.missedTool,
+  errors: scoreSummary.errors,
+  fullP50: scoreSummary.fullCommandP50Ms,
+  meanFullUsd: scoreSummary.meanFullCommandCostUSD,
 });
 
 async function runBrainEvals() {
@@ -1220,9 +1322,15 @@ async function runBrainEvals() {
     console.error(`No case named ${unknownCaseIds.join(", ")}. The ids are in bench/fixtures/brain-evals.json and brain-sessions.json.`);
     process.exit(1);
   }
-  const selectedCases = evalFile.cases.filter((brainCase) => onlyCaseIds === undefined || onlyCaseIds.includes(brainCase.id));
+  const caseIsSelected = (brainCase: BrainCase) => onlyCaseIds === undefined || onlyCaseIds.includes(brainCase.id);
+  // The Worker backend answers one turn, so the planning cases, which need every turn, run only on the harness backend.
+  const selectedCases = evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand !== true && caseIsSelected(brainCase));
+  const selectedPlanningCases = backends.includes("harness") ? evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand === true && caseIsSelected(brainCase)) : [];
+  if (!backends.includes("harness") && evalFile.cases.some((brainCase) => brainCase.scoreWholeCommand === true && caseIsSelected(brainCase))) {
+    console.log("The planning cases run only on the harness backend, so this run leaves them out. Add --backend harness or both.");
+  }
   // The session cases need the harness's memory, so the Worker backend never runs them.
-  const selectedSessionCases = backends.includes("harness") ? sessionFile.cases.filter((brainCase) => onlyCaseIds === undefined || onlyCaseIds.includes(brainCase.id)) : [];
+  const selectedSessionCases = backends.includes("harness") ? sessionFile.cases.filter(caseIsSelected) : [];
   const logPath = workerLogPath(workerCheckout, port);
 
   let harnessBrain: HarnessBrainProcess | undefined;
@@ -1256,13 +1364,17 @@ async function runBrainEvals() {
         }
       }
     }
-    for (const brainCase of harnessBrain === undefined ? [] : selectedSessionCases) {
+    const harnessOnlyCases = [
+      ...selectedSessionCases.map((brainCase) => ({ brainCase, suite: "sessions" as const })),
+      ...selectedPlanningCases.map((brainCase) => ({ brainCase, suite: "planning" as const })),
+    ];
+    for (const { brainCase, suite } of harnessBrain === undefined ? [] : harnessOnlyCases) {
       for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
         const record = await harnessBrain?.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase, sessionLinesFor(brainCase, evalFile));
         if (record === undefined) {
           continue;
         }
-        const sample: BrainSample = { ...sampleFromHarnessRecord(brainCase, runIndex, record), suite: "sessions" };
+        const sample: BrainSample = { ...sampleFromHarnessRecord(brainCase, runIndex, record), suite };
         samples.push(sample);
         logSample("harness", brainCase, runIndex, sample);
       }
@@ -1272,7 +1384,7 @@ async function runBrainEvals() {
   }
 
   // The parity gate and the tables below count only the cases both backends run.
-  const { parityCaseSamples, sessionSamples } = splitBySuite(samples);
+  const { parityCaseSamples, sessionSamples, planningSamples } = splitBySuite(samples);
   const summaryByBackend = Object.fromEntries(
     backends.map((backend) => [backend, summarizeByContext(parityCaseSamples.filter((sample) => sample.backend === backend), Object.keys(evalFile.contexts))]),
   );
@@ -1289,8 +1401,25 @@ async function runBrainEvals() {
       }
     }
   }
+  const planningSummary = planningSamples.length === 0 ? undefined : summarizeSamples(planningSamples);
+  if (planningSummary !== undefined) {
+    console.log("planning cases (harness backend only, scored on the whole command)");
+    console.table([planningRow("planning", planningSummary), ...selectedPlanningCases.map((brainCase) => planningRow(brainCase.id, summarizeSamples(planningSamples.filter((sample) => sample.caseId === brainCase.id))))]);
+    for (const brainCase of selectedPlanningCases) {
+      const failedSamples = planningSamples.filter((sample) => sample.caseId === brainCase.id && sample.outcome !== "pass");
+      if (failedSamples.length > 0) {
+        console.log(
+          `FAIL planning ${brainCase.id} (${failedSamples.length}/${runCount}): "${brainCase.say}" accepts ${acceptedText(brainCase)}, got ${[...new Set(failedSamples.map((sample) => `${sample.outcome}: ${describeCalls(sample.toolCalls, " > ")}`))].join("; ")}`,
+        );
+      }
+    }
+  }
   for (const backend of backends) {
     const summary = summaryByBackend[backend];
+    // A run limited to planning or session cases has no parity cases, and an empty table of NaN says nothing.
+    if (summary.overall.runs === 0) {
+      continue;
+    }
     console.log(`${backend} backend`);
     console.table([
       ...Object.entries(summary.byContext).filter(([, scoreSummary]) => scoreSummary.runs > 0).map(([name, scoreSummary]) => summaryRow(name, scoreSummary)),
@@ -1318,14 +1447,14 @@ async function runBrainEvals() {
   }
 
   const models = [...new Set(samples.flatMap((sample) => sample.usageLines.map((usageLine) => usageLine.model)))];
-  console.log(`saved ${writeResultFile(label, workerCheckout, { runCount, port, backend: backendOption, models, gate, summaryByBackend, sessionSummary, samples })}`);
+  console.log(`saved ${writeResultFile(label, workerCheckout, { runCount, port, backend: backendOption, models, gate, summaryByBackend, sessionSummary, planningSummary, samples })}`);
   process.exitCode = exitCodeOfGate(gate);
 }
 
 function logSample(backend: Backend, brainCase: BrainCase, runIndex: number, sample: BrainSample) {
   console.log(
     `${backend} ${brainCase.id} #${runIndex + 1}: ${Math.round(sample.totalMs)} ms, ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(5)}`}, ` +
-      `${sample.outcome === "pass" ? "PASS" : "FAIL"} ${sample.outcome} (${describeCalls(sample.toolCalls)}; accepts ${acceptedText(brainCase)})` +
+      `${sample.outcome === "pass" ? "PASS" : "FAIL"} ${sample.outcome} (${describeCalls(sample.toolCalls, brainCase.scoreWholeCommand === true ? " > " : " + ")}; accepts ${acceptedText(brainCase)})` +
       (sample.outcome === "error" ? ` ${sample.spokenText}` : ""),
   );
 }

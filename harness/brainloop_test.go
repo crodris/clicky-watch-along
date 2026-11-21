@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -41,10 +42,15 @@ func cancelTaskLine(taskID string) string {
 // ---- A fake Worker's answer to a brain turn, which is not streamed ----
 
 func writeBrainReply(writer http.ResponseWriter, stopReason string, contentBlocksJSON ...string) {
+	writeBrainReplyFrom(writer, brainModel, stopReason, contentBlocksJSON...)
+}
+
+// writeBrainReplyFrom is writeBrainReply from a named model, which a reply names the way Anthropic's does.
+func writeBrainReplyFrom(writer http.ResponseWriter, model string, stopReason string, contentBlocksJSON ...string) {
 	writer.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(writer,
-		`{"id":"msg_brain","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[%s],"stop_reason":%q,"stop_sequence":null,"usage":{"input_tokens":900,"cache_read_input_tokens":800,"cache_creation_input_tokens":0,"output_tokens":20}}`,
-		strings.Join(contentBlocksJSON, ","), stopReason)
+		`{"id":"msg_brain","type":"message","role":"assistant","model":%q,"content":[%s],"stop_reason":%q,"stop_sequence":null,"usage":{"input_tokens":900,"cache_read_input_tokens":800,"cache_creation_input_tokens":0,"output_tokens":20}}`,
+		model, strings.Join(contentBlocksJSON, ","), stopReason)
 }
 
 func brainToolUse(id string, name string, inputJSON string) string {
@@ -147,6 +153,15 @@ func TestACommandRunsATwoCallTurnThenALookupAndItsActionAndSpeaksTheConfirmation
 	if len(requests) != 3 {
 		t.Fatalf("the Worker got %d requests, want 3", len(requests))
 	}
+	// Commands that end within the Haiku turns never reach the Sonnet turn.
+	if driver.logsContain(brainPlanningLogLine) {
+		t.Errorf("a command that ended in two turns logged the planning line: %v", driver.logs)
+	}
+	for requestIndex, request := range requests {
+		if request.body["model"] != brainModel {
+			t.Errorf("request %d was on %v, want %s", requestIndex+1, request.body["model"], brainModel)
+		}
+	}
 	first := requests[0].body
 	if requests[0].path != "/v1/messages" || first["stream"] != nil {
 		t.Errorf("a brain turn went to %s with stream %v, want an unstreamed /v1/messages", requests[0].path, first["stream"])
@@ -233,21 +248,169 @@ func TestATurnLogNamesEveryCallEvenOnesTheAppNeverSees(t *testing.T) {
 	}
 }
 
-func TestACommandThatStillNeedsTheModelAfterThreeTurnsGivesUp(t *testing.T) {
-	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
-		writeBrainReply(writer, "tool_use", brainToolUse(fmt.Sprintf("toolu_seek_%d", requestNumber), "seek_to_time", `{"seconds":-5,"confirmation":"there"}`))
+// The turn budget rule: the third Haiku turn still needs the model, so the command gets one Sonnet turn with the same
+// tools and history, and the gave-up line comes only when that turn still needs the model too.
+func TestAThirdHaikuTurnThatStillNeedsTheModelGetsOneSonnetTurnThenGivesUp(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, requestNumber int) {
+		writeBrainReplyFrom(writer, fmt.Sprint(recorded.body["model"]), "tool_use", brainToolUse(fmt.Sprintf("toolu_seek_%d", requestNumber), "seek_to_time", `{"seconds":-5,"confirmation":"there"}`))
 	})
 	driver := startHarness(t, worker.server.URL)
 	driver.send(voiceCommandLine("command-1", "go back to the start"))
-	for turnIndex := 0; turnIndex < 3; turnIndex++ {
+	for turnIndex := 0; turnIndex < 4; turnIndex++ {
 		driver.expectLine("tool_call")
 		driver.send(voiceToolResultLine("command-1", fmt.Sprintf("toolu_seek_%d", turnIndex+1), voiceToolFailed, `{"error":"seconds must not be negative","ok":false,"state":null}`))
 	}
 	if got, want := driver.expectLine("voice_command_finished"), `{"type":"voice_command_finished","taskID":"command-1","spokenLine":"","gaveUp":true}`; got != want {
 		t.Fatalf("finished:\n got %s\nwant %s", got, want)
 	}
-	if len(worker.requests()) != 3 {
-		t.Errorf("the Worker got %d requests, want 3", len(worker.requests()))
+
+	requests := worker.requests()
+	if len(requests) != 4 {
+		t.Fatalf("the Worker got %d requests, want 3 on Haiku and 1 on Sonnet", len(requests))
+	}
+	for requestIndex, request := range requests {
+		wantModel := brainModel
+		if requestIndex == 3 {
+			wantModel = brainPlanningModel
+		}
+		if request.body["model"] != wantModel {
+			t.Errorf("request %d was on %v, want %s", requestIndex+1, request.body["model"], wantModel)
+		}
+	}
+	// The Sonnet turn is a Haiku turn with another model: the same prompt, tools, settings, and the history so far,
+	// ending in the third turn's tool result.
+	haikuRequest, sonnetRequest := requests[2].body, requests[3].body
+	for _, field := range []string{"system", "tools", "thinking", "output_config", "tool_choice", "max_tokens"} {
+		if !reflect.DeepEqual(haikuRequest[field], sonnetRequest[field]) {
+			t.Errorf("the Sonnet request's %s differs from Haiku's:\n got %v\nwant %v", field, sonnetRequest[field], haikuRequest[field])
+		}
+	}
+	sonnetMessages := jsonValueAt(t, sonnetRequest, "messages").([]any)
+	if len(sonnetMessages) != 7 || jsonValueAt(t, sonnetMessages[6], "content", 0, "tool_use_id") != "toolu_seek_3" {
+		t.Errorf("the Sonnet request did not carry the three turns and their results: %d messages", len(sonnetMessages))
+	}
+
+	// The planning line names the command and comes before the Sonnet turn's token line, which names Sonnet.
+	// The line is spelled out, not built from brainPlanningLogLine, since the app matches this text
+	// (harnessPlanningLogLinePrefix in HarnessVoiceCommand.swift) and a rename on either side must fail a test.
+	planningLine := `{"type":"log","taskID":"command-1","message":"Brain: planning on claude-sonnet-5-5"}`
+	if !slices.Contains(driver.logs, planningLine) {
+		t.Errorf("the planning line %s was missing: %v", planningLine, driver.logs)
+	}
+	if !driver.logsContain("Brain: turn 4 on claude-sonnet-5-5 stopped for tool_use") {
+		t.Errorf("the Sonnet turn's token line was missing: %v", driver.logs)
+	}
+}
+
+// A Sonnet turn that finishes the command ends it like any other turn, with the confirmation spoken.
+func TestASonnetTurnThatFinishesTheCommandEndsItNormally(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, requestNumber int) {
+		if requestNumber <= 3 {
+			writeBrainReply(writer, "tool_use", brainToolUse(fmt.Sprintf("toolu_find_%d", requestNumber), "find_moment", `{"query":"heat shield"}`))
+			return
+		}
+		writeBrainReplyFrom(writer, fmt.Sprint(recorded.body["model"]), "tool_use", brainToolUse("toolu_seek", "seek_to_time", `{"seconds":95,"confirmation":"jumped to it"}`))
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(voiceCommandLine("command-1", "go to the heat shield"))
+	for turnIndex := 0; turnIndex < 3; turnIndex++ {
+		driver.expectLine("tool_call")
+		driver.send(voiceToolResultLine("command-1", fmt.Sprintf("toolu_find_%d", turnIndex+1), voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	}
+	if got, want := driver.expectLine("tool_call"), `{"type":"tool_call","taskID":"command-1","toolUseID":"toolu_seek","name":"seek_to_time","input":{"seconds":95},"turnIndex":3}`; got != want {
+		t.Fatalf("the Sonnet turn's call:\n got %s\nwant %s", got, want)
+	}
+	driver.send(voiceToolResultLine("command-1", "toolu_seek", voiceToolChanged, `{"ok":true,"state":null}`))
+	if got, want := driver.expectLine("voice_command_finished"), `{"type":"voice_command_finished","taskID":"command-1","spokenLine":"jumped to it","gaveUp":false}`; got != want {
+		t.Fatalf("finished:\n got %s\nwant %s", got, want)
+	}
+	if len(worker.requests()) != 4 {
+		t.Errorf("the Worker got %d requests, want 4", len(worker.requests()))
+	}
+}
+
+// The Sonnet turn is optional, so a turn that hangs or fails leaves the command where Haiku's last turn did: gave up,
+// with no task_failed, which would run the keyword path over actions the command already ran.
+func TestASonnetTurnThatGetsNoReplyInItsTimeLimitGivesUpInsteadOfFailing(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, request *http.Request, _ recordedRequest, requestNumber int) {
+		if requestNumber == 4 {
+			<-request.Context().Done()
+			return
+		}
+		writeBrainReply(writer, "tool_use", brainToolUse(fmt.Sprintf("toolu_find_%d", requestNumber), "find_moment", `{"query":"heat shield"}`))
+	})
+	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, appSecret: "test-secret", planningTurnTimeout: 300 * time.Millisecond})
+	driver.send(voiceCommandLine("command-1", "go to the heat shield"))
+	for turnIndex := 0; turnIndex < 3; turnIndex++ {
+		driver.expectLine("tool_call")
+		driver.send(voiceToolResultLine("command-1", fmt.Sprintf("toolu_find_%d", turnIndex+1), voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	}
+	if got, want := driver.expectLineWithin("voice_command_finished", 3*time.Second), `{"type":"voice_command_finished","taskID":"command-1","spokenLine":"","gaveUp":true}`; got != want {
+		t.Fatalf("finished:\n got %s\nwant %s", got, want)
+	}
+	if !driver.logsContain("the planning turn failed") || !driver.logsContain("within 300ms") {
+		t.Errorf("the failure was not logged with the turn's time limit: %v", driver.logs)
+	}
+	if len(worker.requests()) != 4 {
+		t.Errorf("the Worker got %d requests, want 4, with no retry", len(worker.requests()))
+	}
+}
+
+// A push-to-talk press during the Sonnet turn is a cancel, not a failed Sonnet turn: the command is rolled back out of
+// the session as one cancelled during a Haiku turn is, with its finished calls in the next command's interrupted lines,
+// and the cancel is logged. Treating the aborted request as a Sonnet failure would commit the command as gave up.
+func TestACancelDuringTheSonnetTurnRollsTheCommandBackLikeOneDuringAHaikuTurn(t *testing.T) {
+	sonnetRequestArrived := make(chan struct{}, 1)
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, request *http.Request, recorded recordedRequest, requestNumber int) {
+		switch {
+		case requestNumber <= 3:
+			writeBrainReply(writer, "tool_use", brainToolUse(fmt.Sprintf("toolu_find_%d", requestNumber), "find_moment", fmt.Sprintf(`{"query":"part %d"}`, requestNumber)))
+		case requestNumber == 4:
+			sonnetRequestArrived <- struct{}{}
+			<-request.Context().Done()
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"Done."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(voiceCommandLine("command-1", "find every part"))
+	for turnIndex := 0; turnIndex < 3; turnIndex++ {
+		driver.expectLine("tool_call")
+		driver.send(voiceToolResultLine("command-1", fmt.Sprintf("toolu_find_%d", turnIndex+1), voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	}
+	select {
+	case <-sonnetRequestArrived:
+	case <-time.After(testTimeout):
+		t.Fatal("the Sonnet turn's request never reached the Worker")
+	}
+
+	driver.send(cancelTaskLine("command-1"))
+
+	// The cancel line is spelled out, since verify runs and the bench read it as the evidence of a cancel.
+	driver.expectLineContaining("Brain: command cancelled during turn 4")
+	driver.send(voiceCommandLine("command-2", "never mind"))
+	if got := driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-2"`); !strings.Contains(got, `"gaveUp":false`) {
+		t.Fatalf("the next command ended as %s", got)
+	}
+
+	nextRequest := worker.requests()[4].body
+	requestText := string(mustMarshal(nextRequest))
+	if strings.Contains(requestText, "toolu_find") || strings.Contains(requestText, "find every part") {
+		t.Errorf("the cancelled command's messages are in the next request: %s", requestText)
+	}
+	wantInterrupted := `<interrupted_before>find_moment {"query":"part 1"} -> ok; find_moment {"query":"part 2"} -> ok; find_moment {"query":"part 3"} -> ok</interrupted_before>`
+	if got := lastUserText(t, nextRequest); !strings.Contains(got, wantInterrupted) {
+		t.Errorf("the next message did not list the three finished calls:\n got %s\nwant %s", got, wantInterrupted)
+	}
+}
+
+// The default limits: 8 seconds for Haiku and 30 for Sonnet, which the app's 35 second wait stays above.
+func TestTheTurnTimeLimits(t *testing.T) {
+	if got := (&brainRunner{}).planningTimeout(); got != 30*time.Second {
+		t.Errorf("the Sonnet turn's limit is %s, want 30s", got)
+	}
+	if brainTurnTimeout != 8*time.Second {
+		t.Errorf("the Haiku turn's limit is %s, want 8s", brainTurnTimeout)
 	}
 }
 

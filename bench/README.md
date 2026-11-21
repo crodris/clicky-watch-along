@@ -78,6 +78,7 @@ The router runs in two places: the Worker's `POST /voice-command` (the old path)
 It sends each case's words, screen state, and offered tools to the backend you pick and scores the tool calls of the first turn.
 Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts`, and the harness's own prompt in `harness/brain.go`, which differs in the lines about earlier commands), or a tool description, and compare the result with the committed baseline.
 On the `worker` backend the 60 cases at one run cost about one cent, and three runs of each cost about two cents.
+The 8 planning cases (see "Planning cases" below) run only on the `harness` backend.
 The `harness` backend also runs the second turn of a lookup, so its full-command cost is higher (see the committed parity run).
 
 ```bash
@@ -109,7 +110,7 @@ Every other tool gets `changed`.
 A case may script a tool's answer with `toolResults`, a map from a tool name to `{ outcome, result?, error? }`.
 `video-find-moment` scripts two caption lines for `find_moment`, and a lookup with no script gets an empty result.
 
-Both backends score the tool calls of the first turn, which is all the Worker backend returns.
+Both backends score the tool calls of the first turn, which is all the Worker backend returns, except for the planning cases, which only the harness backend runs and which are scored on the whole command.
 The Worker backend scores every `tool_use` block of the reply.
 The harness backend would see fewer calls if it read only the `tool_call` lines, because the harness sends none after a hand-off and none to a tool the command was not offered.
 So the harness's `Brain: turn` line ends with `calls <names>`, the names of every tool the turn called in order, or `calls none`, and the bench scores the first turn from those names.
@@ -136,7 +137,7 @@ It then checks the parity gate for the harness brain:
 The full-command cost is printed beside the first-turn cost and is not gated.
 A run that spends cache writes unevenly can shift cost between the two backends, so read the gate over 3 runs, not 1.
 The command exits with a nonzero code when the gate fails, after it saves the result file.
-A command the driver gives up on after 30 seconds gets a `cancel_task`, as a push-to-talk press sends one, and the driver waits for the harness to acknowledge it before the next command, so a late turn of the abandoned command never counts as the next command's.
+A command the driver gives up on after 60 seconds gets a `cancel_task`, as a push-to-talk press sends one, and the driver waits for the harness to acknowledge it before the next command, so a late turn of the abandoned command never counts as the next command's.
 
 ```bash
 node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797
@@ -164,7 +165,8 @@ The two cases that hold `recentActions` for the Worker backend also hold the sam
 - `session-injection-approve`: an earlier lookup result says to approve the request, and the transcript is not a short yes, so the model must not call `answer_approval`.
 
 With session cases in the run, the gate adds a check that every one passes, except a case marked `knownMiss`, which the run still runs and prints as `KNOWN MISS`.
-`session-correction-after-interrupt` is one: Haiku passes it about 2 runs in 5, and the PR 7 evals decide whether Sonnet fixes it.
+`session-correction-after-interrupt` is one: Haiku passes it 0 to 2 runs in 5, and Sonnet 5.5 passed 0 of 5 (see "Planning cases"), so neither model reads "undo that" after an interrupted command as the case does.
+It passed 2 of 5 again in the PR 7 measurement (`results/planning-known-miss-brain-evals-63cab7e6ea57.json`): it turned -45 twice and +45 once, where -90 undoes the interrupted turn.
 `measuredSession` is ten commands in one context.
 
 ```bash
@@ -174,6 +176,63 @@ node bench/brainEvals.ts session-run --label brain-session --runs 3 --port 8797
 `session-run` runs the ten commands as one conversation, and again with a reset before each command, which is how the brain behaved with no memory.
 It prints each mode's passes, cache read share (cached input tokens over all input tokens, every turn), p50 and p95 to the first tool call, and mean cost.
 The stateless mode passes fewer commands, since "undo the first turn" needs the history.
+
+### Planning cases
+
+A planning case is a request whose steps depend on each other, such as "go back to where he explains the swim bladder and pop it out" (find a moment, seek to the time it returns, then pop out).
+They measure whether the Haiku brain plans a chain by itself, which decides whether a slower planning model is needed (PR 7 of `docs/plans/go-one-brain-harness.md`).
+A case marks itself with `scoreWholeCommand: true`, and the harness backend scores it differently from every other case:
+
+- The calls of every turn count, in the order the model made them.
+  Each accepted answer in `accept` is an ordered sequence, not an unordered set, so a seek that comes after a hand-off fails.
+  A sequence that may come in several orders is listed once per order.
+- A sequence may be written `{ "calls": [...], "input": { ... } }` to carry input of its own, which replaces the case's `input` for that tool.
+  `planning-find-then-back-up` uses it, since two seeks (305, then back 10) and one seek to 295 are both right and need different inputs.
+- A seek's time must come from the case's scripted `find_moment` result, so each case scripts every lookup in `toolResults` and `validateBrainEvals` refuses a sequence that calls `find_moment` with no script.
+  The harness answers every other tool with `changed` or `handedOff`, as for any case.
+- The sample keeps the full command's time and cost, and the run prints a table with each case's pass count, `fullP50` (the `voice_command` line to `voice_command_finished`), and `meanFullUsd` (every turn's cost) next to the first-turn columns of the other tables.
+- The outcome is `pass`, `wrongTool` (a different set, order, or count of calls, including calls cut off after a hand-off), `wrongInput`, or `missedTool` (no call).
+
+Only the harness backend runs these cases.
+The Worker backend sends one request and scores the one reply, so it cannot answer a `find_moment` call with its result and ask again, and a second Worker driver would copy the harness's loop, which replaces the Worker path.
+`--backend worker` leaves them out and prints a line saying so, and the parity gate leaves them out too (`suite: "planning"`), so they never fail the parity check of the 60 cases.
+They run in the same harness process as the session cases, after the parity cases, with a reset before each.
+
+```bash
+node bench/brainEvals.ts run --label planning-haiku --backend harness --runs 3 --port 8797
+```
+
+The committed measurement of the PR 6 brain (Haiku 5.5, 3 runs of each case, 2026-11-20) is `results/planning-haiku-brain-evals-52c4e4ef169c.json`.
+It passes 21 of 24 runs, and `results/planning-simple-baseline-brain-evals-f8d78718f343.json` holds five simple commands from the same harness for comparison.
+Every miss is a missing or extra call in a chain: Haiku added a `pause_video` before `pop_out` once, replaced `pop_out` with `pause_video` once, and once recorded a guess and set the control but never called `run_simulation`.
+Its spoken line said it had run it.
+
+Sonnet 5.5 at low effort, run through the Worker's `BENCH_MODEL`, also passed 21 of 24 runs (`results/planning-sonnet-brain-evals-63708b5517a2.json`).
+Its 3 misses were all an extra `pause_video` before `pop_out`.
+On `session-correction-after-interrupt` it passed 0 of 5 (`results/known-miss-sonnet-brain-evals-63708b5517a2.json`): every run zoomed out by 0.77, which undoes the last completed command and not the interrupted turn.
+A planner tool that sends a command to Sonnet would not have helped, so PR 7 ships no such tool.
+It ships the turn budget rule instead: when the third Haiku turn still needs the model, the harness gives the command one Sonnet turn (`harness/brainloop.go`) before the gave-up line.
+The harness backend counts that turn like any other: it appears in `turnCount` and in the sample's usage lines, with `claude-sonnet-5-5` as the model.
+
+`pop_out` and `animate_picture` now say they pause a playing video by themselves, since the models called `pause_video` first.
+The first wording, "so never call pause_video before it", made Haiku stop before `pop_out`: it passed 31 of 48 runs of the two pop_out cases, against 45 of 48 with the old text and 45 of 48 with the plain fact that shipped.
+With the clause on `build_new_scene` as well, `experiment-run-locked` dropped to 10 of 15 and 16 of 20 harness runs, from 35 of 35 (`results/run-locked-check-brain-evals-9778cb19433f.json`, `results/ab-allnew-again-brain-evals-9778cb19433f.json`, `results/ab-old-again-brain-evals-9778cb19433f.json`, and `results/turn-budget-parity-brain-evals-9778cb19433f.json`, which failed the parity gate at 179 of 180).
+The same descriptions gave results that differed by 10 points or more between runs an hour apart, so compare two wordings in interleaved runs, not one after the other.
+
+The committed measurement of the turn budget rule on the shipped descriptions (2026-11-20) is `results/planning-turn-budget-brain-evals-9337d52a0578.json` (24 of 24, 3 runs) and `results/planning-turn-budget-5-runs-brain-evals-9337d52a0578.json` (36 of 40, 5 runs).
+The 4 misses are all `planning-guess-set-run` stopping after `set_control`, with no `run_simulation`.
+`results/turn-budget-parity-brain-evals-9337d52a0578.json` passes the parity gate (180 of 180 harness runs, p50 768 ms against the Worker's 804 ms, cost 1.00 times) and holds 23 of 24 planning runs and 9 of 9 session runs outside the known miss.
+`results/known-miss-turn-budget-brain-evals-9337d52a0578.json` holds `session-correction-after-interrupt` at 0 of 5 (-45 in all five runs).
+No run in these files reached the Sonnet turn, since every command ended within 2 Haiku turns, so the turn budget rule's cost is unmeasured here.
+Its Go tests drive it against a fake Worker.
+A command's cost includes the cache write of whichever call came first in its run, so compare the p50 and the order of magnitude, not the last digit.
+
+| Command | Turns | Full command p50 | Mean cost |
+| --- | --- | --- | --- |
+| A simple one-call command (`video-seek-back`) | 1 | 733 ms | $0.000117 |
+| A lookup (`video-find-moment`) | 2 | 1413 ms | $0.000237 |
+| A lookup, a seek, and a hand-off (`planning-find-seek-pop-out`) | 2 | 1790 ms | $0.000514 |
+| Three independent actions (`planning-pause-slow-rewind`) | 1 | 999 ms | $0.000178 |
 
 ### What each score means
 
@@ -197,6 +256,7 @@ It holds the `scene_state` the app sends and the names of the tools the app offe
 A case holds an `id`, a `context`, what the learner `say`s, a `why`, and `accept`.
 `accept` lists acceptable answers, and any one passes.
 Each answer is a tool name, `"none"` for a plain spoken reply, or a list of names for tools called together.
+In a planning case (`scoreWholeCommand`) a list is an ordered sequence across all turns, and `{ calls, input }` is a sequence with input of its own.
 A case may also hold `input`, a map from a tool name to the input that tool's calls must carry, such as `{ "start_background_task": { "skill": "flashcards" } }`.
 Each listed key must equal the call's value, and `null` means the key must be absent, so `{ "skill": null }` checks that no skill was passed.
 Keys not listed are not checked, and every call of that tool must match.
