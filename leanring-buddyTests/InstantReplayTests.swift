@@ -15,6 +15,9 @@ private final class RecordingReplayStage {
     /// Each sleep waits here until the test lets it go, so a test decides when a dwell ends.
     var pendingSleeps: [CheckedContinuation<Void, Error>] = []
     var labelPointReads = 0
+    /// When true, each label read waits here until the test lets it go, as the page does while the camera turns.
+    var holdsLabelReads = false
+    var pendingLabelReads: [CheckedContinuation<Void, Never>] = []
 
     lazy var stage = InstantReplayStage(
         focusStop: { [unowned self] replayStop in self.calls.append("focus \(replayStop.partLabel)") },
@@ -25,6 +28,9 @@ private final class RecordingReplayStage {
         hideStopNumbers: { [unowned self] in self.calls.append("hideNumbers") },
         labelScreenPointOnceTheCameraSettles: { [unowned self] partLabel in
             self.labelPointReads += 1
+            if self.holdsLabelReads {
+                await withCheckedContinuation { continuation in self.pendingLabelReads.append(continuation) }
+            }
             return LiveScenePartScreenPoint(label: partLabel, globalPoint: CGPoint(x: 10, y: 20))
         },
         pointTheCursor: { [unowned self] labelScreenPoint, sentence in
@@ -100,6 +106,20 @@ struct InstantReplayTests {
         #expect(!replay.endIfOpen())
     }
 
+    @Test func aCameraTurnThatEndsAfterEscapePointsTheCursorNowhere() async {
+        let recorder = RecordingReplayStage()
+        recorder.holdsLabelReads = true
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        replay.endIfOpen()
+        // The camera was still turning when Escape came, and its settled label arrives afterward.
+        for pendingLabelRead in recorder.pendingLabelReads { pendingLabelRead.resume() }
+        await letTheReplayRun()
+        #expect(!recorder.calls.contains { $0.hasPrefix("point") })
+    }
+
     @Test func aStepCancelsTheTravelAndStopsAtTheChosenStop() async {
         let recorder = RecordingReplayStage()
         let replay = InstantReplayController(stage: recorder.stage)
@@ -119,6 +139,34 @@ struct InstantReplayTests {
         replay.step(.back)
         await letTheReplayRun()
         #expect(replay.phase == .stoppedAt(stopIndex: 0))
+    }
+
+    @Test func aNewReplayDuringADwellIsNotMovedOnByTheOldDwell() async {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        // Replay again while the first stop's dwell waits: the old dwell ends first, and must not move the new replay on.
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        recorder.finishTheNextSleep()
+        await letTheReplayRun()
+        #expect(replay.phase == .playingThrough(stopIndex: 0))
+        #expect(!recorder.calls.contains("focus saddle"))
+    }
+
+    @Test func backAtTheFirstStopLeavesACursorAtRestAlone() async {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.step(.next)
+        await letTheReplayRun()
+        #expect(replay.phase == .stoppedAt(stopIndex: 0))
+        let callsAtTheFirstStop = recorder.calls
+        replay.step(.back)
+        await letTheReplayRun()
+        #expect(recorder.calls == callsAtTheFirstStop)
     }
 
     @Test func pushToTalkStopsTheTravelAndKeepsTheReplayOpenAtItsStop() async {
