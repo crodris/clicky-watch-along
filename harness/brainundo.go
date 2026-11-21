@@ -328,18 +328,27 @@ func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall, isA
 	run.noteChange(appliedChange{
 		tool:            cancelledCall.Name,
 		input:           inputWithoutConfirmation(cancelledCall.Input),
-		effectIsUnknown: !aCutOffCallHasRun(cancelledCall.Name, isAnUndo),
+		effectIsUnknown: !aCutOffCallHasRun(cancelledCall.Name, isAnUndo, run.pageMayStillRefuseChanges),
 	})
 }
 
-// aCutOffCallHasRun is true for a page call a press cut off that is not an undo. The app runs a page tool's JavaScript in
-// its own web view, which answers in a few milliseconds, so the call has almost surely changed the scene, and its inverse
-// is exact. Without it, the model works out the reverse of an angle itself and got it wrong in 7 of 10 runs of
-// session-undo-after-cut-off. A video call goes to Chrome over Apple Events, and play_video waits about 1.6 seconds on its
-// play check, so it may not have run. A cut-off undo stays a change with no inverse, so the change it reversed is not
-// undone twice.
-func aCutOffCallHasRun(tool toolName, isAnUndo bool) bool {
-	return !isAnUndo && changeTargets[tool] == targetsThePage
+// aCutOffCallHasRun is true for a page call a press cut off that is not an undo, on a page whose tour has finished. The
+// app runs a page tool's JavaScript in its own web view, which answers in a few milliseconds, so the call has almost surely
+// changed the scene, and its inverse is exact. Without it, the model works out the reverse of an angle itself and got it
+// wrong in 11 of 15 runs of session-undo-after-cut-off. A page still in its tour may have refused the call, since a pop-out
+// refuses a move while it builds and a landmark refuses one until its reveal. A video call goes to Chrome over Apple
+// Events, and play_video waits about 1.6 seconds on its play check, so it may not have run. A cut-off undo stays a change
+// with no inverse, so the change it reversed is not undone twice.
+func aCutOffCallHasRun(tool toolName, isAnUndo bool, pageMayStillRefuseChanges bool) bool {
+	return !isAnUndo && !pageMayStillRefuseChanges && changeTargets[tool] == targetsThePage
+}
+
+// pageTourIsStillGoing is true when the scene state says tourFinished is false. A page that does not report it, such as a
+// generated page whose getState leaves it out, counts as finished, since such a page refuses a move only on its own.
+func pageTourIsStillGoing(sceneState json.RawMessage) bool {
+	fields, isAnObject := decodedToolInput(sceneState)
+	tourFinished, saysWhether := fields["tourFinished"].(bool)
+	return isAnObject && saysWhether && !tourFinished
 }
 
 // noteTheScreenChanged records a call the app finished, when its outcome says the screen changed. A hand-off counts, as
@@ -499,7 +508,7 @@ func appliedChangeOfActionLine(actionLine string) (appliedChange, bool) {
 		return appliedChange{tool: toolName(name), input: input}, true
 	case "-> " + cutOffResultWord:
 		// A seed cannot tell a cut-off undo from a new call, so it reads the line as a new call, as the harness records one.
-		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: !aCutOffCallHasRun(toolName(name), false)}, true
+		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: !aCutOffCallHasRun(toolName(name), false, false)}, true
 	default:
 		return appliedChange{}, false
 	}

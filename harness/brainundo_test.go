@@ -1055,6 +1055,27 @@ func TestAVideoCallStillRunningWhenAPressCancelsTheCommandStandsBetweenUndoAndAn
 	}
 }
 
+// A page still in its tour may have refused a cut-off call, so the call keeps no inverse and undo is not offered past it.
+// A page that does not report tourFinished, as a generated page may not, counts as finished.
+func TestACutOffPageCallKeepsItsInverseOnlyOnceThePageTourHasFinished(t *testing.T) {
+	for _, testCase := range []struct {
+		sceneState    string
+		undoIsOffered bool
+	}{
+		{`{"page":"framePopout","sceneNumber":1,"tourFinished":false}`, false},
+		{`{"page":"framePopout","sceneNumber":1,"tourFinished":true}`, true},
+		{`{"page":"generated3DScene","sceneNumber":1}`, true},
+	} {
+		session, _ := newTestSession()
+		run := session.begin("zoom in", json.RawMessage(testCase.sceneState))
+		run.noteACallWhoseEffectIsUnknown(toolCall{ID: "toolu_zoom", Name: "zoom", Input: json.RawMessage(`{"factor":2}`)}, false)
+		run.abandon()
+		if got := undoIsOfferedTo(session.begin("undo that", json.RawMessage(testCase.sceneState))); got != testCase.undoIsOffered {
+			t.Errorf("in %s, undo offered after a cut-off zoom = %v, want %v", testCase.sceneState, got, testCase.undoIsOffered)
+		}
+	}
+}
+
 // A page call a press cut off has almost surely run, so "undo that" reverses it and not the older change behind it.
 func TestAPageCallStillRunningWhenAPressCancelsTheCommandIsTheOneUndone(t *testing.T) {
 	worker := workerThatAnswersByWords(t, map[string][]string{
