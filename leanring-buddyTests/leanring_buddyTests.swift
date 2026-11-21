@@ -2365,6 +2365,8 @@ struct leanring_buddyTests {
         #expect(call("set_control", ["name": .string("angle"), "value": .number(45)]).chipPhrase == "Setting angle to 45")
         #expect(call("set_control", ["name": .string("mass"), "value": .number(2.5)]).chipPhrase == "Setting mass to 2.5")
         #expect(call("set_control", ["name": .string("angle")]).chipPhrase == nil)
+        #expect(call("set_control", ["name": .string("angle"), "value": .number(60), "run": .bool(true)]).chipPhrase == "Setting angle to 60 and running it")
+        #expect(call("set_control", ["name": .string("angle"), "value": .number(60), "run": .bool(false)]).chipPhrase == "Setting angle to 60")
         #expect(call("run_simulation", [:]).chipPhrase == "Running it")
         #expect(pageVoiceToolNames.contains("set_labels"))
         #expect(call("set_labels", ["visible": .bool(true)]).chipPhrase == "Showing the labels")
