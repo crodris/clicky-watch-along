@@ -19,6 +19,10 @@
 
   // A primitive returns false when the page refused the change, such as a landmark still loading.
   const stillLoading = { ok: false, error: "The scene is still loading, so try again in a moment" };
+  // The one refusal for a run, shared by run_simulation and set_control with run true: Run stays locked until a guess is heard.
+  const refuseARunBeforeTheGuess = () => lessonStage === "guess"
+    ? { ok: false, error: "The learner has not guessed yet. Ask for their guess to the prediction question before running it." }
+    : null;
 
   let explodeAmount = 0;
   let insideIsOpen = false;
@@ -568,13 +572,14 @@
         const controlList = simulationControls().map(controlSummary)
           .map((control) => `${control.name} (${control.label}, ${control.min} to ${control.max}${control.unit ? " " + control.unit : ""})`)
           .join("; ");
-        return `Change one number of the simulation on screen and put it back at its start, without running it. The controls are: ${controlList}. The state's controls hold each one's current value. Use the control's name and a value in its unit.`;
+        return `Change one number of the simulation on screen and put it back at its start. Pass run true to play it right after, as when the learner asks to try or see a value, such as "try 60 degrees". Without run it only sets the value. The controls are: ${controlList}. The state's controls hold each one's current value. Use the control's name and a value in its unit.`;
       },
       inputSchema: {
         type: "object",
         properties: {
           name: { type: "string", description: "The name of one control from the description." },
           value: { type: "number", description: "The new value in the control's unit. The page clamps it to the control's range." },
+          run: { type: "boolean", description: "true plays the simulation once after setting the value, like run_simulation. Leave it out to only set the value." },
         },
         required: ["name", "value"],
       },
@@ -582,6 +587,12 @@
       run: (input) => {
         const value = Number(input.value);
         if (!Number.isFinite(value)) return { ok: false, error: "value must be a number" };
+        // A refused call must change nothing, since the app reports it as failed and the harness records no change for it,
+        // so with run true the guess lock is checked before the control moves.
+        if (input.run === true) {
+          const refusal = refuseARunBeforeTheGuess();
+          if (refusal) return { ok: false, error: `Did not set or run it. ${refusal.error}` };
+        }
         const name = String(input.name ?? "");
         // The model saw each name cut to 40 characters, so it matches here on the cut name and the page gets its real one.
         const control = simulationControls().find((candidate) => candidate.name === name || controlSummary(candidate).name === name);
@@ -590,6 +601,7 @@
         }
         abandonTheRunInFlight();
         refreshPanel();
+        if (input.run === true) startRun();
         return { ok: true };
       },
     },
@@ -615,9 +627,8 @@
       inputSchema: { type: "object", properties: {} },
       isAvailable: hasSimulation,
       run: () => {
-        if (lessonStage === "guess") {
-          return { ok: false, error: "The learner has not guessed yet. Ask for their guess to the prediction question before running it." };
-        }
+        const refusal = refuseARunBeforeTheGuess();
+        if (refusal) return refusal;
         startRun();
         return { ok: true };
       },

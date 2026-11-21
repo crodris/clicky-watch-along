@@ -192,6 +192,64 @@ describe("scene-tools.js simulation tools", () => {
     expect(clickyTools.state().runIsGoing).toBe(false);
   });
 
+  it("sets a control and then runs once when set_control gets run true, as set_control then run_simulation does", async () => {
+    const { page, clickyTools, postedEvents } = loadGuessedSimulation();
+
+    const result = clickyTools.call("set_control", { name: "angle", value: 60, run: true });
+
+    expect(result.ok).toBe(true);
+    expect(page.setControl).toHaveBeenCalledWith("angle", 60);
+    expect(page.run).toHaveBeenCalledTimes(1);
+    // The control is applied before the run starts, so the run reads the new value.
+    expect(page.setControl.mock.invocationCallOrder[0]).toBeLessThan(page.run.mock.invocationCallOrder[0] ?? 0);
+    expect(result.state.runIsGoing).toBe(true);
+    await vi.waitFor(() => expect(postedEvents).toHaveLength(1));
+    expect(runReport(postedEvents[0]).pastRuns).toEqual([
+      { trial: 1, controls: [{ label: "Launch angle", value: 60, unit: "degrees" }], readouts: [{ label: "Landing distance", value: 40.8, unit: "m" }] },
+    ]);
+  });
+
+  it("only sets the control when run is left out or is not true", () => {
+    const { page, clickyTools } = loadGuessedSimulation();
+
+    expect(clickyTools.call("set_control", { name: "angle", value: 60 }).ok).toBe(true);
+    expect(clickyTools.call("set_control", { name: "angle", value: 50, run: false }).ok).toBe(true);
+    expect(clickyTools.call("set_control", { name: "angle", value: 40, run: "true" }).ok).toBe(true);
+
+    expect(page.setControl).toHaveBeenCalledTimes(3);
+    expect(page.run).not.toHaveBeenCalled();
+  });
+
+  it("refuses set_control with run true before the guess, changes nothing, and says it did not set or run", () => {
+    const page = simulationPage();
+    const { clickyTools, postedEvents } = loadSceneTools(page);
+
+    const refused = clickyTools.call("set_control", { name: "angle", value: 60, run: true });
+
+    expect(refused).toMatchObject({ ok: false, error: expect.stringMatching(/Did not set or run it.*has not guessed/s) });
+    expect(page.setControl).not.toHaveBeenCalled();
+    expect(page.run).not.toHaveBeenCalled();
+    expect(refused.state.runIsGoing).toBe(false);
+    expect(postedEvents).toEqual([]);
+  });
+
+  it("refuses a control name the page does not have before any run, with run true", () => {
+    const { page, clickyTools } = loadGuessedSimulation();
+
+    const refused = clickyTools.call("set_control", { name: "mass", value: 3, run: true });
+
+    expect(refused.ok).toBe(false);
+    expect(page.run).not.toHaveBeenCalled();
+  });
+
+  it("offers run in set_control's schema and tells the model when to pass it", () => {
+    const setControlTool = loadSceneTools(simulationPage()).clickyTools.list().find((tool) => tool.name === "set_control");
+
+    expect(setControlTool?.inputSchema).toMatchObject({ properties: { run: { type: "boolean" } }, required: ["name", "value"] });
+    expect(setControlTool?.description).toContain("run true");
+    expect(setControlTool?.description).toContain("try 60 degrees");
+  });
+
   it("locks Run and the dashed path until the learner guesses", () => {
     const setPreviewVisible = vi.fn();
     const page = simulationPage({ setPreviewVisible });
