@@ -651,7 +651,7 @@ struct leanring_buddyTests {
                 pictureShowsDepth: pictureShowsDepth,
                 isArtwork: false
             )
-            let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
+            let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
             #expect(popoutPageHTML.contains("\"pictureShowsDepth\":\(pictureShowsDepth)"))
         }
     }
@@ -668,10 +668,10 @@ struct leanring_buddyTests {
             pictureShowsDepth: false,
             isArtwork: false
         )
-        let unthemedPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
-        #expect(unthemedPageHTML.contains("\"quizLabelColor\":\"#3380ff\""))
-        #expect(unthemedPageHTML.contains("\"quizLabelTextColor\":\"#ffffff\""))
-        let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: .school(.nekoma)))
+        let clickyBluePageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
+        #expect(clickyBluePageHTML.contains("\"quizLabelColor\":\"#3380FF\""))
+        #expect(clickyBluePageHTML.contains("\"quizLabelTextColor\":\"#FFFFFF\""))
+        let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: bundledTheme("school-nekoma")))
         #expect(nekomaPageHTML.contains("\"quizLabelColor\":\"#E0313B\""))
     }
 
@@ -1480,6 +1480,37 @@ struct leanring_buddyTests {
         #expect(videoState["note"] == nil)
         #expect(videoState["title"]?.stringValue?.count == 120)
         #expect(learnerVideoStateTheModelMayRead(pageVideoState: .object(["seconds": .string("9")]), tabTitle: "", pageIsOnYouTube: false) == nil)
+    }
+
+    // Each miss leaves the learner with no video tools, so the log must tell a page with no video from a script that threw.
+    @Test func aReplyWithNoVideoStateNamesWhy() async throws {
+        func reason(_ javaScriptResult: String) -> VideoQuizSession.ReasonTheReplyHoldsNoVideoState? {
+            if case .failure(let reason) = VideoQuizSession.videoStateInTheScriptReply(javaScriptResult, title: "", pageIsOnYouTube: false) { return reason }
+            return nil
+        }
+        #expect(reason("no-video") == .thePageHasNoVideo)
+        #expect(reason("") == .theScriptReturnedNothing)
+        #expect(reason("{not json") == .theReplyIsNotJSON)
+        #expect(reason("{\"seconds\":\"9\"}") == .theStateWasRefused)
+        #expect(reason("{\"seconds\":9,\"durationSeconds\":301,\"playbackRate\":1,\"paused\":false,\"playing\":true}") == nil)
+    }
+
+    // A Chrome with no window and a front tab read that came back garbled each log their own cause.
+    @Test func aFrontTabReadWithNoWindowNamesIt() async throws {
+        #expect {
+            try ChromeVideoTab.frontTab(fromAppleScriptOutput: "")
+        } throws: { error in
+            if case VideoQuizFailure.chromeHasNoWindow = error { return true }
+            return false
+        }
+        #expect {
+            try ChromeVideoTab.frontTab(fromAppleScriptOutput: "12\u{1F}34")
+        } throws: { error in
+            if case VideoQuizFailure.chromeScriptFailed(let message) = error { return message == "The front tab read returned 2 fields" }
+            return false
+        }
+        let frontTab = try ChromeVideoTab.frontTab(fromAppleScriptOutput: "12\u{1F}34\u{1F}https://example.com/v\u{1F}A title")
+        #expect(frontTab.windowId == 12 && frontTab.tabId == 34 && frontTab.url == "https://example.com/v")
     }
 
     @Test func aPlayChromeRefusedIsAFailureNotAConfirmation() async throws {

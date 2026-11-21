@@ -1,6 +1,7 @@
 # Theme Studio: build plan
 
 Written 2026-11-20.
+Since the theme files PR (Tether PR 3), `CustomTheme` is `ClickyTheme`, `CompanionTheme` and `nextHaikyuPlayer` are gone, `CustomTheme.parse(idea:id:pictureIsAvailable:)` is `ClickyTheme.parse(themeJSON:id:origin:pictureIsAvailable:)`, `ideaJSON` is `themeJSON`, and an idea is a version 2 theme.json with `agents` in place of `agentColors` and `usesPicture`. AGENTS.md describes the current code, and this plan keeps its first wording.
 The Swift side is built, and "Where the build differs from this plan" at the end lists each change and why.
 The Worker route `POST /theme-ideas` is built separately against the contract below.
 

@@ -228,7 +228,7 @@ final class CompanionManager: ObservableObject {
     /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
     /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.
     private var studyGuideRefreshesBeingChecked = 0
-    /// The Haikyu!! team theme the learner picked in the menu bar panel or the settings dial, the one source of truth for it.
+    /// The theme the learner picked in the menu bar panel or the settings dial, the one source of truth for it.
     let themeSettings = CompanionThemeSettings()
     /// The loop around the video or image a request looks at, which the cursor overlay draws.
     let cursorLoopController = CursorLoopController()
@@ -827,7 +827,10 @@ final class CompanionManager: ObservableObject {
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
                 runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
-                fans: SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
+                fans: SettingsDialFans(
+                    bundledThemes: themeSettings.bundledThemes,
+                    savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates
+                )
             ))
         case .released:
             if let settingsDialChoice = settingsDialController.releaseAndReturnTheChoice() {
@@ -2743,20 +2746,11 @@ final class CompanionManager: ObservableObject {
         let commandStartedAt = Date()
         // The read started at the press's release is awaited when it has not finished, and a command with no read of its own
         // (a quiz scene command, or a transcript whose read was dropped) reads the page now.
-        let pageRead: VoiceCommandPageRead
-        if let pageReadStartedAtRelease {
-            // A press cancels this command, and the cancel must stop the read too, since a hung study guide check would
-            // otherwise hold a cancelled command up.
-            pageRead = await withTaskCancellationHandler {
-                await pageReadStartedAtRelease.value
-            } onCancel: {
-                pageReadStartedAtRelease.cancel()
-            }
-        } else {
-            pageRead = await readThePageForTheVoiceCommand(frontVideoState: frontVideoState)
-        }
-        // A press during the read cancelled this command, so it must not send anything to the harness or the Worker.
-        guard !Task.isCancelled else { return }
+        // A press during the read cancels this command, so it must not send anything to the harness or the Worker.
+        guard let pageRead = await pageReadForTheVoiceCommand(
+            startedAtRelease: pageReadStartedAtRelease,
+            readNow: { await readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
+        ) else { return }
         timing.mark(\.screenStateReadyAt, at: pageRead.finishedAt)
         let pageTools = pageRead.pageTools
         let pageState = pageRead.pageState
@@ -2769,6 +2763,7 @@ final class CompanionManager: ObservableObject {
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
         let offeredToolNames = Set(tools.map(\.name))
+        print("Voice command: offering \(tools.count) tools, \(frontVideoState == nil ? "no video" : "a video") in front")
         // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
         // screen while they spoke or while the model ran, such as after the shown one's task ended.
         let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
@@ -3501,6 +3496,25 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    // MARK: - Installing a theme file
+
+    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
+    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    func installTheThemePackage(at themePackageURL: URL) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
+            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
+            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
+            installedTheme.sounds.done.play()
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+        } catch {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+        }
+    }
+
     // MARK: - Task Agent Approvals
 
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
@@ -3512,13 +3526,14 @@ final class CompanionManager: ObservableObject {
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
     private func syncTheApprovalWaitingState(_ waitingRequests: [HarnessApprovalRequest]) {
+        backgroundAgentStore.agentIDsWaitingForApproval = Set(waitingRequests.map(\.taskID))
         if let previousChipText = approvalWaitingChipPrimaryText {
             VoiceToolCallChip.shared.hide(ifShowing: previousChipText)
             approvalWaitingChipPrimaryText = nil
         }
         guard let oldestRequest = waitingRequests.first,
               let waitingAgent = backgroundAgentStore.agents.first(where: { $0.id == oldestRequest.taskID }) else { return }
-        let chipTexts = approvalWaitingChipTexts(agentName: waitingAgent.player?.displayName ?? waitingAgent.kind.displayName)
+        let chipTexts = approvalWaitingChipTexts(agentName: waitingAgent.displayName)
         approvalWaitingChipPrimaryText = chipTexts.primary
         VoiceToolCallChip.shared.show(
             chipTexts.primary,

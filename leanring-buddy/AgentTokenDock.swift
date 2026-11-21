@@ -156,7 +156,11 @@ struct AgentTokenDiscContent: View {
             if discModel.isAnOpenSlotAwaitingItsToken {
                 AgentOpenSlotView()
             } else if let agent = store.agents.first(where: { $0.id == agentID }) {
-                AgentTokenDiscView(agent: agent, isHovered: discModel.isHovered)
+                AgentTokenDiscView(
+                    agent: agent,
+                    isWaitingForApproval: store.agentIDsWaitingForApproval.contains(agent.id),
+                    isHovered: discModel.isHovered
+                )
             }
         case .overflow:
             AgentOverflowDiscView(overflowCount: overflowCount, isHovered: discModel.isHovered)

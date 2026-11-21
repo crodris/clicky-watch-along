@@ -21,8 +21,18 @@ final class FrontTabReadAtRelease {
     /// How many times the real read ran, for a test.
     private(set) var readCount = 0
 
-    init(readTheFrontTab: @escaping () -> ChromeVideoTab? = { try? ChromeVideoTab.frontTabOfTheFrontWindow() }) {
+    init(readTheFrontTab: @escaping () -> ChromeVideoTab? = FrontTabReadAtRelease.readChromesFrontTab) {
         self.readTheFrontTab = readTheFrontTab
+    }
+
+    /// Chrome's front tab, or nil with the reason in the log, since a refusal and a Chrome with no window both read as no tab.
+    static func readChromesFrontTab() -> ChromeVideoTab? {
+        do {
+            return try ChromeVideoTab.frontTabOfTheFrontWindow()
+        } catch {
+            print("Release read: could not read the front tab: \(error)")
+            return nil
+        }
     }
 
     /// The front tab, or nil when Chrome has no window to read. A nil answer is kept too, so a Chrome that refuses is asked once.
@@ -106,6 +116,29 @@ func screenReadForTheTranscript(
 ) -> VoiceCommandScreenRead? {
     guard let screenRead, screenRead.pressCount == pressCount, screenRead.pageIdentityAtRelease == currentPageIdentity else { return nil }
     return screenRead
+}
+
+/// The page read a voice command waits for: the one started at the press's release, which is awaited when it has not
+/// finished, or a fresh one (`readNow`) for a command with no read of its own, such as a quiz scene command or a transcript
+/// whose read was dropped. Nil when a push-to-talk press cancelled the command during the read, so the command sends nothing
+/// to the harness or the Worker. The cancel also reaches the read, since a hung study guide check would otherwise hold a
+/// cancelled command up.
+func pageReadForTheVoiceCommand(
+    startedAtRelease pageReadStartedAtRelease: Task<VoiceCommandPageRead, Never>?,
+    readNow: () async -> VoiceCommandPageRead
+) async -> VoiceCommandPageRead? {
+    let pageRead: VoiceCommandPageRead
+    if let pageReadStartedAtRelease {
+        pageRead = await withTaskCancellationHandler {
+            await pageReadStartedAtRelease.value
+        } onCancel: {
+            pageReadStartedAtRelease.cancel()
+        }
+    } else {
+        pageRead = await readNow()
+    }
+    guard !Task.isCancelled else { return nil }
+    return pageRead
 }
 
 /// Whether a release starts the screen read. A quiz answer goes to the judge and a building scene keeps the keyword path,

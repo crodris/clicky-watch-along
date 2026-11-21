@@ -201,9 +201,6 @@ enum DS {
         /// Dark text on the agent count's white badge, and the Random ball's outline.
         static let settingsDialDarkInk = Color(hex: "#111111")
 
-        /// The Random ball in the Team fan.
-        static let settingsDialRandomBall = Color(hex: "#374151")
-
         // ── Background Agents ────────────────────────────────────────
 
         /// The color of a study guide agent. Each new agent kind gets its own color here.

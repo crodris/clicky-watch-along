@@ -248,6 +248,7 @@ enum VideoQuizFailure: Error {
     case chromeIsNotRunning
     case noYouTubeTabFound
     case noVideoOnThePage
+    case chromeHasNoWindow
     case noImageOrVideoToPopOut
     case javaScriptFromAppleEventsIsOff
     case notAllowedToControlChrome
@@ -269,6 +270,8 @@ enum VideoQuizFailure: Error {
             return "I couldn't find a YouTube video open in Chrome."
         case .noVideoOnThePage:
             return "I couldn't find a video player on that page."
+        case .chromeHasNoWindow:
+            return "Chrome has no window open, so I can't find a video."
         case .noImageOrVideoToPopOut:
             return "I couldn't find an image or a video in Chrome to pop out."
         case .javaScriptFromAppleEventsIsOff:
@@ -857,14 +860,28 @@ final class VideoQuizSession {
     /// The main video in Chrome's front tab, on any site, as the voice command model sees it, or nil when the
     /// page has none. A video inside a frame from another site cannot be reached by a page script, so it counts as none.
     func frontVideoStateForVoiceCommands() -> JSONValue? {
-        guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
+        let frontTab: ChromeVideoTab
+        do {
+            frontTab = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        } catch {
+            print("Front video: could not read the front tab: \(error)")
+            return nil
+        }
         return frontVideoStateForVoiceCommands(in: frontTab)
     }
 
     /// The same read of a front tab the caller already has, so a release that reads the tab once for several readers does not
-    /// read it again here.
+    /// read it again here. A read that finds no video says why in the log, since "no video" and "Chrome refused" send the
+    /// model different tools and look the same afterwards. `runLearnerVideoCommand` logs a reply with no video state.
     func frontVideoStateForVoiceCommands(in frontTab: ChromeVideoTab) -> JSONValue? {
-        try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
+        do {
+            return try Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
+        } catch VideoQuizFailure.noVideoOnThePage {
+            return nil
+        } catch {
+            print("Front video: could not read the video state of the front tab (\(URL(string: frontTab.url)?.host() ?? "unknown host")): \(error)")
+            return nil
+        }
     }
 
     /// Runs a pause, play, seek, or speed change the learner asked for on the video in front, and returns its state.
@@ -1004,12 +1021,34 @@ final class VideoQuizSession {
 
     private static func runLearnerVideoCommand(_ learnerVideoCommand: LearnerVideoCommand, in videoTab: ChromeVideoTab, title: String, pageIsOnYouTube: Bool) throws -> JSONValue {
         let javaScriptResult = try ChromeVideoTab.runJavaScript(learnerVideoCommand.javaScript, in: videoTab)
-        guard javaScriptResult != "no-video",
-              let pageVideoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)),
-              let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title, pageIsOnYouTube: pageIsOnYouTube) else {
+        switch videoStateInTheScriptReply(javaScriptResult, title: title, pageIsOnYouTube: pageIsOnYouTube) {
+        case .success(let videoState):
+            return videoState
+        case .failure(let reasonTheReplyHoldsNoVideoState):
+            print("Front video: no video state for the front tab (\(URL(string: videoTab.url)?.host() ?? "unknown host")), because \(reasonTheReplyHoldsNoVideoState.rawValue)")
             throw VideoQuizFailure.noVideoOnThePage
         }
-        return videoState
+    }
+
+    /// Why a video command's reply holds no video state. Each reason leaves the learner with no video tools, so the log
+    /// names it: a page with no video differs from a page script that threw, which Chrome returns as an empty reply.
+    enum ReasonTheReplyHoldsNoVideoState: String, Error {
+        case thePageHasNoVideo = "the page has no video it can reach"
+        case theScriptReturnedNothing = "the page script returned nothing"
+        case theReplyIsNotJSON = "the page script's reply is not JSON"
+        case theStateWasRefused = "the page's video state failed the check of what the model may read"
+    }
+
+    static func videoStateInTheScriptReply(_ javaScriptResult: String, title: String, pageIsOnYouTube: Bool) -> Result<JSONValue, ReasonTheReplyHoldsNoVideoState> {
+        if javaScriptResult == "no-video" { return .failure(.thePageHasNoVideo) }
+        if javaScriptResult.isEmpty { return .failure(.theScriptReturnedNothing) }
+        guard let pageVideoState = try? JSONDecoder().decode(JSONValue.self, from: Data(javaScriptResult.utf8)) else {
+            return .failure(.theReplyIsNotJSON)
+        }
+        guard let videoState = learnerVideoStateTheModelMayRead(pageVideoState: pageVideoState, tabTitle: title, pageIsOnYouTube: pageIsOnYouTube) else {
+            return .failure(.theStateWasRefused)
+        }
+        return .success(videoState)
     }
 
     // MARK: Talking to the page
@@ -1148,10 +1187,19 @@ struct ChromeVideoTab {
             return (id of front window as text) & fieldSeparator & (id of frontTab as text) & fieldSeparator & (URL of frontTab) & fieldSeparator & (title of frontTab)
         end tell
         """)
+        return try frontTab(fromAppleScriptOutput: frontTabOutput)
+    }
+
+    /// The front tab from the script above, which returns "" when Chrome has no window.
+    static func frontTab(fromAppleScriptOutput frontTabOutput: String) throws -> ChromeVideoTab {
+        if frontTabOutput.isEmpty {
+            throw VideoQuizFailure.chromeHasNoWindow
+        }
         // ASCII 31, the unit separator, cannot appear in a URL or a tab title, while "|" can.
         let tabFields = frontTabOutput.split(separator: "\u{1F}", maxSplits: 3, omittingEmptySubsequences: false)
         guard tabFields.count == 4, let windowId = Int(tabFields[0]), let tabId = Int(tabFields[1]) else {
-            throw VideoQuizFailure.noVideoOnThePage
+            // Only the field count goes in the message, since the fields hold the tab's URL and title.
+            throw VideoQuizFailure.chromeScriptFailed("The front tab read returned \(tabFields.count) fields")
         }
         return ChromeVideoTab(windowId: windowId, tabId: tabId, url: String(tabFields[2]), title: titleWithoutYouTubeSuffix(String(tabFields[3])))
     }
