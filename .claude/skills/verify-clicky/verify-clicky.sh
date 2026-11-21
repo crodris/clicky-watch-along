@@ -22,12 +22,14 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down [port]        Stop the Workers this script started, or only the one on that port.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch [--brain] [--harness-brain] "<steps>"
+  app-launch [--brain] [--harness-brain] [--every-permission] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain also passes --brain-takes-every-request, so the router takes every first utterance
                           without writing the flag into the defaults the everyday Clicky shares.
                           --harness-brain also passes --brain-runs-in-the-harness, so voice commands run on the brain in
                           the agent harness instead of POST /voice-command. The two flags go in either order.
+                          --every-permission quits the app and fails when it starts without every permission or onboarding,
+                          since its permissions panel would cover a recorded take. record-shot.sh passes it.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
@@ -40,6 +42,8 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
                             A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
                             Park the mouse over the scroll area first, such as the approval card's summary.
+  grant                     Open System Settings at Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch
+                            launches in Finder, so Chris can turn its switch on or drag that exact app into the list. app-launch says when it is needed.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 EOF
 }
@@ -548,6 +552,7 @@ require_screen_recording_grant() {
         echo "This build has no Screen Recording grant. Ask Chris to allow Clicky in System Settings > Privacy & Security > Screen & System Audio Recording, and Accessibility for the video features, then launch again." >&2
         exit 1
       fi
+      accessibility_grant_warning "$app_log" >&2
       return 0
     fi
     sleep 0.5
@@ -555,14 +560,47 @@ require_screen_recording_grant() {
   echo "warning: the app log has no 'Clicky start' permission line after 10 seconds" >&2
 }
 
+# The app opens its "Permissions needed" panel when any permission in the start line is missing or onboarding is not
+# finished (`showPanelOnLaunch` in leanring_buddyApp.swift), and the panel covers a recorded take.
+app_start_line_opens_the_permissions_panel() {
+  local app_log="$1"
+  grep -E 'Clicky start.*(accessibility|screen|mic|screenContent|onboarded): false' "$app_log" >/dev/null 2>&1
+}
+
+# The rehearsal runs without Accessibility, but push-to-talk, the settings dial, and Escape do not, and the app opens its
+# "Permissions needed" panel, which covers a recorded take. macOS can drop the grant with no rebuild, so each launch checks.
+accessibility_grant_warning() {
+  local app_log="$1"
+  if grep 'Clicky start.* accessibility: false' "$app_log" >/dev/null 2>&1; then
+    echo "warning: this build has no Accessibility grant, so push-to-talk, the settings dial, and Escape do not work, and the app shows its permissions panel. Run this script's grant command and ask Chris to turn Clicky on there."
+  fi
+}
+
+command_grant() {
+  local app_path
+  app_path="$(debug_app_path)"
+  if [[ -z "$app_path" ]]; then
+    echo "debug app: MISSING for this repository. Run this script's build command first." >&2
+    exit 1
+  fi
+  open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+  open -R "$app_path"
+  echo "Opened Privacy & Security > Accessibility, and Finder shows the Debug app at $app_path."
+  echo "Ask Chris to turn on Clicky in that list, or drag the Clicky.app Finder shows into it when Clicky is missing."
+  echo "When Clicky's switch is already on and the app still logs 'accessibility: false', remove its row with the minus button and drag in the Clicky.app Finder shows."
+  echo "The next app-launch prints 'accessibility: true' once the grant holds."
+}
+
 # Reads app-launch's flags into app_launch_flag_arguments, the app's own launch arguments for them, and the steps after
 # them into app_launch_rehearsal_steps.
 parse_app_launch_arguments() {
   app_launch_flag_arguments=()
+  app_launch_needs_every_permission=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --brain) app_launch_flag_arguments+=(--brain-takes-every-request) ;;
       --harness-brain) app_launch_flag_arguments+=(--brain-runs-in-the-harness) ;;
+      --every-permission) app_launch_needs_every_permission=true ;;
       *) break ;;
     esac
     shift
@@ -608,6 +646,11 @@ command_app_launch() {
       record_process "$launched_pid" "$state_root/app.pid"
       echo "launched Clicky pid $launched_pid, log $run_dir/app.log"
       require_screen_recording_grant "$run_dir/app.log"
+      if [[ "$app_launch_needs_every_permission" == true ]] && app_start_line_opens_the_permissions_panel "$run_dir/app.log"; then
+        command_app_quit
+        echo "The app started without every permission or onboarding, so it shows its permissions panel. The Clicky start line above names what is false: run this script's grant command for accessibility, ask Chris to allow the others under System Settings > Privacy & Security, or finish onboarding, then launch again." >&2
+        exit 1
+      fi
       return 0
     fi
     sleep 0.5
@@ -746,6 +789,7 @@ main() {
     shot) command_shot "${1:?shot name}" ;;
     scroll) command_scroll "${1:?points}" ;;
     key) command_key "${1:?key name}" ;;
+    grant) command_grant ;;
     cleanup) command_app_quit; command_worker_down ;;
     *) usage; exit 1 ;;
   esac

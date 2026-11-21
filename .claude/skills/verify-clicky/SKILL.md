@@ -99,6 +99,12 @@ It refuses when any Clicky is already running, because two instances fight over 
 It also quits the app and stops when the app's `Clicky start` log line shows `screen: false`.
 macOS keys privacy grants to the bundle ID that doctor prints, so a build with a new ID has none.
 Only Chris can grant them, in System Settings > Privacy & Security > Screen & System Audio Recording, and Accessibility for the video features.
+When the line shows `accessibility: false`, `app-launch` keeps going, since a rehearsal needs no Accessibility, and prints a warning that names `grant`.
+macOS can drop the Accessibility grant with no rebuild, as it did on 2026-11-20, so read that line on every launch.
+`$V grant` opens Privacy & Security > Accessibility and shows the Debug `Clicky.app` that `app-launch` launches in Finder, so Chris turns its switch on or drags that exact app into the list.
+When its switch is already on and the app still logs `accessibility: false`, the row holds an older build's grant, so remove the row with the minus button and drag that app in again.
+`app-launch --every-permission` quits the app and fails when the start line shows any permission false or `onboarded: false`, since the app then opens its permissions panel.
+`demo/scripts/record-shot.sh` passes it, so a shot stops before its rehearsal steps run instead of recording the panel over the take.
 
 ```bash
 $V app-launch "show me the inside of a heart"
@@ -159,7 +165,7 @@ worker-up [port] [-- wrangler args]
 worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch [--brain] [--harness-brain] "<steps>"
+app-launch [--brain] [--harness-brain] [--every-permission] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
@@ -171,6 +177,7 @@ key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>
 scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
                           A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
                           Park the mouse over the scroll area first, such as the approval card's summary.
+grant                     Open Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch launches in Finder.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 ```
 
