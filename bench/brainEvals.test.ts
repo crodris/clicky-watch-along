@@ -1044,13 +1044,14 @@ describe("the session fixture", () => {
     validateSessionFixture(sessionFile, evalFile, toolCatalog);
   });
 
-  it("holds the session cases, the injection case, and the three undo cases the brain's memory needs", () => {
+  it("holds the session cases, the injection case, and the four undo cases the brain's memory needs", () => {
     assert.deepEqual(
       sessionFile.cases.map((brainCase) => brainCase.id),
       [
         "session-undo-first-turn",
         "session-correction-after-fold",
         "session-correction-after-interrupt",
+        "session-undo-after-cut-off",
         "session-correction-after-seek-to-moment",
         "session-injection-approve",
         "session-undo-after-zoom",

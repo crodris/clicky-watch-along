@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -31,6 +32,10 @@ type runningTask struct {
 	// handOffCompletedIt is set, under the harness's tasksMutex, when the app's handedOff result for this command
 	// arrives. A cancel_task read after it changes nothing, since a slow path already owns the reply.
 	handOffCompletedIt bool
+	// toolUseIDTheAppWasRunningAtTheCancel is the call a voice command's cancel_task named as running in the app, or
+	// nil before a cancel_task arrives. A cancel from inside the harness, such as a new command's, names none, so it
+	// can be written after the command's context ended, and it is atomic for that reason.
+	toolUseIDTheAppWasRunningAtTheCancel atomic.Pointer[string]
 }
 
 // taskRunner runs task agents. It holds no per-task state, so any number of tasks can run on one runner.

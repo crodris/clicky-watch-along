@@ -142,6 +142,9 @@ type sessionRun struct {
 	actionLines       []string
 	// scene is what the command saw on screen, which each change it makes is recorded against (brainundo.go).
 	scene sceneIdentity
+	// pageMayStillRefuseChanges is true when the scene state said the page's tour has not finished, while a pop-out may
+	// still be building and a landmark refuses every move, so a page call a press cut off may not have run (brainundo.go).
+	pageMayStillRefuseChanges bool
 	// changes is the session's record of applied changes as this command sees it, minus the ones that no longer match the
 	// scene (changesThatStillApply): a copy that the command's own calls update, which replaces the session's when the
 	// command ends, whole or cancelled.
@@ -174,16 +177,18 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 
 	interruptedBefore := slices.Clone(session.interruptedActionLines)
 	scene := sceneIdentityOf(sceneState)
+	pageMayStillRefuseChanges := pageTourIsStillGoing(sceneState)
 	return &sessionRun{
-		session:           session,
-		generation:        session.generation,
-		history:           history,
-		breakpoint:        breakpoint,
-		transcript:        transcript,
-		interruptedBefore: interruptedBefore,
-		own:               []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, sceneState, interruptedBefore)))},
-		scene:             scene,
-		changes:           changesThatStillApply(session.appliedChanges, scene),
+		session:                   session,
+		generation:                session.generation,
+		history:                   history,
+		breakpoint:                breakpoint,
+		transcript:                transcript,
+		interruptedBefore:         interruptedBefore,
+		own:                       []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, sceneState, interruptedBefore)))},
+		scene:                     scene,
+		changes:                   changesThatStillApply(session.appliedChanges, scene),
+		pageMayStillRefuseChanges: pageMayStillRefuseChanges,
 	}
 }
 

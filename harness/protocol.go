@@ -113,9 +113,12 @@ type voiceToolOffer struct {
 	ReadOnly    bool            `json:"readOnly"`
 }
 
-// cancelTaskMessage stops a task. The harness sends nothing more for it.
+// cancelTaskMessage stops a task. The harness sends nothing more for it. For a voice command, RunningToolUseID is the
+// call the app had started and not answered when the press came, which may already have changed the screen, and it is
+// empty when the press caught no call running, such as a call the app dropped before starting it.
 type cancelTaskMessage struct {
-	TaskID string `json:"taskID"`
+	TaskID           string `json:"taskID"`
+	RunningToolUseID string `json:"runningToolUseID,omitempty"`
 }
 
 // approvalResultMessage answers one approval_request. It names the request by approvalID alone, since the harness made

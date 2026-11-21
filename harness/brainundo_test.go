@@ -352,37 +352,47 @@ func TestAnInverseLineInTheInterruptedLinesRemovesTheChangeItReversedInsteadOfBe
 	}
 }
 
-// The real harness records a cut-off call as a change with no inverse, so a seed that carries its line must too.
-func TestASeededCutOffLineIsAChangeWithNoInverseAndNeverAnUndo(t *testing.T) {
+// The real harness records a cut-off call as a new change, with its inverse only for a page call, so a seed that carries
+// its line must too, and never reads it as an undo.
+func TestASeededCutOffLineIsNeverAnUndo(t *testing.T) {
 	messages := seededMessagesOfCalls(
 		[3]string{"toolu_1", "zoom", `{"factor":1.3}`},
 		[3]string{"toolu_2", "rotate_model", `{"yawDegrees":-45}`},
 	)
-	// A cut-off line that names the newest change's inverse is not read as the undo, since the cut-off call may not have run.
+	// A cut-off line that names the newest change's inverse is not read as the undo, since the harness cannot tell either.
+	// A cut-off page call keeps its inverse, as the harness records one (aCutOffCallHasRun).
 	record := appliedChangesOfASeed(messages, []string{`rotate_model {"yawDegrees":45} -> cut off, may have run`})
 	if got, want := seededChangesAsText(record), []string{`rotate_model {"yawDegrees":45}`, `rotate_model {"yawDegrees":-45}`, `zoom {"factor":1.3}`}; !slices.Equal(got, want) {
 		t.Fatalf("the seeded record:\n got %q\nwant %q", got, want)
 	}
-	if !record[0].effectIsUnknown || record[1].effectIsUnknown {
-		t.Errorf("effectIsUnknown flags: %v %v, want true then false", record[0].effectIsUnknown, record[1].effectIsUnknown)
-	}
-	if _, hasAnInverse := record[0].inverse(); hasAnInverse {
-		t.Errorf("a cut-off call has an inverse")
+	if inverse, hasAnInverse := record[0].inverse(); !hasAnInverse || inverse.tool != "rotate_model" || string(inverse.input) != `{"yawDegrees":-45}` {
+		t.Errorf("a cut-off page call's inverse: %s %s (%v)", inverse.tool, inverse.input, hasAnInverse)
 	}
 
+	// A cut-off video call may not have run, so it has no inverse, and undo is not offered past it.
+	videoRecord := appliedChangesOfASeed(seededMessagesOfCalls([3]string{"toolu_1", "pause_video", `{}`}), []string{`play_video {} -> cut off, may have run`})
+	if got, want := seededChangesAsText(videoRecord), []string{`play_video {}`, `pause_video {}`}; !slices.Equal(got, want) {
+		t.Fatalf("the seeded video record:\n got %q\nwant %q", got, want)
+	}
+	if !videoRecord[0].effectIsUnknown {
+		t.Errorf("a cut-off video call was recorded with an inverse")
+	}
 	session, _ := newTestSession()
-	if err := session.seed(messages, []string{`zoom {"factor":2} -> cut off, may have run`}); err != nil {
+	if err := session.seed(messages, []string{`play_video {} -> cut off, may have run`}); err != nil {
 		t.Fatal(err)
 	}
 	if undoIsOfferedTo(session.begin("undo that", json.RawMessage(`{}`))) {
-		t.Errorf("a seeded session offered undo past a cut-off call")
+		t.Errorf("a seeded session offered undo past a cut-off video call")
 	}
 }
 
 func TestAnActionLineReadsBackIntoTheCallItDescribes(t *testing.T) {
-	change, callWasCutOff := appliedChangeOfActionLine(`zoom {"factor":2} -> cut off, may have run`)
-	if !callWasCutOff || change.tool != "zoom" || string(change.input) != `{"factor":2}` || !change.effectIsUnknown {
+	change, callWasCutOff := appliedChangeOfActionLine(`play_video {} -> cut off, may have run`)
+	if !callWasCutOff || change.tool != "play_video" || string(change.input) != `{}` || !change.effectIsUnknown {
 		t.Errorf("read %s %s unknown=%v (%v)", change.tool, change.input, change.effectIsUnknown, callWasCutOff)
+	}
+	if change, _ := appliedChangeOfActionLine(`zoom {"factor":2} -> cut off, may have run`); change.effectIsUnknown {
+		t.Errorf("a cut-off page call was read with no inverse")
 	}
 	if change, _ := appliedChangeOfActionLine(`zoom {"factor":2} -> ok`); change.effectIsUnknown {
 		t.Errorf("an ok line was read as a cut-off call")
@@ -1017,12 +1027,66 @@ func TestACancelAfterTheInverseFinishedRemovesTheChangeItReversed(t *testing.T) 
 	}
 }
 
-// A call the app was still running when the press came may already have changed the screen, so it stands between "undo
-// that" and the older change, as a hand-off does.
-func TestACallStillRunningWhenAPressCancelsTheCommandStandsBetweenUndoAndAnOlderChange(t *testing.T) {
+// A video call the app was still running when the press came may or may not have changed the screen, so it stands
+// between "undo that" and the older change, as a hand-off does.
+func TestAVideoCallStillRunningWhenAPressCancelsTheCommandStandsBetweenUndoAndAnOlderChange(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"play it":      {brainToolUse("toolu_play", "play_video", `{"confirmation":"playing"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "play it"))
+	driver.expectLine("tool_call")
+	driver.send(cancelTaskLine("command-2"))
+
+	driver.send(undoCommandLine("command-3", "what is this?"))
+	driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-3"`)
+	requests := worker.requests()
+	if offersUndo(t, requests[len(requests)-1].body) {
+		t.Errorf("undo was offered past a video call whose effect is unknown: %v", offeredToolNamesOf(t, requests[len(requests)-1].body))
+	}
+	// The model reads the cut-off call too, so "undo that" with no undo offered does not make it reach past the play.
+	if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>play_video {} -> cut off, may have run</interrupted_before>`) {
+		t.Errorf("the next command was not told about the cut-off call: %s", got)
+	}
+}
+
+// A page still in its tour may have refused a cut-off call, and the app drops a call that reaches it after the press, so
+// in either case the call keeps no inverse and undo is not offered past it. A page that does not report tourFinished, as
+// a generated page may not, counts as finished.
+func TestACutOffPageCallKeepsItsInverseOnlyWhenTheAppStartedItAfterThePageTour(t *testing.T) {
+	for _, testCase := range []struct {
+		sceneState         string
+		theAppHadStartedIt bool
+		undoIsOffered      bool
+	}{
+		{`{"page":"framePopout","sceneNumber":1,"tourFinished":false}`, true, false},
+		{`{"page":"framePopout","sceneNumber":1,"tourFinished":true}`, true, true},
+		{`{"page":"generated3DScene","sceneNumber":1}`, true, true},
+		{`{"page":"framePopout","sceneNumber":1,"tourFinished":true}`, false, false},
+	} {
+		session, _ := newTestSession()
+		run := session.begin("zoom in", json.RawMessage(testCase.sceneState))
+		run.noteACallWhoseEffectIsUnknown(toolCall{ID: "toolu_zoom", Name: "zoom", Input: json.RawMessage(`{"factor":2}`)}, false, testCase.theAppHadStartedIt)
+		run.abandon()
+		if got := undoIsOfferedTo(session.begin("undo that", json.RawMessage(testCase.sceneState))); got != testCase.undoIsOffered {
+			t.Errorf("in %s with the app having started it %v, undo offered after a cut-off zoom = %v, want %v",
+				testCase.sceneState, testCase.theAppHadStartedIt, got, testCase.undoIsOffered)
+		}
+	}
+}
+
+// A page call a press cut off has almost surely run, so "undo that" reverses it and not the older change behind it.
+func TestAPageCallStillRunningWhenAPressCancelsTheCommandIsTheOneUndone(t *testing.T) {
 	worker := workerThatAnswersByWords(t, map[string][]string{
 		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
 		"zoom in":      {brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed"}`)},
+		"undo that":    {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
 	})
 	driver := startHarness(t, worker.server.URL)
 	driver.send(undoCommandLine("command-1", "turn it left"))
@@ -1032,17 +1096,34 @@ func TestACallStillRunningWhenAPressCancelsTheCommandStandsBetweenUndoAndAnOlder
 
 	driver.send(undoCommandLine("command-2", "zoom in"))
 	driver.expectLine("tool_call")
-	driver.send(cancelTaskLine("command-2"))
+	driver.send(cancelTaskLineWhileRunning("command-2", "toolu_zoom"))
 
-	driver.send(undoCommandLine("command-3", "what is this?"))
-	driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-3"`)
+	driver.send(undoCommandLine("command-3", "undo that"))
+	if got, want := driver.expectLine("tool_call"), `{"type":"tool_call","taskID":"command-3","toolUseID":"toolu_undo-undo","name":"zoom","input":{"factor":0.5},"turnIndex":0}`; got != want {
+		t.Fatalf("the undo after a cut-off zoom:\n got %s\nwant %s", got, want)
+	}
+	requests := worker.requests()
+	if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>zoom {"factor":2} -> cut off, may have run</interrupted_before>`) {
+		t.Errorf("the undo command was not told about the cut-off call: %s", got)
+	}
+}
+
+// A cut-off zoom whose cancel_task names no running call never ran in the app, such as a call that reached it after the
+// press, so "undo that" is not offered for it and cannot reverse a zoom that did not happen.
+func TestAPageCallTheAppNeverStartedIsNotUndone(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"zoom in": {brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "zoom in"))
+	driver.expectLine("tool_call")
+	driver.send(cancelTaskLine("command-1"))
+
+	driver.send(undoCommandLine("command-2", "what is this?"))
+	driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-2"`)
 	requests := worker.requests()
 	if offersUndo(t, requests[len(requests)-1].body) {
-		t.Errorf("undo was offered past a call whose effect is unknown: %v", offeredToolNamesOf(t, requests[len(requests)-1].body))
-	}
-	// The model reads the cut-off call too, so "undo that" with no undo offered does not make it reach past the zoom.
-	if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>zoom {"factor":2} -> cut off, may have run</interrupted_before>`) {
-		t.Errorf("the next command was not told about the cut-off call: %s", got)
+		t.Errorf("undo was offered for a zoom the app never started: %v", offeredToolNamesOf(t, requests[len(requests)-1].body))
 	}
 }
 

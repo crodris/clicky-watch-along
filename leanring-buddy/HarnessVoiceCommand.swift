@@ -21,7 +21,8 @@ import os
 ///
 /// A call that finished in the app right before a press has a real outcome the harness has not heard. `callFinished`
 /// records it, and the cancel handler then writes the call's result before `cancel_task`, so the harness adds the call's
-/// action line to the rollback's `interrupted_before` line. A call still running at the press sends only `cancel_task`.
+/// action line to the rollback's `interrupted_before` line. A call still running at the press sends only `cancel_task`, which
+/// names that call in `runningToolUseID`, so the harness can reverse it on "undo that".
 ///
 /// The cancel handler of `withTaskCancellationHandler` runs wherever the cancel happens, off the main actor, so this
 /// state sits behind a lock. Each call has one line to send, and the cancel handler and the normal path both claim it
@@ -100,7 +101,11 @@ nonisolated final class HarnessVoiceCommandLines: Sendable {
                     state.currentCallLineWasSent = true
                     sendLine(.voiceToolResult(taskID: taskID, toolUseID: toolUseID, outcome: finishedOutcome))
                 }
-                sendLine(.cancelTask(taskID: taskID))
+                // A call that started and has no result yet may already have changed the screen, so the harness hears
+                // which one it was. A call the press caught before it started never ran, and the earlier call's result
+                // already went out, so the cancel names no call then.
+                let runningToolUseID = state.currentCallLineWasSent ? nil : state.currentToolUseID
+                sendLine(.cancelTask(taskID: taskID, runningToolUseID: runningToolUseID))
                 return
             }
             // A hand-off whose result already went out completed the command, so there is nothing to cancel.

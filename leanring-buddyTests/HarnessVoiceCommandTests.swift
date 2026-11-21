@@ -240,7 +240,7 @@ struct HarnessVoiceCommandTests {
         linesCancelledBeforeTheMark.commandWasCancelled()
         linesCancelledBeforeTheMark.handOffHasStarted()
         linesCancelledBeforeTheMark.sendTheResult(of: .handedOff)
-        #expect(cancelledBeforeTheMark.lines == [.cancelTask(taskID: commandID)])
+        #expect(cancelledBeforeTheMark.lines == [.cancelTask(taskID: commandID, runningToolUseID: "toolu_pop")])
 
         let cancelledAfterTheMark = HarnessLineRecorder()
         let linesCancelledAfterTheMark = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledAfterTheMark.record(harnessCommand) })
@@ -280,15 +280,15 @@ struct HarnessVoiceCommandTests {
             .cancelTask(taskID: commandID),
         ])
 
-        // A call still running at the press has no outcome, so only the cancel goes out, and a call that finishes
-        // after the cancel writes nothing.
+        // A call still running at the press has no outcome, so only the cancel goes out, naming the call so the harness
+        // can reverse it, and a call that finishes after the cancel writes nothing.
         let cancelledDuringTheCall = HarnessLineRecorder()
         let linesCancelledDuringTheCall = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledDuringTheCall.record(harnessCommand) })
         linesCancelledDuringTheCall.callStarted(toolUseID: "toolu_play")
         linesCancelledDuringTheCall.commandWasCancelled()
         linesCancelledDuringTheCall.callFinished(with: .changed(state: nil))
         linesCancelledDuringTheCall.sendTheResult(of: .changed(state: nil))
-        #expect(cancelledDuringTheCall.lines == [.cancelTask(taskID: commandID)])
+        #expect(cancelledDuringTheCall.lines == [.cancelTask(taskID: commandID, runningToolUseID: "toolu_play")])
 
         // The result of an earlier call that already went out is never written again for the next call's cancel.
         let cancelledBetweenCalls = HarnessLineRecorder()

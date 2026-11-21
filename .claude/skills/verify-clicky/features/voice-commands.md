@@ -71,6 +71,8 @@ Preconditions:
   The inverse's call ID (the model's ID plus `-undo`) is in the app log only as the `id` field of a `Voice command JSON tool call from the harness` line, which `logVoiceCommandJSONIfEnabled` writes only with the switch on, so a switch-off run does not show it.
   For a video, run `$V app-launch --brain --harness-brain "go back ten seconds|undo that"`: the last step logs `Voice command: seek_relative(seconds: 10) ran ... ok` after its `calls undo_last_change` line.
   The harness offers `undo_last_change` only while the newest change has an inverse, so with a pop-out as the newest action, "undo that" is the model's own call to `close_scene`.
+  A page call a press cut off keeps its inverse when the app's `cancel_task` names it as running and the page's tour has finished, and a cut-off video call, undo, call during the tour, or call the app never started does not (`aCutOffCallHasRun`).
+  A page tool answers in a few milliseconds, so a rehearsal press cannot land inside one, and `cd harness && go test -run 'CutOff|StillRunning' ./...` and `node bench/brainEvals.ts run --label cut-off --backend harness --runs 10 --only session-undo-after-cut-off --port 8797` check it instead.
 - **The brain's evals on both backends.** With `$V worker-up 8797` ready, run `node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797`.
   It builds the harness, runs every case in `bench/fixtures/brain-evals.json` on the Worker's `/voice-command` and on the harness brain, one after the other, and prints a table for each backend and the parity gate.
   The gate passes when every harness run passes, its p50 to the first `tool_call` is within 100 ms of the Worker's, and its first-turn cost per call is within 1.5 times the Worker's.
