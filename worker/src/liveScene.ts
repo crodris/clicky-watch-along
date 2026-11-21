@@ -25,7 +25,15 @@ import {
   requestAnthropicReplyText,
 } from "./anthropic";
 import { benchModelOverride } from "./benchModelOverride";
-import { checkLiveSceneModelReply, liveSceneRequestKindSchema, type LiveSceneRequestKind } from "./liveSceneReply";
+import {
+  checkLiveSceneKernelReply,
+  checkLiveSceneModelReply,
+  liveSceneFormatSchema,
+  liveSceneRequestKindSchema,
+  type CheckedLiveSceneReply,
+  type LiveSceneFormat,
+  type LiveSceneRequestKind,
+} from "./liveSceneReply";
 
 const maximumLiveSceneAttempts = 2;
 
@@ -121,13 +129,48 @@ const openAIResponseSchema = z.object({
 
 type SceneRequest = z.infer<typeof sceneRequestSchema>;
 
+// The rules every format shares, so the page prompt and the kernel prompt can never say different things about the subject,
+// the experiment, or the quiz.
+const subjectRules = [
+  "The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
+  "Build the subject as the screenshot shows it. When the screenshot shows only part of something, build that part and what it touches in the picture, not the whole object it belongs to.",
+  "Make it look real, not like a cartoon. Build the whole of that subject as it looks from the outside, and label its outer parts.",
+];
+
+const answerPartRule = "Choose the answer part, the labels, and the question for this subject. The answer part is one a 10-year-old could name.";
+
+const quizBlockRules = [
+  "The json block is one JSON object and nothing else:",
+  '{ "question": "...", "answerLabel": "...", "functionWords": ["..."], "explanation": "..." }',
+  "question opens with one warm, plain sentence about the subject, with no exclamation mark (for an inside view, saying you have arrived inside it), then asks what the part is and what it does. It does not contain the answer.",
+  "answerLabel is the answer part's real label, the words the learner would say out loud.",
+  "functionWords is a list of lowercase words that count as saying what the part does.",
+  "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
+];
+
+const simulationHeader =
+  "THIS REQUEST IS A SIMULATION. The learner said something like \"let me try it\", and they will change a few numbers and press Run. These rules replace any rule above they conflict with.";
+
+const experimentRule =
+  "Build a hands-on science experiment, with the equipment it needs, such as beakers, a thermometer, a stopwatch, a ruler, or a launcher, about what the screenshot and the learner's words show. Set it where it belongs: a lab bench for a tabletop experiment, and a grassy field for one that covers many meters, such as a launched ball. Make the main objects large enough to read at a glance, and frame the equipment, not empty space. Draw each instrument so its reading can be seen, such as numbers on a scale, and each material so its state can be seen, such as the surface of a liquid. When they show a science topic, such as a launched ball, a lever, a pendulum, a ramp, floating and sinking, heating and cooling, dissolving, light bending through water, a simple circuit, or the shape of a molecule, build that experiment. When they show something that is not a science lesson, such as an app, a store, or a game, build the science experiment behind what it shows, such as how fast warm milk cools in a bottle for a baby app, never a copy of the app.";
+
+const experimentSetupRules = [
+  "Set it up like a real experiment. The controls are the variables the learner changes, every other condition stays fixed and shows in the scene, and the readouts are what they measure. Take the starting values from the frame when it gives them. Set up the geometry the topic's textbook formula assumes, such as a launch and a landing at the same height, so every readout matches that formula.",
+  "Use the standard simple model for the topic: projectile motion, torque balance, the pendulum period, Newton's law of cooling, density and buoyancy, Snell's law, Ohm's law, a dissolving or reaction rate that doubles for every 10 degrees Celsius, or electron-pair repulsion for the shape of a molecule.",
+  "When the simple model is a rule of thumb with a free constant, tune that one constant so settled results match the textbook values for the setups the controls can make. Never set a result directly. Give each control the range the textbook topic covers. When one setup has several values of a measurement, read out the one the textbook quotes.",
+];
+
+const simulationQuizRule =
+  "For a simulation the json block's fields mean this. question is a hypothesis the learner can test with the controls, about how one variable changes one measurement, in one or two short sentences with no exclamation mark and without giving the answer, such as \"Will 30 or 60 degrees land the ball farther?\". answerLabel is the label of the control the prediction is about. functionWords is an empty list. explanation is two short spoken sentences that say what the physics shows.";
+
+const controlsRule =
+  "controls is an array of 1 to 3 objects { name, label, min, max, step, value, unit }. name is a short lowercase word, label is words a 10-year-old can read, and value is the current number, which you keep up to date. Each control is one number the learner can change, such as the launch angle in degrees. Start each at a value that makes a clear first run.";
+
 const liveSceneInstructions = [
   "Reply with a ```html block and then a ```json block. Those two blocks are the entire reply.",
   "",
   "The html block is one complete page: a real-time three.js scene for a learning app, drawn with procedural geometry only. No external models or images.",
-  "The subject is what the learner names. When they name nothing, it is the subject in the screenshot.",
-  "Build the subject as the screenshot shows it. When the screenshot shows only part of something, build that part and what it touches in the picture, not the whole object it belongs to.",
-  "Make it look real, not like a cartoon. Build the whole of that subject as it looks from the outside, and label its outer parts.",
+  ...subjectRules,
   "Only when the learner asks to see inside the subject, also build the parts inside, and fade the outer shell on the last camera move so the inside shows.",
   "The html and body background is transparent, and the renderer uses alpha.",
   "",
@@ -137,7 +180,7 @@ const liveSceneInstructions = [
   "No other URL may appear anywhere in the page. The SVG namespace http://www.w3.org/2000/svg is the only exception, and only if you draw an SVG.",
   "Do not put any instruction text, heading, or title on the page. Part labels are the only text.",
   "",
-  "Choose the answer part, the labels, and the question for this subject. The answer part is one a 10-year-old could name.",
+  answerPartRule,
   'Show HTML labels with leader lines. Every label element has class "scene-label".',
   'The answer part\'s label text is "?" from the start. The other labels use words a 10-year-old can read.',
   "",
@@ -152,12 +195,7 @@ const liveSceneInstructions = [
   "6. Set window.__ready = true after the first frame renders.",
   "7. window.liveScene also has rotateBy(yawDegrees, pitchDegrees), which turns the camera around the whole subject by those amounts over about 0.6 seconds and returns at once, even before the tour ends; endTour(), which ends the camera tour at once (setting window.__tourFinished and posting tourFinished as rule 4 says) and lets dragging and zoomBy work; and getState(), which returns { yawDegrees, pitchDegrees, zoom, focusedLabel, tourFinished } with zoom from 0 (farthest) to 1 (closest). It also exposes THREE (the imported module), camera, renderer, and parts: one entry per labeled part, { label, object, isOuterShell }, where object is the THREE.Object3D that holds that part (a THREE.Group named by its label when it has several meshes) and isOuterShell is true for a part that covers others. Set renderer.localClippingEnabled = true.",
   "",
-  "The json block is one JSON object and nothing else:",
-  '{ "question": "...", "answerLabel": "...", "functionWords": ["..."], "explanation": "..." }',
-  "question opens with one warm, plain sentence about the subject, with no exclamation mark (for an inside view, saying you have arrived inside it), then asks what the part is and what it does. It does not contain the answer.",
-  "answerLabel is the answer part's real label, the words the learner would say out loud.",
-  "functionWords is a list of lowercase words that count as saying what the part does.",
-  "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
+  ...quizBlockRules,
 ].join("\n");
 
 /**
@@ -166,12 +204,10 @@ const liveSceneInstructions = [
  */
 const simulationInstructions = [
   "",
-  "THIS REQUEST IS A SIMULATION. The learner said something like \"let me try it\", and they will change a few numbers and press Run. These rules replace any rule above they conflict with.",
-  "Build a hands-on science experiment, with the equipment it needs, such as beakers, a thermometer, a stopwatch, a ruler, or a launcher, about what the screenshot and the learner's words show. Set it where it belongs: a lab bench for a tabletop experiment, and a grassy field for one that covers many meters, such as a launched ball. Make the main objects large enough to read at a glance, and frame the equipment, not empty space. Draw each instrument so its reading can be seen, such as numbers on a scale, and each material so its state can be seen, such as the surface of a liquid. When they show a science topic, such as a launched ball, a lever, a pendulum, a ramp, floating and sinking, heating and cooling, dissolving, light bending through water, a simple circuit, or the shape of a molecule, build that experiment. When they show something that is not a science lesson, such as an app, a store, or a game, build the science experiment behind what it shows, such as how fast warm milk cools in a bottle for a baby app, never a copy of the app.",
+  simulationHeader,
+  experimentRule,
   "The page draws its own world, so nothing behind it shows once it has risen: always set scene.background, to a sky color with fog and ground that reach the horizon for a field, or to the wall color of a lab room built around a bench, so a camera turned any way shows the page's own world. The html and body background stays transparent.",
-  "Set it up like a real experiment. The controls are the variables the learner changes, every other condition stays fixed and shows in the scene, and the readouts are what they measure. Take the starting values from the frame when it gives them. Set up the geometry the topic's textbook formula assumes, such as a launch and a landing at the same height, so every readout matches that formula.",
-  "Use the standard simple model for the topic: projectile motion, torque balance, the pendulum period, Newton's law of cooling, density and buoyancy, Snell's law, Ohm's law, a dissolving or reaction rate that doubles for every 10 degrees Celsius, or electron-pair repulsion for the shape of a molecule.",
-  "When the simple model is a rule of thumb with a free constant, tune that one constant so settled results match the textbook values for the setups the controls can make. Never set a result directly. Give each control the range the textbook topic covers. When one setup has several values of a measurement, read out the one the textbook quotes.",
+  ...experimentSetupRules,
   "Simulate it with simple, correct physics: a closed-form solution or a fixed-step integrator, in real units (meters, kilograms, seconds, degrees). Never fake or hard-code a result. Every readout is measured from where the simulated objects actually ended up or from the simulated clock, never read off a formula of the controls. Playback may be faster or slower than real time, but a run lasts 2 to 8 seconds on screen.",
   "Do not draw any control UI: no input, button, select, or text for the controls or the results. The app draws one panel from window.liveScene.controls, and part labels are the only text you draw.",
   "When the setup has a predictable path, such as a launched ball or a swinging bob, draw that path as a dashed line, hidden at first and shown only through setPreviewVisible in rule 14, and redraw it in setControl so it ends where the run will end. For a launched ball it ends at the landing spot, marked with a small ring. Compute the line and the run with the same physics function, so the run follows the line. Build it as a THREE.Line with a LineDashedMaterial and computeLineDistances(), and give it a new geometry each time (dispose the old one) instead of resizing the old one. A setup with no path, such as a lever or parts that settle into a new arrangement, has no dashed line.",
@@ -179,7 +215,7 @@ const simulationInstructions = [
   'Build the part labels as in rules 2 and 3, for up to 4 parts with their real names. No label is "?", so reveal() may do nothing, but it must exist. Keep every label and its leader line hidden at first, because they cover the setup, and show them only through setLabelsVisible in rule 13.',
   "Camera tour: hold 0.5 seconds, then over 2 seconds move to a three-quarter view a little above the equipment, with the equipment large, about a third of the view's width or more, and the whole motion path in view, and stay there. Choose that view so no part hides what a readout or a run depends on in any setup the controls can make. Do not move closer to one part. The camera moves only for the tour, focusPart, rotateBy, zoomBy, a drag, and setChallengeVisible, never for setControl or run. Rules 4 to 7 still apply.",
   "Besides rules 1 to 7, window.liveScene defines these before any await:",
-  "8. controls is an array of 1 to 3 objects { name, label, min, max, step, value, unit }. name is a short lowercase word, label is words a 10-year-old can read, and value is the current number, which you keep up to date. Each control is one number the learner can change, such as the launch angle in degrees. Start each at a value that makes a clear first run.",
+  `8. ${controlsRule}`,
   "9. setControl(name, value) clamps value to min and max, snaps it to step, stores it in that control's value, updates the scene to show the new setup as it stands before a run, never the run's outcome (the dashed preview of rule 14 still shows where a run will end), such as a ball at rest at its start or a meter's needle at zero, puts the simulation back at its start, and returns true. It returns false for a name that is not in controls.",
   "10. run() plays the simulation once from the start with the current controls, animating with requestAnimationFrame. It returns a Promise that resolves when the run has ended and the readouts are updated. Calling it during a run restarts the run. The run shows the process as it happens, so the change is easy to see: whatever moves, moves; an instrument's reading sweeps to its new value; and a traced path, such as a beam of light, draws as it goes and stays after the run. Never jump straight to the end state. Name each animation callback for what it animates, such as stepRun or stepTour, never frame, and declare each name only once in its scope, since a name declared twice stops the whole script before it draws.",
   "11. reset() puts the simulation back at its start with no run going, and keeps the readouts.",
@@ -188,12 +224,76 @@ const simulationInstructions = [
   "14. setPreviewVisible(visible) shows the dashed path and its ring when visible is true and hides them when it is false, and returns true. They start hidden, because the learner guesses before they see it.",
   "15. challenge is one object { prompt, readoutLabel, target, tolerance } that the learner tries after exploring. prompt is one short spoken question for a 10-year-old with no exclamation mark, such as \"Can you land the ball in the ring?\". readoutLabel is the label of one readout, target is a value of that readout the starting values do not give, worked out by running the same physics a run uses with control values inside each control's min and max, so the learner can always reach it, and tolerance is how close counts as a hit, about 3 percent of the target. When the readout can take only a few separate values, such as the angles of a molecule's shapes, make it less than half the gap between the target and the nearest other value instead. setChallengeVisible(visible) draws a clear marker of the target where it belongs, such as a bright ring on the ground at the target distance, or hides it, and returns true. When it shows the marker, it also eases the camera over about 1 second so the marker and the whole path to it are in view. A target with no place to mark, such as a swing time, draws nothing.",
   "",
-  "For a simulation the json block's fields mean this. question is a hypothesis the learner can test with the controls, about how one variable changes one measurement, in one or two short sentences with no exclamation mark and without giving the answer, such as \"Will 30 or 60 degrees land the ball farther?\". answerLabel is the label of the control the prediction is about. functionWords is an empty list. explanation is two short spoken sentences that say what the physics shows.",
+  simulationQuizRule,
 ].join("\n");
 
-function liveSceneInstructionsFor(kind: LiveSceneRequestKind): string {
-  return kind === "simulation" ? liveSceneInstructions + "\n" + simulationInstructions : liveSceneInstructions;
+/**
+ * The kernel prompt for a 3D model. The model writes only build(kit), and the bundled scene kernel owns the page, so the
+ * prompt keeps the subject and quiz rules and replaces the page, label, tour, and contract rules with what kit offers.
+ */
+const kernelInstructions = [
+  "Reply with a ```js block and then a ```json block. Those two blocks are the entire reply.",
+  "",
+  "The js block builds a real-time three.js scene for a learning app, drawn with procedural geometry only. No external models or images.",
+  ...subjectRules,
+  "Only when the learner asks to see inside the subject, also build the parts inside, and return insideView true.",
+  "",
+  "The app's scene kernel already makes the page: the renderer, the camera, the lights, the transparent background, the camera tour, the part labels with their leader lines, dragging, and every function the app calls. You write only the subject.",
+  "The js block declares function build(kit) and any helper functions it calls, and nothing else. Do not import anything, and do not touch window, document, the camera, the renderer, or an animation loop. No URL may appear anywhere in the code.",
+  "kit has:",
+  "- kit.THREE, the three.js module, and kit.scene. Use real sizes in meters, with y up and the subject near the origin. The kernel frames the camera around everything you add.",
+  "- kit.part(label, object, { outerShell, anchor }) registers one labeled part and adds object to the scene when it has no parent. object is the THREE.Object3D that holds the part, a THREE.Group of its meshes when it has several. outerShell is true for a part that covers others. anchor is an [x, y, z] point in object's own coordinates on the part's visible surface, where the label's line ends. Leave it out and the kernel finds one.",
+  "- kit.material(color, options) returns a THREE.MeshPhysicalMaterial with that color and roughness 0.6, with options such as roughness, metalness, transparent, opacity, clearcoat, or transmission merged in.",
+  "- kit.mesh(geometry, material, parent, position, rotation, scale) returns a THREE.Mesh that casts and receives shadows, added to parent, or to the scene when parent is null. position and rotation (radians) are [x, y, z], and scale is a number or [x, y, z].",
+  "- kit.tube(points, radius, material, parent) returns a mesh along a smooth curve through [x, y, z] points, and kit.lathe(profile, material, parent) one turned around the y axis from [radius, y] points.",
+  "- kit.scenery(object) adds something the camera does not frame, such as a ground.",
+  "- kit.onFrame(callback) calls callback(seconds) on every frame, for motion the subject has on its own.",
+  "",
+  answerPartRule,
+  'Label up to 10 parts, with words a 10-year-old can read. Register the answer part with exactly the json block\'s answerLabel as its label, and the kernel shows "?" on it until the learner answers.',
+  "build returns { insideView }, with insideView true only for an inside view. Then the camera tour's last move goes in beside the answer part while the outer shell fades.",
+  "",
+  ...quizBlockRules,
+].join("\n");
+
+/** Added after kernelInstructions for a simulation. It replaces the answer part, the "?" label, and the tour with the experiment. */
+const kernelSimulationInstructions = [
+  "",
+  simulationHeader,
+  experimentRule,
+  "Set the world with one call: kit.lab({ width, depth }) builds a lab room around a bench of that size in meters with its top at y = 0, and kit.field({ size }) builds a grassy field under a sky to the horizon, with the ground at y = 0, for an experiment that covers about size meters. Each sets the background, so nothing behind the page shows.",
+  ...experimentSetupRules,
+  "Simulate it with simple, correct physics: a closed-form solution or a fixed-step integrator, in real units (meters, kilograms, seconds, degrees). Never fake or hard-code a result.",
+  "Do not draw any control UI and no text. The app draws one panel from your controls, and the kernel draws the part labels.",
+  'Register up to 4 parts with their real names. No label is "?". The kernel keeps the labels hidden until the learner asks for them.',
+  "The kernel runs the camera: a short tour to a three-quarter view a little above the equipment that frames it and the path of a run from the starting controls, and after that it moves only when the learner moves it.",
+  "Declare each name only once in its scope, since a name declared twice stops the whole script before it draws.",
+  "",
+  "build returns { controls, setup, simulate, challenge, view }:",
+  `- ${controlsRule}`,
+  "- setup(values) gets the controls as { name: value } and poses the scene as it stands before a run, never the run's outcome, such as a ball at rest at its start or a meter's needle at zero. The kernel calls it at the start, after each control change, and before each run.",
+  "- simulate(values) runs the physics for those controls from the start and returns { seconds, show, readouts, path, ringAtEnd }. It moves nothing itself, since the kernel also calls it to draw the preview and to set the challenge. seconds is how long the run lasts in simulated time, and the kernel plays it in 2 to 8 seconds on screen. show(t) poses every object as it is at simulated time t, from 0 to seconds, so the run shows the process as it happens: whatever moves, moves, an instrument's reading sweeps to its new value, and a material changes as it would. Never jump straight to the end state.",
+  "  readouts is an array of 1 to 3 { label, value, unit }, such as the landing distance in meters, measured from where the simulated objects ended up or from the simulated clock, never read off a formula of the controls. A readout means what the frame or the learner asks about, in the sense they use it: a pendulum's period is the time for one full swing there and back.",
+  "  path is only for a setup with a predictable path, such as a launched ball or a swinging bob: the [x, y, z] points of that path, sampled evenly in time over the run. The kernel draws it as the dashed preview, traces it during the run, and keeps the paths of the last 3 runs faded. ringAtEnd is true when the path ends on a surface, such as a landing spot, and the kernel marks that end with a small ring. A setup with no path, such as a lever or parts that settle into a new arrangement, leaves path out.",
+  "- challenge is { prompt, readoutLabel, values, markPathEnd, tolerance }, which the learner tries after exploring. prompt is one short spoken question for a 10-year-old with no exclamation mark, such as \"Can you land the ball in the ring?\". readoutLabel is the label of one readout. values are control values inside each control's min and max that give a readout the starting values do not give. The kernel runs simulate(values) to set the target, so the learner can always reach it, and makes the tolerance about 3 percent of the target. When the readout can take only a few separate values, such as the angles of a molecule's shapes, set tolerance to less than half the gap between the target and the nearest other value. markPathEnd is true when the end of that run's path is the place the learner aims at, such as a landing spot, and the kernel marks it with a bright ring.",
+  "- view is { yawDegrees, pitchDegrees }, the direction of the three-quarter view, chosen so no part hides what a readout or a run depends on in any setup the controls can make. yawDegrees 0 looks from +z toward -z, and 90 looks from +x.",
+  "",
+  simulationQuizRule,
+].join("\n");
+
+function liveSceneInstructionsFor(format: LiveSceneFormat, kind: LiveSceneRequestKind): string {
+  const [modelInstructions, simulationAddition] = {
+    page: [liveSceneInstructions, simulationInstructions],
+    kernel: [kernelInstructions, kernelSimulationInstructions],
+  }[format];
+  return kind === "simulation" ? modelInstructions + "\n" + simulationAddition : modelInstructions;
 }
+
+/** Each format's reply check, which also builds the page the app loads. */
+const checkedReplyByFormat: Record<LiveSceneFormat, (modelReply: string, kind: LiveSceneRequestKind) => CheckedLiveSceneReply> = {
+  page: checkLiveSceneModelReply,
+  kernel: checkLiveSceneKernelReply,
+};
 
 const judgeAnswerSystemPrompt = [
   "You grade a learner's spoken answer about one part of a 3D live scene.",
@@ -256,12 +356,13 @@ async function requestClaudeLiveSceneReply(
   claudeModelID: (typeof claudeModelIDBySetting)[keyof typeof claudeModelIDBySetting],
   effort: LiveSceneEffort,
   sceneRequest: SceneRequest,
+  sceneInstructions: string,
 ): Promise<LiveSceneModelResult> {
   const anthropicReply = await requestAnthropicReplyText(anthropicAPIKey, "/live-scene", {
     model: claudeModelID,
     max_tokens: claudeLiveSceneMaxTokens,
     output_config: { effort },
-    system: liveSceneInstructionsFor(sceneRequest.kind),
+    system: sceneInstructions,
     messages: [
       {
         role: "user",
@@ -303,6 +404,7 @@ async function requestGPTLiveSceneReply(
   gptSceneModel: GPTSceneModel,
   effort: string,
   sceneRequest: SceneRequest,
+  sceneInstructions: string,
 ): Promise<LiveSceneModelResult> {
   let response: Response;
   try {
@@ -317,7 +419,7 @@ async function requestGPTLiveSceneReply(
         ...(gptSceneModel.serviceTier === undefined ? {} : { service_tier: gptSceneModel.serviceTier }),
         reasoning: { effort },
         max_output_tokens: 14000,
-        instructions: liveSceneInstructionsFor(sceneRequest.kind),
+        instructions: sceneInstructions,
         input: [
           {
             role: "user",
@@ -369,8 +471,13 @@ async function requestGPTLiveSceneReply(
 
 export async function handleLiveScene(
   request: Request,
-  env: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; LIVE_SCENE_MODEL?: string; LIVE_SCENE_EFFORT?: string },
+  env: { OPENAI_API_KEY: string; ANTHROPIC_API_KEY: string; LIVE_SCENE_MODEL?: string; LIVE_SCENE_EFFORT?: string; LIVE_SCENE_FORMAT?: string },
 ): Promise<Response> {
+  const parsedFormatSetting = liveSceneFormatSchema.safeParse(env.LIVE_SCENE_FORMAT || undefined);
+  if (!parsedFormatSetting.success) {
+    return jsonResponse({ error: `LIVE_SCENE_FORMAT must be page or kernel, not ${env.LIVE_SCENE_FORMAT}` }, 500);
+  }
+  const liveSceneFormat = parsedFormatSetting.data;
   const parsedModelSetting = liveSceneModelSettingSchema.safeParse(env.LIVE_SCENE_MODEL || undefined);
   if (!parsedModelSetting.success) {
     return jsonResponse({ error: `LIVE_SCENE_MODEL must be gpt, sonnet, opus, or fable, not ${env.LIVE_SCENE_MODEL}` }, 500);
@@ -396,6 +503,7 @@ export async function handleLiveScene(
   }
   const sceneRequest = parsedRequest.requestBody;
   const gptSceneModel = benchGPTSceneModel ?? appGPTSceneModelByKind[sceneRequest.kind];
+  const sceneInstructions = liveSceneInstructionsFor(liveSceneFormat, sceneRequest.kind);
 
   // One retry, because a broken page leaves the learner with a voice and nothing on screen.
   let lastValidationReason = "The model reply could not be checked";
@@ -407,13 +515,14 @@ export async function handleLiveScene(
       claudeModelIDBySetting[claudeSceneModel],
       claudeSceneModel === liveSceneModel ? liveSceneEffort : defaultLiveSceneEffortByModel[claudeSceneModel],
       sceneRequest,
+      sceneInstructions,
     );
   // Starts as the configured model and becomes "sonnet" once OpenAI cannot answer, so the retry never waits on OpenAI again.
   let sceneModelForThisRequest: LiveSceneModel = liveSceneModel;
   for (let attemptNumber = 1; attemptNumber <= maximumLiveSceneAttempts; attemptNumber += 1) {
     let modelResult =
       sceneModelForThisRequest === "gpt"
-        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, gptSceneModel, gptSceneEffort, sceneRequest)
+        ? await requestGPTLiveSceneReply(env.OPENAI_API_KEY, gptSceneModel, gptSceneEffort, sceneRequest, sceneInstructions)
         : await requestClaudeSceneReply(sceneModelForThisRequest);
     // A benchmark override never falls back, since it measures one model.
     if (
@@ -438,7 +547,7 @@ export async function handleLiveScene(
       continue;
     }
 
-    const checkedReply = checkLiveSceneModelReply(modelResult.modelReply, sceneRequest.kind);
+    const checkedReply = checkedReplyByFormat[liveSceneFormat](modelResult.modelReply, sceneRequest.kind);
     if (checkedReply.accepted) {
       return jsonResponse({ html: checkedReply.html, quiz: checkedReply.quiz }, 200);
     }

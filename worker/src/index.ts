@@ -50,6 +50,8 @@ interface Env {
   LIVE_SCENE_MODEL?: string;
   /** Overrides the scene model's effort, which is medium for GPT and low for Claude. GPT takes low, medium, or high. */
   LIVE_SCENE_EFFORT?: string;
+  /** "page" (the default) has the model write a whole page, "kernel" only a build(kit) function the bundled scene kernel runs. */
+  LIVE_SCENE_FORMAT?: string;
   /** Google Maps Platform key with the Map Tiles API enabled, for landmark renders. */
   GOOGLE_MAPS_API_KEY?: string;
   /**

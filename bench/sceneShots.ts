@@ -41,6 +41,9 @@ export type SceneShotOutcome = {
   pageErrors: string[];
 };
 
+/** What probe found on a page. The fields after pageErrors come from the page and are reported as it gave them. */
+export type ScenePageProbe = { tourFinished: boolean; tourSeconds: number | null; pageErrors: string[] } & Record<string, unknown>;
+
 const viewport = { width: 1280, height: 800 };
 const tourWaitMs = 20_000;
 const runWaitMs = 20_000;
@@ -210,7 +213,8 @@ export class SceneCamera {
   }
 
   /** Draws one page and writes the side-by-side PNG to pngPath. */
-  async shoot(html: string, sceneKind: SceneKind, pngPath: string): Promise<SceneShotOutcome> {
+  /** Loads the page in a new tab at the app's viewport, hands the tab to use, and closes it after. */
+  private async withPage<Result>(html: string, use: (page: PageConnection, pageID: string) => Promise<Result>): Promise<Result> {
     const pageID = `page-${this.pagesByPath.size + 1}`;
     this.pagesByPath.set(`/${pageID}.html`, pageWithLocalThree(html));
     const target = (await (await fetch(`${this.devToolsOrigin}/json/new?about:blank`, { method: "PUT" })).json()) as { id: string; webSocketDebuggerUrl: string };
@@ -220,6 +224,71 @@ export class SceneCamera {
       await page.send("Page.enable");
       await page.send("Emulation.setDeviceMetricsOverride", { ...viewport, deviceScaleFactor: 1, mobile: false });
       await page.send("Page.navigate", { url: `${this.serverOrigin}/${pageID}.html` });
+      return await use(page, pageID);
+    } finally {
+      page.close();
+      await fetch(`${this.devToolsOrigin}/json/close/${target.id}`).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Drives the page through the contract the app and scene-tools.js use, and reports what worked. A simulation is run at
+   * its first control's minimum and maximum, so a page whose readouts ignore the controls shows as physicsResponds false.
+   */
+  async probe(html: string, sceneKind: SceneKind): Promise<ScenePageProbe> {
+    return this.withPage(html, async (page) => {
+      const startedAt = Date.now();
+      const tourFinished = await waitFor(async () => (await page.evaluate("window.__tourFinished === true")) === true, tourWaitMs);
+      const tourSeconds = tourFinished ? (Date.now() - startedAt) / 1000 : null;
+      if (!tourFinished) await page.evaluate("window.liveScene?.endTour?.()");
+      const report = (await page.evaluate(`(async () => {
+        const api = window.liveScene ?? {};
+        const labels = () => [...document.querySelectorAll(".scene-label")].map((element) => element.textContent.trim());
+        const report = { labels: labels(), parts: (api.parts ?? []).length, outerShells: (api.parts ?? []).filter((part) => part.isOuterShell).length };
+        const contract = ["reveal", "focusPart", "zoomBy", "rotateBy", "endTour", "getState"];
+        report.missing = contract.filter((name) => typeof api[name] !== "function");
+        const yawBefore = api.getState?.().yawDegrees;
+        api.rotateBy?.(90, 0);
+        // Software rendering can take most of a second a frame, so the 0.6 second turn gets a few frames.
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        report.rotateTurns = api.getState?.().yawDegrees !== yawBefore;
+        const firstPart = (api.parts ?? [])[0];
+        report.focusFindsAPart = firstPart ? api.focusPart(firstPart.label) === true : false;
+        report.focusRefusesAnUnknownLabel = api.focusPart?.("no such part") === false;
+        api.focusPart?.("");
+        api.reveal?.();
+        report.questionMarkAfterReveal = labels().includes("?");
+        if (${JSON.stringify(sceneKind)} === "simulation") {
+          const controls = Array.isArray(api.controls) ? api.controls : [];
+          report.controls = controls.map((control) => control.name);
+          report.unknownControlRefused = api.setControl?.("no such control", 1) === false;
+          const runOnce = () => Promise.race([Promise.resolve(api.run()).then(() => "done", (error) => "rejected: " + error),
+            new Promise((resolve) => setTimeout(() => resolve("timeout"), ${runWaitMs}))]);
+          const readoutsAt = async (value) => {
+            api.setControl(controls[0].name, value);
+            const outcome = await runOnce();
+            return { outcome, readouts: api.getState().readouts };
+          };
+          report.readoutsBeforeARun = (api.getState?.().readouts ?? []).length;
+          if (controls.length > 0 && typeof api.run === "function") {
+            const atMinimum = await readoutsAt(controls[0].min);
+            const atMaximum = await readoutsAt(controls[0].max);
+            report.runAtMinimum = atMinimum;
+            report.runAtMaximum = atMaximum;
+            report.physicsResponds = JSON.stringify(atMinimum.readouts.map((readout) => readout.value)) !== JSON.stringify(atMaximum.readouts.map((readout) => readout.value));
+          }
+          report.challenge = api.challenge ?? null;
+          report.previewToggles = api.setPreviewVisible?.(true) === true;
+          report.labelsToggle = api.setLabelsVisible?.(true) === true;
+        }
+        return report;
+      })()`)) as Record<string, unknown>;
+      return { tourFinished, tourSeconds, pageErrors: [...new Set(page.pageErrors)].slice(0, 3), ...report };
+    });
+  }
+
+  async shoot(html: string, sceneKind: SceneKind, pngPath: string): Promise<SceneShotOutcome> {
+    return this.withPage(html, async (page, pageID) => {
 
       const tourFinished = await waitFor(async () => (await page.evaluate("window.__tourFinished === true")) === true, tourWaitMs);
       if (!tourFinished) {
@@ -254,10 +323,7 @@ export class SceneCamera {
       await waitFor(async () => (await page.evaluate("[...document.images].every((image) => image.complete && image.naturalWidth > 0)")) === true, 5_000);
       writeFileSync(pngPath, await page.screenshot("png"));
       return { tourFinished, secondShot, pageErrors: [...new Set(page.pageErrors)].slice(0, 3) };
-    } finally {
-      page.close();
-      await fetch(`${this.devToolsOrigin}/json/close/${target.id}`).catch(() => undefined);
-    }
+    });
   }
 
   async close() {

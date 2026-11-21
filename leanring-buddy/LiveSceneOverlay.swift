@@ -59,6 +59,8 @@ private final class LiveSceneAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     private static let bundledAssetContentTypes = [
         "three.module.js": "text/javascript",
         "three.core.js": "text/javascript",
+        // A kernel scene page holds only the model's build function and imports the rest from here.
+        "scene-kernel.js": "text/javascript",
         "three-tiles.js": "text/javascript",
         "draco_wasm_wrapper.js": "text/javascript",
         "draco_decoder.wasm": "application/wasm",

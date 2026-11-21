@@ -445,6 +445,52 @@ describe("handleLiveScene model setting", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("asks for only build(kit) under LIVE_SCENE_FORMAT kernel and returns the page that runs it in the bundled kernel", async () => {
+    const buildCode = 'function build(kit) {\n  kit.part("Valve", new kit.THREE.Group());\n  return { insideView: false };\n}';
+    const kernelReply = "```js\n" + buildCode + "\n```\n```json\n" + JSON.stringify(sceneQuiz) + "\n```";
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: kernelReply, usage: {} })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_FORMAT: "kernel" });
+
+    expect(response.status).toBe(200);
+    const reply = (await response.json()) as { html: string; quiz: unknown };
+    expect(reply.quiz).toEqual(sceneQuiz);
+    expect(reply.html).toContain('import { startScene } from "clicky-asset://three/scene-kernel.js";');
+    expect(reply.html).toContain(buildCode);
+    const instructions = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body)).instructions as string;
+    expect(instructions).toContain("Reply with a ```js block and then a ```json block.");
+    expect(instructions).toContain("kit.part(label, object, { outerShell, anchor })");
+    expect(instructions).not.toContain("window.liveScene.focusPart");
+  });
+
+  it("sends the kernel's simulation rules for a simulation under LIVE_SCENE_FORMAT kernel", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ output_text: "no blocks", usage: {} })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await handleLiveScene(requestWithBody({ ...sceneRequest, kind: "simulation" }), { ...sceneKeys, LIVE_SCENE_FORMAT: "kernel" });
+
+    const instructions = JSON.parse(String(fetchMock.mock.calls[0]?.[1].body)).instructions as string;
+    expect(instructions).toContain("THIS REQUEST IS A SIMULATION");
+    expect(instructions).toContain("build returns { controls, setup, simulate, challenge, view }");
+    expect(instructions).toContain("Newton's law of cooling");
+    expect(instructions).toContain("build the science experiment behind what it shows");
+    expect(instructions).not.toContain("setControl(name, value)");
+  });
+
+  it("refuses an unknown LIVE_SCENE_FORMAT without calling a model", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleLiveScene(requestWithBody(sceneRequest), { ...sceneKeys, LIVE_SCENE_FORMAT: "recipe" });
+
+    expect(response.status).toBe(500);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("refuses an unknown LIVE_SCENE_MODEL without calling a model", async () => {
     const fetchMock = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

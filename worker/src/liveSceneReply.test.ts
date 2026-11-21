@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkLiveSceneModelReply, liveSceneRequestKindSchema } from "./liveSceneReply";
+import {
+  checkLiveSceneKernelReply,
+  checkLiveSceneModelReply,
+  liveSceneFormatSchema,
+  liveSceneRequestKindSchema,
+  sceneKernelPage,
+} from "./liveSceneReply";
 
 const liveSceneQuiz = {
   question: "Here we are, inside the heart! What is this, and what does it do?",
@@ -197,5 +203,119 @@ describe("live scene request kind", () => {
 
   it("rejects a kind it does not know", () => {
     expect(liveSceneRequestKindSchema.safeParse("quiz").success).toBe(false);
+  });
+});
+
+const kernelBuildCode = `function build(kit) {
+  const valve = new kit.THREE.Group();
+  kit.mesh(new kit.THREE.TorusGeometry(0.02, 0.004), kit.material(0xd5bfa4), valve);
+  kit.part("Heart", valve);
+  return { insideView: true };
+}`;
+
+const kernelSimulationCode = `function build(kit) {
+  kit.field({ size: 40 });
+  const ball = kit.part("Ball", kit.mesh(new kit.THREE.SphereGeometry(0.2), kit.material(0xf88b43)));
+  return {
+    controls: [{ name: "angle", label: "Launch angle", min: 15, max: 75, step: 1, value: 30, unit: "degrees" }],
+    setup(values) { ball.position.set(0, 0.2, 0); },
+    simulate(values) { return { seconds: 2, readouts: [{ label: "Landing distance", value: values.angle, unit: "m" }], show(t) {} }; },
+  };
+}`;
+
+function kernelModelReply(buildCode: string, quiz: object = liveSceneQuiz): string {
+  return "```js\n" + buildCode + "\n```\n```json\n" + JSON.stringify(quiz) + "\n```";
+}
+
+describe("kernel reply", () => {
+  it("wraps the build function into a page that imports the bundled kernel and starts it", () => {
+    const checkedReply = checkLiveSceneKernelReply(kernelModelReply(kernelBuildCode), "model");
+
+    expect(checkedReply.accepted).toBe(true);
+    if (!checkedReply.accepted) return;
+    expect(checkedReply.quiz).toEqual(liveSceneQuiz);
+    expect(checkedReply.html).toContain('<script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>');
+    expect(checkedReply.html).toContain('import { startScene } from "clicky-asset://three/scene-kernel.js";');
+    expect(checkedReply.html).toContain(kernelBuildCode);
+    expect(checkedReply.html).toContain('startScene({ kind: "model", answerLabel: "Heart", build });');
+  });
+
+  it("writes the answer label with every < escaped, so no label can close the script", () => {
+    const page = sceneKernelPage("model", "</script><script>alert(1)</script>", kernelBuildCode);
+
+    expect(page).not.toContain("</script><script>alert(1)");
+    expect(page).toContain('answerLabel: "\\u003c/script>\\u003cscript>alert(1)\\u003c/script>"');
+  });
+
+  it.each([
+    ["has no build function", kernelBuildCode.replace("function build(kit)", "function makeScene(kit)"), "The code must declare function build(kit)"],
+    ["imports a module", 'import * as THREE from "three";\n' + kernelBuildCode, "The code must not import or export anything"],
+    ["imports a module at run time", kernelBuildCode.replace("return {", 'import("x");\n  return {'), "The code must not import or export anything"],
+    ["exports the build function", "export " + kernelBuildCode, "The code must not import or export anything"],
+    ["touches window.liveScene", kernelBuildCode.replace("return {", "window.liveScene = {};\n  return {"), "The code must not touch window.liveScene, which the kernel defines"],
+    ["closes the script", kernelBuildCode.replace("return {", 'const tag = "</script>";\n  return {'), "The code must not contain a closing script tag"],
+    ["reaches a URL", kernelBuildCode.replace("return {", 'fetch("https://example.com");\n  return {'), "The code contains a URL other than the SVG namespace"],
+    ["never registers the answer part", kernelBuildCode.replace('"Heart"', '"Valve"'), "No part is registered with the answer label Heart"],
+  ])("rejects code that %s, so the retry runs", (_description, buildCode, reason) => {
+    expect(checkLiveSceneKernelReply(kernelModelReply(buildCode), "model")).toEqual({ accepted: false, reason });
+  });
+
+  it("rejects code that declares a name twice, which stops a module before it draws", () => {
+    const codeWithATwiceDeclaredName = kernelBuildCode + "\nfunction stepRun() {}\nfunction stepRun() {}";
+
+    expect(checkLiveSceneKernelReply(kernelModelReply(codeWithATwiceDeclaredName), "model")).toMatchObject({
+      accepted: false,
+      reason: expect.stringContaining("The code does not parse"),
+    });
+  });
+
+  it("rejects a reply with no js block, or with the json block first", () => {
+    expect(checkLiveSceneKernelReply("```json\n" + JSON.stringify(liveSceneQuiz) + "\n```", "model").accepted).toBe(false);
+    expect(checkLiveSceneKernelReply("```json\n" + JSON.stringify(liveSceneQuiz) + "\n```\n```js\n" + kernelBuildCode + "\n```", "model").accepted).toBe(false);
+  });
+
+  it("accepts a simulation that returns controls, setup, simulate, and readouts in a lab or a field", () => {
+    const checkedReply = checkLiveSceneKernelReply(kernelModelReply(kernelSimulationCode, { ...liveSceneQuiz, answerLabel: "Launch angle" }), "simulation");
+
+    expect(checkedReply.accepted).toBe(true);
+    if (!checkedReply.accepted) return;
+    expect(checkedReply.html).toContain('startScene({ kind: "simulation", answerLabel: "Launch angle", build });');
+  });
+
+  it.each([
+    ["controls", "controls: [{", "somethingElse: [{"],
+    ["setup", "setup(values)", "prepare(values)"],
+    ["simulate", "simulate(values)", "compute(values)"],
+    ["readouts", "readouts: [", "values: ["],
+    ["kit.lab or kit.field", "kit.field({ size: 40 });", ""],
+  ])("rejects a simulation missing %s", (missingName, definition, replacement) => {
+    const codeMissingTheName = kernelSimulationCode.replace(definition, replacement);
+    expect(codeMissingTheName).not.toBe(kernelSimulationCode);
+
+    expect(checkLiveSceneKernelReply(kernelModelReply(codeMissingTheName), "simulation")).toEqual({
+      accepted: false,
+      reason: `The simulation code is missing ${missingName}`,
+    });
+  });
+
+  it("rejects a simulation that draws its own control, because the app draws the only panel", () => {
+    const codeWithAButton = kernelSimulationCode.replace("return {", 'document.createElement("button");\n  return {');
+
+    expect(checkLiveSceneKernelReply(kernelModelReply(codeWithAButton), "simulation")).toMatchObject({
+      accepted: false,
+      reason: expect.stringContaining('createElement("button")'),
+    });
+  });
+
+  it("does not ask a simulation to register its answer label, which names a control", () => {
+    expect(checkLiveSceneKernelReply(kernelModelReply(kernelSimulationCode, { ...liveSceneQuiz, answerLabel: "Speed" }), "simulation").accepted).toBe(true);
+  });
+});
+
+describe("live scene format", () => {
+  it("accepts page and kernel and defaults to page", () => {
+    expect(liveSceneFormatSchema.parse("kernel")).toBe("kernel");
+    expect(liveSceneFormatSchema.parse(undefined)).toBe("page");
+    expect(liveSceneFormatSchema.safeParse("recipe").success).toBe(false);
   });
 });
