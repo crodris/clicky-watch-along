@@ -364,6 +364,15 @@ The voice read's tab is the loop's snapshot, taken before the loop's media read,
 The tab read is one AppleScript with several property reads and takes 125 to 235 ms on the main actor, so reading it once instead of three times cut `release_to_screen_state_ms` from a median of 539 ms to 258 ms over steps 2 to 8 of an eight step rehearsal on 2026-11-21 (683 to 372 for the first step).
 The loop's own read stays at about 190 ms, and the loop and the voice command still read their own page scripts, since they read different things: the largest media's geometry, and the front video's state.
 The log says `Release read: read the front tab in N ms` and then `Release read: reused the front tab, which took N ms to read the first time`.
+A page with no video and a Chrome that refused or timed out both leave the command with the 7 tools of the no-video set, a 4,206 token cache write, so each read that finds no video logs why.
+A failed front tab read logs `Release read: could not read the front tab: <error>`, or `Front video: could not read the front tab: <error>` on a read with no release, where a Chrome with no window is `chromeHasNoWindow`.
+A video state script that fails logs `Front video: could not read the video state of the front tab (<host>): <error>`, such as a timeout.
+A reply with no video state logs `Front video: no video state for the front tab (<host>), because <reason>` (`ReasonTheReplyHoldsNoVideoState`): the page has no video it can reach, which includes a video in a frame from another site, the page script returned nothing, which is what Chrome returns when the script throws, the reply is not JSON, or the state failed the check of what the model may read.
+The `Front video:` lines come from every caller of `frontVideoStateForVoiceCommands` and of the voice video tools, so a voice play's check can log up to 4 of them in 1.6 seconds.
+Each command logs `Voice command: offering N tools, a video in front` or `no video in front` at its start.
+On 2026-11-21 one of three Debug launches gave its first command the no-video set while a video played.
+Five launches after that, each with a video command first (two with Chrome the front app, three with Finder), all gave it 16 tools and a video, so the cause is not known.
+One guess, not tested, is a script that outlasts its 2 second Apple Event timeout while Chrome is busy.
 A router failure with the flag on starts the experiment for "let me try it" when no scene is on screen (`routerFailureFallback`), and sends anything else down the keyword path.
 The tools use the WebMCP and MCP shape (`{ name, description, inputSchema }`), but the page is a `WKWebView`, not Chrome, so they are plain functions the app calls with `callAsyncJavaScript`, not `navigator.modelContext`.
 Page tools live in the bundled `LiveSceneAssets/scene-tools.js`, which the overlay adds to every page before its scripts run as `window.clickyTools` (`list`, `call`, `state`).
