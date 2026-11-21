@@ -865,10 +865,11 @@ nonisolated enum BrainTakesEveryRequest {
 
 /// The harness flag. With it on, the voice command router runs in the Go agent harness (harness/brainloop.go) instead
 /// of calling POST /voice-command, with the same Haiku loop. It decides where the router runs, and
-/// `BrainTakesEveryRequest` decides when it takes a transcript. Off by default until the harness brain is measured
-/// against the Worker route. This is the one place that reads it.
-/// Turn it on with `defaults write com.crodris.clicky-watch-along brainRunsInTheHarness -bool YES`, or in a Debug build
-/// by launching with `--brain-runs-in-the-harness`.
+/// `BrainTakesEveryRequest` decides when it takes a transcript. On by default, since the harness brain passed the
+/// parity gate against the Worker route. This is the one place that reads it.
+/// Turn it off with `defaults write com.crodris.clicky-watch-along brainRunsInTheHarness -bool NO`, and in a Debug build
+/// `--brain-runs-in-the-harness` turns it on whatever the saved setting says. An install with no app secret still uses
+/// the Worker route (`VoiceCommandBackend`).
 nonisolated enum BrainRunsInTheHarness {
     static let defaultsKey = "brainRunsInTheHarness"
     static let debugLaunchArgument = "--brain-runs-in-the-harness"
@@ -880,8 +881,64 @@ nonisolated enum BrainRunsInTheHarness {
         #if DEBUG
         if launchArguments.contains(debugLaunchArgument) { return true }
         #endif
-        return defaults.bool(forKey: defaultsKey)
+        // A setting that was never written reads as on, and only an explicit NO turns it off.
+        return defaults.object(forKey: defaultsKey) as? Bool ?? true
     }
+}
+
+/// What the harness sends as a command's `task_failed` reason when the Worker's own app secret check refused the turn
+/// (`errAppSecretRefused` in harness/brainloop.go holds the same words).
+nonisolated let harnessFailureReasonAppSecretRefused = "app secret refused"
+
+/// Where this launch's voice commands run. The harness brain calls the Worker's `/v1/messages`, which requires the app
+/// secret, and the old path's `/voice-command` does not, so an install with no secret, or one whose secret the Worker
+/// refuses, keeps working voice commands on the old path. The secret is read once at launch, since the harness takes it
+/// from its environment when it starts. PR 9 of docs/plans/go-one-brain-harness.md deletes the old path and makes the
+/// secret a setup requirement.
+nonisolated struct VoiceCommandBackend: Equatable, Sendable {
+    let flagIsOn: Bool
+    let appSecretIsSet: Bool
+    private(set) var workerRefusedTheAppSecret = false
+
+    init(flagIsOn: Bool, appSecretIsSet: Bool) {
+        self.flagIsOn = flagIsOn
+        self.appSecretIsSet = appSecretIsSet
+    }
+
+    var runsInTheHarness: Bool {
+        flagIsOn && appSecretIsSet && !workerRefusedTheAppSecret
+    }
+
+    /// The line the app logs once at launch when the flag is on but no secret is set.
+    var noAppSecretLogLine: String? {
+        flagIsOn && !appSecretIsSet ? "Brain: no app secret, so voice commands use the Worker router" : nil
+    }
+
+    /// The Worker refused the secret, so every later command of this launch runs on the old path.
+    mutating func noteThatTheWorkerRefusedTheAppSecret() {
+        workerRefusedTheAppSecret = true
+    }
+}
+
+/// What the app does after the harness failed a voice command.
+nonisolated enum HarnessCommandFailureNextStep: Equatable, Sendable {
+    /// Send the same command once on the old path. Nothing of the command has run, so nothing repeats.
+    case resendOnTheOldPath
+    /// The router failure fallback: the keyword path, the experiment, or a short line during a quiz question.
+    case routerFailureFallback
+}
+
+/// A refused secret moves the rest of the launch to the old path, and re-sends the command that hit it only when none of
+/// its tools has run, since a tool that ran already changed the screen and the old path would repeat it. Every other
+/// failure takes the router failure fallback, as before.
+nonisolated func nextStepAfterTheHarnessFailedACommand(
+    reason: String,
+    aToolOfTheCommandRan: Bool,
+    backend: inout VoiceCommandBackend
+) -> HarnessCommandFailureNextStep {
+    guard reason == harnessFailureReasonAppSecretRefused else { return .routerFailureFallback }
+    backend.noteThatTheWorkerRefusedTheAppSecret()
+    return aToolOfTheCommandRan ? .routerFailureFallback : .resendOnTheOldPath
 }
 
 /// A keyword branch that runs ahead of the router, because its words always mean the same thing.

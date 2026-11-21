@@ -494,6 +494,7 @@ private struct AgentListView: View {
                 ApprovalCardView(
                     approvalRequest: oldestRequest,
                     agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map { agent in agent.player?.displayName ?? agent.kind.displayName } ?? "An agent",
+                    isAnswering: approvalDesk.answeringApprovalIDs.contains(oldestRequest.approvalID),
                     answerApproval: actions.answerApproval,
                     summaryWasShownWhole: { summaryWasShownWhole in
                         if summaryWasShownWhole {
@@ -842,6 +843,9 @@ private struct ApprovalSummaryScrollAreaHeightPreferenceKey: PreferenceKey {
 private struct ApprovalCardView: View {
     let approvalRequest: HarnessApprovalRequest
     let agentName: String
+    /// The answer went to the harness, whose gate takes the first answer, and its settlement has not come back yet, so
+    /// the card shows no buttons and never a decline that the gate did not take.
+    let isAnswering: Bool
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     let summaryWasShownWhole: (Bool) -> Void
 
@@ -890,15 +894,22 @@ private struct ApprovalCardView: View {
                 scrollAreaHeight = newScrollAreaHeight
                 recordWhatTheScrollAreaShows()
             }
-            HStack(spacing: 6) {
-                AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {
-                    answerApproval(approvalRequest.approvalID, true, .once)
-                }
-                AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
-                    answerApproval(approvalRequest.approvalID, true, .always)
-                }
-                AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
-                    answerApproval(approvalRequest.approvalID, false, .once)
+            if isAnswering {
+                Text(verbatim: "Sending your answer...")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .padding(.vertical, 5)
+            } else {
+                HStack(spacing: 6) {
+                    AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {
+                        answerApproval(approvalRequest.approvalID, true, .once)
+                    }
+                    AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
+                        answerApproval(approvalRequest.approvalID, true, .always)
+                    }
+                    AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
+                        answerApproval(approvalRequest.approvalID, false, .once)
+                    }
                 }
             }
             // The panel is never key, so a tooltip would not show, and the card says how long Always lasts.

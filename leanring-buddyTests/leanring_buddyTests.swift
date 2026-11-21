@@ -1254,15 +1254,17 @@ struct leanring_buddyTests {
         #endif
     }
 
-    @Test func theHarnessFlagReadsTheSavedSettingAndOnlyADebugBuildReadsTheLaunchArgument() async throws {
+    @Test func theHarnessFlagIsOnUnlessTheSavedSettingTurnsItOffAndOnlyADebugBuildReadsTheLaunchArgument() async throws {
         let defaultsSuiteName = "BrainRunsInTheHarnessTests-" + UUID().uuidString
         let isolatedDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
         defer { isolatedDefaults.removePersistentDomain(forName: defaultsSuiteName) }
 
-        #expect(!BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: []))
+        // A setting that was never written reads as on, since the harness brain is the default.
+        #expect(BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: []))
         isolatedDefaults.set(true, forKey: BrainRunsInTheHarness.defaultsKey)
         #expect(BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: []))
         isolatedDefaults.set(false, forKey: BrainRunsInTheHarness.defaultsKey)
+        #expect(!BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: []))
         // The other flag never turns this one on.
         #expect(!BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: ["Clicky", "--brain-takes-every-request"]))
         #if DEBUG

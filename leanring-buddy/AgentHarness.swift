@@ -92,6 +92,9 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
     case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
+    /// The harness's gate took this answer to an approval request. It is the one outcome the desk shows, whether the
+    /// learner clicked or said it, and the first answer wins.
+    case approvalSettled(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
     /// `taskID` is set only on the few lines about one voice command that the app acts on, such as the planning line.
     case log(taskID: UUID? = nil, message: String)
 
@@ -153,6 +156,15 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
                 throw ParseError.missingField(messageType: messageType, fieldName: "gaveUp")
             }
             self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
+        case "approval_settled":
+            guard let approved = messageJSON["approved"]?.boolValue else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "approved")
+            }
+            self = .approvalSettled(
+                approvalID: try requiredText("approvalID"),
+                approved: approved,
+                scope: HarnessApprovalScope(rawValue: messageJSON["scope"]?.stringValue ?? "") ?? .once
+            )
         case "log":
             self = .log(taskID: messageJSON["taskID"]?.stringValue.flatMap { taskIDText in UUID(uuidString: taskIDText) }, message: try requiredText("message"))
         default:
@@ -176,8 +188,10 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
     /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, and `tools` the list after
     /// `voiceToolsOfferedToTheModel`. The line carries no recent actions, since the brain keeps every earlier command in
-    /// its own session.
-    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor])
+    /// its own session, and its scene state has no `approvalWaiting`, since the harness names the waiting request's kind of
+    /// action itself. `approvalIDSeenAtPress` is the request whose card had shown its whole summary for a second at the
+    /// press, the one fact about approvals only the app knows.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalIDSeenAtPress: String?)
     /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
     /// model again, or stop for a hand-off.
     case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
@@ -214,13 +228,14 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
-        case .voiceCommand(let taskID, let transcript, let sceneState, let tools):
+        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalIDSeenAtPress):
             return .object([
                 "type": .string("voice_command"),
                 "taskID": .string(taskID.uuidString),
                 "transcript": .string(transcript),
                 "sceneState": sceneState,
                 "tools": .array(tools.map(\.workerRequestJSON)),
+                "approvalIDSeenAtPress": approvalIDSeenAtPress.map(JSONValue.string) ?? .null,
             ])
         case .voiceToolResult(let taskID, let toolUseID, let outcome):
             return .object([
@@ -277,7 +292,7 @@ final class HarnessTaskRouter {
         switch message {
         case .ready:
             print("Agent harness: ready")
-        case .approvalRequest:
+        case .approvalRequest, .approvalSettled:
             // AgentHarness hands these to its approval desk before they reach the router.
             break
         case .log(let taskID, let logText):
@@ -335,6 +350,11 @@ final class HarnessApprovalDesk: ObservableObject {
 
     /// Oldest first.
     @Published private(set) var waitingRequests: [HarnessApprovalRequest] = []
+    /// The requests whose answer went to the harness and whose `approval_settled` has not come back. The card shows them as
+    /// answering, since the gate takes the first answer, and a voice answer may have won over this click.
+    @Published private(set) var answeringApprovalIDs: Set<String> = []
+    /// A request was settled, with the answer the harness's gate took, so the owner shows the outcome.
+    var onApprovalSettled: ((_ request: HarnessApprovalRequest, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
     /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest.
     private var oldestRequestVisibleSince: Date?
@@ -441,17 +461,33 @@ final class HarnessApprovalDesk: ObservableObject {
         }
     }
 
-    /// Returns false when no request with this ID is waiting, such as one already answered.
+    /// Sends the learner's answer to the harness, which takes the first answer it gets and replies with `approval_settled`.
+    /// The request stays in the queue, marked as answering, until that reply, so the desk never shows a decline that the
+    /// gate did not take. Returns false when no request with this ID is waiting, or when it is already answering.
     @discardableResult
     func answer(approvalID: String, approved: Bool, scope: HarnessApprovalScope) -> Bool {
-        guard let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else { return false }
+        guard waitingRequests.contains(where: { $0.approvalID == approvalID }), !answeringApprovalIDs.contains(approvalID) else { return false }
+        answeringApprovalIDs.insert(approvalID)
+        print("Agent harness: approval \(approvalID) answered \(approved ? "yes" : "no") (\(scope.rawValue)), waiting for the harness to settle it")
+        sendAnswer(approvalID, approved, scope)
+        return true
+    }
+
+    /// The harness's gate took an answer for this request, a click's or a voice answer's, the first of them. The card goes
+    /// and the owner shows the outcome. A request the desk no longer holds, such as one whose task ended, changes nothing.
+    func settle(approvalID: String, approved: Bool, scope: HarnessApprovalScope) {
+        guard let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else {
+            print("Agent harness: approval \(approvalID) was settled, and the desk no longer holds it")
+            return
+        }
+        let settledRequest = waitingRequests[requestIndex]
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.remove(at: requestIndex)
+        answeringApprovalIDs.remove(approvalID)
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         print("Agent harness: approval \(approvalID) \(approved ? "given" : "declined") (\(scope.rawValue))")
-        sendAnswer(approvalID, approved, scope)
         onWaitingRequestsChanged?(waitingRequests)
-        return true
+        onApprovalSettled?(settledRequest, approved, scope)
     }
 
     /// Forgets every request at once when the harness process stops, so the list never opens for a request that the
@@ -459,6 +495,7 @@ final class HarnessApprovalDesk: ObservableObject {
     func dropAllRequests() {
         guard !waitingRequests.isEmpty else { return }
         waitingRequests.removeAll()
+        answeringApprovalIDs.removeAll()
         oldestRequestVisibleSince = nil
         onWaitingRequestsChanged?(waitingRequests)
     }
@@ -468,6 +505,7 @@ final class HarnessApprovalDesk: ObservableObject {
         let requestCountBefore = waitingRequests.count
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.removeAll { $0.taskID == taskID }
+        answeringApprovalIDs.formIntersection(waitingRequests.map(\.approvalID))
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         if waitingRequests.count != requestCountBefore {
             onWaitingRequestsChanged?(waitingRequests)
@@ -607,10 +645,16 @@ final class AgentHarness {
     /// Starts a voice command on the brain. The stream ends after voice_command_finished or task_failed, when the harness
     /// stops, or when `endVoiceCommand` ends it. The command's tool results and its cancel go out through
     /// `HarnessVoiceCommandLines`, never through `sendToolResult` or `cancelTask`.
-    func startVoiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor]) throws -> AsyncStream<HarnessTaskEvent> {
+    func startVoiceCommand(
+        taskID: UUID,
+        transcript: String,
+        sceneState: JSONValue,
+        tools: [VoiceToolDescriptor],
+        approvalIDSeenAtPress: String?
+    ) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let commandEvents = taskRouter.register(taskID: taskID)
-        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, tools: tools))
+        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, tools: tools, approvalIDSeenAtPress: approvalIDSeenAtPress))
         return commandEvents
     }
 
@@ -696,6 +740,10 @@ final class AgentHarness {
             let message = try HarnessMessage(line: outputLine)
             if case .approvalRequest(let approvalRequest) = message {
                 approvalDesk.receive(approvalRequest)
+                return
+            }
+            if case .approvalSettled(let approvalID, let approved, let scope) = message {
+                approvalDesk.settle(approvalID: approvalID, approved: approved, scope: scope)
                 return
             }
             taskRouter.route(message)

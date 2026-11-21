@@ -27,12 +27,18 @@ enum AppBundleConfiguration {
     }
 }
 
-/// The secret the Worker's Notion routes require in x-clicky-app-secret. It is read from this app's defaults, so it
+/// The secret the Worker's gated routes require in x-clicky-app-secret: the Notion routes and /v1/messages, which the
+/// task agents and the voice command brain in the harness use. It is read from this app's defaults, so it
 /// never sits in git or in the built app. `verify-clicky.sh app-launch` copies it there from worker/.dev.vars, and
 /// `defaults write com.crodris.clicky-watch-along clickyAppSecret <secret>` sets it by hand.
 enum ClickyAppSecret {
     static let headerName = "x-clicky-app-secret"
     static let defaultsKey = "clickyAppSecret"
+
+    /// Whether a secret is set, which the voice command brain needs (`VoiceCommandBackend`).
+    static func isSet(in userDefaults: UserDefaults = .standard) -> Bool {
+        !(userDefaults.string(forKey: defaultsKey) ?? "").isEmpty
+    }
 
     /// A request with no secret set goes out without the header, and the Worker answers it with 401. Tests pass their
     /// own defaults, since the hosted tests share Clicky.app's defaults, which hold the real secret.
