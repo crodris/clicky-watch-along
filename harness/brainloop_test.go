@@ -123,6 +123,10 @@ func TestACommandRunsATwoCallTurnThenALookupAndItsActionAndSpeaksTheConfirmation
 	if !driver.logsContain("Brain: turn 1 on claude-haiku-5-5 stopped for tool_use, tokens in 900, cache read 800, cache write 0, out 20, ") {
 		t.Errorf("the turn's token line was missing: %v", driver.logs)
 	}
+	// The line ends with the names of the turn's calls in order, and no input.
+	if !driver.logsContainLineEndingWith("Brain: turn 1 ", " ms, calls rotate_model,zoom") {
+		t.Errorf("the first turn's line did not end with its call names: %v", driver.logs)
+	}
 
 	// A lookup goes back to the model, and the action it then takes comes from turn 1.
 	driver.send(voiceCommandLine("command-2", "go to where they talk about the engine"))
@@ -184,6 +188,44 @@ func TestACallToAToolTheCommandDidNotOfferNeverReachesTheApp(t *testing.T) {
 	refusal := jsonValueAt(t, requests[1].body, "messages", 2, "content", 0)
 	if jsonValueAt(t, refusal, "is_error") != true || jsonValueAt(t, refusal, "content", 0, "text") != `{"error":"close_scene is not available right now","ok":false,"state":null}` {
 		t.Errorf("the refusal sent to the model was %v", refusal)
+	}
+}
+
+// The app never sees a call after a hand-off or a call to a tool the command did not offer, so the turn's log line is
+// the only place a benchmark can read what the model chose. A turn with no call says "none", and the line holds no input.
+func TestATurnLogNamesEveryCallEvenOnesTheAppNeverSees(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		if requestNumber == 1 {
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_pop", "pop_out", `{"confirmation":"popped it"}`),
+				brainToolUse("toolu_close", "close_scene", `{"confirmation":"closed it"}`),
+				brainToolUse("toolu_rotate", "rotate_model", `{"yawDegrees":45,"confirmation":"secret words"}`),
+			)
+			return
+		}
+		writeBrainReply(writer, "end_turn", `{"type":"text","text":"It is a shark."}`)
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	// pop_out hands off, so close_scene (not offered) and rotate_model (after the hand-off) never reach the app.
+	driver.send(voiceCommandLine("command-1", "pop it out and close it and turn it"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_pop", voiceToolHandedOff, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+	if !driver.logsContainLineEndingWith("Brain: turn 1 ", " ms, calls pop_out,close_scene,rotate_model") {
+		t.Errorf("the line did not name all three calls: %v", driver.logs)
+	}
+	for _, logLine := range driver.logs {
+		if strings.Contains(logLine, "secret words") || strings.Contains(logLine, "yawDegrees") {
+			t.Errorf("a log line held a call's input: %s", logLine)
+		}
+	}
+
+	// A turn with no call says none.
+	driver.send(voiceCommandLine("command-2", "what is this"))
+	driver.expectLine("voice_command_finished")
+	if !driver.logsContainLineEndingWith("Brain: turn 1 ", " ms, calls none") {
+		t.Errorf("a turn with no call did not say none: %v", driver.logs)
 	}
 }
 
