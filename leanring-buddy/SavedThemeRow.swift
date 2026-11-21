@@ -14,7 +14,7 @@ import AppKit
 import SwiftUI
 
 struct SavedThemeRow: View {
-    let customTheme: CustomTheme
+    let customTheme: ClickyTheme
     let isSelected: Bool
     let select: () -> Void
     /// Renames the theme to what the learner typed. Throws when the name is refused or the file cannot be written.
@@ -43,7 +43,7 @@ struct SavedThemeRow: View {
     var body: some View {
         HStack(spacing: 8) {
             if isRenaming {
-                TeamThemeSwatch(theme: .custom(customTheme))
+                TeamThemeSwatch(theme: customTheme)
                     .frame(width: 18, height: 18)
                 renameField
                 if let problemText {
@@ -63,7 +63,7 @@ struct SavedThemeRow: View {
         .background(rowShape.fill(Color.white.opacity(isHovered ? 0.1 : 0.06)))
         .overlay(
             rowShape.stroke(
-                isSelected ? CompanionTheme.custom(customTheme).cursorColor : DS.Colors.borderSubtle,
+                isSelected ? customTheme.cursorColor : DS.Colors.borderSubtle,
                 lineWidth: isSelected ? 1.5 : 0.5
             )
         )
@@ -87,7 +87,7 @@ struct SavedThemeRow: View {
     private var selectButton: some View {
         Button(action: select) {
             HStack(spacing: 8) {
-                TeamThemeSwatch(theme: .custom(customTheme))
+                TeamThemeSwatch(theme: customTheme)
                     .frame(width: 18, height: 18)
                 Text(customTheme.name)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
@@ -157,7 +157,7 @@ struct SavedThemeRow: View {
             problemText = nil
             isRenaming = false
         } catch CustomThemeStoreError.themeNameIsNotValid {
-            problemText = "1 to \(CustomTheme.longestName) characters"
+            problemText = "1 to \(ClickyTheme.longestName) characters"
         } catch {
             problemText = "Couldn't rename it"
         }
