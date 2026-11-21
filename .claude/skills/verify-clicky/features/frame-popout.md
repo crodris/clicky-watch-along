@@ -26,6 +26,7 @@ A frame without one clear subject, such as a chart or a person talking, returns 
   For an image on a web page, the prompt calls it a picture, never a video.
 - `popout-label-tap` explains a part when its label is clicked after the tour of a pop-out with no quiz.
   A press that moves more than 4 px is a drag that turns the model, not a click.
+- `popout-replay` plays a narration's pointing stops again, silently, when the learner says "show me again" or clicks Replay on the control under the video: the camera turns back to each recorded pose, each stop's number shows on its label with a dotted path between them, and the cursor flies to each label with its sentence. Next, Back, and End step through it by voice (`replay_step`) or click, Escape ends it with the camera and the cursor stopped where they are and the pop-out still up, and Reduce Motion shows every stop at once with a list of the sentences.
 - `popout-cursor-points` flies the blue triangle to each part's label as the narration names it, with the sentence Clicky is speaking typed in its bubble, and back to the mouse when the narration ends or the scene clears, Escape mid-sentence included.
 
 ## How to get to it (user POV)
@@ -51,6 +52,14 @@ Preconditions:
   The log shows `Frame pop-out: explaining the tapped <label> label` and `Frame pop-out narration: N sentences for partTapped(label: "<label>")`.
   Drag across a label instead, and the model turns with no tap line in the log.
   While Clicky names each part, run `$V shot popout-pointing` and check that the blue triangle sits just under that label, drawn over the model, with the sentence Clicky is speaking in its bubble, wrapped onto more lines when it is long.
+- **Instant replay.** Run `$V app-launch --harness-brain "pop this out|show me again|+12 next|+6 back"`.
+  After the narration, the log shows `Instant replay: recorded N stops`, and the control with Replay and "N stops" shows under the video.
+  The second step logs `Instant replay: replaying on request` and `Instant replay: playing N stops`, with no `/chat` or `/voice-command` request for it.
+  Run `$V shot replay-dwell` while the cursor sits on a stop, and check that the numbers sit on their labels, the dotted path links the stops reached, the control reads "1 of N" or later, and the lifted model stays over the video.
+  The `next` and `back` steps go to the router, and the log shows a `replay_step` call with `step` `next`, then `back`, and the chips "Next stop" and "Back a stop".
+  For Escape, run `$V app-launch "pop this out|show me again|+600 thanks"`, run `$V key escape` while the cursor flies to a stop, then `$V shot replay-escape-a` and, a second later, `$V shot replay-escape-b`.
+  The log shows `Instant replay: ended`, the pop-out stays on screen, and the two shots match pixel for pixel in the scene and the cursor, since nothing moves after the end.
+  A second `$V key escape` sends the pop-out back into the video.
 - **Pop out an image in the app.** Open a page with one large image of one clear object in Chrome's front tab, such as `https://commons.wikimedia.org/wiki/File:Diagram_of_the_human_heart_(cropped).svg`.
   Run `$V app-launch "pop this out"`.
   The log shows `captured a WxH image from the screen` then `Frame pop-out: lifting the subject out of the frame with N labels`.
