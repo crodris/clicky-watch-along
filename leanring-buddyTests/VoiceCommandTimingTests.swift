@@ -122,9 +122,11 @@ struct VoiceCommandScreenReadTests {
 
     // The rehearsal's `^` step presses only after the command's line has gone to the harness, so a press during the release
     // read is pinned here, on the function the command awaits that read through.
-    private func slowPageRead() -> (read: Task<VoiceCommandPageRead, Never>, finishTheRead: () -> Void) {
+    private func slowPageRead() -> (read: Task<VoiceCommandPageRead, Never>, finishTheRead: () -> Void, readHasStarted: AsyncStream<Void>) {
         let (readIsAllowedToFinish, finishTheRead) = AsyncStream<Void>.makeStream()
+        let (readHasStarted, readStarted) = AsyncStream<Void>.makeStream()
         let read = Task {
+            readStarted.yield()
             // The stream ends when the read is cancelled, as the study guide check's wait does. The deadline keeps a command
             // whose cancel never reaches the read from hanging the test run, so it fails on `isCancelled` instead.
             let deadline = Task { try? await Task.sleep(for: .seconds(2)); finishTheRead.yield() }
@@ -132,13 +134,16 @@ struct VoiceCommandScreenReadTests {
             deadline.cancel()
             return VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date())
         }
-        return (read, { finishTheRead.yield() })
+        return (read, { finishTheRead.yield() }, readHasStarted)
     }
 
     @Test func aPressDuringTheReleaseReadSendsNoCommand() async {
-        let (read, _) = slowPageRead()
+        let (read, _, readHasStarted) = slowPageRead()
         let command = Task { await pageReadForTheVoiceCommand(startedAtRelease: read, readNow: { fatalError("the release read exists") }) }
-        // The press cancels the command while the read is still running.
+        // The press comes while the command is waiting on a read that is running, as a press during a hung study guide
+        // check does, so the read must have started and the command must have reached its wait before the cancel.
+        for await _ in readHasStarted { break }
+        await Task.yield()
         command.cancel()
         #expect(await command.value == nil)
         #expect(read.isCancelled, "the press must stop the read too, since a hung study guide check would hold the command up")
@@ -147,7 +152,7 @@ struct VoiceCommandScreenReadTests {
     @Test func aPressDuringAFreshReadSendsNoCommand() async {
         let command = Task {
             await pageReadForTheVoiceCommand(startedAtRelease: nil, readNow: {
-                // The cancel arrives while the fresh read runs.
+                // The command is cancelled before or during the fresh read, and the check after it returns nil either way.
                 while !Task.isCancelled { await Task.yield() }
                 return VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date())
             })
@@ -157,7 +162,7 @@ struct VoiceCommandScreenReadTests {
     }
 
     @Test func aCommandNobodyCancelledGetsTheReleaseReadOrAFreshOne() async {
-        let (read, finishTheRead) = slowPageRead()
+        let (read, finishTheRead, _) = slowPageRead()
         let commandWithARead = Task { await pageReadForTheVoiceCommand(startedAtRelease: read, readNow: { fatalError("the release read exists") }) }
         finishTheRead()
         #expect(await commandWithARead.value != nil)
