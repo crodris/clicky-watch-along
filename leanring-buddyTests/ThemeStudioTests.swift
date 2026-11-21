@@ -171,6 +171,11 @@ struct AsksToDesignAThemeTests {
     @Test func otherWordsAboutThePictureDoNotMakeItARequestFromThePicture() {
         #expect(asksToDesignATheme("change my theme, that picture is pretty") == .fromWords)
         #expect(asksToDesignATheme("make a theme, this is great") == .fromWords)
+        // Natural requests with a want word or one word between the owner and "theme".
+        #expect(asksToDesignATheme("I want a new theme") == .fromWords)
+        #expect(asksToDesignATheme("create a cozy theme") == .fromWords)
+        #expect(asksToDesignATheme("can I get a different theme") == .fromWords)
+        #expect(asksToDesignATheme("I'd like to try a darker theme from this picture") == .fromThePicture)
     }
 
     @Test func aQuestionAboutAWorksThemeOpensNothing() {

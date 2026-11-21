@@ -214,7 +214,9 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
     let isTheWholeRequestNewTheme = wordsAfterTheGreeting == ["new", "theme"] || wordsAfterTheGreeting == ["new", "theme", "please"]
 
     let themeWordIndexes = words.indices.filter { words[$0] == "theme" || words[$0] == "themes" }
-    let wordsThatMakeAThemeRequest: Set<String> = ["change", "make", "design", "create", "customize", "customise", "redo", "switch", "give"]
+    let wordsThatMakeAThemeRequest: Set<String> = [
+        "change", "make", "design", "create", "customize", "customise", "redo", "switch", "give", "want", "need", "get", "try",
+    ]
     let wordsThatSayWhoseThemeItIs: Set<String> = ["my", "your", "a", "clicky's", "clickys"]
     let nearestWordsToCheck = 4
     let nameTheTheme = themeWordIndexes.contains { themeWordIndex in
@@ -222,10 +224,11 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
         let wordAfterTheTheme = words.indices.contains(themeWordIndex + 1) ? words[themeWordIndex + 1] : nil
         guard wordAfterTheTheme != "of" else { return false }
 
-        // "Make me a new theme" says whose theme it is before "new", and "change my theme" before "theme".
-        let wordBeforeTheTheme = words.indices.contains(themeWordIndex - 1) ? words[themeWordIndex - 1] : nil
-        let ownerWordIndex = wordBeforeTheTheme == "new" ? themeWordIndex - 2 : themeWordIndex - 1
-        guard words.indices.contains(ownerWordIndex), wordsThatSayWhoseThemeItIs.contains(words[ownerWordIndex]) else { return false }
+        // "Change my theme" says whose theme it is right before "theme", and "make me a new theme" or "create a cozy theme"
+        // one word earlier, so one word of any kind may sit between. "The" never counts, which keeps "change the theme here"
+        // and "what's the new theme in chapter two" for the router, since those ask about a work's theme.
+        let ownerWordIndexes = [themeWordIndex - 1, themeWordIndex - 2].filter { words.indices.contains($0) }
+        guard ownerWordIndexes.contains(where: { wordsThatSayWhoseThemeItIs.contains(words[$0]) }) else { return false }
 
         let wordIndexesBeforeTheTheme = max(0, themeWordIndex - nearestWordsToCheck)..<themeWordIndex
         return wordIndexesBeforeTheTheme.contains { wordsThatMakeAThemeRequest.contains(words[$0]) }
