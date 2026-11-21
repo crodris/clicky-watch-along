@@ -800,7 +800,8 @@ describe("driving the harness process", () => {
 
   it("records a command as failed at once when the harness closed its input but is still running, without a write error ending the run", async () => {
     // Closing fd 0 closes the child's end of the pipe, so the driver's next write fails with EPIPE while the process lives on.
-    const deafHarness = { command: process.execPath, args: ["-e", "console.log(JSON.stringify({type:'ready'})); require('fs').closeSync(0); setTimeout(() => {}, 3000)"] };
+    // The child closes it before it says ready, since a write that lands in the pipe before the close gets no error at all.
+    const deafHarness = { command: process.execPath, args: ["-e", "require('fs').closeSync(0); console.log(JSON.stringify({type:'ready'})); setTimeout(() => {}, 3000)"] };
     const harnessBrain = await startHarnessBrain(deafHarness, 1, "s3cret", 20_000);
     try {
       const writtenAt = performance.now();
