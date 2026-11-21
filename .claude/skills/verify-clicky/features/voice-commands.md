@@ -65,8 +65,11 @@ Preconditions:
   The last step turns the model right, and the `Brain: turn` lines show `cache read` growing with the history from the second command on.
   The first command's request has no history, so its `cache read` covers only the tools and the system prompt.
   After a pause of 5 minutes the session folds the older commands into one block of at most the newest 40, so a cold request stays small however many commands came before.
-- **The harness undoes the newest change.** Run `$V app-launch --brain --harness-brain "pop this out|turn it to the left|undo that"`.
-  The last step's `Brain: turn` line ends with `calls undo_last_change`, and the app log shows a `rotate_model` call with a positive `yawDegrees` that the harness sent, with a `toolUseID` ending in `-undo`, and the chip says "Turning it right".
+- **The harness undoes the newest change.** Keep the Debug "Log tool call JSON" switch off, since with it on the chip shows code and not plain words.
+  Run `$V app-launch --brain --harness-brain "pop this out|turn it to the left|undo that"`, then `$V app-wait`.
+  The last step's app log has a `Brain: turn N ... calls undo_last_change` line, then `Voice command: rotate_model(yawDegrees: 45) ran in ... ms, ... ms after the command, ok`, which is the inverse the harness sent for the turn of -45 degrees, and the chip says "Turning it right".
+  The inverse's call ID (the model's ID plus `-undo`) is in the app log only as the `id` field of a `Voice command JSON tool call from the harness` line, which `logVoiceCommandJSONIfEnabled` writes only with the switch on, so a switch-off run does not show it.
+  For a video, run `$V app-launch --brain --harness-brain "go back ten seconds|undo that"`: the last step logs `Voice command: seek_relative(seconds: 10) ran ... ok` after its `calls undo_last_change` line.
   The harness offers `undo_last_change` only while the newest change has an inverse, so with a pop-out as the newest action, "undo that" is the model's own call to `close_scene`.
 - **The brain's evals on both backends.** With `$V worker-up 8797` ready, run `node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797`.
   It builds the harness, runs every case in `bench/fixtures/brain-evals.json` on the Worker's `/voice-command` and on the harness brain, one after the other, and prints a table for each backend and the parity gate.

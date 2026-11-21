@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -11,8 +12,8 @@ import (
 )
 
 // This file is the brain's undo. A model asked to undo a change has to work out the reverse of an angle, a factor, or a
-// number of seconds, and it gets that wrong about as often as it gets it right (the known miss in
-// bench/fixtures/brain-sessions.json). So the harness remembers each change the app made, with the exact input the app
+// number of seconds, and it often gets that wrong: Haiku passed session-correction-after-interrupt 0 of 5 and
+// session-undo-after-zoom 0 of 5 before this tool (bench/README.md, "Undo"). So the harness remembers each change the app made, with the exact input the app
 // ran, and offers undo_last_change while the newest change has an inverse that follows from its own input. The harness
 // handles the call: it sends the inverse to the app as an ordinary tool_call, so the app shows its usual chip and writes
 // its usual action line, and the outcome of that call is the outcome of the undo. This is the same split as answer_approval
@@ -31,8 +32,9 @@ const (
 	undoCallIDSuffix = "-undo"
 )
 
-// undoLastChangeOffer is the tool as the model sees it. The description never names the change it would undo, because a
-// description that changed from command to command would throw away the cached tool list every time.
+// undoLastChangeOffer is the tool as the model sees it. The description never names the change it would undo, so the tool
+// is the same text in every command that offers it. The tool is added and removed between commands (withTheUndoOffer), and
+// each flip changes the end of the tool list, where the cache breakpoint is, so it costs a cache write.
 var undoLastChangeOffer = voiceToolOffer{
 	Name:        string(undoLastChangeTool),
 	Description: `Undo the newest change Clicky made to the screen or the video, exactly. The harness runs the opposite action itself, so you never work out the angle, the zoom factor, or the seconds. Use it when the learner says "undo" or "undo that", or asks to put the last thing back the way it was. It reverses only the newest change. For an older action, such as "undo the first turn", and for "more", "less", or "the other way", call the tool that makes that change yourself. Your confirmation is a few plain words, such as "undid it".`,
@@ -46,10 +48,15 @@ var undoLastChangeOffer = voiceToolOffer{
 //
 // scene is nil only for a change a seeded session implied (bench only), which has no scene state of its own. The next
 // command adopts it as its own scene, so a seeded record is read as one that matches what that command sees.
+//
+// effectIsUnknown marks a call a press cancelled while the app was still running it. The app may have applied it, so the
+// record keeps it as a change with no inverse: it stands between "undo that" and an older change, and a cancelled undo
+// leaves one, so the change that undo reversed is not undone a second time.
 type appliedChange struct {
-	tool  toolName
-	input json.RawMessage
-	scene *sceneIdentity
+	tool            toolName
+	input           json.RawMessage
+	scene           *sceneIdentity
+	effectIsUnknown bool
 }
 
 // sceneIdentity is what a change was made to, read from the scene_state JSON the app sends with each voice command. The
@@ -198,6 +205,9 @@ const (
 
 // inverse is the call that reverses the change, or false when the change has none.
 func (change appliedChange) inverse() (inverseCall, bool) {
+	if change.effectIsUnknown {
+		return inverseCall{}, false
+	}
 	buildInverse, hasAnInverse := inverseBuilders[change.tool]
 	if !hasAnInverse {
 		return inverseCall{}, false
@@ -226,8 +236,9 @@ func negated(value float64) float64 {
 }
 
 // inverseOfRotateModel turns the camera back: yaw and pitch are relative, so the opposite of a turn is the same turn
-// backward. The page clamps each input to a range that is the same on both sides of zero, so a clamped input reverses
-// exactly too.
+// backward. The page clamps the camera's absolute pose, not each input (pitch within plus or minus 1.1 radians, and yaw
+// within plus or minus 0.75 radians on a card that shows depth), so a turn that hit a limit moved less than its input
+// says and the inverse turns back too far.
 func inverseOfRotateModel(input map[string]any) (inverseCall, bool) {
 	yawDegrees, hasYaw := numberInput(input, "yawDegrees")
 	if !hasYaw {
@@ -246,7 +257,10 @@ func inverseOfRotateModel(input map[string]any) (inverseCall, bool) {
 
 // inverseOfZoom zooms by the reciprocal: the page scales the camera's distance by 1 / factor, so 1 / factor scales it
 // back. The page clamps the factor to 0.3 through 3 first, so the reciprocal is taken of the clamped factor. A factor
-// under one third was applied whole, but its reciprocal is more than the page takes in one call.
+// under one third was applied whole, but its reciprocal is more than the page takes in one call. The page also clamps the
+// camera's distance to 0.4 through 1.8 times its rest distance, so a zoom that hit that limit moved less than its factor
+// says and the reciprocal moves back too far. Zooming in by 2 twice goes from 1 to 0.5, then to 0.25, which the page
+// clamps to 0.4, and an undo by 0.5 then lands at 0.8.
 func inverseOfZoom(input map[string]any) (inverseCall, bool) {
 	factor, hasFactor := numberInput(input, "factor")
 	if !hasFactor || factor <= 0 {
@@ -299,6 +313,14 @@ func (run *sessionRun) noteChange(change appliedChange) {
 	}
 }
 
+// noteACallWhoseEffectIsUnknown puts a change with no inverse at the front of the record, for a call a press cancelled
+// while the app was still running it. The app may already have applied it (page JavaScript keeps running, and play_video
+// spends about 1.6 seconds on its play check), so "undo that" must not reach past it. For a cancelled undo it also keeps
+// the change the undo reversed from being undone a second time.
+func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall) {
+	run.noteChange(appliedChange{tool: cancelledCall.Name, input: inputWithoutConfirmation(cancelledCall.Input), effectIsUnknown: true})
+}
+
 // noteTheScreenChanged records a call the app finished, when its outcome says the screen changed. A hand-off counts, as
 // appliedChange says.
 func (run *sessionRun) noteTheScreenChanged(finishedCall toolCall, outcome voiceToolOutcome) {
@@ -349,18 +371,31 @@ func withTheUndoOffer(appOffers []voiceToolOffer, run *sessionRun) []voiceToolOf
 }
 
 // resultOfTheUndo is the result the model reads for undo_last_change: the app's result for the inverse call, under the
-// model's own call ID, with a line that says what ran. The app's text can hold page text, so the caller runs the result
-// through tagSafeToolResult like any other.
-func resultOfTheUndo(modelCall toolCall, ranCall toolCall, appResult toolResultMessage) toolResultMessage {
+// model's own call ID, with a line that says what happened. "Undid" is for an inverse the app reports as changed. Any
+// other outcome, such as a page that is still loading or a play check that failed, moved nothing, so the model reads that
+// the undo did not work and never a claim that it undid the change. The app's text can hold page text, so the caller runs
+// the result through tagSafeToolResult like any other.
+func resultOfTheUndo(modelCall toolCall, ranCall toolCall, appResult toolResultMessage, outcome voiceToolOutcome) toolResultMessage {
 	appResult.ToolUseID = modelCall.ID
-	appResult.Content = mustMarshal(fmt.Sprintf("Undid the newest change by running %s %s. The app said: %s", ranCall.Name, ranCall.Input, voiceToolResultText(appResult)))
+	appText := voiceToolResultText(appResult)
+	if outcome == voiceToolChanged {
+		appResult.Content = mustMarshal(fmt.Sprintf("Undid the newest change by running %s %s. The app said: %s", ranCall.Name, ranCall.Input, appText))
+	} else {
+		appResult.Content = mustMarshal("The undo did not work: " + appText)
+	}
 	return appResult
 }
 
-// appliedChangesOfASeed is the record a seeded session starts with, newest first: the calls of the seeded messages that did
-// not fail, then the interrupted command's calls that did not fail, which are newer than every message. A seed carries no
-// outcome, so every call that did not fail counts as a change, a lookup included. That is the cautious reading, since a
-// recorded lookup has no inverse and so only stops an undo from reaching past it.
+// appliedChangesOfASeed is the record a seeded session starts with, newest first: the calls of the seeded messages, then
+// the interrupted command's calls, which are newer than every message. A seed carries no outcome, so every call that ran
+// counts as a change, a lookup included. That is the cautious reading, since a recorded lookup has no inverse and so only
+// stops an undo from reaching past it. Three kinds of call never ran or only reversed an earlier change, and are not
+// recorded as new changes:
+//   - a call that failed, and a call whose result says it was not run after a hand-off or an earlier failure.
+//   - a seeded undo_last_change, which removes the newest change recorded before it, as a real undo does.
+//   - in the interrupted lines, a call that is the inverse of the newest change recorded before it. The line of an undo is
+//     the inverse call's own line, so a seed cannot tell it from a new call that happens to be that inverse, and reads it
+//     as the undo.
 func appliedChangesOfASeed(messages []anthropic.MessageParam, interruptedActionLines []string) []appliedChange {
 	var changesOldestFirst []appliedChange
 	for messageIndex, message := range messages {
@@ -371,8 +406,12 @@ func appliedChangesOfASeed(messages []anthropic.MessageParam, interruptedActionL
 			if block.OfToolUse == nil {
 				continue
 			}
-			isError, _, found := toolResultOf(messages[messageIndex+1], block.OfToolUse.ID)
-			if !found || isError {
+			isError, resultText, found := toolResultOf(messages[messageIndex+1], block.OfToolUse.ID)
+			if !found || isError || resultText == notRunResultText || resultText == notRunAfterAFailureResultText {
+				continue
+			}
+			if toolName(block.OfToolUse.Name) == undoLastChangeTool {
+				changesOldestFirst = withoutTheNewest(changesOldestFirst)
 				continue
 			}
 			input, _ := json.Marshal(block.OfToolUse.Input)
@@ -380,15 +419,40 @@ func appliedChangesOfASeed(messages []anthropic.MessageParam, interruptedActionL
 		}
 	}
 	for _, actionLine := range interruptedActionLines {
-		if change, callDidNotFail := appliedChangeOfActionLine(actionLine); callDidNotFail {
-			changesOldestFirst = append(changesOldestFirst, change)
+		change, callDidNotFail := appliedChangeOfActionLine(actionLine)
+		if !callDidNotFail {
+			continue
 		}
+		if len(changesOldestFirst) > 0 && changesOldestFirst[len(changesOldestFirst)-1].isReversedBy(change) {
+			changesOldestFirst = withoutTheNewest(changesOldestFirst)
+			continue
+		}
+		changesOldestFirst = append(changesOldestFirst, change)
 	}
 	slices.Reverse(changesOldestFirst)
 	if len(changesOldestFirst) > mostAppliedChangesKept {
 		changesOldestFirst = changesOldestFirst[:mostAppliedChangesKept]
 	}
 	return changesOldestFirst
+}
+
+// withoutTheNewest is a record kept oldest first, less its last change, or the same record when it is empty.
+func withoutTheNewest(changesOldestFirst []appliedChange) []appliedChange {
+	if len(changesOldestFirst) == 0 {
+		return changesOldestFirst
+	}
+	return changesOldestFirst[:len(changesOldestFirst)-1]
+}
+
+// isReversedBy is true when later is the call the change's inverse would send: the same tool with the same input.
+func (change appliedChange) isReversedBy(later appliedChange) bool {
+	inverse, hasAnInverse := change.inverse()
+	if !hasAnInverse || inverse.tool != later.tool {
+		return false
+	}
+	inverseInput, inverseIsAnObject := decodedToolInput(inverse.input)
+	laterInput, laterIsAnObject := decodedToolInput(later.input)
+	return inverseIsAnObject && laterIsAnObject && reflect.DeepEqual(inverseInput, laterInput)
 }
 
 // appliedChangeOfActionLine reads a call back out of its action line, `name {input} -> ok`, which voiceToolActionLine

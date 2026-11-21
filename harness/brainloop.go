@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,12 +29,14 @@ type brainRunner struct {
 	planningTurnTimeout time.Duration
 }
 
-// send writes a message for a command unless the command was cancelled, since a cancelled command sends nothing more.
-func (brain *brainRunner) send(commandContext context.Context, message outboundMessage) {
+// send writes a message for a command unless the command was cancelled, since a cancelled command sends nothing more. It
+// says whether the message was written.
+func (brain *brainRunner) send(commandContext context.Context, message outboundMessage) (wasSent bool) {
 	if commandContext.Err() != nil {
-		return
+		return false
 	}
 	brain.writer.send(message)
+	return true
 }
 
 // logTheCancel goes straight to the writer, since send drops every line of a cancelled command, and a verify run would
@@ -188,7 +191,7 @@ func theWorkerRefusedTheAppSecret(err error) bool {
 // them too, since a later call that depends on it, such as a pop-out after a seek that found no moment, would act on
 // the wrong screen and the learner would never hear the failure: each later call gets its own "Not run" result and the
 // model is asked again. It records the action line of every call the app ran, and the change of every call that changed
-// the screen. A call to undo_last_change reaches the app as the inverse of the newest change (brainundo.go), so an undo
+// the screen. A call a cancel catches while the app is still running it is recorded as a change with no inverse. A call to undo_last_change reaches the app as the inverse of the newest change (brainundo.go), so an undo
 // whose inverse fails, or that cannot be undone, is a failed call like any other. It returns an error only when the
 // command was cancelled.
 func (brain *brainRunner) runToolCalls(
@@ -248,13 +251,18 @@ func (brain *brainRunner) runToolCalls(
 			}
 			callToRun = toolCall{ID: call.ID + undoCallIDSuffix, Name: inverse.tool, Input: inverse.input}
 		}
-		brain.send(commandContext, newVoiceToolCallMessage(commandID, callToRun.ID, callToRun.Name, inputWithoutConfirmation(callToRun.Input), turnIndex))
+		callWasSent := brain.send(commandContext, newVoiceToolCallMessage(commandID, callToRun.ID, callToRun.Name, inputWithoutConfirmation(callToRun.Input), turnIndex))
 		result, err := waitForTheVoiceToolResult(commandContext, command, callToRun.ID)
 		if err != nil {
 			// A result the app sent before its cancel_task is a call that finished, and it changed the screen, so its
-			// action line still reaches the next command through the rollback, and its change joins the record.
+			// action line still reaches the next command through the rollback, and its change joins the record. With no
+			// result, a call the app received may still have been applied, so the record gets a change with no inverse
+			// that "undo that" cannot reach past. A call the cancel kept from being sent never ran, and neither did a
+			// lookup, which changes nothing.
 			if result.ToolUseID == callToRun.ID {
 				run.noteFinishedCall(callToRun, knownOutcomeOf(result), voiceToolResultText(result), isAnUndo)
+			} else if callWasSent && !isALookup(voiceCommand.Tools, callToRun.Name) {
+				run.noteACallWhoseEffectIsUnknown(callToRun)
 			}
 			return nil, nil, err
 		}
@@ -269,11 +277,16 @@ func (brain *brainRunner) runToolCalls(
 			continue
 		}
 		if isAnUndo {
-			result = resultOfTheUndo(call, callToRun, result)
+			result = resultOfTheUndo(call, callToRun, result, outcome)
 		}
 		toolResultBlocks = append(toolResultBlocks, tagSafeToolResult(toolResultBlock(result)))
 	}
 	return outcomes, toolResultBlocks, nil
+}
+
+// isALookup is true when the app offered the tool as read only, so a call to it changes nothing.
+func isALookup(offers []voiceToolOffer, name toolName) bool {
+	return slices.ContainsFunc(offers, func(offer voiceToolOffer) bool { return toolName(offer.Name) == name && offer.ReadOnly })
 }
 
 // knownOutcomeOf is a result's outcome. The app sends one with every voice tool result, so a result without it is a newer

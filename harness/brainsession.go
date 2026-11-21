@@ -71,8 +71,8 @@ type brainSession struct {
 	// stayed. The next command's user message tells the model about them.
 	interruptedActionLines []string
 	// appliedChanges are the calls that changed the screen, newest first, at most mostAppliedChangesKept. undo_last_change
-	// reads them (brainundo.go). They include the calls of cancelled commands, which did change the screen, and an undo
-	// removes the change it reversed.
+	// reads them (brainundo.go). They include the calls of cancelled commands, which did change the screen, and a call a
+	// cancel caught while the app ran it, which has no inverse. An undo removes the change it reversed.
 	appliedChanges []appliedChange
 	lastRequestAt  time.Time
 	// generation changes when the session is reset or seeded, so a command that began before that never writes back.
