@@ -2743,20 +2743,11 @@ final class CompanionManager: ObservableObject {
         let commandStartedAt = Date()
         // The read started at the press's release is awaited when it has not finished, and a command with no read of its own
         // (a quiz scene command, or a transcript whose read was dropped) reads the page now.
-        let pageRead: VoiceCommandPageRead
-        if let pageReadStartedAtRelease {
-            // A press cancels this command, and the cancel must stop the read too, since a hung study guide check would
-            // otherwise hold a cancelled command up.
-            pageRead = await withTaskCancellationHandler {
-                await pageReadStartedAtRelease.value
-            } onCancel: {
-                pageReadStartedAtRelease.cancel()
-            }
-        } else {
-            pageRead = await readThePageForTheVoiceCommand(frontVideoState: frontVideoState)
-        }
-        // A press during the read cancelled this command, so it must not send anything to the harness or the Worker.
-        guard !Task.isCancelled else { return }
+        // A press during the read cancels this command, so it must not send anything to the harness or the Worker.
+        guard let pageRead = await pageReadForTheVoiceCommand(
+            startedAtRelease: pageReadStartedAtRelease,
+            readNow: { await readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
+        ) else { return }
         timing.mark(\.screenStateReadyAt, at: pageRead.finishedAt)
         let pageTools = pageRead.pageTools
         let pageState = pageRead.pageState
