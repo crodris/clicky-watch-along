@@ -86,7 +86,7 @@ struct VoiceApprovalTests {
         }
         #expect(chipPhrase(["approved": .bool(true), "always": .bool(false), "confirmation": .string("allowed it")]) == "Allowed it")
         #expect(chipPhrase(["approved": .bool(false), "always": .bool(false)]) == "Declined it")
-        #expect(chipPhrase(["approved": .bool(true), "always": .bool(true)]) == "Allowed it, always")
+        #expect(chipPhrase(["approved": .bool(true), "always": .bool(true)]) == "Allowed it for this task")
         #expect(chipPhrase(["approved": .bool(false), "always": .bool(true)]) == "Declined it")
         #expect(chipPhrase([:]) == nil)
 

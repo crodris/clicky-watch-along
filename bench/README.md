@@ -238,7 +238,8 @@ b() { local label=$1; shift; node bench/bench.ts worker --pages-dir bench/replie
 { b voice --runs 5 --only voice-command,voice-command-seek,voice-command-zoom,voice-command-explain,voice-command-no-tool
   b chat --runs 5 --only chat-first,chat-followup } > /tmp/bench-b.txt 2>&1 &
 { b parts --runs 3 --only frame-parts-heart,frame-parts-painting,frame-parts-cutaway,frame-parts-print,frame-parts-art-of-one-animal,frame-parts-bicycle,frame-parts-chart
-  b flows --runs 3 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle } > /tmp/bench-c.txt 2>&1 &
+  b flows --runs 3 --only picture-flows-heart,picture-flows-water-cycle,picture-flows-cutaway,picture-flows-bicycle
+  b themes --runs 3 --only theme-ideas-words,theme-ideas-picture } > /tmp/bench-c.txt 2>&1 &
 b quiz --runs 3 --only video-quiz-plan,video-quiz-plan-long > /tmp/bench-d.txt 2>&1 &
 wait
 ```
@@ -251,6 +252,7 @@ wait
 | `/video-frame-parts` | Sonnet 5.5, low effort | pass counts and the blind judge |
 | `/chat` | Sonnet 5.5, low effort | pass counts and the blind judge |
 | `/picture-flows` | Sonnet 5.5, low effort (Opus 5.5 before 2026-11-19) | pass counts and the blind judge |
+| `/theme-ideas` | Sonnet 5.5, low effort | pass counts |
 | `/landmark` | Sonnet 5.5, low effort | pass counts |
 | `/live-scene` | GPT-6.1 Sol Ultrafast, medium effort, and GPT-6.2 Sol for a simulation since 2026-11-19 | the render bakeoff, below |
 | task agent (`/v1/messages`) | Sonnet 5.5, medium effort | `taskAgent.ts`, below |

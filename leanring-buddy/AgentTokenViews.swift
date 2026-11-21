@@ -4,7 +4,7 @@
 //
 //  What an agent token looks like. Each background agent that runs, or whose result waits, is a 22 point disc beside
 //  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
-//  which is the team player's portrait or a triangle in the agent's color. A finished agent gets a green check mark, and a failed one
+//  which is the team player's portrait, a custom theme's picture, or a triangle in the agent's color. A finished agent gets a green check mark, and a failed one
 //  a gray face in a red ring. The "+N" disc counts the agents with no position of their own, and the open slot is the dashed
 //  outline a new agent's token flies to.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on high-refresh displays.
@@ -39,8 +39,10 @@ struct AgentTokenDiscView: View {
     }
 
     @ViewBuilder private var face: some View {
-        if let player = agent.player {
+        if case .player(let player) = agent.face {
             HaikyuPortraitView(player: player, size: faceDiameter, isGrayscale: agent.phase.isFailed)
+        } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
+            ThemePictureFaceView(picture: themePicture, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else {
             Circle()
                 .fill(DS.Colors.agentTokenFace)
@@ -93,6 +95,23 @@ struct AgentTokenDiscView: View {
         case .failed: return "\(kindName) agent failed"
         case .cancelled: return "\(kindName) agent cancelled"
         }
+    }
+}
+
+/// A custom theme's picture as an agent's round face, where a team theme shows a player's portrait.
+struct ThemePictureFaceView: View {
+    let picture: NSImage
+    let size: CGFloat
+    /// Failed agents show a gray face, as a failed player's portrait does.
+    var isGrayscale = false
+
+    var body: some View {
+        Image(nsImage: picture)
+            .resizable()
+            .scaledToFill()
+            .grayscale(isGrayscale ? 1 : 0)
+            .frame(width: size, height: size)
+            .clipShape(Circle())
     }
 }
 

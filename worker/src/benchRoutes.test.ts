@@ -62,6 +62,12 @@ const routeRequests: Array<{ route: string; body: unknown; defaultModel: string;
     body: { frameBase64: "QUJD", frameWidth: 1280, frameHeight: 720, partLabels: ["Aorta"] },
   },
   {
+    route: "/theme-ideas",
+    defaultModel: "claude-sonnet-5-5",
+    defaultURL: anthropicURL,
+    body: { request: "something cozy for night" },
+  },
+  {
     route: "/voice-command",
     defaultModel: "claude-haiku-5-5",
     defaultURL: anthropicURL,

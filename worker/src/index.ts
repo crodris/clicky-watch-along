@@ -9,13 +9,14 @@
  *   POST /v1/messages  → Anthropic Messages API (the body and stream pass through unchanged, for the agent harness's SDK)
  *   POST /tts          → ElevenLabs TTS API
  *   POST /transcribe-token → AssemblyAI streaming token API (a short-lived websocket token, only when Info.plist selects the assemblyai provider)
- *   POST /live-scene   → OpenAI Responses API (GPT-6.1 Sol for a model, GPT-6.2 Sol for a simulation), or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable (generated live-scene page)
+ *   POST /live-scene   → OpenAI Responses API (GPT-6.1 Sol for a model, GPT-6.2 Sol for a simulation), or Anthropic with LIVE_SCENE_MODEL=sonnet, opus, or fable, or Anthropic Messages API when OpenAI cannot answer (generated live-scene page)
  *   POST /judge-answer → Anthropic Messages API (spoken answer grade)
  *   POST /video-quiz-plan → OpenAI Responses API (GPT-6.2 Sol), or Anthropic Messages API when OpenAI cannot answer (quiz pause moments for a video transcript)
  *   POST /video-frame-parts → Anthropic Messages API (subject box and part labels in a video frame)
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
+ *   POST /theme-ideas  → Anthropic Messages API (Sonnet writes three cursor theme ideas for the theme studio, optionally from a picture)
  *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
  *   POST /study-guide-status → Notion API (whether a saved guide's page is still out of the trash)
  *   POST /notion-page  → Notion API (a background agent's findings as a private page)
@@ -36,6 +37,7 @@ import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
+import { handleThemeIdeas } from "./themeIdeas";
 import { handleStudyGuide, handleStudyGuideStatus } from "./studyGuide";
 
 interface Env {
@@ -131,6 +133,10 @@ export default {
 
       if (url.pathname === "/picture-flows") {
         return await handlePictureFlows(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/theme-ideas") {
+        return await handleThemeIdeas(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/study-guide") {

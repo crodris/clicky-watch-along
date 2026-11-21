@@ -59,14 +59,14 @@ Preconditions:
 - **A press during a brain turn.** Run `$V app-launch --harness-brain "^skip to where they talk about the engine|pause it"`.
   The log shows `Live scene rehearsal: pressing push-to-talk during the voice command`, then `Brain: command cancelled during turn 1`, and no `Voice command:` line of the first command after the press.
   The press handler's audio stop is unchanged code that runs before any router code, so this step proves the cancel, not the audio stop.
-- **A failed brain.** Stop the Worker mid-run, and check that the next command takes the keyword path within 8 seconds of its `voice_command` line (`Voice command: the router failed, so the keyword path takes it`).
+- **A failed brain.** Stop the Worker mid-run, and check that the next command takes the keyword path within 8 seconds of its `voice_command` line (`Voice command: the router failed, so its fallback takes it`).
 - **A hung brain.** The app always calls port 8787, so the stub takes that port and a second Worker from this checkout answers behind it.
   Run `$V worker-up 8787` and `$V worker-up 8788`, then `$V app-launch --harness-brain "+40 what is this"` on any page.
   Within those 40 seconds, run `$V worker-down 8787`, then `node .claude/skills/verify-clicky/hung-messages-stub.mjs 8787 8788 > "$(ls -td .verify-clicky/runs/*/ | head -1)stub.log" &`.
   The stub holds `POST /v1/messages` open and never answers, and passes every other route through, streams included.
   Its log has one `held POST /v1/messages` line, written when the harness sends the brain's first turn right after it reads the `voice_command` line, and then one `passed POST /chat` line from the keyword path.
   The gap between their millisecond times is about 8 seconds, the brain's turn timeout, and under 10.
-  The app log shows `Voice command: the router failed, so the keyword path takes it` once, and Clicky answers the question by voice.
+  The app log shows `Voice command: the router failed, so its fallback takes it` once, and Clicky answers the question by voice.
   Stop the stub with `kill %1` and the second Worker with `$V worker-down 8788`.
   `worker-down` takes a port here because without one it stops every Worker this script started, the one on 8788 included.
 - **Cost ceiling.** One `[/voice-command]` usage line per model turn, `claude-haiku-5-5`, `thinking_tokens` 0, and under 200 output tokens.

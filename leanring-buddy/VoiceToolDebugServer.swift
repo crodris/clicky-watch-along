@@ -175,7 +175,7 @@ final class VoiceToolDebugServer {
 }
 
 /// The arguments of debug_answer_approval, checked at the boundary. A scope that is not once or always is refused rather
-/// than guessed, since "always" lasts for the rest of the harness process.
+/// than guessed, since "always" lasts for the rest of the task that asked.
 nonisolated struct DebugApprovalAnswer: Equatable {
     let approvalID: String
     let approved: Bool

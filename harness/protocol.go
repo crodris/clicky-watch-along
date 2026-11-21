@@ -31,12 +31,16 @@ type startTaskMessage struct {
 }
 
 // toolResultMessage answers one tool_call. Content is a JSON string or an array of content blocks, such as the image
-// block look_at_video returns. Outcome says what a voice command's tool did, and a task's result leaves it out.
+// block look_at_video returns. SourceURL is the link of the video a read_video_captions result is about, which the app
+// sets for that tool alone and the task may then cite (see citableSources in taskagent.go). It is empty for every other result, and the
+// harness reads it only from a read_video_captions result, never from Content, which a page's text can write into.
+// Outcome says what a voice command's tool did, and a task's result leaves it out.
 type toolResultMessage struct {
 	TaskID    string           `json:"taskID"`
 	ToolUseID string           `json:"toolUseID"`
 	Content   json.RawMessage  `json:"content"`
 	IsError   bool             `json:"isError"`
+	SourceURL string           `json:"sourceURL"`
 	Outcome   voiceToolOutcome `json:"outcome"`
 }
 
@@ -90,7 +94,7 @@ type cancelTaskMessage struct {
 
 // approvalResultMessage answers one approval_request. It names the request by approvalID alone, since the harness made
 // the ID and it is unique across tasks. Scope is "once" (this call only) or "always" (this tool at this capability, for
-// the rest of the harness process). A "no" is never remembered, whatever its scope.
+// the rest of the task that asked). A "no" is never remembered, whatever its scope.
 type approvalResultMessage struct {
 	ApprovalID string `json:"approvalID"`
 	Approved   bool   `json:"approved"`
