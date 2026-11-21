@@ -10,7 +10,8 @@ import Foundation
 
 /// The moments of one voice command. A mark the command never reached stays nil and prints as "-".
 nonisolated struct VoiceCommandTiming: Equatable, Sendable {
-    /// The learner let go of push-to-talk. Nil for a command with no press behind it, such as a quiz scene command.
+    /// The learner let go of push-to-talk. Nil for a command that is not timed from its press, such as a quiz scene command:
+    /// its press went to the quiz answer judge first, so its transcript mark comes after the `/judge-answer` call.
     var pushToTalkReleasedAt: Date?
     /// The transcript reached the app.
     var transcriptReadyAt: Date?
@@ -45,6 +46,22 @@ nonisolated struct VoiceCommandTiming: Equatable, Sendable {
 nonisolated struct PushToTalkRelease: Equatable, Sendable {
     let pressCount: Int
     let releasedAt: Date
+}
+
+/// Whether a release ends a press that was accepted. A press that arrives while the microphone's tail still runs is ignored,
+/// and its release must neither stamp a later release time nor start a second screen read.
+nonisolated struct PushToTalkPressAcceptance: Sendable {
+    private var anAcceptedPressIsHeld = false
+
+    mutating func pressWasAccepted() {
+        anAcceptedPressIsHeld = true
+    }
+
+    /// True for the release of an accepted press, once. A release with no accepted press behind it is false.
+    mutating func releaseEndsAnAcceptedPress() -> Bool {
+        defer { anAcceptedPressIsHeld = false }
+        return anAcceptedPressIsHeld
+    }
 }
 
 /// Collects one command's marks. The first mark of each kind wins, since a command that falls back to the old path

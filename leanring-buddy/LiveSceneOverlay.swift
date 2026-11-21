@@ -322,6 +322,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     private var networkBlockRuleList: WKContentRuleList?
     private var liveSceneShowsEveryLabel = false
     private var overlayPhase = LiveSceneOverlayPhase.hidden
+    /// How many pages the overlay has started, so a read of one page's tools can tell that another page replaced it.
+    private(set) var scenesPlayedCount = 0
     /// The page normally posts returnFinished. This hides the window if it never does.
     private var returnFallbackWorkItem: DispatchWorkItem?
     private var waitersForReturnToFinish: [CheckedContinuation<Void, Never>] = []
@@ -378,6 +380,7 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         returnFallbackWorkItem?.cancel()
         returnFallbackWorkItem = nil
         overlayPhase = .showing(isFramePopout: isFramePopout)
+        scenesPlayedCount += 1
         onASceneStartedToShow?()
         releaseWaitersForReturnToFinish()
         discardThePreviousWebView()
