@@ -935,6 +935,9 @@ final class CompanionManager: ObservableObject {
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
             forgetTheVoiceCommandScreenRead()
+            // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
+            // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
+            agentTokenDockController.finishTheServeAtOnce()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
             VoiceToolCallChip.shared.recall()
@@ -948,8 +951,6 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             elevenLabsTTSClient.stopPlayback()
-            // A token still flying from the cursor to its slot lands there at once.
-            agentTokenDockController.finishTheServeAtOnce()
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.
@@ -3428,7 +3429,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+            bringBackTheEndingChip(ofAgent: agentID) {
                 VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .failure, secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
             }
         }
@@ -3710,7 +3711,7 @@ final class CompanionManager: ObservableObject {
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
-            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+            bringBackTheEndingChip(ofAgent: agentID) {
                 VoiceToolCallChip.shared.show(
                     "Couldn't build the \(agentKind.builtThingName)",
                     sender: .failure,
@@ -4022,7 +4023,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
-            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+            bringBackTheEndingChip(ofAgent: agentID) {
                 VoiceToolCallChip.shared.show(
                     studyGuideFailureLine(for: error),
                     sender: .failure,
