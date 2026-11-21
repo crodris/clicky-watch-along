@@ -162,6 +162,11 @@ jobs:
           # swapped about 37 GB on 2026-11-21 and a 2 minute build took 10. Four jobs each keeps the three builds in memory.
           echo "CLICKY_BUILD_JOBS=4" >> "$GITHUB_ENV"
           runner_name_for_ids="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9' '-')"
+          # An empty name would make the runner's folder the shared parent, and the prune below would reach other runners.
+          if [ -z "$runner_name_for_ids" ]; then
+            echo "RUNNER_NAME is empty, so the runner's bundle ID and DerivedData folder have no name." >&2
+            exit 1
+          fi
           echo "CLICKY_BUNDLE_ID_SUFFIX=.ci-$runner_name_for_ids" >> "$GITHUB_ENV"
           if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
             xcode_build_version="$(xcodebuild -version | awk '/Build version/ { print $3 }')"
@@ -177,7 +182,8 @@ jobs:
           else
             echo "CLICKY_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
           fi
-      - run: >
+      - id: xcode_build
+        run: >
           xcodebuild build
           -project leanring-buddy.xcodeproj
           -scheme leanring-buddy
@@ -188,7 +194,8 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
       # The result bundle goes to the job's temp folder, since xcodebuild otherwise adds one to the kept DerivedData every run.
-      - run: >
+      - id: xcode_test
+        run: >
           xcodebuild test
           -project leanring-buddy.xcodeproj
           -scheme leanring-buddy
@@ -200,9 +207,12 @@ jobs:
           -resultBundlePath "$RUNNER_TEMP/TestResults.xcresult"
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
-      # A build that failed or was cancelled can leave the kept folder half written, and every later job on this runner
-      # would then fail, so the next job on this runner builds from scratch instead.
-      - if: (failure() || cancelled()) && runner.environment == 'self-hosted'
+      # An xcodebuild step cancelled mid-build, by a newer push or the job's timeout, can leave the kept folder half written,
+      # and every later job on this runner would then fail, so the next job on this runner builds from scratch instead.
+      # A compile error or a failing test leaves the folder whole, and Xcode builds on from it, so those keep it.
+      - if: >-
+          always() && runner.environment == 'self-hosted'
+          && (steps.xcode_build.outcome == 'cancelled' || steps.xcode_test.outcome == 'cancelled')
         run: |
           if [ -n "$CLICKY_DERIVED_DATA" ]; then
             rm -rf "$CLICKY_DERIVED_DATA"

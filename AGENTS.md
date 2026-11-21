@@ -795,7 +795,9 @@ Each runner takes one job at a time, so the Mac has several runner processes, an
 The runners all run as one separate macOS user, so jobs that run at the same time are not isolated from each other.
 Each Mac runner keeps its DerivedData between jobs in `~/Library/Caches/clicky-ci-derived-data/<runner name>/<Xcode build version>`, with the runner name cleaned as in the bundle ID suffix, so Xcode compiles only what a change touches.
 Test results go to the job's temp folder, so the kept folder does not grow with every run.
-A job that fails or is cancelled deletes its runner's folder, so the next job builds from scratch, and each job deletes the folders its own runner kept for other Xcode build versions.
+A job whose `xcodebuild` step was cancelled, by a newer push or the job's timeout, deletes its runner's folder for the current Xcode build, so the next job builds from scratch.
+A compile error or a failing test keeps the folder, since Xcode builds on from it.
+Each job deletes the folders its own runner kept for other Xcode build versions.
 To make one runner build from scratch by hand, delete its folder there as the `clicky-ci` user.
 GitHub's runner for fork pull requests builds in the job's temp folder.
 Each build runs at most 4 build tasks at once (`xcodebuild -jobs 4`), since three builds at Xcode's default of one per core made the 32 GB Mac swap about 37 GB.
