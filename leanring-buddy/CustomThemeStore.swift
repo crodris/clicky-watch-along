@@ -16,6 +16,10 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case couldNotChooseAFreeFolderName
     /// The id is joined onto the Themes folder as a folder name, so one that is not a theme id could write outside it.
     case themeIDIsNotAValidFolderName
+    /// A rename or delete named a theme id that has no folder, such as a theme already deleted.
+    case noThemeHasThatID
+    /// A new name is empty after trimming, or longer than `CustomTheme.longestName`.
+    case themeNameIsNotValid
 }
 
 /// A theme read back from the Themes folder, with when it was saved.
@@ -119,13 +123,55 @@ nonisolated struct CustomThemeStore: Sendable {
             if savedTheme.usesPicture, let pictureJPEG {
                 try pictureJPEG.write(to: themeDirectoryURL.appendingPathComponent(Self.pictureFileName))
             }
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            try encoder.encode(savedTheme.ideaJSON).write(to: themeDirectoryURL.appendingPathComponent(Self.themeFileName))
+            try writeThemeFile(of: savedTheme, inFolderAt: themeDirectoryURL)
         } catch {
             try? fileManager.removeItem(at: themeDirectoryURL)
             throw error
         }
+    }
+
+    /// Writes theme.json in one step, so a crash halfway through never leaves a half-written file where a theme was.
+    private func writeThemeFile(of savedTheme: CustomTheme, inFolderAt themeDirectoryURL: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try encoder.encode(savedTheme.ideaJSON).write(
+            to: themeDirectoryURL.appendingPathComponent(Self.themeFileName),
+            options: .atomic
+        )
+    }
+
+    // MARK: - Renaming and deleting
+
+    /// Rewrites only the name in the theme's theme.json and returns the renamed theme. The id and the folder stay, since the
+    /// saved `companionTheme` setting and the agents that wear the theme's picture refer to the id. The name follows the
+    /// rule `CustomTheme.parse` applies to a saved name, after trimming the spaces a typed name often carries.
+    @discardableResult
+    func rename(themeID: String, to typedName: String) throws -> CustomTheme {
+        let themeDirectoryURL = try existingThemeDirectoryURL(forThemeID: themeID)
+        guard let newName = CustomTheme.validName(from: typedName) else { throw CustomThemeStoreError.themeNameIsNotValid }
+        let renamedTheme = try loadTheme(inFolderNamed: themeID).theme.renamed(to: newName)
+        try writeThemeFile(of: renamedTheme, inFolderAt: themeDirectoryURL)
+        return renamedTheme
+    }
+
+    /// Removes the theme's folder with its theme.json and picture.jpg. Only a folder this store could have made goes: the id
+    /// check is what keeps this inside the Themes folder, since an empty id would name the Themes folder itself, and
+    /// "../x" a sibling of it.
+    func delete(themeID: String) throws {
+        let themeDirectoryURL = try existingThemeDirectoryURL(forThemeID: themeID)
+        try FileManager.default.removeItem(at: themeDirectoryURL)
+    }
+
+    /// The folder of a saved theme. The id check comes first, before any file call, for the reason `delete` gives.
+    private func existingThemeDirectoryURL(forThemeID themeID: String) throws -> URL {
+        guard Self.isAValidThemeID(themeID) else { throw CustomThemeStoreError.themeIDIsNotAValidFolderName }
+        let themeDirectoryURL = themesDirectoryURL.appendingPathComponent(themeID, isDirectory: true)
+        var themeDirectoryIsAFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: themeDirectoryURL.path, isDirectory: &themeDirectoryIsAFolder),
+              themeDirectoryIsAFolder.boolValue else {
+            throw CustomThemeStoreError.noThemeHasThatID
+        }
+        return themeDirectoryURL
     }
 
     /// Every theme that parses, with its saved date, sorted by name. Anything else in the folder is skipped with a log line.
