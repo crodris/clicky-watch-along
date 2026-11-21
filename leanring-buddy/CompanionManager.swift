@@ -481,6 +481,8 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
+            // A new scene can replace one with no clear first, so the old scene's replay stops and control go with it.
+            self?.instantReplay.forget()
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             guard let self else { return }
