@@ -1,12 +1,18 @@
-"""Local depth service: measures the wall in one camera frame with Apple's Depth Pro.
+"""Local depth service: measures the wall or the floor in one camera frame with Apple's Depth Pro.
 
 GET  /health -> {"ok": true}
 POST /wall   -> { jpegBase64, maskPngBase64?, anchor: { u, v }, focalPx? }
                 200 { center, right, up, focalPx, principal, distanceMeters, wallAngleDegrees,
                       planeInlierShare, inferenceSeconds, seconds }
                 400 { error } for a bad body, 422 { error } when under 200 bare wall points remain or the
-                plane is not finite, 403 for a request with an Origin header, and 415 for a body that is
-                not application/json, so a web page in a browser on this Mac cannot reach the service.
+                plane is not finite.
+POST /floor  -> the same body, where anchor is the pixel the furniture's front-bottom center stands on.
+                200 { center, right, up, forward, focalPx, principal, distanceMeters,
+                      floorTiltDegrees, planeInlierShare, inferenceSeconds, seconds }
+                400 { error } for a bad body, 422 { error } when under 200 bare floor points remain, the
+                plane is a wall or a table, not a floor, or the plane is not finite.
+Both routes answer 403 for a request with an Origin header and 415 for a body that is not
+application/json, so a web page in a browser on this Mac cannot reach the service.
 
 Depth Pro loads once at start. `plane.py` holds the geometry and has no torch import.
 """
@@ -43,7 +49,7 @@ depth_device = None
 
 
 class BadRequestError(ValueError):
-    """The request body is not a valid /wall request."""
+    """The request body is not a valid /wall or /floor request."""
 
 
 def load_depth_pro(checkpoint_path):
@@ -85,7 +91,7 @@ def decode_base64(value, field_name):
         raise BadRequestError(f"{field_name} is not valid base64")
 
 
-def parse_wall_request(body):
+def parse_plane_request(body):
     """Checks the body and returns (frame_rgb, person_mask or None, anchor, focal_hint or None)."""
     if not isinstance(body, dict):
         raise BadRequestError("The body must be a JSON object")
@@ -119,12 +125,16 @@ def parse_wall_request(body):
     return frame_rgb, person_mask, anchor, focal_hint
 
 
-def measure_wall(body):
+# Each route runs the one Depth Pro path (`infer_depth`, one lock) and then its own geometry.
+GEOMETRY_BY_ROUTE = {"/wall": plane.wall_frame, "/floor": plane.floor_frame}
+
+
+def measure_plane(route, body):
     started_at = time.time()
-    frame_rgb, person_mask, anchor, focal_hint = parse_wall_request(body)
+    frame_rgb, person_mask, anchor, focal_hint = parse_plane_request(body)
     depth_m, focal_px = infer_depth(frame_rgb, focal_hint)
     inference_seconds = time.time() - started_at
-    frame = plane.wall_frame(depth_m, focal_px, person_mask, anchor)
+    frame = GEOMETRY_BY_ROUTE[route](depth_m, focal_px, person_mask, anchor)
     return {
         **frame,
         "inferenceSeconds": round(inference_seconds, 2),
@@ -164,7 +174,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": "Not found"})
 
     def do_POST(self):
-        if self.path != "/wall":
+        route = self.path
+        if route not in GEOMETRY_BY_ROUTE:
             self.reply(404, {"error": "Not found"})
             return
         refusal = refusal_for_headers(self.headers)
@@ -184,29 +195,30 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             body = json.loads(self.rfile.read(content_length))
-            result, status = measure_wall(body), 200
+            result, status = measure_plane(route, body), 200
         except (json.JSONDecodeError, UnicodeDecodeError):
             result, status = {"error": "The body is not valid JSON"}, 400
         except BadRequestError as error:
             result, status = {"error": str(error)}, 400
-        except plane.WallNotMeasuredError as error:
+        except plane.PlaneNotMeasuredError as error:
             result, status = {"error": str(error)}, 422
         except Exception as error:  # a model or geometry failure: log it and answer 500
-            print(f"[/wall] failed: {error!r}", flush=True)
+            print(f"[{route}] failed: {error!r}", flush=True)
             result, status = {"error": f"{type(error).__name__}: {error}"}, 500
         self.reply(status, result)
         if status == 200:
+            angle_name, angle = ("angle", result.get("wallAngleDegrees")) if route == "/wall" else ("tilt", result.get("floorTiltDegrees"))
             print(
-                f"[/wall] 200 distance={result['distanceMeters']} m angle={result['wallAngleDegrees']} deg "
+                f"[{route}] 200 distance={result['distanceMeters']} m {angle_name}={angle} deg "
                 f"inliers={result['planeInlierShare']} focal={result['focalPx']} px "
                 f"inference={result['inferenceSeconds']} s total={result['seconds']} s",
                 flush=True,
             )
         else:
-            print(f"[/wall] {status} {result['error']} ({time.time() - started_at:.2f} s)", flush=True)
+            print(f"[{route}] {status} {result['error']} ({time.time() - started_at:.2f} s)", flush=True)
 
     def log_message(self, format, *args):
-        pass  # do_POST logs one line per /wall request
+        pass  # do_POST logs one line per request
 
 
 def main():

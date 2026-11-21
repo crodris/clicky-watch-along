@@ -1,8 +1,9 @@
 # Depth service
 
-A local HTTP service that measures the wall in one camera frame with Apple's [Depth Pro](https://github.com/apple/ml-depth-pro).
-Clicky's "show this art in my room" feature sends it a frame and an anchor pixel.
+A local HTTP service that measures the wall or the floor in one camera frame with Apple's [Depth Pro](https://github.com/apple/ml-depth-pro).
+Clicky's "show this art in my room" feature sends `POST /wall` a frame and an anchor pixel.
 It replies with a placement frame on the wall at that pixel: a center, and a level right and up direction, all in meters in the camera's frame.
+Furniture uses `POST /floor`, which returns a placement frame on the floor under the anchor.
 
 This is a local stand-in for a hosted GPU.
 It runs on the Mac's own GPU (MPS) and binds to `127.0.0.1` only.
@@ -16,6 +17,15 @@ It runs on the Mac's own GPU (MPS) and binds to `127.0.0.1` only.
    `right` is horizontal and points to +x of the image.
    `up` points to -y of the image (up in the image).
    Both lie on the wall plane.
+
+The floor follows the same steps with these differences:
+
+- The window around the anchor is wider and reaches further below it than above it, since the floor runs down toward the camera.
+- Inliers lie within 3 cm of the plane, since the floor is seen at a grazing angle.
+- A plane whose normal is more than 25 degrees from the camera's vertical (the image's -y) is a wall or a table and is rejected.
+- An anchor above the floor's horizon is rejected too, since its ray never reaches the floor in front of the camera.
+
+Both routes share one Depth Pro run path (`infer_depth`, one lock), and each picks its own geometry from `GEOMETRY_BY_ROUTE`.
 
 The geometry is in `plane.py` and has no torch import, so its tests run in seconds.
 
@@ -89,6 +99,52 @@ Errors are `{ "error": "..." }`.
 `403` is a request with an `Origin` header, and `415` a body whose `Content-Type` is not `application/json`, so a web page in a browser on this Mac cannot reach the service. The Worker sends `application/json` and no `Origin`.
 `422` means under 200 bare wall points remain around the anchor, or the plane has a NaN or infinite number, such as a wall seen edge on.
 `500` is a model failure.
+The `/floor` route has not been run on a live Depth Pro frame yet. Its geometry is tested on synthetic floors only.
+
+`POST /floor` takes the same body.
+`anchor` is the pixel where the furniture's front-bottom center should stand.
+
+It replies `200` with:
+
+```json
+{
+  "center": [0.0, 1.2, 3.4],
+  "right": [1.0, 0.0, 0.0],
+  "up": [0.0, -0.96593, -0.25882],
+  "forward": [0.0, -0.25882, 0.96593],
+  "focalPx": 1500.0,
+  "principal": [960.0, 540.0],
+  "distanceMeters": 3.6,
+  "floorTiltDegrees": 15.0,
+  "planeInlierShare": 0.97,
+  "inferenceSeconds": 16.09,
+  "seconds": 16.49
+}
+```
+
+The numbers above are synthetic (a floor seen from a camera 1.2 m high, pitched 15 degrees down), not a live measurement.
+Points and directions are `[x, y, z]` in meters, x right, y down, z forward.
+
+- `center` is the 3D point on the floor under the anchor.
+- `up` is the floor normal, pointing up.
+- `right` lies on the floor, level with the camera, toward +x of the image.
+- `forward` = `up` x `right`. It lies on the floor and points away from the camera. `right` x `up` is its negation, and points toward the camera.
+- `floorTiltDegrees` is the angle between `up` and the camera's vertical.
+- `planeInlierShare` is the share of sampled floor points within 3 cm of the plane.
+
+`right`, `up`, and `forward` are unit vectors at right angles to each other.
+
+### Standing a box on the floor
+
+For a box W wide, H tall, and D deep, with `center` as the middle of its front-bottom edge:
+
+- The front face spans `center - right * W/2` to `center + right * W/2` on the floor, and rises H along `up`.
+- The back face is the same rectangle moved D along `forward`.
+- The bottom face lies in the floor plane, so the box stands on it at real size.
+
+The eight corners are `center + right * (sx * W/2) + up * (sy * H) + forward * (sz * D)`, with `sx` of -1 or 1, `sy` of 0 or 1, and `sz` of 0 or 1.
+
+`422` on `/floor` means under 200 bare floor points remain around the anchor, or the plane under it is not floor-like (tilted over 25 degrees from the camera's vertical, or the anchor is above the horizon).
 
 ## Measured
 
@@ -103,4 +159,5 @@ uv run pytest -q
 ```
 
 The tests build a synthetic tilted wall with noise and an object in front, and check the normal within 1 degree, the person mask, the center on the anchor's ray, a plane with a NaN refused, and that RANSAC on 42,000 points takes under 0.5 s.
-`test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals and the 422 for a wall it cannot measure.
+For the floor they build a floor seen from a camera 1.2 m high, pitched 15 degrees down, and check `up` within 2 degrees, the center on the anchor's ray and the floor, the orthonormal right, up, and forward with forward away from the camera, the rejection of a wall and of an anchor above the horizon, and the person mask.
+`test_server.py` runs the real HTTP handler on a free port with no Depth Pro loaded, and checks the `Origin` and `Content-Type` refusals on both routes, the 422 for a plane it cannot measure, and the reply shape of each route with a stand-in for Depth Pro.
