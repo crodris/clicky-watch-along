@@ -22,8 +22,9 @@ final class CursorLoopController: ObservableObject {
     private var idleMustHoldTask: Task<Void, Never>?
     private var latestVoiceState = CompanionVoiceState.idle
     /// Read Chrome's front tab: the full media read at release, and the cheap sample the poll takes. Tests pass
-    /// their own, since the real ones drive Chrome.
-    private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
+    /// their own, since the real ones drive Chrome. The release's front tab read is shared with the voice command's screen
+    /// read, so the media read asks it for the tab instead of reading the tab itself.
+    private let readTheMediaInTheFrontTab: (FrontTabReadAtRelease) -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
     /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
     /// reading the clock of a busy machine.
@@ -40,7 +41,7 @@ final class CursorLoopController: ObservableObject {
     private static let chromeBundleIdentifier = "com.google.Chrome"
 
     init(
-        readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
+        readTheMediaInTheFrontTab: @escaping (FrontTabReadAtRelease) -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
         waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
     ) {
@@ -84,13 +85,16 @@ final class CursorLoopController: ObservableObject {
         end(because: .newPushToTalk)
     }
 
-    /// Starts the rect read beside the router call. It is wasted unless the request becomes a look at the media.
-    func pushToTalkWasReleased() {
+    /// Starts the rect read beside the router call. It is wasted unless the request becomes a look at the media. The front
+    /// tab comes from `frontTabRead`, which the voice command's screen read of the same release shares.
+    func pushToTalkWasReleased(frontTabRead sharedFrontTabRead: FrontTabReadAtRelease? = nil) {
+        // A release with no one to share with reads the tab for the loop alone.
+        let frontTabRead = sharedFrontTabRead ?? FrontTabReadAtRelease()
         change { $0.pushToTalkWasReleased() }
         mediaRectReadTask?.cancel()
         mediaRectReadTask = Task {
             let readStartedAt = Self.now
-            let media = readTheMediaInTheFrontTab()
+            let media = readTheMediaInTheFrontTab(frontTabRead)
             print("Cursor loop: read the front tab's media in \(Int((Self.now - readStartedAt) * 1000)) ms, \(media == nil ? "none to frame" : "found")")
             guard !Task.isCancelled else { return }
             change { $0.mediaRectArrived(media, at: Self.now) }
@@ -219,9 +223,9 @@ final class CursorLoopController: ObservableObject {
     /// The largest visible video or image in Chrome's front tab, with the tab it is in. Nil when Chrome is not the
     /// front app, shows no media worth framing, or refuses the read, and nil for media that fills a whole screen,
     /// which a loop would frame at the screen's edge for no reason.
-    static func readTheMediaInTheFrontTab() -> MediaOnTheFrontTab? {
+    static func readTheMediaInTheFrontTab(frontTabRead: FrontTabReadAtRelease) -> MediaOnTheFrontTab? {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == chromeBundleIdentifier,
-              let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
+              let frontTab = frontTabRead.frontTab(),
               let largestMedia = try? ChromeVideoTab.largestVisibleMediaInFrontTabOrNone() else {
             return nil
         }
