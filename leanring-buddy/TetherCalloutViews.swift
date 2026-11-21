@@ -154,9 +154,10 @@ struct TetherCalloutPresenceEffect: ViewModifier {
 struct PointingBubbleExitRecord: Equatable {
     private var learnerInterruptedThePointing = false
 
-    /// A press while the cursor points. With nothing pointed at, there is no bubble to recall.
-    mutating func noteThatTheLearnerInterrupted(cursorIsPointing: Bool) {
-        learnerInterruptedThePointing = cursorIsPointing
+    /// A press while the cursor points, with that pointing's hold, or nil when nothing is pointed at. Only a held pointing
+    /// reaches the overlay's release, which takes the note, so a brief one, such as an answer's, leaves no note behind.
+    mutating func noteThatTheLearnerInterrupted(pointingHold: BuddyPointingHold?) {
+        learnerInterruptedThePointing = pointingHold?.holdsUntilReleased == true
     }
 
     /// The exit for the bubble leaving now, which clears the note so a later release fades as usual.

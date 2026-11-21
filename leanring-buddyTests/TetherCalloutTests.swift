@@ -17,6 +17,22 @@ import Testing
 struct TetherCalloutTests {
     // MARK: - Placement
 
+    @Test func aPressDuringANarrationRecallsItsBubbleIntoTheCursorOnce() {
+        var exitRecord = PointingBubbleExitRecord()
+        #expect(exitRecord.takeTheExit() == .fadeRise)
+        exitRecord.noteThatTheLearnerInterrupted(pointingHold: .untilReleased(byNarrationID: UUID()))
+        #expect(exitRecord.takeTheExit() == .recall)
+        // The note is taken once, so the next narration's bubble fades and rises as usual.
+        #expect(exitRecord.takeTheExit() == .fadeRise)
+        // A press with nothing pointed at leaves no note for a later bubble.
+        exitRecord.noteThatTheLearnerInterrupted(pointingHold: nil)
+        #expect(exitRecord.takeTheExit() == .fadeRise)
+        // A brief pointing, such as an answer's, is never released through the overlay's held path, so it leaves no note
+        // for a later narration's bubble to take.
+        exitRecord.noteThatTheLearnerInterrupted(pointingHold: .briefly)
+        #expect(exitRecord.takeTheExit() == .fadeRise)
+    }
+
     @Test func aCalloutPanelPutsTheTailsTipOnTheTipPoint() {
         let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
         let tipPoint = CGPoint(x: 600, y: 400)

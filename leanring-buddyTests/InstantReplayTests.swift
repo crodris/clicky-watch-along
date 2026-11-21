@@ -408,18 +408,6 @@ struct InstantReplayTests {
         #expect(unknownCall.chipPhrase == nil)
     }
 
-    @Test func aPressDuringANarrationRecallsItsBubbleIntoTheCursorOnce() {
-        var exitRecord = PointingBubbleExitRecord()
-        #expect(exitRecord.takeTheExit() == .fadeRise)
-        exitRecord.noteThatTheLearnerInterrupted(cursorIsPointing: true)
-        #expect(exitRecord.takeTheExit() == .recall)
-        // The note is taken once, so the next narration's bubble fades and rises as usual.
-        #expect(exitRecord.takeTheExit() == .fadeRise)
-        // A press with nothing pointed at leaves no note for a later bubble.
-        exitRecord.noteThatTheLearnerInterrupted(cursorIsPointing: false)
-        #expect(exitRecord.takeTheExit() == .fadeRise)
-    }
-
     @Test func theSceneStateSaysWhereTheReplayIs() {
         #expect(voiceCommandReplayState(phase: .notOpen, stopCount: 3) == .object(["stops": .number(3), "open": .bool(false)]))
         #expect(voiceCommandReplayState(phase: .stoppedAt(stopIndex: 1), stopCount: 3) == .object(["stops": .number(3), "open": .bool(true), "atStop": .number(2)]))

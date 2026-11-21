@@ -986,7 +986,9 @@ final class CompanionManager: ObservableObject {
             // A replay stops its camera and travel and stays open at its stop, so "next" and "back" still work.
             instantReplay.stopTheTravelForAPress()
             // The learner interrupted, so a narration's bubble shrinks into the cursor instead of fading up.
-            pointingBubbleExitRecord.noteThatTheLearnerInterrupted(cursorIsPointing: detectedElementScreenLocation != nil)
+            pointingBubbleExitRecord.noteThatTheLearnerInterrupted(
+                pointingHold: detectedElementScreenLocation == nil ? nil : detectedElementPointingHold
+            )
             clearDetectedElementLocation()
             // A cancelled narration or scene line returns without leaving the responding state, and the
             // dictation binding never replaces responding, so the listening ring would not show.

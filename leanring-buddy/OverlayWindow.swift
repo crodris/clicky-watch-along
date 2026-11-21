@@ -333,7 +333,8 @@ struct BlueCursorView: View {
 
             // Navigation pointer bubble - shown when buddy arrives at a detected element, and while a narration
             // speaks. A Callout above the cursor whose tail points at the triangle: it pops out of the tail's tip,
-            // its words brighten as the voice reaches them, and it leaves with a fade and a 6 point rise.
+            // its words brighten as the voice reaches them, and it leaves with a fade and a 6 point rise, or shrinks
+            // into the cursor when a push-to-talk press interrupted the narration (`navigationBubbleExit`).
             if navigationBubbleIsShowing {
                 SpeechCalloutView(
                     sentence: navigationBubblePhrase,
@@ -406,7 +407,8 @@ struct BlueCursorView: View {
                     value: cursorPosition
                 )
         }
-        // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`).
+        // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`),
+        // and the pointing bubble leaves the way `navigationBubbleExit` says (`.tetherCalloutPop(andLeave:)`).
         .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: navigationBubbleExit, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
         .animation(tetherCalloutAnimation(isAppearing: welcomeBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: welcomeBubbleIsShowing)
         .animation(tetherCalloutAnimation(isAppearing: onboardingPromptBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: onboardingPromptBubbleIsShowing)
@@ -813,7 +815,14 @@ struct BlueCursorView: View {
         // SwiftUI removes a view with the transition it had on the last render, so the Recall is set one turn before the
         // bubble leaves the tree, and the cursor's flight back waits for that turn too.
         navigationBubbleExit = .recall
+        // A flight still on its way to the part would land in that turn and type a new bubble, so it stops here.
+        navigationAnimationTimer?.invalidate()
+        navigationAnimationTimer = nil
         DispatchQueue.main.async {
+            // A new pointing that arrived in that turn owns the buddy now, so the recall leaves it alone.
+            guard companionManager.detectedElementScreenLocation == nil,
+                  buddyNavigationMode != .followingCursor,
+                  !isReturningToCursor else { return }
             navigationBubbleOpacity = 0.0
             startFlyingBackToCursor()
         }
