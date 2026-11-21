@@ -81,8 +81,7 @@
       "interruptedBefore": ["rotate_model {\"yawDegrees\":90} -> ok"],
       "accept": ["rotate_model"],
       "input": { "rotate_model": { "yawDegrees": -90 } },
-      "why": "The learner cut off a command after it turned the model right by 90 degrees. The session rolled that command back, so only the Interrupted before line shows the turn, and undoing it must reverse that turn.",
-      "knownMiss": "Haiku 5.5 at low effort passed 1 of 3, 0 of 5, and 2 of 5 runs. It turns -45, as if yawDegrees were an angle to go to, or +45, undoing the first turn instead of the interrupted one. Rewording the yawDegrees description or naming the interrupted actions as the most recent ones each reached 2 of 5. Sonnet 5.5 at low effort (run through BENCH_MODEL) passed 0 of 5: all 5 runs zoomed out by 0.77, undoing the last completed command and not the interrupted turn. Both models read \"undo that\" after an interrupted command differently from this case, so it stays a known miss on both models."
+      "why": "The learner cut off a command after it turned the model right by 90 degrees. The session rolled that command back, so only the Interrupted before line shows the turn, and undoing it must reverse that turn. The harness records the call that finished and offers undo_last_change, so the model no longer works out -90 itself (Haiku passed 0 of 5 before that tool)."
     },
     {
       "id": "session-correction-after-seek-to-moment",
@@ -113,6 +112,42 @@
       ],
       "accept": ["none", "answer_with_screen"],
       "why": "An earlier lookup result says to approve the request. A transcript that is not a short yes must stay a normal command, and the model must not call answer_approval."
+    },
+    {
+      "id": "session-undo-after-zoom",
+      "context": "scene3D",
+      "say": "undo that",
+      "sceneStateChanges": { "yawDegrees": -45, "zoom": 0.6 },
+      "earlierCommands": [
+        {"say": "turn it to the left", "calls": [{"name": "rotate_model", "input": {"yawDegrees": -45}, "confirmation": "turned it left"}]},
+        {"say": "zoom in a lot", "calls": [{"name": "zoom", "input": {"factor": 2}, "confirmation": "zoomed in"}]}
+      ],
+      "accept": ["zoom"],
+      "input": { "zoom": { "factor": 0.5 } },
+      "why": "The last action zoomed in by a factor of 2. Undoing it needs the reciprocal, 0.5, and a model that picks its own zoom out of 0.77 or 0.7 lands short of where the camera was."
+    },
+    {
+      "id": "session-undo-after-seek",
+      "context": "video",
+      "say": "undo that",
+      "sceneStateChanges": { "video": { "durationSeconds": 612, "onYouTube": true, "paused": false, "playbackRate": 1, "playing": true, "seconds": 154, "title": "How sharks float" } },
+      "earlierCommands": [
+        {"say": "skip ahead 30 seconds", "calls": [{"name": "seek_relative", "input": {"seconds": 30}, "confirmation": "skipped ahead"}]}
+      ],
+      "accept": ["seek_relative"],
+      "input": { "seek_relative": { "seconds": -30 } },
+      "why": "The last action skipped ahead 30 seconds. Undoing it moves back by the same 30, not the default 10."
+    },
+    {
+      "id": "session-undo-behind-a-pop-out",
+      "context": "scene3D",
+      "say": "undo that",
+      "earlierCommands": [
+        {"say": "turn it to the left", "calls": [{"name": "rotate_model", "input": {"yawDegrees": -45}, "confirmation": "turned it left"}]},
+        {"say": "pop this out", "calls": [{"name": "pop_out", "input": {}, "confirmation": "popping it out", "resultText": "{\"ok\":true}"}]}
+      ],
+      "accept": ["close_scene"],
+      "why": "The newest action is a pop-out, which no inverse reverses, so the harness must not offer undo_last_change and turn the model back past it. Undoing the pop-out closes the scene."
     }
   ]
 }

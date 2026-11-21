@@ -858,7 +858,13 @@ final class VideoQuizSession {
     /// page has none. A video inside a frame from another site cannot be reached by a page script, so it counts as none.
     func frontVideoStateForVoiceCommands() -> JSONValue? {
         guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
-        return try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
+        return frontVideoStateForVoiceCommands(in: frontTab)
+    }
+
+    /// The same read of a front tab the caller already has, so a release that reads the tab once for several readers does not
+    /// read it again here.
+    func frontVideoStateForVoiceCommands(in frontTab: ChromeVideoTab) -> JSONValue? {
+        try? Self.runLearnerVideoCommand(.readState, in: frontTab, title: frontTab.title, pageIsOnYouTube: urlIsOnYouTube(urlText: frontTab.url))
     }
 
     /// Runs a pause, play, seek, or speed change the learner asked for on the video in front, and returns its state.

@@ -114,8 +114,9 @@ function readAppProfile(appCheckout: string): AppProfile {
   const chatModel =
     claudeAPISource.match(/sonnetModelID = "([^"]+)"/)?.[1] ??
     requiredMatch(companionManagerSource, /"selectedClaudeModel"\) \?\? "([^"]+)"/, "the default chat model")[1];
-  // Everything before the unused non-streaming call holds the streamed body, in streamingRequestBody or inline in older apps.
-  const streamingBodySource = claudeAPISource.slice(0, claudeAPISource.indexOf("func analyzeImage("));
+  // Older apps also have a non-streaming call after the streamed body, so cut the source where it starts. The current app has none.
+  const nonStreamingCallStart = claudeAPISource.indexOf("func analyzeImage(");
+  const streamingBodySource = nonStreamingCallStart === -1 ? claudeAPISource : claudeAPISource.slice(0, nonStreamingCallStart);
   const chatEffort = streamingBodySource.match(/"output_config": \["effort": "(\w+)"\]/)?.[1];
   const samplesPerBuffer = ttsClientSource.match(/samplesPerBuffer = ([\d_]+)/)?.[1];
   return {
