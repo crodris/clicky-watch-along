@@ -122,10 +122,12 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 		}
 		servers = newMCPHub(rootContext, harnessConfiguration.mcpConfigPath, lookupEnvironment, func(text string) { writer.send(newLogMessage(text)) })
 	}
+	// One gate for the task agents and the brain, so a voice answer and a click settle the same request once.
+	approvals := newApprovalGate()
 	serving := &harness{
 		rootContext: rootContext,
-		runner:      &taskRunner{client: client, writer: writer, skillsDirectories: harnessConfiguration.skillsDirectories, mcp: servers, approvals: newApprovalGate()},
-		brain:       &brainRunner{client: client, writer: writer, session: newBrainSession(time.Now), planningTurnTimeout: harnessConfiguration.planningTurnTimeout},
+		runner:      &taskRunner{client: client, writer: writer, skillsDirectories: harnessConfiguration.skillsDirectories, mcp: servers, approvals: approvals},
+		brain:       &brainRunner{client: client, writer: writer, session: newBrainSession(time.Now), approvals: approvals, planningTurnTimeout: harnessConfiguration.planningTurnTimeout},
 		tasks:       map[string]*runningTask{},
 		benchMode:   harnessConfiguration.benchMode,
 	}
@@ -184,10 +186,20 @@ func (serving *harness) handle(line []byte) {
 		serving.deliverToolResult(message)
 	case cancelTaskMessage:
 		serving.cancelTask(message.TaskID)
+	case seedApprovalRequestMessage:
+		if !serving.benchMode {
+			fmt.Fprintln(os.Stderr, "harness: dropped seed_approval_request, which only a harness started with CLICKY_BENCH=1 takes")
+			return
+		}
+		serving.runner.approvals.seed(message.ApprovalID, message.Capability)
 	case approvalResultMessage:
+		// The gate takes the first answer to a request. A click that arrives after a voice answer, or the other way
+		// round, finds nothing waiting and changes nothing, so the app hears only the answer that won.
 		if !serving.runner.approvals.deliver(message) {
 			fmt.Fprintf(os.Stderr, "harness: dropped an approval answer for %s, which nothing is waiting for\n", message.ApprovalID)
+			return
 		}
+		serving.runner.writer.send(newApprovalSettledMessage(message.ApprovalID, message.Approved, message.Scope))
 	}
 }
 

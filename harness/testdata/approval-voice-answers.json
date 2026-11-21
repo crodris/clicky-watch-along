@@ -1,0 +1,32 @@
+{
+  "description": "What a voice answer to an approval request is worth. Each case gives the learner's transcript and the model's answer_approval input, and says what the check keeps: null when the learner's own words do not support the answer, or the answer. harness/voiceapproval_test.go and leanring-buddyTests/VoiceApprovalTests.swift both read this file, so the Go check and the Swift check (leanring-buddy/VoiceApprovals.swift) cannot differ while both exist. Delete it with the Swift copy.",
+  "cases": [
+    { "name": "a bare yes allows once", "transcript": "yes", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "an upper case yes allows once", "transcript": "YES", "modelInput": { "approved": true }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "sure, go ahead allows once", "transcript": "sure, go ahead", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "yes please allows once", "transcript": "yes please", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "go ahead and do it allows once", "transcript": "go ahead and do it", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "the phrase do it alone is a yes", "transcript": "do it", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "the phrase all right alone is a yes", "transcript": "all right", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "alright is a yes", "transcript": "alright", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "allow that, thanks is a yes", "transcript": "allow that, thanks", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "a yes with only filler words around it", "transcript": "okay hey clicky", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
+    { "name": "a yes followed by a question is not a yes", "transcript": "okay, what is this video about", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "a yes with a word outside the answer is not a yes", "transcript": "yeah, sure thing", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "a no word cancels a yes word", "transcript": "stop, yes", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "a curly apostrophe still reads as don't", "transcript": "yes but don’t", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "don't allow it is not a yes", "transcript": "don't allow it", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "a thank you alone is not a yes", "transcript": "thank you", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "an empty transcript is not a yes", "transcript": "", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "a combining mark keeps a word out of the vocabulary", "transcript": "yeś", "modelInput": { "approved": true, "always": false }, "expected": null },
+    { "name": "always allow it allows always", "transcript": "always allow it", "modelInput": { "approved": true, "always": true }, "expected": { "approved": true, "scope": "always" } },
+    { "name": "a bare always is a yes with always", "transcript": "always", "modelInput": { "approved": true, "always": true }, "expected": { "approved": true, "scope": "always" } },
+    { "name": "an always the learner did not say is refused", "transcript": "yes", "modelInput": { "approved": true, "always": true }, "expected": null },
+    { "name": "a bare no declines", "transcript": "no", "modelInput": { "approved": false }, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a no with a reason declines", "transcript": "no, don't do that", "modelInput": { "approved": false, "always": false }, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a no with always set stays a plain no", "transcript": "no", "modelInput": { "approved": false, "always": true }, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a no needs no check against the words, since declining is always safe", "transcript": "pause the video", "modelInput": { "approved": false }, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a call with no approved field answers nothing", "transcript": "yes", "modelInput": { "always": false }, "expected": null },
+    { "name": "an approved that is not a boolean answers nothing", "transcript": "yes", "modelInput": { "approved": "true" }, "expected": null }
+  ]
+}
