@@ -5,7 +5,6 @@
   </linearGradient>
 </defs>
 <g transform="translate(650 420) rotate(-35)">
-  <path d="M-95 -120 L 150 0 L -95 120 Z" fill="#0a1a4a" opacity=".35" transform="translate(10 22)"/>
   <path d="M-95 -120 L 150 0 L -95 120 Z" fill="url(#cursor-gradient)"/>
   <path d="M-95 -120 L 150 0" stroke="#fff" stroke-width="10" opacity=".9"/>
 </g>

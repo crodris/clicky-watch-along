@@ -8,7 +8,10 @@ Run from anywhere:  python3 -I tools/app-icon/render-app-icon.py
 
 It writes two things from one set of shapes, so they cannot differ:
   - tools/app-icon/layers/*.svg   the four layers (field, arc, ring, cursor), each a
-                                  full 1024 point canvas, to import into Icon Composer
+                                  full 1024 point canvas, to import into Icon Composer.
+                                  The tile shadow and the cursor's shadow are left out, since
+                                  Icon Composer draws its own, and Icon Composer may replace
+                                  the field layer with its own background fill.
   - leanring-buddy/Assets.xcassets/AppIcon.appiconset/*-mac.png   the shipped sizes
 
 Rasterizing uses headless Google Chrome, since it draws SVG gradients and filters
@@ -46,9 +49,9 @@ def squircle_path_data() -> str:
     for step in range(point_count):
         angle = 2 * math.pi * step / point_count
         cosine, sine = math.cos(angle), math.sin(angle)
-        x = center + radius * math.copysign(abs(cosine) ** (2 / SQUIRCLE_EXPONENT), cosine)
-        y = center + radius * math.copysign(abs(sine) ** (2 / SQUIRCLE_EXPONENT), sine)
-        points.append(f"{x:.2f} {y:.2f}")
+        horizontal_position = center + radius * math.copysign(abs(cosine) ** (2 / SQUIRCLE_EXPONENT), cosine)
+        vertical_position = center + radius * math.copysign(abs(sine) ** (2 / SQUIRCLE_EXPONENT), sine)
+        points.append(f"{horizontal_position:.2f} {vertical_position:.2f}")
     return "M" + " L".join(points) + " Z"
 
 
@@ -81,9 +84,15 @@ CURSOR_LAYER = """\
   </linearGradient>
 </defs>
 <g transform="translate(650 420) rotate(-35)">
-  <path d="M-95 -120 L 150 0 L -95 120 Z" fill="#0a1a4a" opacity=".35" transform="translate(10 22)"/>
   <path d="M-95 -120 L 150 0 L -95 120 Z" fill="url(#cursor-gradient)"/>
   <path d="M-95 -120 L 150 0" stroke="#fff" stroke-width="10" opacity=".9"/>
+</g>"""
+
+# The cursor's own shadow stays out of the layers: Icon Composer adds its own shadow, and in its
+# tinted and clear modes a drawn one would show as a second triangle. It is drawn into the PNGs only.
+CURSOR_SHADOW = """\
+<g transform="translate(650 420) rotate(-35)">
+  <path d="M-95 -120 L 150 0 L -95 120 Z" fill="#0a1a4a" opacity=".35" transform="translate(10 22)"/>
 </g>"""
 
 # At 64 pixels and below the arc and ring turn to mush, so only a large white cursor stays.
@@ -123,10 +132,14 @@ def write_layers() -> None:
 def icon_markup(pixel_size: int) -> str:
     if pixel_size <= LARGEST_SIMPLE_ART_PIXEL_SIZE:
         return "\n".join([FIELD_LAYER, SIMPLE_CURSOR_LAYER])
-    return "\n".join([SHADOW_FILTER, FIELD_LAYER, ARC_LAYER, RING_LAYER, CURSOR_LAYER])
+    return "\n".join([SHADOW_FILTER, FIELD_LAYER, ARC_LAYER, RING_LAYER, CURSOR_SHADOW, CURSOR_LAYER])
 
 
 def render_png(pixel_size: int, destination: Path) -> None:
+    if not Path(CHROME_EXECUTABLE).exists():
+        sys.exit(f"Google Chrome is needed to rasterize the icon, and {CHROME_EXECUTABLE} does not exist.")
+    # A stale file must not pass for a fresh render when Chrome exits without writing one.
+    destination.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory() as working_directory:
         page = Path(working_directory) / "icon.html"
         page.write_text(
@@ -134,21 +147,25 @@ def render_png(pixel_size: int, destination: Path) -> None:
             "<style>html,body{margin:0;background:transparent}svg{display:block}</style>"
             + svg_document(icon_markup(pixel_size), pixel_size)
         )
-        subprocess.run(
+        chrome_run = subprocess.run(
             [
                 CHROME_EXECUTABLE,
                 "--headless=new",
                 "--disable-gpu",
                 "--hide-scrollbars",
+                # The hex colors are sRGB, so the render must not pick up the display's profile.
+                "--force-color-profile=srgb",
                 "--force-device-scale-factor=1",
                 "--default-background-color=00000000",
                 f"--window-size={pixel_size},{pixel_size}",
                 f"--screenshot={destination}",
                 page.as_uri(),
             ],
-            check=True,
             capture_output=True,
+            text=True,
         )
+    if chrome_run.returncode != 0 or not destination.exists():
+        sys.exit(f"Chrome did not render {destination.name} (exit {chrome_run.returncode}):\n{chrome_run.stderr}")
 
 
 def main() -> None:
