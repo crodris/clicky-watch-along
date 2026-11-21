@@ -6,7 +6,8 @@
 //  trusts while saying it. A frame pop-out is narrated one part at a time, and
 //  a tapped label is explained the same way, with the blue cursor pointing at
 //  each part as Clicky names it. The landmark page gets one line built from
-//  the /landmark reply. Generated /live-scene pages are not covered.
+//  the /landmark reply. Generated /live-scene pages are not covered. Each part the narration points at is
+//  recorded as an instant replay stop (`InstantReplay.swift`).
 //
 
 import CoreGraphics
@@ -45,12 +46,15 @@ enum LiveScenePageEvent: Equatable {
     case returnFinished
     /// The label text comes from the page, so it is untrusted until matched against Clicky's parts list.
     case partTapped(untrustedLabel: String)
+    /// An instant replay stop's number was clicked. The index comes from the page, so it is untrusted until it names a stop.
+    case replayStopTapped(untrustedStopIndex: Int)
     /// A simulation run ended. scene-tools.js posts the report, which holds the page's text and values.
     case simulationRunFinished(SimulationRunReport)
     /// The learner clicked the locked Run button, which skips the guess.
     case simulationGuessSkipped
 
     private static let partTappedPrefix = "partTapped:"
+    private static let stopTappedPrefix = "stopTapped:"
     private static let runFinishedPrefix = "runFinished:"
 
     init?(messageBody: Any) {
@@ -70,6 +74,11 @@ enum LiveScenePageEvent: Equatable {
         if messageText.hasPrefix(Self.runFinishedPrefix) {
             guard let runReport = SimulationRunReport(pageJSON: String(messageText.dropFirst(Self.runFinishedPrefix.count))) else { return nil }
             self = .simulationRunFinished(runReport)
+            return
+        }
+        if messageText.hasPrefix(Self.stopTappedPrefix) {
+            guard let stopIndex = Int(messageText.dropFirst(Self.stopTappedPrefix.count)), stopIndex >= 0 else { return nil }
+            self = .replayStopTapped(untrustedStopIndex: stopIndex)
             return
         }
         guard messageText.hasPrefix(Self.partTappedPrefix) else { return nil }

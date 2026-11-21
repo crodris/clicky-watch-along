@@ -283,6 +283,12 @@ struct BlueCursorView: View {
     /// has already reset its hold by the time the location clears, so the view keeps its own copy.
     @State private var currentTargetHoldsUntilReleased: Bool = false
 
+    /// True after an instant replay ended with the buddy stopped where it was, mid-flight included. The buddy stays
+    /// there until the mouse moves `frozenBuddyReleaseDistance` points, then flies back to it.
+    @State private var buddyIsFrozenWhereItStopped = false
+    @State private var mouseLocationWhenTheBuddyFroze: CGPoint = .zero
+    private let frozenBuddyReleaseDistance: CGFloat = 100
+
     // MARK: - Onboarding Video Layout
 
     private let onboardingVideoPlayerWidth: CGFloat = 330
@@ -513,6 +519,9 @@ struct BlueCursorView: View {
             navigationBubbleText = ""
             typeNavigationBubble(phrase: newBubbleText)
         }
+        .onChange(of: companionManager.buddyFreezeCount) { _ in
+            freezeTheBuddyWhereItIs()
+        }
         .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
             // When a UI element location is detected, navigate the buddy to
             // that position so it points at the element.
@@ -573,6 +582,16 @@ struct BlueCursorView: View {
                 )
                 if distanceFromNavigationStart > 100 {
                     cancelNavigationAndResumeFollowing()
+                }
+                return
+            }
+
+            // A buddy an instant replay froze waits where it stopped until the mouse moves away from where it was then.
+            if self.buddyIsFrozenWhereItStopped {
+                let distanceSinceTheFreeze = hypot(mouseLocation.x - self.mouseLocationWhenTheBuddyFroze.x, mouseLocation.y - self.mouseLocationWhenTheBuddyFroze.y)
+                if distanceSinceTheFreeze > self.frozenBuddyReleaseDistance {
+                    self.buddyIsFrozenWhereItStopped = false
+                    self.companionManager.releaseTheBuddyTheReplayFroze()
                 }
                 return
             }
@@ -640,6 +659,7 @@ struct BlueCursorView: View {
         cursorPositionWhenNavigationStarted = convertScreenPointToSwiftUICoordinates(mouseLocation)
 
         // Enter navigation mode — stop cursor following
+        buddyIsFrozenWhereItStopped = false
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = false
         currentTargetHoldsUntilReleased = companionManager.detectedElementPointingHold.holdsUntilReleased
@@ -839,6 +859,22 @@ struct BlueCursorView: View {
         return cursorPosition.x + 10 + (navigationBubbleSize.width / 2)
     }
 
+    /// An instant replay that ends stops the buddy where it is, mid-flight included, with no ease: the flight timer stops,
+    /// the bubble hides, and the buddy keeps its position and heading. A buddy following the mouse has nothing to stop.
+    private func freezeTheBuddyWhereItIs() {
+        guard buddyNavigationMode != .followingCursor, !isReturningToCursor else { return }
+        navigationAnimationTimer?.invalidate()
+        navigationAnimationTimer = nil
+        navigationBubbleTypingGeneration += 1
+        navigationBubbleOpacity = 0.0
+        buddyFlightScale = 1.0
+        flightFadeOpacity = 1.0
+        buddyNavigationMode = .pointingAtTarget
+        currentTargetHoldsUntilReleased = true
+        buddyIsFrozenWhereItStopped = true
+        mouseLocationWhenTheBuddyFroze = NSEvent.mouseLocation
+    }
+
     /// A held target ends when CompanionManager clears the location, once Clicky stops talking about that part.
     /// Only the screen whose buddy is at or flying to the target has anything to release.
     private func flyBackFromAReleasedHeldTarget() {
@@ -916,6 +952,7 @@ struct BlueCursorView: View {
     private func finishNavigationAndResumeFollowing() {
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = nil
+        buddyIsFrozenWhereItStopped = false
         buddyNavigationMode = .followingCursor
         isReturningToCursor = false
         currentTargetHoldsUntilReleased = false

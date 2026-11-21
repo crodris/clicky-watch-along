@@ -259,6 +259,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     var onASceneStartedToShow: (() -> Void)?
     /// The page posts "partTapped:<label>" when a label is clicked. The label is page text, so it is untrusted.
     var onPartTapped: ((String) -> Void)?
+    /// The frame pop-out posts "stopTapped:<index>" when an instant replay stop's number is clicked.
+    var onReplayStopTapped: ((Int) -> Void)?
     /// A simulation page's run ended. The report is the page's own numbers, already cut to a short list.
     var onSimulationRunFinished: ((SimulationRunReport) -> Void)?
     /// The learner clicked the locked Run button of a simulation, which skips the guess.
@@ -361,6 +363,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             finishReturnToSource()
         case .partTapped(let untrustedLabel):
             onPartTapped?(untrustedLabel)
+        case .replayStopTapped(let untrustedStopIndex):
+            onReplayStopTapped?(untrustedStopIndex)
         case .simulationRunFinished(let runReport):
             onSimulationRunFinished?(runReport)
         case .simulationGuessSkipped:
@@ -467,6 +471,66 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// A generated page may leave out focusPart, so the call is optional.
     func highlightPart(labelText: String) {
         evaluateOnThePage("window.liveScene.focusPart?.(labelText)", arguments: ["labelText": labelText])
+    }
+
+    // MARK: - Instant replay
+
+    /// Turns the frame pop-out's camera back to a replay stop's part and recorded pose. Only that page has focusStop.
+    func focusReplayStop(_ replayStop: ReplayStop) {
+        evaluateOnThePage(
+            "window.liveScene.focusStop?.(labelText, pose)",
+            arguments: ["labelText": replayStop.partLabel, "pose": replayStop.cameraPose?.pageValue ?? NSNull()]
+        )
+    }
+
+    /// Stops the frame pop-out's camera where it is on this frame.
+    func endFocus() {
+        evaluateOnThePage("window.liveScene.endFocus?.()")
+    }
+
+    func showReplayStopNumbers(partLabels: [String], pathReachesStop: Int) {
+        evaluateOnThePage(
+            "window.liveScene.showReplayStops?.(labels, reachesStop)",
+            arguments: ["labels": partLabels, "reachesStop": pathReachesStop]
+        )
+    }
+
+    func hideReplayStopNumbers() {
+        evaluateOnThePage("window.liveScene.hideReplayStops?.()")
+    }
+
+    /// The pose the frame pop-out's camera heads for now, which a narration records for each replay stop. Nil on any other page.
+    func cameraPoseForTheReplay() async -> ReplayCameraPose? {
+        guard let liveSceneWebView, pageHasFinishedLoading else { return nil }
+        let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
+            "return window.liveScene.cameraPose?.() ?? null",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        return ReplayCameraPose(pageValue: pageResult ?? nil)
+    }
+
+    /// The paused video's box in global AppKit points, read from the frame pop-out, which the replay control sits under.
+    func mediaRectOnScreen() async -> CGRect? {
+        guard let liveSceneWebView, pageHasFinishedLoading else { return nil }
+        let pageResult = try? await liveSceneWebView.callAsyncJavaScript(
+            "return window.liveScene.mediaRectOnPage?.() ?? null",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let overlayScreenFrame = liveSceneOverlayWindow?.frame,
+              let mediaRectFields = (pageResult ?? nil) as? [String: Any],
+              let left = (mediaRectFields["left"] as? NSNumber)?.doubleValue,
+              let top = (mediaRectFields["top"] as? NSNumber)?.doubleValue,
+              let width = (mediaRectFields["width"] as? NSNumber)?.doubleValue,
+              let height = (mediaRectFields["height"] as? NSNumber)?.doubleValue,
+              width > 0, height > 0 else {
+            return nil
+        }
+        // The page's y grows down from the window's top, and AppKit's grows up from the bottom.
+        return CGRect(x: overlayScreenFrame.minX + left, y: overlayScreenFrame.maxY - top - height, width: width, height: height)
     }
 
     func partLabels() async -> [String] {

@@ -32,6 +32,11 @@ body.returning .scene-label { transition: none; }
 /* Labels catch the mouse only once a pop-out with no quiz has finished its tour, so before that every press turns the model. */
 body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -webkit-user-select: none; user-select: none; transition: background-color 0.3s, opacity 0.3s, box-shadow 0.15s; }
 body.labels-take-clicks .scene-label:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(255, 224, 102, 0.9); }
+/* Instant replay: each stop's number sits on its label, and a dotted path in the accent links the stops reached so far. */
+svg#replayPath { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.replay-stop-number { position: absolute; left: 0; top: 0; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--clicky-blue); background: #14171e; color: #fff; font: 700 11px/17px ui-rounded, -apple-system, sans-serif; text-align: center; z-index: 3; cursor: pointer; pointer-events: auto; -webkit-user-select: none; user-select: none; }
+.replay-stop-number.reached { background: var(--clicky-blue); color: var(--clicky-blue-text); }
+.replay-stop-number:hover { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3); }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
 </head>
@@ -39,6 +44,7 @@ body.labels-take-clicks .scene-label:hover { box-shadow: 0 2px 8px rgba(0, 0, 0,
 <div id="backdrop"></div>
 <canvas id="frameBackground"></canvas>
 <svg id="leaders"></svg>
+<svg id="replayPath"><path id="replayPathLine" d="" fill="none" stroke="var(--clicky-blue)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/></svg>
 <script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
 <script type="module">
 const popout = window.__framePopout;
@@ -58,6 +64,13 @@ let maximumDistance = 0;
 let yaw = 0;
 let pitch = 0;
 let focusMove = null;
+// A replay stop turns the camera back to the pose its narration recorded, with the page's own ease over the same
+// 1.5 seconds as focusMove. endFocus() clears it and holds the target where it is, so the camera stops on that frame.
+let poseMove = null;
+let heldTarget = null;
+// Each replay stop's number, on its part's label, and how many stops the dotted path reaches (-1 for none).
+let replayStopNumbers = [];
+let replayPathReachesStop = -1;
 let sceneIsBuilt = false;
 // Set when the return starts. returnFrom holds the pose it eases back from.
 let returnStartedAt = null;
@@ -187,11 +200,15 @@ window.liveScene = {
       return;
     }
     returnFrom = { lift: liftNow, yaw, pitch, cameraDistance, target: target.clone() };
+    poseMove = null;
+    heldTarget = null;
+    window.liveScene.hideReplayStops();
     for (const entry of labelEntries) entry.opacityAtReturn = parseFloat(entry.element.style.opacity) || 0;
     document.body.classList.add("returning");
   },
   focusPart(labelText) {
     const wanted = String(labelText).trim().toLowerCase();
+    heldTarget = null;
     if (wanted === "") {
       focusedEntry = null;
       for (const entry of labelEntries) { entry.element.classList.remove("focused"); entry.element.style.opacity = ""; }
@@ -206,6 +223,66 @@ window.liveScene = {
     }
     focusMove = { startedAt: performance.now(), from: null };
     return true;
+  },
+  // One instant replay stop: the same focusPart the narration called, plus the yaw, pitch, and distance it recorded,
+  // eased with the page's own ease over the same 1.5 seconds, so the camera turns back even after the learner dragged.
+  focusStop(labelText, pose) {
+    if (!tourDone || returnStartedAt !== null) return false;
+    if (!window.liveScene.focusPart(labelText)) return false;
+    if (!pose || ![pose.yaw, pose.pitch, pose.distance].every(Number.isFinite)) return true;
+    const toYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, pose.yaw));
+    const toPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, pose.pitch));
+    const toDistance = Math.min(maximumDistance, Math.max(minimumDistance, pose.distance));
+    if (reducedMotionQuery.matches) {
+      yaw = draggedYaw = toYaw; pitch = draggedPitch = toPitch; cameraDistance = restingCameraDistance = toDistance;
+      poseMove = null;
+      return true;
+    }
+    poseMove = { startedAt: performance.now(), fromYaw: yaw, fromPitch: pitch, fromDistance: cameraDistance, toYaw, toPitch, toDistance };
+    return true;
+  },
+  // Stops the camera where it is on this frame: the turn to a stop, the pan to a part, and the ease toward a drag or a
+  // zoom all end on their current values. The focused label stays focused. Any later camera ease must be stopped here too.
+  endFocus() {
+    if (!sceneIsBuilt || returnStartedAt !== null) return false;
+    focusMove = null;
+    poseMove = null;
+    heldTarget = target.clone();
+    draggedYaw = yaw; draggedPitch = pitch; restingCameraDistance = cameraDistance;
+    return true;
+  },
+  // The camera pose an instant replay stop restores: where the camera heads after the tour, not a value mid-ease.
+  cameraPose() {
+    if (!tourDone) return null;
+    return { yaw: draggedYaw, pitch: draggedPitch, distance: restingCameraDistance };
+  },
+  // The paused video's box on this page, which the replay control sits under.
+  mediaRectOnPage() {
+    if (!sceneIsBuilt) return null;
+    return { left: shownLeft, top: shownTop, width: shownWidth, height: shownHeight };
+  },
+  // Each stop's number on its label, numbered from 1 in the order given, and a click on one posts stopTapped:<index from 0>.
+  // reachesStop is the last stop the dotted path links, from 0, or -1 for none.
+  showReplayStops(labels, reachesStop) {
+    for (const { element } of replayStopNumbers) element.remove();
+    replayStopNumbers = [];
+    (Array.isArray(labels) ? labels : []).forEach((labelText, stopIndex) => {
+      const entry = labelEntries.find((candidate) => candidate.part.label === labelText);
+      if (!entry) return;
+      const element = document.createElement("div");
+      element.className = "replay-stop-number";
+      element.textContent = String(stopIndex + 1);
+      element.addEventListener("pointerup", () => {
+        // A press that travelled is a drag that turns the model, not a click on the number.
+        if (pressTravel <= largestClickTravel) postLiveSceneEvent("stopTapped:" + stopIndex);
+      });
+      document.body.appendChild(element);
+      replayStopNumbers.push({ entry, element, stopIndex });
+    });
+    replayPathReachesStop = Number.isInteger(reachesStop) ? reachesStop : -1;
+  },
+  hideReplayStops() {
+    window.liveScene.showReplayStops([], -1);
   },
   // Swift sends only palette color names, style names, and frame points, and anything else is dropped here.
   showFlows(flows) {
@@ -235,6 +312,7 @@ window.liveScene = {
   rotateBy(yawDegrees, pitchDegrees) {
     if (!sceneIsBuilt || returnStartedAt !== null) return false;
     window.liveScene.endTour();
+    poseMove = null;
     // The same limits as a drag, so a picture that already shows depth never turns to its paper-thin edge.
     draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw + THREE.MathUtils.degToRad(yawDegrees)));
     draggedPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, draggedPitch + THREE.MathUtils.degToRad(pitchDegrees)));
@@ -251,6 +329,7 @@ window.liveScene = {
     if (!sceneIsBuilt || returnStartedAt !== null) return false;
     window.liveScene.endTour();
     window.liveScene.focusPart("");
+    poseMove = null;
     draggedYaw = tourEndYaw;
     draggedPitch = tourEndPitch;
     restingCameraDistance = endDistance;
@@ -275,7 +354,7 @@ window.liveScene = {
   async labelRectsOnceTheCameraSettles() {
     const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
     const giveUpAt = performance.now() + 3000;
-    while (focusMove && returnStartedAt === null && performance.now() < giveUpAt) await wait(50);
+    while ((focusMove || poseMove) && returnStartedAt === null && performance.now() < giveUpAt) await wait(50);
     // After the camera stops, each label's offset still eases toward its new spot for a few hundred milliseconds.
     await wait(400);
     if (returnStartedAt !== null) return [];
@@ -713,10 +792,68 @@ addEventListener("pointermove", (event) => {
   if (!dragging) return;
   pressTravel = Math.max(pressTravel, Math.hypot(event.clientX - pressStartX, event.clientY - pressStartY));
   if (!tourDone) return;
+  // A drag during a replay stop's turn takes the camera over from the turn.
+  poseMove = null;
   draggedYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, draggedYaw - (event.clientX - lastX) * 0.008));
   draggedPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, draggedPitch + (event.clientY - lastY) * 0.005));
   lastX = event.clientX; lastY = event.clientY;
 });
+
+// The camera orbits the point it looks at, at the current yaw, pitch, and distance.
+const placeCamera = (lookAtPoint) => {
+  camera.position.set(
+    lookAtPoint.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
+    lookAtPoint.y + cameraDistance * Math.sin(pitch),
+    lookAtPoint.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch),
+  );
+  camera.lookAt(lookAtPoint);
+  // lookAt leaves the world matrix with the new position and the old rotation, and the labels
+  // are projected before renderer.render refreshes it. Without this, labels shook while turning.
+  camera.updateMatrixWorld();
+};
+
+// BEGIN pan clamp math (worker/src/framePopoutReplay.test.ts runs this block)
+// How far outside the media box a box on the page reaches, summed over its four sides, in page points.
+function overflowOutsideTheMedia(box, mediaRect) {
+  return Math.max(0, mediaRect.left - box.left) + Math.max(0, box.right - (mediaRect.left + mediaRect.width))
+    + Math.max(0, mediaRect.top - box.top) + Math.max(0, box.bottom - (mediaRect.top + mediaRect.height));
+}
+// The largest share of the pan from the subject's center (0) to the focused part (1) that pushes the subject no further
+// outside the media than the subject's center does. The overflow grows steadily with the pan, so a search finds it.
+function largestPanShareThatKeepsTheSubjectInside(overflowAtShare) {
+  const allowedOverflow = overflowAtShare(0) + 0.5;
+  if (overflowAtShare(1) <= allowedOverflow) return 1;
+  let shareInside = 0, shareOutside = 1;
+  for (let step = 0; step < 8; step++) {
+    const middleShare = (shareInside + shareOutside) / 2;
+    if (overflowAtShare(middleShare) <= allowedOverflow) shareInside = middleShare;
+    else shareOutside = middleShare;
+  }
+  return shareInside;
+}
+// END pan clamp math
+
+// Centering a part near the subject's edge would slide the rest of the lifted model out of the paused video and under the
+// replay control, so the pan toward a focused part stops where the subject would reach further outside the media.
+const focusTargetThatKeepsTheSubjectOverTheMedia = (entry) => {
+  const fromPoint = subjectCenter(), toPoint = partPoint(entry);
+  const mediaRect = { left: shownLeft, top: shownTop, width: shownWidth, height: shownHeight };
+  const subjectCorners = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([frameX, frameY]) => framePointToWorld(frameX, frameY, maximumLift * liftNow));
+  const candidate = new THREE.Vector3();
+  const overflowAtShare = (share) => {
+    placeCamera(candidate.lerpVectors(fromPoint, toPoint, share));
+    const pagePoints = subjectCorners.map((corner) => {
+      const projected = corner.clone().project(camera);
+      return [(projected.x + 1) / 2 * pageWidth, (1 - projected.y) / 2 * pageHeight];
+    });
+    const box = {
+      left: Math.min(...pagePoints.map((point) => point[0])), right: Math.max(...pagePoints.map((point) => point[0])),
+      top: Math.min(...pagePoints.map((point) => point[1])), bottom: Math.max(...pagePoints.map((point) => point[1])),
+    };
+    return overflowOutsideTheMedia(box, mediaRect);
+  };
+  return new THREE.Vector3().lerpVectors(fromPoint, toPoint, largestPanShareThatKeepsTheSubjectInside(overflowAtShare));
+};
 
 let lastFrameTime;
 
@@ -760,11 +897,21 @@ const render = (now) => {
     if (seconds > 4.5) finishTour();
   } else {
     if (liftNow !== 1) applyLift(1);
-    const easeToDrag = 1 - Math.exp(-frameMilliseconds / 50);
-    yaw += (draggedYaw - yaw) * easeToDrag;
-    pitch += (draggedPitch - pitch) * easeToDrag;
-    cameraDistance += (restingCameraDistance - cameraDistance) * easeToDrag;
-    const restingTarget = focusedEntry ? partPoint(focusedEntry) : subjectCenter();
+    if (poseMove) {
+      // A replay stop's turn back to its recorded pose, in step with focusMove's pan to the part.
+      const poseProgress = Math.min(1, (now - poseMove.startedAt) / 1500);
+      const poseSettle = ease(poseProgress);
+      yaw = draggedYaw = poseMove.fromYaw + (poseMove.toYaw - poseMove.fromYaw) * poseSettle;
+      pitch = draggedPitch = poseMove.fromPitch + (poseMove.toPitch - poseMove.fromPitch) * poseSettle;
+      cameraDistance = restingCameraDistance = poseMove.fromDistance + (poseMove.toDistance - poseMove.fromDistance) * poseSettle;
+      if (poseProgress === 1) poseMove = null;
+    } else {
+      const easeToDrag = 1 - Math.exp(-frameMilliseconds / 50);
+      yaw += (draggedYaw - yaw) * easeToDrag;
+      pitch += (draggedPitch - pitch) * easeToDrag;
+      cameraDistance += (restingCameraDistance - cameraDistance) * easeToDrag;
+    }
+    const restingTarget = heldTarget ?? (focusedEntry ? focusTargetThatKeepsTheSubjectOverTheMedia(focusedEntry) : subjectCenter());
     if (focusMove) {
       const progress = reducedMotionQuery.matches ? 1 : Math.min(1, (now - focusMove.startedAt) / 1500);
       if (!focusMove.from) focusMove.from = target.clone();
@@ -774,15 +921,7 @@ const render = (now) => {
       target.copy(restingTarget);
     }
   }
-  camera.position.set(
-    target.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch),
-    target.y + cameraDistance * Math.sin(pitch),
-    target.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch),
-  );
-  camera.lookAt(target);
-  // lookAt leaves the world matrix with the new position and the old rotation, and the labels
-  // are projected before renderer.render refreshes it. Without this, labels shook while turning.
-  camera.updateMatrixWorld();
+  placeCamera(target);
 
   const labelFadeInAfterAnEarlyEnd = tourEndedEarlyAt === null ? 0 : (now - tourEndedEarlyAt) / 600;
   const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6, labelFadeInAfterAnEarlyEnd));
@@ -871,7 +1010,18 @@ const render = (now) => {
     entry.line.setAttribute("x1", pointX); entry.line.setAttribute("y1", pointY);
     entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
     entry.line.setAttribute("opacity", shownOpacity);
+    entry.labelCornerX = labelX - halfWidth + 4; entry.labelCornerY = labelY - halfHeight + 3; entry.shownOpacity = shownOpacity;
   }
+  // Each replay stop's number sits on its label's top left corner, and the dotted path links the parts of the stops reached.
+  for (const { entry, element, stopIndex } of replayStopNumbers) {
+    element.style.transform = `translate(${entry.labelCornerX}px, ${entry.labelCornerY}px) translate(-50%, -50%)`;
+    element.style.opacity = String(entry.shownOpacity);
+    element.classList.toggle("reached", stopIndex <= replayPathReachesStop);
+  }
+  const replayPathPoints = replayStopNumbers
+    .filter(({ stopIndex }) => stopIndex <= replayPathReachesStop)
+    .map(({ entry }) => `${entry.anchorX.toFixed(1)} ${entry.anchorY.toFixed(1)}`);
+  document.getElementById("replayPathLine").setAttribute("d", replayPathPoints.length > 1 ? "M" + replayPathPoints.join(" L ") : "");
   drawFlows(now);
   renderer.render(scene, camera);
   window.__ready = true;
