@@ -430,23 +430,37 @@ struct BundledThemeTests {
         #expect(agentListPortraitBorderColor(phase: .cancelled, agentColor: agentColor) == DS.Colors.textTertiary)
     }
 
-    @Test func theChipsIconTileFollowsTheIconsShapeSoNoWhiteCornersShowAroundAPortrait() async throws {
+    @Test func theChipsPortraitFillsItsDiscAndEveryOtherIconIsASymbolOnTheDisc() async throws {
         let karasuno = bundledTheme("school-karasuno")
         let hinataFace = AgentRosterFace(player: try #require(rosterPlayers(of: karasuno).first), of: karasuno)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .rosterFace(hinataFace)).iconShape == .circularPortrait)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .triangle).iconShape == .roundedSquareTile)
-        #expect(VoiceToolCallChipSender.voiceToolCall.iconShape == .roundedSquareTile)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .rosterFace(hinataFace)).iconContent == .circularPortrait)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .triangle).iconContent == .symbolOnDisc)
+        #expect(VoiceToolCallChipSender.voiceToolCall.iconContent == .symbolOnDisc)
+        #expect(VoiceToolCallChipSender.failure.iconContent == .symbolOnDisc)
     }
 
-    @Test func theChipSitsUnderTheCursorAndStaysInsideTheScreen() async throws {
+    @Test func theChipSitsAboveTheCursorAndStaysInsideTheScreen() async throws {
         let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
         let chipOriginInTheMiddle = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 500), screenFrame: screenFrame)
-        #expect(chipOriginInTheMiddle.y < 500)
-        #expect(chipOriginInTheMiddle.x > 500)
+        // The tail's tip is above the triangle, which sits 25 below the mouse, so the panel starts below the mouse and its
+        // Callout reaches above the triangle.
+        #expect(chipOriginInTheMiddle.y + tetherCalloutPanelMargin > 500 - 25)
+        #expect(abs(chipOriginInTheMiddle.x + tetherCalloutPanelMargin + tetherSingleLineCalloutTailTipX - (500 + 35)) < 0.001)
         let chipOriginAtTheRightEdge = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 1700, y: 500), screenFrame: screenFrame)
-        #expect(chipOriginAtTheRightEdge.x + VoiceToolCallChip.panelSize.width <= screenFrame.maxX)
+        #expect(chipOriginAtTheRightEdge.x + VoiceToolCallChip.panelSize.width <= screenFrame.maxX + 2 * tetherCalloutPanelMargin)
+        let chipOriginAtTheTop = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 1100), screenFrame: screenFrame)
+        #expect(chipOriginAtTheTop.y + VoiceToolCallChip.panelSize.height <= screenFrame.maxY)
         let chipOriginAtTheBottom = voiceToolCallChipOrigin(mouseLocation: CGPoint(x: 500, y: 10), screenFrame: screenFrame)
         #expect(chipOriginAtTheBottom.y >= screenFrame.minY)
+    }
+
+    @Test func aChipSitsAboveAStatusLineThatShowsAtTheSameSpot() async throws {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
+        let mouseLocation = CGPoint(x: 500, y: 500)
+        let withNoStatusLine = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, aStatusLabelIsShowing: false)
+        let withAStatusLine = voiceToolCallChipOrigin(mouseLocation: mouseLocation, screenFrame: screenFrame, aStatusLabelIsShowing: true)
+        #expect(withAStatusLine.y - withNoStatusLine.y >= tetherSingleLineCalloutHeight)
+        #expect(withAStatusLine.x == withNoStatusLine.x)
     }
 
     @Test func aTokenSaysItsStateByItsBadgeAndAWaitingApprovalWins() async throws {

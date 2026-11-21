@@ -437,6 +437,10 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        // A voice tool call's chip takes the accent of the theme on screen, preview included.
+        VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
+        }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
         if voiceCommandBackend.runsInTheHarness {
@@ -910,6 +914,7 @@ final class CompanionManager: ObservableObject {
             forgetTheVoiceCommandScreenRead()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             cursorLoopController.pushToTalkWasPressed()
 
             showTheCursorOverlayForThisInteraction()
@@ -1102,6 +1107,7 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
@@ -2539,6 +2545,7 @@ final class CompanionManager: ObservableObject {
     /// No scene is on screen, so nothing else will resume a video paused for it.
     private func sayTheSceneCouldNotBeBuilt() async {
         liveScenePhase = .idle
+        VoiceToolCallChip.shared.show("Couldn't build that one", sender: .failure)
         await speakLiveSceneLine("Sorry, I couldn't build that one.")
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
@@ -2851,7 +2858,7 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if theTurnsRanOut {
-            if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+            if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2953,7 +2960,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
-                if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+                if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             voiceState = .idle
@@ -3003,7 +3010,7 @@ final class CompanionManager: ObservableObject {
         // so handing it back would loop between the two on every failure.
         if liveScenePhaseIsWaitingForAQuizAnswer {
             print("Voice command: the router failed during a quiz question: \(failureDescription)")
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3016,7 +3023,7 @@ final class CompanionManager: ObservableObject {
             themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .giveUp:
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3396,7 +3403,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .failure, secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
         }
     }
 
@@ -3508,10 +3515,10 @@ final class CompanionManager: ObservableObject {
             installedTheme.sounds.done.play()
         } catch let parseError as CustomThemeParseError {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
 
@@ -3675,7 +3682,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
                 "Couldn't build the \(agentKind.builtThingName)",
-                sender: chipSender(forAgent: agentID, kind: agentKind),
+                sender: .failure,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -3985,7 +3992,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
             VoiceToolCallChip.shared.show(
                 studyGuideFailureLine(for: error),
-                sender: chipSender(forAgent: agentID, kind: agentKind),
+                sender: .failure,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
             return false
@@ -4260,6 +4267,13 @@ final class CompanionManager: ObservableObject {
     /// The pointing bubble types along with it.
     func spokenFractionOfTheLine(_ text: String) -> Double? {
         elevenLabsTTSClient.spokenFraction(ofLine: text)
+    }
+
+    /// Says that a command did not work, with the red failure chip next to the cursor, so the failure never rests on the voice alone.
+    @discardableResult
+    private func speakTheGaveUpLine() async -> Bool {
+        VoiceToolCallChip.shared.show("Couldn't do that one", sender: .failure)
+        return await speakLiveSceneLine(voiceCommandGaveUpLine)
     }
 
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
