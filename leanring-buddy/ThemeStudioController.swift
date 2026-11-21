@@ -31,7 +31,7 @@ protocol ThemeStudioCardPresenting: AnyObject {
 extension ThemeStudioPanelController: ThemeStudioCardPresenting {}
 
 extension ThemeStudioController.SaveOutcome {
-    /// What the chip under the cursor says after a click on Save, or nil when there was nothing to save. The voice tool
+    /// What the chip above the cursor says after a click on Save, or nil when there was nothing to save. The voice tool
     /// reports its outcome to the router, which shows its own chip, so this is for the card's button alone.
     nonisolated var chipPhraseAfterAClickOnSave: String? {
         switch self {

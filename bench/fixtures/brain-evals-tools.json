@@ -100,7 +100,7 @@
     },
     {
       "name": "set_control",
-      "description": "Change one number of the simulation on screen and put it back at its start, without running it. The controls are: angle (Launch angle, 5 to 85 deg); speed (Launch speed, 5 to 30 m/s). The state's controls hold each one's current value. Use the control's name and a value in its unit.",
+      "description": "Change one number of the simulation on screen and put it back at its start. Pass run true to play it right after, as when the learner asks to try or see a value, such as \"try 60 degrees\". Without run it only sets the value. The controls are: angle (Launch angle, 5 to 85 deg); speed (Launch speed, 5 to 30 m/s). The state's controls hold each one's current value. Use the control's name and a value in its unit.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -111,6 +111,10 @@
           "value": {
             "type": "number",
             "description": "The new value in the control's unit. The page clamps it to the control's range."
+          },
+          "run": {
+            "type": "boolean",
+            "description": "true plays the simulation once after setting the value, like run_simulation. Leave it out to only set the value."
           }
         },
         "required": [

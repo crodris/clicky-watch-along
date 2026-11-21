@@ -184,20 +184,6 @@ enum AgentPaletteColor: Equatable {
         case .custom(let themeColor): return Color(red: themeColor.red, green: themeColor.green, blue: themeColor.blue)
         }
     }
-
-    /// A darker shade of the same hue for the chip's letters, since the color itself is too light to read inside a white outline.
-    var chipTextColor: Color {
-        switch self {
-        case .teal: return DS.Colors.backgroundAgentTaskTealText
-        case .amber: return DS.Colors.backgroundAgentStudyGuideAmberText
-        case .violet: return DS.Colors.backgroundAgentThreeDModelVioletText
-        case .lime: return DS.Colors.backgroundAgentExperimentLimeText
-        case .sky: return DS.Colors.sky700
-        case .pink: return DS.Colors.pink700
-        // Half the brightness of the same hue, which reads inside the chip's white outline.
-        case .custom(let themeColor): return Color(red: themeColor.red * 0.5, green: themeColor.green * 0.5, blue: themeColor.blue * 0.5)
-        }
-    }
 }
 
 /// The color a new agent takes, kept for its whole life. `colorsInUse` is one entry for each other running agent, and each
