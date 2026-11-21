@@ -25,8 +25,15 @@ final class CursorLoopController: ObservableObject {
     /// their own, since the real ones drive Chrome.
     private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
+    /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
+    /// reading the clock of a busy machine.
+    private let waitBetweenFrontTabPolls: () async -> Void
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
+    /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
+    static func sleepBetweenFrontTabPolls() async {
+        try? await Task.sleep(for: .seconds(secondsBetweenFrontTabPolls))
+    }
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
@@ -34,10 +41,12 @@ final class CursorLoopController: ObservableObject {
 
     init(
         readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
-        readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample
+        readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
+        waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
     ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
+        self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
         // The front app changing is a system event, so a notification is the only way to hear it.
         appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -194,7 +203,7 @@ final class CursorLoopController: ObservableObject {
                 let sampleNow = readTheFrontTabSample()
                 guard !Task.isCancelled else { return }
                 if let sampleNow, mediaTheLoopIsAround.isTheSameMediaInTheSameTab(as: sampleNow) {
-                    try? await Task.sleep(for: .seconds(Self.secondsBetweenFrontTabPolls))
+                    await waitBetweenFrontTabPolls()
                     continue
                 }
                 end(because: .tabOrMediaChanged)
