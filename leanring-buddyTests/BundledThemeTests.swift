@@ -423,13 +423,6 @@ struct BundledThemeTests {
 
     // MARK: - What views draw
 
-    @Test func aFailedOrCancelledAgentsPortraitBorderShowsItsStateInsteadOfTheAgentsColor() async throws {
-        let agentColor = Color(hex: "#E0313B")
-        #expect(agentListPortraitBorderColor(phase: .running(completedStepCount: 0), agentColor: agentColor) == agentColor)
-        #expect(agentListPortraitBorderColor(phase: .failed(reason: "Broke"), agentColor: agentColor) == DS.Colors.destructive)
-        #expect(agentListPortraitBorderColor(phase: .cancelled, agentColor: agentColor) == DS.Colors.textTertiary)
-    }
-
     @Test func theChipsIconTileFollowsTheIconsShapeSoNoWhiteCornersShowAroundAPortrait() async throws {
         let karasuno = bundledTheme("school-karasuno")
         let hinataFace = AgentRosterFace(player: try #require(rosterPlayers(of: karasuno).first), of: karasuno)

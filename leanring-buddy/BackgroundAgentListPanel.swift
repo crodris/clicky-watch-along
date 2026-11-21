@@ -7,8 +7,14 @@
 //  It is a borderless, nonactivating panel that never becomes key, so Chrome keeps the keyboard while the learner
 //  clicks a row. It closes on Escape, on a click outside, or on a second click on the token it opened from.
 //
+//  The list is a Tether Card. It Glides out of its origin (the disc it was opened from, or the cursor) on the shared
+//  carrier panel with a tether line, and closes back into it at 0.7x (`TetherCarrier`). With Reduce Motion on it crossfades
+//  in place instead. The window is larger than the Card by a transparent margin (`AgentListWindowMargins`), where the
+//  Card's shadow draws.
+//
 
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - Placement
@@ -19,6 +25,47 @@ func agentListPanelOrigin(anchorTopLeft: CGPoint, panelSize: CGSize, visibleFram
     let originX = min(max(anchorTopLeft.x, visibleFrame.minX), visibleFrame.maxX - panelSize.width)
     let originY = min(max(anchorTopLeft.y - panelSize.height, visibleFrame.minY), visibleFrame.maxY - panelSize.height)
     return CGPoint(x: originX, y: originY)
+}
+
+/// The transparent margin around the list's Card inside its window, where the Card's two-layer shadow draws (radius 24 and
+/// a 14 point drop, so it reaches farthest below). A shadow cut off by the window's edge shows as a hard line.
+/// Everything that places the list places its Card: the window is the Card grown by these margins, and the margins may
+/// reach past the screen's edge, where the shadow is out of sight anyway.
+enum AgentListWindowMargins {
+    static let top: CGFloat = 12
+    static let leading: CGFloat = 24
+    static let bottom: CGFloat = 40
+    static let trailing: CGFloat = 24
+
+    static var horizontal: CGFloat { leading + trailing }
+    static var vertical: CGFloat { top + bottom }
+
+    /// The window's top-left corner when the Card's top-left corner is at `cardTopLeft`, in AppKit's screen coordinates.
+    static func windowTopLeft(forCardTopLeft cardTopLeft: CGPoint) -> CGPoint {
+        CGPoint(x: cardTopLeft.x - leading, y: cardTopLeft.y + top)
+    }
+
+    /// The frame that keeps the window's Card inside `visibleFrame` when the window is kept inside it, which is how
+    /// `agentListPanelOrigin` clamps a panel.
+    static func frameToKeepTheWindowIn(forCardVisibleFrame visibleFrame: CGRect) -> CGRect {
+        CGRect(
+            x: visibleFrame.minX - leading,
+            y: visibleFrame.minY - bottom,
+            width: visibleFrame.width + horizontal,
+            height: visibleFrame.height + vertical
+        )
+    }
+
+    /// The window's frame for a Card whose top-left corner should be at `cardTopLeft` and a window `windowSize` large, moved
+    /// to keep the Card inside `visibleFrame`.
+    static func windowFrame(cardTopLeft: CGPoint, windowSize: CGSize, visibleFrame: CGRect) -> CGRect {
+        let windowOrigin = agentListPanelOrigin(
+            anchorTopLeft: windowTopLeft(forCardTopLeft: cardTopLeft),
+            panelSize: windowSize,
+            visibleFrame: frameToKeepTheWindowIn(forCardVisibleFrame: visibleFrame)
+        )
+        return CGRect(origin: windowOrigin, size: windowSize)
+    }
 }
 
 /// Places a panel again with its new size each time it resizes. The hosting view grows the window from its top-left corner
@@ -149,9 +196,30 @@ struct AgentListActions {
     let showReadyScene: () -> Void
     /// Speaks the task answer that is waiting to be heard.
     let hearTaskAnswer: () -> Void
+    /// Starts a failed agent's work again, once (`BackgroundAgent.canBeTriedAgain`).
+    let tryAgain: (UUID) -> Void
     /// Answers a task agent's approval request from the Yes, Always, and No buttons. The desk ignores a click that comes
     /// too soon after the request showed (`HarnessApprovalDesk.answerByClick`).
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
+}
+
+/// What the list's rows share with the copy of the list that plays on the carrier panel, so a row the learner expanded
+/// stays expanded while the list closes.
+@MainActor
+final class AgentListUIState: ObservableObject {
+    @Published var expandedAgentID: UUID?
+
+    init(expandedAgentID: UUID?) {
+        self.expandedAgentID = expandedAgentID
+    }
+}
+
+/// Whether the list's rows rise in as it opens. Only the copy that Glides out of its origin plays it, so the rows rise
+/// while the Card grows, and the real list that appears at the landing starts with its rows in place.
+enum AgentListEntrance: Equatable {
+    case none
+    /// Each row rises 40 ms after the one above it.
+    case risingRows
 }
 
 @MainActor
@@ -176,12 +244,23 @@ final class AgentListPanelController {
     private let approvalDesk: HarnessApprovalDesk
     private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
-    /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
+    /// Where the Card's top-left corner sits, fixed when it opens so a row that expands grows the Card downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
     private var resizeObserver: NSObjectProtocol?
     /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
+    private var uiState = AgentListUIState(expandedAgentID: nil)
+    /// Where the Card Glides out of and closes back into: the disc it was opened from, or the cursor. Nil when no display
+    /// holds it, and the list then crossfades.
+    private var glideOrigin: GlideOrigin?
+    /// The open Glide, held so a close before it lands can end it where it is.
+    private var openingFlight: CarrierFlight?
+
+    private struct GlideOrigin {
+        let point: CGPoint
+        let displayID: CGDirectDisplayID
+    }
 
     init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, approvalDesk: HarnessApprovalDesk, actions: AgentListActions) {
         self.store = store
@@ -193,27 +272,35 @@ final class AgentListPanelController {
     var isOpen: Bool { panel != nil }
 
     /// The settings dial's Agents slice: open next to the mouse with no row expanded, or close when it is already open.
+    /// The list Glides out of the mouse, which is where the dial's center was.
     func toggle() {
         if isOpen {
-            close()
+            closeWithGlide()
         } else {
             let mouseLocation = NSEvent.mouseLocation
+            let screen = screenUnderTheMouseCursor()
             open(
                 anchorTopLeft: CGPoint(x: mouseLocation.x + Self.gapFromTheMouse, y: mouseLocation.y - Self.gapFromTheMouse),
-                visibleFrame: screenUnderTheMouseCursor()?.visibleFrame ?? .zero,
-                initiallyExpandedAgentID: nil
+                visibleFrame: screen?.visibleFrame ?? .zero,
+                initiallyExpandedAgentID: nil,
+                glideOriginPoint: mouseLocation,
+                screen: screen
             )
         }
     }
 
     /// A click on an agent token: open the list under that disc with the agent's row expanded, and "+N" with none.
     /// A click on the disc the list is already open from closes it, and a click on another disc, including the same
-    /// agent's disc on another display, moves it there.
+    /// agent's disc on another display, moves it there. The list Glides out of the disc's center.
     func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen) {
         let discWasAlreadyOpen = discTheListWasOpenedFrom == discID
         let listWasOpen = isOpen
+        if listWasOpen && discWasAlreadyOpen {
+            closeWithGlide()
+            return
+        }
+        // Moving to another disc leaves no time for a close, which would play toward the disc it left.
         close()
-        if listWasOpen && discWasAlreadyOpen { return }
         let agentIDToExpand: UUID?
         switch discID.tokenSlot {
         case .agent(let agentID): agentIDToExpand = agentID
@@ -222,30 +309,26 @@ final class AgentListPanelController {
         open(
             anchorTopLeft: CGPoint(x: discPanelFrame.minX, y: discPanelFrame.minY - Self.gapFromTheMouse / 4),
             visibleFrame: screen.visibleFrame,
-            initiallyExpandedAgentID: agentIDToExpand
+            initiallyExpandedAgentID: agentIDToExpand,
+            glideOriginPoint: CGPoint(x: discPanelFrame.midX, y: discPanelFrame.midY),
+            screen: screen
         )
         discTheListWasOpenedFrom = discID
     }
 
-    private func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?) {
+    private func open(anchorTopLeft: CGPoint, visibleFrame: CGRect, initiallyExpandedAgentID: UUID?, glideOriginPoint: CGPoint, screen: NSScreen?) {
         guard panel == nil else { return }
         self.visibleFrame = visibleFrame
         self.anchorTopLeft = anchorTopLeft
         discTheListWasOpenedFrom = nil
+        uiState = AgentListUIState(expandedAgentID: initiallyExpandedAgentID)
+        glideOrigin = screen.map { GlideOrigin(point: glideOriginPoint, displayID: $0.displayID) }
 
-        let agentListView = AgentListView(
-            store: store,
-            themeSettings: themeSettings,
-            approvalDesk: approvalDesk,
-            actions: actions,
-            initiallyExpandedAgentID: initiallyExpandedAgentID
-        ) { [weak self] contentSize in
-            self?.resizePanel(to: contentSize)
-        }
-        let hostingView = FirstMouseHostingView(rootView: agentListView)
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = .clear
-        let initialSize = CGSize(width: Self.panelWidth, height: min(hostingView.fittingSize.height, Self.maximumPanelHeightWithAnApprovalCard))
+        let hostingView = makeHostingView(entrance: .none)
+        let initialSize = CGSize(
+            width: Self.panelWidth + AgentListWindowMargins.horizontal,
+            height: min(hostingView.fittingSize.height, Self.maximumPanelHeightWithAnApprovalCard + AgentListWindowMargins.vertical)
+        )
 
         let agentListPanel = NonKeyFloatingPanel(
             contentRect: CGRect(origin: .zero, size: initialSize),
@@ -264,20 +347,75 @@ final class AgentListPanelController {
         agentListPanel.contentView = hostingView
         panel = agentListPanel
         resizeObserver = keepThePanelOnScreenAsItResizes(agentListPanel) { [weak self] in
-            (self?.anchorTopLeft ?? .zero, self?.visibleFrame ?? .zero)
+            self?.placementForTheWindow() ?? (.zero, .zero)
         }
         resizePanel(to: initialSize)
-        // Not makeKeyAndOrderFront, which would take the keyboard from Chrome.
-        agentListPanel.orderFrontRegardless()
+        showThePanel(agentListPanel)
         installClickOutsideMonitor()
     }
 
+    /// Shows the list: it Glides out of its origin on the carrier and the real panel appears at the landing, or, with Reduce
+    /// Motion on or no display for the origin, the panel crossfades in place. Never makeKeyAndOrderFront, which would take
+    /// the keyboard from Chrome.
+    private func showThePanel(_ agentListPanel: NonKeyFloatingPanel) {
+        guard let glideOrigin, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            agentListPanel.alphaValue = 0
+            agentListPanel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = DS.Move.fadeSeconds
+                agentListPanel.animator().alphaValue = 1
+            }
+            return
+        }
+        let panelFrame = agentListPanel.frame
+        openingFlight = TetherCarrier.shared.play(
+            .glideFromOrigin(glideOrigin.point, into: panelFrame),
+            carrying: carriedListView(entrance: .risingRows, windowSize: panelFrame.size),
+            onDisplay: glideOrigin.displayID,
+            tetherColor: NSColor(themeSettings.shownTheme.cursorColor),
+            onLanded: { [weak self, weak agentListPanel] in
+                // A list closed before the landing is no longer this panel.
+                guard let self, let agentListPanel, self.panel === agentListPanel else { return }
+                self.openingFlight = nil
+                agentListPanel.orderFrontRegardless()
+            }
+        )
+    }
+
+    private func makeHostingView(entrance: AgentListEntrance) -> FirstMouseHostingView<AgentListView> {
+        let hostingView = FirstMouseHostingView(rootView: makeListView(entrance: entrance, reportsItsSize: true))
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = .clear
+        return hostingView
+    }
+
+    private func makeListView(entrance: AgentListEntrance, reportsItsSize: Bool) -> AgentListView {
+        AgentListView(
+            store: store,
+            themeSettings: themeSettings,
+            approvalDesk: approvalDesk,
+            actions: actions,
+            uiState: uiState,
+            entrance: entrance
+        ) { [weak self] contentSize in
+            guard reportsItsSize else { return }
+            self?.resizePanel(to: contentSize)
+        }
+    }
+
+    /// The list as the carrier carries it: the same view at the window's size, which reports no size back to the panel.
+    private func carriedListView(entrance: AgentListEntrance, windowSize: CGSize) -> some View {
+        makeListView(entrance: entrance, reportsItsSize: false)
+            .frame(width: windowSize.width, height: windowSize.height, alignment: .top)
+    }
+
     /// An approval request arrived: open the list next to the mouse with the requesting agent's row expanded. An open
-    /// list stays where it is, since its approval card shows the oldest request by itself.
+    /// list stays where it is, since its approval card shows the oldest request by itself. It Glides out of the cursor.
     func openForAnApprovalRequest(fromAgentID agentID: UUID) {
         guard !isOpen else { return }
         let mouseLocation = NSEvent.mouseLocation
-        let visibleFrame = screenUnderTheMouseCursor()?.visibleFrame ?? .zero
+        let screen = screenUnderTheMouseCursor()
+        let visibleFrame = screen?.visibleFrame ?? .zero
         open(
             anchorTopLeft: approvalListAnchorTopLeft(
                 mouseLocation: mouseLocation,
@@ -286,11 +424,61 @@ final class AgentListPanelController {
                 gapFromTheMouse: Self.gapFromTheMouse
             ),
             visibleFrame: visibleFrame,
-            initiallyExpandedAgentID: agentID
+            initiallyExpandedAgentID: agentID,
+            glideOriginPoint: agentTokenServeStartPoint(mouseLocation: mouseLocation),
+            screen: screen
         )
     }
 
+    /// Closes the list at once, with no move. Opening another surface over it, and the app stopping, use this.
     func close() {
+        let closingPanel = tearDownTheOpenList()
+        closingPanel?.orderOut(nil)
+        // Dropping the view stops the running agents' clocks, which tick only while the list is open.
+        closingPanel?.contentView = nil
+    }
+
+    /// Closes the list back into its origin: the Card shrinks into the disc or cursor it opened from at 0.7x of the Glide,
+    /// with the tether line, or, with Reduce Motion on, crossfades out in place.
+    func closeWithGlide() {
+        let origin = glideOrigin
+        let closingFrame = panel?.frame
+        let closingUIState = uiState
+        guard let closingPanel = tearDownTheOpenList(), let closingFrame else { return }
+        let reduceMotionIsOn = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard let origin, !reduceMotionIsOn else {
+            NSAnimationContext.runAnimationGroup({ animationContext in
+                animationContext.duration = DS.Move.fadeSeconds
+                closingPanel.animator().alphaValue = 0
+            }, completionHandler: {
+                closingPanel.orderOut(nil)
+                closingPanel.contentView = nil
+            })
+            return
+        }
+        // The carrier draws the Card for the move, so the real panel goes at once.
+        closingPanel.orderOut(nil)
+        closingPanel.contentView = nil
+        TetherCarrier.shared.play(
+            .glideClose(from: closingFrame, into: origin.point),
+            carrying: AgentListView(
+                store: store,
+                themeSettings: themeSettings,
+                approvalDesk: approvalDesk,
+                actions: actions,
+                uiState: closingUIState,
+                entrance: .none,
+                onContentSizeChange: { _ in }
+            )
+            .frame(width: closingFrame.width, height: closingFrame.height, alignment: .top),
+            onDisplay: origin.displayID,
+            tetherColor: NSColor(themeSettings.shownTheme.cursorColor),
+            onLanded: {}
+        )
+    }
+
+    /// Marks the list closed and removes what watches for clicks and resizes, and returns the panel for the caller to hide.
+    private func tearDownTheOpenList() -> NonKeyFloatingPanel? {
         discTheListWasOpenedFrom = nil
         approvalDesk.theCardHasNotShownTheWholeSummary()
         if let clickOutsideMonitor {
@@ -301,17 +489,30 @@ final class AgentListPanelController {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil
         }
-        panel?.orderOut(nil)
-        // Dropping the view stops the running agents' clocks, which tick only while the list is open.
-        panel?.contentView = nil
+        // A Glide still playing ends where it is, so its tether and copy of the list never outlast the list.
+        let flightToEnd = openingFlight
+        openingFlight = nil
+        let closingPanel = panel
         panel = nil
+        flightToEnd?.landAtOnce()
+        return closingPanel
+    }
+
+    /// The anchor and visible frame that keep the window's Card where `anchorTopLeft` puts it, for the resize observer.
+    private func placementForTheWindow() -> (anchorTopLeft: CGPoint, visibleFrame: CGRect) {
+        (
+            AgentListWindowMargins.windowTopLeft(forCardTopLeft: anchorTopLeft),
+            AgentListWindowMargins.frameToKeepTheWindowIn(forCardVisibleFrame: visibleFrame)
+        )
     }
 
     private func resizePanel(to contentSize: CGSize) {
         guard let panel else { return }
-        let panelSize = CGSize(width: Self.panelWidth, height: min(contentSize.height, Self.maximumPanelHeightWithAnApprovalCard))
-        let panelOrigin = agentListPanelOrigin(anchorTopLeft: anchorTopLeft, panelSize: panelSize, visibleFrame: visibleFrame)
-        panel.setFrame(CGRect(origin: panelOrigin, size: panelSize), display: true)
+        let windowSize = CGSize(
+            width: Self.panelWidth + AgentListWindowMargins.horizontal,
+            height: min(contentSize.height, Self.maximumPanelHeightWithAnApprovalCard + AgentListWindowMargins.vertical)
+        )
+        panel.setFrame(AgentListWindowMargins.windowFrame(cardTopLeft: anchorTopLeft, windowSize: windowSize, visibleFrame: visibleFrame), display: true)
     }
 
     /// A global monitor sees only clicks that go to other apps, so a click inside the panel never closes it.
@@ -319,7 +520,7 @@ final class AgentListPanelController {
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let panel = self.panel, !panel.frame.contains(NSEvent.mouseLocation) else { return }
-                self.close()
+                self.closeWithGlide()
             }
         }
     }
@@ -390,6 +591,62 @@ extension View {
     }
 }
 
+// MARK: - Live line
+
+/// What the line under a row's title says, and how it reads.
+nonisolated struct AgentListLiveLine: Equatable {
+    enum Tone: Equatable {
+        case normal
+        /// The agent waits for the learner's OK.
+        case needsYou
+        case failure
+        case quiet
+    }
+
+    let text: String
+    let tone: Tone
+}
+
+/// The line under a row's title: what the agent is doing now, its own step text and the site it reads, or why it stopped.
+/// Nil for a row with nothing to add, such as a finished study guide, whose subject says what it is.
+nonisolated func agentListLiveLine(for agent: BackgroundAgent, approvalState: AgentListApprovalState) -> AgentListLiveLine? {
+    if let approvalStatusText = approvalState.rowStatusText {
+        return AgentListLiveLine(text: approvalStatusText, tone: .needsYou)
+    }
+    switch agent.phase {
+    case .running:
+        guard let currentStepIndex = agent.stepStatuses.firstIndex(of: .current), agent.stepNames.indices.contains(currentStepIndex) else { return nil }
+        let currentStepText = agent.stepNames[currentStepIndex]
+        guard let readingHost = agent.readingHost, !readingHost.isEmpty else {
+            return AgentListLiveLine(text: currentStepText, tone: .normal)
+        }
+        return AgentListLiveLine(text: "\(currentStepText) · \(readingHost)", tone: .normal)
+    case .finished:
+        guard agent.resultIsWaitingToBeDelivered else { return nil }
+        switch agent.finishedResult {
+        case .readyScene: return AgentListLiveLine(text: agent.kind == .experiment ? "Experiment ready to show" : "Model ready to show", tone: .normal)
+        case .answer: return AgentListLiveLine(text: "Answer ready to hear", tone: .normal)
+        case .notionPage, nil: return nil
+        }
+    case .failed(let reason):
+        return AgentListLiveLine(text: reason, tone: .failure)
+    case .cancelled:
+        return AgentListLiveLine(text: "Cancelled", tone: .quiet)
+    }
+}
+
+/// What the list's header counts: the agents running, and the agents that wait for the learner's OK.
+nonisolated func agentListHeaderCounts(runningAgentCount: Int, agentsNeedingAnOKCount: Int) -> (running: String, needsYou: String?) {
+    ("\(runningAgentCount) running", agentsNeedingAnOKCount > 0 ? "\(agentsNeedingAnOKCount) needs you" : nil)
+}
+
+/// The site a link points to, for a row's live line: its host in lowercase with a leading "www." cut off. Nil for a link
+/// with no host.
+nonisolated func agentListHost(ofLink link: String) -> String? {
+    guard let host = URL(string: link)?.host?.lowercased(), !host.isEmpty else { return nil }
+    return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+}
+
 // MARK: - List
 
 private struct AgentListSizePreferenceKey: PreferenceKey {
@@ -404,40 +661,39 @@ private struct AgentListView: View {
     @ObservedObject var themeSettings: CompanionThemeSettings
     let actions: AgentListActions
     @ObservedObject var approvalDesk: HarnessApprovalDesk
+    @ObservedObject var uiState: AgentListUIState
     let onContentSizeChange: (CGSize) -> Void
 
-    @State private var expandedAgentID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// False until the rows have risen, for the copy of the list that plays on the carrier.
+    @State private var rowsHaveRisen: Bool
 
     private static let headerHeight: CGFloat = 40
+    /// Each row rises this long after the one above it.
+    private static let secondsBetweenRowRises = 0.04
 
     init(
         store: BackgroundAgentStore,
         themeSettings: CompanionThemeSettings,
         approvalDesk: HarnessApprovalDesk,
         actions: AgentListActions,
-        initiallyExpandedAgentID: UUID?,
+        uiState: AgentListUIState,
+        entrance: AgentListEntrance,
         onContentSizeChange: @escaping (CGSize) -> Void
     ) {
         self.store = store
         self.themeSettings = themeSettings
         self.approvalDesk = approvalDesk
         self.actions = actions
+        self.uiState = uiState
         self.onContentSizeChange = onContentSizeChange
-        _expandedAgentID = State(initialValue: initiallyExpandedAgentID)
+        _rowsHaveRisen = State(initialValue: entrance == .none)
     }
 
-    /// A theme whose agents all wear its accent, such as a team in its jersey color, borders the panel in that color.
-    /// Every other theme keeps the thin gray border.
+    /// A theme whose agents all wear its accent, such as a team in its jersey color, borders the Card in that color.
+    /// Every other theme keeps the Card's own edge.
     private var agentsWearTheAccent: Bool {
         themeSettings.shownTheme.agents.ring == .accent
-    }
-
-    private var panelBorderColor: Color {
-        agentsWearTheAccent ? themeSettings.shownTheme.cursorColor : DS.Colors.borderSubtle
-    }
-
-    private var panelBorderWidth: CGFloat {
-        agentsWearTheAccent ? 1.5 : 1
     }
 
     /// The theme's name after a small square in its accent, with every name coming from the theme's file.
@@ -447,10 +703,21 @@ private struct AgentListView: View {
             .frame(width: 10, height: 10)
         // A saved name runs to 24 characters, so it is cut before it pushes the running count off the header.
         Text(themeSettings.shownTheme.name)
-            .font(.system(size: 13, weight: .semibold))
+            .font(DS.TypeScale.title.font)
             .foregroundColor(.white)
             .lineLimit(1)
             .truncationMode(.tail)
+    }
+
+    private var headerCounts: (running: String, needsYou: String?) {
+        agentListHeaderCounts(
+            runningAgentCount: store.agents.filter(\.isRunning).count,
+            agentsNeedingAnOKCount: Set(approvalDesk.waitingRequests.map(\.taskID)).count
+        )
+    }
+
+    private func riseAnimation(forRowAt rowIndex: Int) -> Animation? {
+        DS.Move.pop.animation(reduceMotionIsOn: reduceMotion)?.delay(Double(rowIndex) * Self.secondsBetweenRowRises)
     }
 
     var body: some View {
@@ -458,8 +725,9 @@ private struct AgentListView: View {
             HStack(spacing: 8) {
                 headerTitle
                 Spacer()
-                Text("\(store.agents.filter(\.isRunning).count) running")
-                    .font(.system(size: 11, weight: .medium))
+                (Text(headerCounts.running)
+                    + Text(headerCounts.needsYou.map { " · \($0)" } ?? "").foregroundColor(DS.Colors.warningText))
+                    .font(DS.TypeScale.caption.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(1)
                     .fixedSize()
@@ -497,7 +765,7 @@ private struct AgentListView: View {
 
             if store.agents.isEmpty {
                 Text("No agents yet. Ask for a study guide while a video plays.")
-                    .font(.system(size: 12))
+                    .font(DS.TypeScale.caption.font)
                     .foregroundColor(DS.Colors.textSecondary)
                     .multilineTextAlignment(.leading)
                     .padding(14)
@@ -505,16 +773,23 @@ private struct AgentListView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 0) {
-                        ForEach(store.agents) { agent in
+                        ForEach(Array(store.agents.enumerated()), id: \.element.id) { rowIndex, agent in
                             let approvalState = agentListApprovalState(forAgentID: agent.id, waitingRequests: approvalDesk.waitingRequests)
                             AgentRowView(
                                 agent: agent,
                                 resultsMayBeDeliveredNow: agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: store.aVideoQuizQuestionIsOpen),
-                                isExpanded: expandedAgentID == agent.id,
+                                isExpanded: uiState.expandedAgentID == agent.id,
                                 approvalState: approvalState,
-                                onToggle: { expandedAgentID = expandedAgentID == agent.id ? nil : agent.id },
+                                onToggle: {
+                                    withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) {
+                                        uiState.expandedAgentID = uiState.expandedAgentID == agent.id ? nil : agent.id
+                                    }
+                                },
                                 actions: actions
                             )
+                            .opacity(rowsHaveRisen ? 1 : 0)
+                            .offset(y: rowsHaveRisen || reduceMotion ? 0 : 8)
+                            .animation(riseAnimation(forRowAt: rowIndex), value: rowsHaveRisen)
                         }
                     }
                 }
@@ -524,9 +799,21 @@ private struct AgentListView: View {
         }
         .frame(width: AgentListPanelController.panelWidth)
         .fixedSize(horizontal: false, vertical: true)
-        .background(DS.Colors.surface1)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(panelBorderColor, lineWidth: panelBorderWidth))
+        .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous))
+        .tetherCard()
+        .overlay {
+            if agentsWearTheAccent {
+                RoundedRectangle(cornerRadius: DS.CornerRadius.card, style: .continuous)
+                    .strokeBorder(themeSettings.shownTheme.cursorColor, lineWidth: 1.5)
+            }
+        }
+        // The window is larger than the Card, so the Card's shadow has room to draw.
+        .padding(EdgeInsets(
+            top: AgentListWindowMargins.top,
+            leading: AgentListWindowMargins.leading,
+            bottom: AgentListWindowMargins.bottom,
+            trailing: AgentListWindowMargins.trailing
+        ))
         .background(
             GeometryReader { geometryProxy in
                 Color.clear.preference(key: AgentListSizePreferenceKey.self, value: geometryProxy.size)
@@ -536,6 +823,9 @@ private struct AgentListView: View {
             onContentSizeChange(contentSize)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            rowsHaveRisen = true
+        }
     }
 }
 
@@ -561,26 +851,41 @@ private struct AgentRowView: View {
         }
     }
 
+    private var liveLine: AgentListLiveLine? {
+        agentListLiveLine(for: agent, approvalState: approvalState)
+    }
+
+    private func color(of tone: AgentListLiveLine.Tone) -> Color {
+        switch tone {
+        case .normal: return DS.Colors.textPrimary
+        case .needsYou: return DS.Colors.warningText
+        case .failure: return DS.Colors.destructiveText
+        case .quiet: return DS.Colors.textSecondary
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: onToggle) {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        rowIcon
+                    HStack(alignment: .top, spacing: 10) {
+                        rowDisc
                         VStack(alignment: .leading, spacing: 2) {
                             rowTitle
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             Text(agent.subject ?? "Finding the video")
-                                .font(.system(size: 11))
+                                .font(DS.TypeScale.caption.font)
                                 .foregroundColor(DS.Colors.textSecondary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                            if let approvalStatusText = approvalState.rowStatusText {
-                                Text(approvalStatusText)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(DS.Colors.warningText)
-                                    .lineLimit(1)
+                            if let liveLine {
+                                Text(verbatim: liveLine.text)
+                                    .font(DS.TypeScale.caption.font)
+                                    .foregroundColor(color(of: liveLine.tone))
+                                    .lineLimit(2)
+                                    .truncationMode(.tail)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         Spacer(minLength: 8)
@@ -597,42 +902,45 @@ private struct AgentRowView: View {
             .buttonStyle(.plain)
             .hoverAndPointer { isHovered = $0 }
 
+            if !agent.isRunning, hasRowButtons {
+                rowButtons
+                    // Lines up under the title, which starts after the disc.
+                    .padding(.leading, 52)
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if isExpanded {
                 expandedDetails
+                    .transition(.opacity)
             }
         }
+        .clipped()
     }
 
-    @ViewBuilder private var rowIcon: some View {
-        if case .rosterFace(let rosterFace) = agent.face {
-            RosterFaceView(rosterFace: rosterFace, size: 28, isGrayscale: agent.phase.isFailed)
-                .overlay(Circle().stroke(agentListPortraitBorderColor(phase: agent.phase, agentColor: agent.displayColor.color), lineWidth: 2))
-                // A finished agent's portrait steps back, as its meter turns green.
-                .opacity(agent.finishedResult == nil ? 1 : 0.5)
-        } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
-            ThemePictureFaceView(picture: themePicture, size: 28, isGrayscale: agent.phase.isFailed)
-                .overlay(Circle().stroke(meterColor, lineWidth: 2))
-                .opacity(agent.finishedResult == nil ? 1 : 0.5)
-        } else {
-            AgentTriangleView(agent: agent, size: 11)
-                .frame(width: 16, height: 16)
-        }
+    /// The same disc the agent has beside the notch, with the same badges, at the row's size.
+    private var rowDisc: some View {
+        AgentTokenDiscView(agent: agent, isWaitingForApproval: approvalState != .none)
+            .scaleEffect(Self.discDiameter / AgentTokenMetrics.discDiameter)
+            .frame(width: Self.discDiameter, height: Self.discDiameter)
     }
+
+    private static let discDiameter: CGFloat = 28
 
     /// "Hinata #10 · Study guide" for a player, with the number quieter, and just the kind's name otherwise.
     private var rowTitle: Text {
         let kindName = Text(agent.kind.displayName)
-            .font(.system(size: 12, weight: .semibold))
+            .font(DS.TypeScale.title.font)
             .foregroundColor(DS.Colors.textPrimary)
         guard let player = agent.rosterFace?.player else { return kindName }
         let playerName = Text(player.name)
-            .font(.system(size: 12, weight: .semibold))
+            .font(DS.TypeScale.title.font)
             .foregroundColor(DS.Colors.textPrimary)
         let jerseyNumber = Text(player.number.map { " #\($0)" } ?? "")
-            .font(.system(size: 11, weight: .medium))
+            .font(DS.TypeScale.caption.font)
             .foregroundColor(DS.Colors.textSecondary)
         let separator = Text(" · ")
-            .font(.system(size: 12, weight: .semibold))
+            .font(DS.TypeScale.title.font)
             .foregroundColor(DS.Colors.textPrimary)
         return playerName + jerseyNumber + separator + kindName
     }
@@ -644,11 +952,11 @@ private struct AgentRowView: View {
             TimelineView(.periodic(from: .now, by: 1)) { timelineContext in
                 Text(backgroundAgentElapsedTimeText(seconds: agent.elapsedSeconds(at: timelineContext.date)))
             }
-            .font(.system(size: 11, weight: .medium).monospacedDigit())
+            .font(DS.TypeScale.data.font)
             .foregroundColor(DS.Colors.textSecondary)
         } else {
             Text(backgroundAgentElapsedTimeText(seconds: agent.elapsedSeconds(at: Date())))
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .font(DS.TypeScale.data.font)
                 .foregroundColor(DS.Colors.textSecondary)
         }
     }
@@ -675,10 +983,15 @@ private struct AgentRowView: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(agent.stepStatuses.enumerated()), id: \.offset) { stepIndex, stepStatus in
                 HStack(spacing: 8) {
-                    Text(stepStatus.symbol)
-                        .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
-                        .foregroundColor(stepStatus == .done ? DS.Colors.success : stepStatus == .current ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                        .frame(width: 12)
+                    if stepStatus == .done {
+                        DrawnCheckMark()
+                            .frame(width: 12)
+                    } else {
+                        Text(stepStatus.symbol)
+                            .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
+                            .foregroundColor(stepStatus == .current ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                            .frame(width: 12)
+                    }
                     // A task agent writes its own step lines, so a long one is cut instead of growing the row.
                     Text(agent.stepNames[stepIndex])
                         .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
@@ -687,38 +1000,59 @@ private struct AgentRowView: View {
                         .truncationMode(.tail)
                 }
             }
-            if case .failed(let reason) = agent.phase {
-                Text(reason)
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.destructiveText)
-                    .lineLimit(3)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if case .cancelled = agent.phase {
-                Text("Cancelled")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
             if agent.isRunning {
                 AgentActionButton(title: "Cancel", titleColor: DS.Colors.destructiveText) { actions.cancelAgent(agent.id) }
-            } else if agent.finishedResult != nil {
-                resultButtons
             }
         }
-        // Lines up under the title, which starts after the icon.
-        .padding(.leading, agent.face == .triangle ? 40 : 52)
+        // Lines up under the title, which starts after the disc.
+        .padding(.leading, 52)
         .padding(.trailing, 14)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
+/// A check mark that draws itself in when its row's steps appear, as the Snap move. With Reduce Motion it fades in.
+private struct DrawnCheckMark: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isDrawn = false
+
+    private struct CheckShape: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX + rect.width * 0.1, y: rect.midY + rect.height * 0.05))
+            path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.4, y: rect.maxY - rect.height * 0.15))
+            path.addLine(to: CGPoint(x: rect.maxX - rect.width * 0.05, y: rect.minY + rect.height * 0.15))
+            return path
+        }
+    }
+
+    var body: some View {
+        CheckShape()
+            .trim(from: 0, to: reduceMotion || isDrawn ? 1 : 0)
+            .stroke(DS.Colors.success, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            .opacity(reduceMotion ? (isDrawn ? 1 : 0) : 1)
+            .frame(width: 10, height: 10)
+            .onAppear {
+                withAnimation(DS.Move.snap.animation(reduceMotionIsOn: reduceMotion)) { isDrawn = true }
+            }
+    }
+}
+
 extension AgentRowView {
-    /// What a finished agent's result allows: show a waiting 3D model or experiment, hear a waiting task answer, and open
-    /// its Notion page. A result that was already delivered offers only the page.
-    @ViewBuilder fileprivate var resultButtons: some View {
+    /// Whether the row shows buttons under its title: a failed agent that can start again, or a finished agent's result.
+    fileprivate var hasRowButtons: Bool {
+        if agent.phase.isFailed { return agent.canBeTriedAgain }
+        return agent.finishedResult != nil
+    }
+
+    /// What an ended agent's row allows: try a failed agent again, show a waiting 3D model or experiment, hear a waiting
+    /// task answer, and open its Notion page. A result that was already delivered offers only the page.
+    @ViewBuilder fileprivate var rowButtons: some View {
         HStack(spacing: 6) {
+            if agent.phase.isFailed, agent.canBeTriedAgain {
+                AgentActionButton(title: "Try again", titleColor: DS.Colors.textPrimary) { actions.tryAgain(agent.id) }
+            }
             if agent.resultIsWaitingToBeDelivered && resultsMayBeDeliveredNow {
                 switch agent.finishedResult {
                 case .readyScene:
@@ -737,7 +1071,6 @@ extension AgentRowView {
             }
         }
     }
-
 }
 
 private struct AgentActionButton: View {
@@ -795,16 +1128,6 @@ private struct StepMeterFill: Shape {
             path.addRoundedRect(in: segmentRect, cornerSize: CGSize(width: rect.height / 2, height: rect.height / 2))
         }
         return path
-    }
-}
-
-/// The portrait took the triangle's place in the list, so its border carries the state the triangle's color used to:
-/// red for a failed agent and gray for a cancelled one. The agent's own color only marks a running or finished agent.
-func agentListPortraitBorderColor(phase: BackgroundAgentPhase, agentColor: Color) -> Color {
-    switch phase {
-    case .running, .finished: return agentColor
-    case .failed: return DS.Colors.destructive
-    case .cancelled: return DS.Colors.textTertiary
     }
 }
 

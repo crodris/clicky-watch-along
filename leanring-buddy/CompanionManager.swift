@@ -248,6 +248,7 @@ final class CompanionManager: ObservableObject {
                 guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
                 self.startSpeakingTheTaskAnswer()
             },
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) },
             answerApproval: { [weak self] approvalID, approved, scope in
                 self?.agentHarness.approvalDesk.answerByClick(approvalID: approvalID, approved: approved, scope: scope)
             }
@@ -2579,9 +2580,9 @@ final class CompanionManager: ObservableObject {
         if settingsDialController.isOpen {
             return
         }
-        // With the agent list open, Escape only closes it.
+        // With the agent list open, Escape only closes it, back into the disc it opened from.
         if agentListPanelController.isOpen {
-            agentListPanelController.close()
+            agentListPanelController.closeWithGlide()
             return
         }
         // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
@@ -3351,6 +3352,10 @@ final class CompanionManager: ObservableObject {
         runInTheBackground(agentID) {
             await self.runTheTaskAgent(goal: goal, skillName: skillName, agentID: agentID)
         }
+        allowTryingAgain(agentID) {
+            _ = self.startTheTaskAgent(goal: goal, skillName: skillName)
+            return true
+        }
         return .changed(state: .object(["task": .string("started")]))
     }
 
@@ -3422,6 +3427,7 @@ final class CompanionManager: ObservableObject {
                     .map { transcriptLine in "[\(backgroundAgentElapsedTimeText(seconds: transcriptLine.seconds))] \(transcriptLine.text)" }
                     .joined(separator: "\n")
                 let captionsResult = "Title: \(video.title)\nLink: \(video.url)\nCaptions:\n\(captionText)"
+                backgroundAgentStore.setReadingHost(agentListHost(ofLink: video.url), for: agentID)
                 return (.string(String(captionsResult.prefix(longestTaskAgentCaptionText))), false, nil, video.url)
             } catch {
                 return errorResult((error as? LocalizedError)?.errorDescription ?? "No YouTube video with captions is in Chrome's front tab")
@@ -3454,6 +3460,9 @@ final class CompanionManager: ObservableObject {
                 return errorResult("The page could not be written: \(error)")
             }
         case .takeScreenshot, .readClipboard, .writeClipboard, .openURL:
+            if TaskAgentTool(rawValue: toolCall.toolName) == .openURL {
+                backgroundAgentStore.setReadingHost(toolCall.input["url"]?.stringValue.flatMap(agentListHost(ofLink:)), for: agentID)
+            }
             let generalToolRun = await runTaskAgentGeneralTool(named: toolCall.toolName, input: toolCall.input, taskID: agentID)
             return (generalToolRun.content, generalToolRun.isError, nil, nil)
         case nil:
@@ -3621,6 +3630,10 @@ final class CompanionManager: ObservableObject {
         agentTokenDockController.startServingTheToken(of: agentID)
         runInTheBackground(agentID) {
             await self.buildTheBackgroundScene(whatToBuild: whatToBuild, agentID: agentID, agentKind: agentKind)
+        }
+        allowTryingAgain(agentID) {
+            if case .failed = self.startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: agentKind) { return false }
+            return true
         }
         return .changed(state: .object(["backgroundScene": .string("started")]))
     }
@@ -3863,6 +3876,10 @@ final class CompanionManager: ObservableObject {
                 }
             }
         }
+        allowTryingAgain(agentID) {
+            if case .failed = self.startWritingTheStudyGuide(studyGuideJob) { return false }
+            return true
+        }
         return .changed(state: .object(["studyGuide": .string("started")]))
     }
 
@@ -4059,6 +4076,32 @@ final class CompanionManager: ObservableObject {
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
     private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
         .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, face: backgroundAgentStore.face(for: agentID))
+    }
+
+    /// What starts a failed agent's work again, by agent, for the agent list's "Try again". Each returns whether the work
+    /// started.
+    private var tryAgainActionsByAgentID: [UUID: @MainActor () -> Bool] = [:]
+
+    /// Lets the agent list offer "Try again" if this agent fails. `start` begins the same work as a new agent.
+    private func allowTryingAgain(_ agentID: UUID, start: @escaping @MainActor () -> Bool) {
+        // An agent the store dropped can never be tried again, so its action goes with it.
+        let agentIDsInTheStore = Set(backgroundAgentStore.agents.map(\.id))
+        tryAgainActionsByAgentID = tryAgainActionsByAgentID.filter { agentIDsInTheStore.contains($0.key) }
+        tryAgainActionsByAgentID[agentID] = start
+        backgroundAgentStore.allowTryingAgain(agentID)
+    }
+
+    /// "Try again" on a failed agent's row. It starts the same work once, as a new agent with its own row, and the failed
+    /// row stops offering it only when the work started.
+    private func tryTheBackgroundAgentAgain(_ agentID: UUID) {
+        guard let startTheWorkAgain = tryAgainActionsByAgentID[agentID] else { return }
+        guard startTheWorkAgain() else {
+            print("Agent list: could not try \(agentID) again, so its row keeps the button")
+            VoiceToolCallChip.shared.show("Couldn't try that again")
+            return
+        }
+        tryAgainActionsByAgentID[agentID] = nil
+        backgroundAgentStore.markTriedAgain(agentID)
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
