@@ -101,6 +101,8 @@ jobs:
       - if: runner.environment == 'self-hosted'
         run: xcodebuild -version | grep -qx 'Xcode 26.5'
       # Build into the job's temp folder, which the runner empties after each job, so the Mac runner starts clean like a GitHub VM.
+      # CLICKY_BUNDLE_ID_SUFFIX gives the unsigned CI app its own bundle ID. macOS keeps one Accessibility grant per bundle
+      # ID for the whole Mac, so a test host under the developer's ID reset the developer's grant on 2026-11-20.
       - run: >
           xcodebuild build
           -project leanring-buddy.xcodeproj
@@ -109,6 +111,7 @@ jobs:
           -destination 'platform=macOS'
           -derivedDataPath "$RUNNER_TEMP/DerivedData"
           CODE_SIGNING_ALLOWED=NO
+          CLICKY_BUNDLE_ID_SUFFIX=.ci
       - run: >
           xcodebuild test
           -project leanring-buddy.xcodeproj
@@ -118,3 +121,4 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:leanring-buddyTests
           CODE_SIGNING_ALLOWED=NO
+          CLICKY_BUNDLE_ID_SUFFIX=.ci
