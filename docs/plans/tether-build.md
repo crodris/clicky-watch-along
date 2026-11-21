@@ -93,9 +93,9 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | PR | Status |
 |---|---|
 | 1 Quick fixes | Merged: [#66](https://github.com/crodris/clicky-watch-along/pull/66) |
-| 2 Tokens and carrier | Building |
-| 3 Theme files | Building |
-| 12 App icon | Building |
+| 2 Tokens and carrier | In review: [#72](https://github.com/crodris/clicky-watch-along/pull/72) |
+| 3 Theme files | In review: [#74](https://github.com/crodris/clicky-watch-along/pull/74) |
+| 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). Dark, tinted, and clear modes still need the layers imported into Icon Composer by hand. |
 | 4, 5, 7, 9, 10, 11 | Waiting for PR 2 |
 | 6 Agent list, Theme Studio, dial | Waiting for PRs 2 and 3 |
 | 8 Panel, onboarding, keyboard | Waiting for PRs 2, 3, and 7 |
