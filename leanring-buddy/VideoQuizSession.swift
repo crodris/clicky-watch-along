@@ -54,6 +54,14 @@ nonisolated func videoQuizVoiceCommand(for transcript: String) -> VideoQuizVoice
     return transcriptNamesAVideo && transcriptAsksToBeQuizzed ? .start : nil
 }
 
+/// Whether the quiz phrases above are matched before the router reads the words. With the Theme Studio card open the router
+/// reads every word, since "can we stop" would otherwise say "Okay, I'll stop quizzing." with no quiz, and "quiz me on this
+/// video" would start one under the card. The router still offers `end_quiz` while a quiz runs. An open quiz question keeps
+/// the phrases, since the router takes no command then and the words would otherwise be graded as an answer.
+nonisolated func videoQuizPhrasesAreMatchedAheadOfTheRouter(themeStudioIsOpen: Bool, phaseIsWaitingForAQuizAnswer: Bool) -> Bool {
+    !themeStudioIsOpen || phaseIsWaitingForAQuizAnswer
+}
+
 /// The page's answer about its video goes into the model's prompt, and any page can rewrite what its scripts return.
 /// So only the five expected fields pass, each with its expected type, and the tab title is cut short.
 /// Whether the tab is on YouTube comes from the tab's URL, which the page cannot rewrite.

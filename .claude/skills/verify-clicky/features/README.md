@@ -62,3 +62,4 @@ It then uses exactly four H2 sections in this order.
 - [Settings dial](./settings-dial.md) covers the dial that holding shift + option opens: previewing a slice, the Team and Model fans, committing on release, canceling, and the Agents list.
 - [Team theme](./team-theme.md) covers the Haikyu!! team theme: the picker, the volleyball cursor, the player portrait tokens beside the notch, and the themed agent list.
 - [Cursor ring and loop](./cursor-ring-and-loop.md) covers the ring of ticks and dots around the cursor and the hand-drawn loop around the video or image a request looks at.
+- [Theme Studio](./theme-studio.md) covers "change my theme": the card with three theme ideas, the preview on the real cursor, picking, refining, designing from a picture, saving, and the agent colors a saved theme gives.

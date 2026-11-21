@@ -802,7 +802,7 @@ struct CompanionPanelView: View {
 
 // MARK: - Team Theme Picker
 
-/// The "Team theme" section: Clicky blue, the ten Haikyu!! schools, and Random, in two columns.
+/// The "Team theme" section: Clicky blue, the ten Haikyu!! schools, Random, then the learner's saved custom themes, in two columns.
 /// Picking one recolors the cursor now, and gives each agent that starts afterward a player of that team.
 private struct TeamThemePickerView: View {
     @ObservedObject var themeSettings: CompanionThemeSettings
@@ -819,7 +819,7 @@ private struct TeamThemePickerView: View {
                 .foregroundColor(DS.Colors.textSecondary)
 
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(CompanionTheme.allChoices, id: \.rawValue) { theme in
+                ForEach(themeSettings.menuBarThemeChoices, id: \.rawValue) { theme in
                     TeamThemeOptionButton(
                         theme: theme,
                         isSelected: themeSettings.theme == theme,
@@ -886,6 +886,11 @@ private struct TeamThemeSwatch: View {
                 HStack(spacing: 0) {
                     school.accentColor
                     school.contrastColor
+                }
+            case .custom(let customTheme):
+                HStack(spacing: 0) {
+                    Color(hex: customTheme.accentHex)
+                    Color(hex: customTheme.contrastHex)
                 }
             case .random:
                 VStack(spacing: 0) {

@@ -16,6 +16,7 @@
  *   POST /landmark     → Anthropic Messages API (famous place and coordinates in a video frame)
  *   POST /voice-command → Anthropic Messages API (Haiku picks the app's tools for a spoken follow-up command)
  *   POST /picture-flows → Anthropic Messages API (paths of what flows through a popped-out picture)
+ *   POST /theme-ideas  → Anthropic Messages API (Sonnet writes three cursor theme ideas for the theme studio, optionally from a picture)
  *   POST /study-guide  → Anthropic Messages API (Sonnet drafts a study guide), then Notion API (creates the page, trashes the one a revision replaces)
  *   POST /study-guide-status → Notion API (whether a saved guide's page is still out of the trash)
  *   POST /notion-page  → Notion API (a background agent's findings as a private page)
@@ -36,6 +37,7 @@ import { handleMapTiles, isMapTilesRequest } from "./mapTiles";
 import { handleLandmark } from "./landmark";
 import { handleVoiceCommand } from "./voiceCommand";
 import { handlePictureFlows } from "./pictureFlows";
+import { handleThemeIdeas } from "./themeIdeas";
 import { handleStudyGuide, handleStudyGuideStatus } from "./studyGuide";
 
 interface Env {
@@ -131,6 +133,10 @@ export default {
 
       if (url.pathname === "/picture-flows") {
         return await handlePictureFlows(request, env.ANTHROPIC_API_KEY);
+      }
+
+      if (url.pathname === "/theme-ideas") {
+        return await handleThemeIdeas(request, env.ANTHROPIC_API_KEY);
       }
 
       if (url.pathname === "/study-guide") {
