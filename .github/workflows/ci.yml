@@ -157,6 +157,9 @@ jobs:
       # runner runs one job at a time, and after the Xcode build, so an Xcode update starts from scratch.
       # GitHub's runner for fork pull requests starts empty anyway, so it builds in the job's temp folder.
       - run: |
+          # Three Mac runners build at once on one 32 GB Mac, and with Xcode's default of one compile job per core the Mac
+          # swapped about 37 GB on 2026-11-21 and a 2 minute build took 10. Four jobs each keeps the three builds in memory.
+          echo "CLICKY_BUILD_JOBS=4" >> "$GITHUB_ENV"
           runner_name_for_ids="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9' '-')"
           echo "CLICKY_BUNDLE_ID_SUFFIX=.ci-$runner_name_for_ids" >> "$GITHUB_ENV"
           if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
@@ -172,6 +175,7 @@ jobs:
           -configuration Debug
           -destination 'platform=macOS'
           -derivedDataPath "$CLICKY_DERIVED_DATA"
+          -jobs "$CLICKY_BUILD_JOBS"
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
       - run: >
@@ -181,6 +185,7 @@ jobs:
           -configuration Debug
           -destination 'platform=macOS'
           -derivedDataPath "$CLICKY_DERIVED_DATA"
+          -jobs "$CLICKY_BUILD_JOBS"
           -only-testing:leanring-buddyTests
           -resultBundlePath "$RUNNER_TEMP/TestResults.xcresult"
           CODE_SIGNING_ALLOWED=NO
