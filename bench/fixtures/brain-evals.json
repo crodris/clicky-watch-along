@@ -618,7 +618,7 @@
         "set_control"
       ],
       "input": { "set_control": { "name": "angle", "value": 45, "run": null } },
-      "why": "A command, not a guess, so it must not go to record_guess. It sets the value without trying it, so it leaves run out, and in the guess stage set_control with run true is refused."
+      "why": "A command, not a guess, so it must not go to record_guess. It sets the value without trying it, so it leaves run out, and in the guess stage set_control with run true is refused. The input check reads null as the key being absent, so run false also counts as a miss here, on purpose, since the description tells the model to leave run out to only set a value."
     },
     {
       "id": "experiment-try-angle",

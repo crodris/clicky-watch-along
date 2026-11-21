@@ -48,7 +48,7 @@ Preconditions:
   The log shows `Experiment: built`, `Experiment: showing`, `Simulation: asked for the guess` before `Live scene rehearsal: saying "I think`, `Voice command: record_guess(...)`, `Simulation: guess recorded`, two `run_simulation()` calls, `Simulation: guess check skipped after run 1, one setting tried`, and `Simulation: guess check after run 2`.
   Run `$V shot simulation` once the log shows `Simulation: challenge started`.
 - **Set and run in one call.** After the App recipe, post `set_control` with `{"name":"angle","value":60,"run":true}` to `http://127.0.0.1:8790/mcp`.
-  The App recipe ends in the challenge stage, so the run counts as a challenge try: the log shows the challenge line (`simulationChallengeSpokenLine`, such as "That was 2.1 meters short of the target. Try again."), and the trials table gains one row.
+  The App recipe ends in the challenge stage, so the run counts as a challenge try: the log shows the challenge line (`simulationChallengeSpokenLine`, such as "That was 2.1 meters under the target. Try again.", or "You hit the target in 2 tries." for a hit), and the trials table gains one row.
   For the guess lock, launch with `$V app-launch "let me try it"` alone, wait for `Simulation: asked for the guess`, and post the same call.
   It answers `ok: false` with "Did not set or run it", the slider stays where it was, and no trial is added.
 - **Change during a run.** After the App recipe, with the experiment still up, post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run_simulation","arguments":{}}}` to `http://127.0.0.1:8790/mcp`, wait 0.5 seconds, then post `set_control` with `{"name":"angle","value":45}`.

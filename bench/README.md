@@ -327,6 +327,7 @@ The change is measured against main's descriptions in 5 rounds of 2 runs each, a
 Main's two sides are scored on its own accepted answers (`set_control` then `run_simulation`) and this change on `set_control` with `run: true`, since the two descriptions offer different tools.
 The full parity run on this change, `results/set-control-run-brain-evals-085e08b2a219.json` (3 runs), passes the gate: 189 of 189 harness runs, p50 to the first call 674 ms against the Worker's 675 ms, cost 0.99 times the Worker's, 27 of 27 session runs, and 30 of 30 planning runs.
 The 4 misses of `results/planning-turn-budget-5-runs-brain-evals-9337d52a0578.json` (36 of 40) were this same case.
+After review, a `set_control` with `run: true` in the guess stage is refused before the control moves, `experiment-set-angle` requires `run` left out, and `planning-guess-set-run` also accepts `run: false` in the old chain. The four simulation cases those touch passed 20 of 20 (`results/set-control-run-review-fixes-brain-evals-1b247b75ef3d.json`, 5 runs, measured on the review fixes before they were committed).
 
 The command is not faster.
 The three calls came back in one reply on main too (`turnCount` 1 in all 10 runs), so the chain never cost a model turn, unlike the `seek_to_moment` chain, which did.
