@@ -267,7 +267,7 @@ final class AgentTokenLoopHostView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter))
         wantsLayer = true
         layer?.addSublayer(loopLayer)
-        draw()
+        rebuildLoopLayers()
     }
 
     @available(*, unavailable)
@@ -285,11 +285,11 @@ final class AgentTokenLoopHostView: NSView {
     func update(reduceMotionIsOn newReduceMotionIsOn: Bool) {
         guard newReduceMotionIsOn != reduceMotionIsOn else { return }
         reduceMotionIsOn = newReduceMotionIsOn
-        draw()
+        rebuildLoopLayers()
     }
 
     /// Builds the loop's layers and animation again, which Reduce Motion changing needs.
-    private func draw() {
+    private func rebuildLoopLayers() {
         loopLayer.sublayers = nil
         loopLayer.removeAllAnimations()
         loopLayer.transform = CATransform3DIdentity

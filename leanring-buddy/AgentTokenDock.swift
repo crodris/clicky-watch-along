@@ -155,17 +155,21 @@ struct AgentTokenDiscContent: View {
 
     var body: some View {
         discView
+            .frame(width: AgentTokenMetrics.panelWidth)
+            .frame(maxHeight: .infinity)
             .overlay {
                 if let stillRingColor = discModel.stillRingColor {
-                    Circle()
-                        .stroke(stillRingColor, lineWidth: 1.5)
-                        .frame(width: AgentTokenMetrics.panelWidth - 2, height: AgentTokenMetrics.panelWidth - 2)
-                        .transition(.opacity)
+                    // The ring fits the panel, which is only as tall as the menu bar, so it is never cut off on a bar of 24 points.
+                    GeometryReader { panelProxy in
+                        Circle()
+                            .stroke(stillRingColor, lineWidth: 1.5)
+                            .frame(width: agentTokenStillRingDiameter(panelHeight: panelProxy.size.height), height: agentTokenStillRingDiameter(panelHeight: panelProxy.size.height))
+                            .position(x: panelProxy.size.width / 2, y: panelProxy.size.height / 2)
+                    }
+                    .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: DS.Move.send.reduceMotionForm.fadeSeconds), value: discModel.stillRingColor != nil)
-            .frame(width: AgentTokenMetrics.panelWidth)
-            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder private var discView: some View {
@@ -273,9 +277,9 @@ final class AgentTokenDockController {
     private var discIDTheLingeringFlightSitsOn: AgentTokenDiscID?
     /// Callers waiting for the token to land (`waitForTheServeToLand`).
     private var callersWaitingForTheLanding: [CheckedContinuation<Void, Never>] = []
-    /// True once a disc had to wait under a flight and may slide when the carried token leaves. The landed token's tether
+    /// The flight a disc had to wait under, which may slide when that flight's carried token leaves. The landed token's tether
     /// would then end where the disc used to be, so it ends first (`forgetTheLingeringFlight`).
-    private var aDiscWaitedToSlideUnderTheFlight = false
+    private var flightWhoseDiscWaitedToSlide: CarrierFlight?
     /// The Bring back sparks in the air, so a push-to-talk press can land them.
     private var bringBackFlights: [CarrierFlight] = []
     private let peekController = AgentTokenPeekController()
@@ -427,7 +431,7 @@ final class AgentTokenDockController {
             guard existingDisc.panel.frame != panelFrame else { return }
             // The slide happens when the carried token leaves, which refreshes the dock (`forgetTheLingeringFlight`).
             guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else {
-                aDiscWaitedToSlideUnderTheFlight = true
+                flightWhoseDiscWaitedToSlide = lingeringFlight ?? flight
                 return
             }
             if reduceMotionIsOn {
@@ -501,7 +505,8 @@ final class AgentTokenDockController {
     /// no room for discs, gets no serve (`agentTokenServePlan`). `waitForTheServeToLand` returns once the token has landed.
     /// The discs on the other displays fade in as usual.
     func startServingTheToken(of agentID: UUID) {
-        finishTheServeAtOnce()
+        // Only an earlier serve lands at once. A Bring back spark in the air keeps flying, since its agent did not start this one.
+        landTheServeAtOnce()
         let mouseLocation = NSEvent.mouseLocation
         let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
         guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID) else { return }
@@ -589,21 +594,26 @@ final class AgentTokenDockController {
     /// The flight's token has left the screen, so the disc under it may slide now if the layout moved it meanwhile. A newer
     /// flight that landed since stays.
     private func forgetTheLingeringFlight(_ goneFlight: CarrierFlight) {
-        guard lingeringFlight === goneFlight else { return }
+        // A disc that waited under this flight slides now, so the line, which still fades for a moment, must not end at its old
+        // place. A newer flight that landed since replaced the lingering one, but the disc still waited under this one.
+        let theTetherMustEnd = agentTokenTetherMustEnd(flightWhoseDiscWaited: flightWhoseDiscWaitedToSlide, goneFlight: goneFlight)
+        if theTetherMustEnd {
+            goneFlight.endTheTetherNow()
+            flightWhoseDiscWaitedToSlide = nil
+        }
+        guard lingeringFlight === goneFlight else {
+            if theTetherMustEnd { refresh() }
+            return
+        }
         lingeringFlight = nil
         discIDTheLingeringFlightSitsOn = nil
-        // A disc that waited slides now, so the line, which still fades for a moment, must not end at its old place.
-        if aDiscWaitedToSlideUnderTheFlight {
-            goneFlight.endTheTetherNow()
-            aDiscWaitedToSlideUnderTheFlight = false
-        }
         refresh()
     }
 
     // MARK: Bring back
 
     /// Brings an ended agent's result back to the cursor: a spark runs from its disc along the top edge, then down to the
-    /// cursor, tethered in the agent's color, and `showTheChip` runs as it lands, so the chip pops where the spark ends. With
+    /// cursor, tethered in the agent's color, and `showTheChip` runs as it lands, so the chip shows where the spark ends. With
     /// Reduce Motion on, a still ring fades in at the cursor instead. An agent with no disc on the mouse's display, a display
     /// with no discs, or a display that is gone gets no spark, and the chip shows at once. A push-to-talk press lands the
     /// spark at once (`finishTheServeAtOnce`).

@@ -27,9 +27,9 @@ struct MenuBarAndDiscTests {
     }
 
     /// The icon's alpha at a point in its 26 by 18 point canvas, y down, at 2x.
-    private func alpha(of image: NSImage, atX x: CGFloat, y: CGFloat) throws -> CGFloat {
+    private func alpha(of image: NSImage, atX pointX: CGFloat, y pointY: CGFloat) throws -> CGFloat {
         let bitmap = try renderedBitmap(of: image)
-        return bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.alphaComponent ?? 0
+        return bitmap.colorAt(x: Int(pointX * 2), y: Int(pointY * 2))?.alphaComponent ?? 0
     }
 
     private func renderedBitmap(of image: NSImage) throws -> NSBitmapImageRep {
@@ -89,7 +89,7 @@ struct MenuBarAndDiscTests {
         let badgePixel = try #require(bitmap.colorAt(x: Int(badgeCenter.x * 2), y: Int(badgeCenter.y * 2)))
         // Amber is mostly red, some green, and little blue.
         #expect(badgePixel.alphaComponent > 0.9 && badgePixel.redComponent > 0.9 && badgePixel.greenComponent > 0.5 && badgePixel.blueComponent < 0.4)
-        // The plain icon has nothing there, and the badge rides on top of any state.
+        // The plain icon has nothing there, and the badge draws over any state.
         #expect(try alpha(of: plain, atX: badgeCenter.x, y: badgeCenter.y) == 0)
         let listeningBadged = MenuBarIconArt.image(for: .listening, cursor: .triangle, badgeOnAForeground: .white)
         let listeningPixel = try #require(try renderedBitmap(of: listeningBadged).colorAt(x: Int(badgeCenter.x * 2), y: Int(badgeCenter.y * 2)))
@@ -102,8 +102,8 @@ struct MenuBarAndDiscTests {
         // The ball fills the middle of the canvas, and a seam line crosses it, which the template cuts to nothing.
         #expect(try alpha(of: image, atX: 9, y: 9) > 0.9)
         let bitmap = try renderedBitmap(of: image)
-        let transparentPixelsInsideTheBall = (14...24).flatMap { x in (10...24).map { y in (x, y) } }
-            .filter { bitmap.colorAt(x: $0.0, y: $0.1)?.alphaComponent ?? 1 < 0.2 }
+        let transparentPixelsInsideTheBall = (14...24).flatMap { pixelColumn in (10...24).map { pixelRow in (column: pixelColumn, row: pixelRow) } }
+            .filter { bitmap.colorAt(x: $0.column, y: $0.row)?.alphaComponent ?? 1 < 0.2 }
             .count
         let theSamePixelsOfASolidDisc = 0
         #expect(transparentPixelsInsideTheBall > theSamePixelsOfASolidDisc)
@@ -359,6 +359,30 @@ struct MenuBarAndDiscTests {
         flight.endTheTetherNow()
         #expect(!flight.tetherIsShowing)
         flight.landAtOnce()
+    }
+
+    @Test func theStillRingFitsAMenuBarOf24PointsAndAFullSizeOneAtTheDiscsPanelWidth() throws {
+        // A 24 point bar, as a display with no notch has, is only 2 points taller than the disc.
+        #expect(agentTokenStillRingDiameter(panelHeight: 24) == 23)
+        #expect(agentTokenStillRingDiameter(panelHeight: 37) == AgentTokenMetrics.panelWidth - 2)
+
+        let store = makeBackgroundAgentStore()
+        let discModel = AgentTokenDiscModel()
+        discModel.stillRingColor = Color(hex: "#FF00FF")
+        let pixels = try renderedPixels(of: AgentTokenDiscContent(store: store, discModel: discModel, tokenSlot: .overflow, overflowCount: 2)
+            .frame(width: AgentTokenMetrics.panelWidth, height: 24))
+        // The ring's top, half a point under the panel's top edge, is drawn and not cut off.
+        let ringTopPixel = try #require(pixels.colorAt(x: Int((20 + AgentTokenMetrics.panelWidth / 2) * 2), y: Int((20 + 0.5) * 2)))
+        #expect(ringTopPixel.redComponent > 0.8 && ringTopPixel.greenComponent < 0.4 && ringTopPixel.blueComponent > 0.8)
+    }
+
+    @Test func aTetherEndsOnlyWithTheFlightAWaitingDiscWaitedUnder() {
+        let flightTheDiscWaitedUnder = NSObject()
+        let anotherFlight = NSObject()
+        #expect(agentTokenTetherMustEnd(flightWhoseDiscWaited: flightTheDiscWaitedUnder, goneFlight: flightTheDiscWaitedUnder))
+        // A newer flight that landed meanwhile leaves its own tether to fade.
+        #expect(!agentTokenTetherMustEnd(flightWhoseDiscWaited: flightTheDiscWaitedUnder, goneFlight: anotherFlight))
+        #expect(!agentTokenTetherMustEnd(flightWhoseDiscWaited: nil, goneFlight: anotherFlight))
     }
 
     @Test func theStillRingOfAReduceMotionServeStaysForASecond() {

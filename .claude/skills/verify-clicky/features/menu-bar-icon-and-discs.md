@@ -13,7 +13,7 @@ Hovering a disc shows a peek card, a right click opens a menu of the agent list'
 - `disc-approval` shows an amber "!" in place of the face, a notch in the ring, and a ring that pulses once every 1.6 seconds.
 - `peek-card` shows a card 8 points under a hovered disc after 0.3 seconds: kind and subject, current step with elapsed time, and a meter. For a waiting approval it names only the capability.
 - `disc-menu` pops Review request, Show model or experiment, Hear answer, Open page, and Cancel agent on a right click, as each applies, or Open agent list when none does.
-- `bring-back` runs a spark from the ending agent's disc along the top edge and down to the cursor, with a tether in the agent's color, and the chip pops as it lands.
+- `bring-back` runs a spark from the ending agent's disc along the top edge and down to the cursor, with a tether in the agent's color, and the chip shows as it lands.
 - `bring-back-no-disc` shows the chip at once when the agent has no disc on the mouse's display.
 
 ## How to get to it (user POV)
@@ -40,7 +40,7 @@ Preconditions:
 - **Discs, peek, and menu.** Post three seeds with one kind each, hover the "!" disc, wait 1 second, and `$V shot peek`. `rightclick` on the disc shows the menu the same way, and `$V key escape` closes it.
   A disc's point in the mouse tool's coordinates is its screenshot pixel divided by the display's scale factor.
 - **Bring back.** Move the mouse to the middle of the display, record with `screencapture -V 5 -D 1`, post the second seed, and tile frames with `ffmpeg -vf "fps=15,crop=...,tile=6x3"`.
-  The log says `the spark runs from its disc to the cursor in 0.6 s`. A spark runs along the top, a thin line follows it, and the chip pops at the cursor.
+  The log says `the spark runs from its disc to the cursor in 0.6 s`. A spark runs along the top, a thin line follows it, and the chip shows at the cursor.
 
 ## Gotchas
 

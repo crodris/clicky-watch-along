@@ -833,12 +833,15 @@ command_scroll() {
 command_menu_icon() {
   case "$1" in
     status)
-      grep 'Menu bar icon:' "$(current_run_dir)/app.log" | tail -1 || echo "no Menu bar icon line in the app log yet, the app logs it a second after launch" ;;
+      grep 'Menu bar icon:' "$(current_run_dir)/app.log" 2>/dev/null | tail -1 || echo "no Menu bar icon line in the app log yet, the app logs it a second after launch" ;;
     click)
       # The status item's window can be missing from CGWindowList beside the notch, so the app clicks its own button.
-      curl -s -X POST http://127.0.0.1:8790/mcp -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_click_menu_bar_icon","arguments":{}}}' >/dev/null \
-        && echo "clicked the menu bar icon" ;;
+      local click_reply
+      click_reply="$(curl -sf -X POST http://127.0.0.1:8790/mcp -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_click_menu_bar_icon","arguments":{}}}')" \
+        || { echo "no app answered on 8790: launch it with app-launch first" >&2; exit 1; }
+      if [[ "$click_reply" == *'"error"'* ]]; then echo "the app refused the click: $click_reply" >&2; exit 1; fi
+      echo "clicked the menu bar icon" ;;
     *) echo "menu-icon takes status or click" >&2; exit 1 ;;
   esac
 }

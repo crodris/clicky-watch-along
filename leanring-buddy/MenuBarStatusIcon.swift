@@ -53,6 +53,15 @@ enum MenuBarIconArt {
     static let secondsPerThinkingFrame: TimeInterval = 0.1
 
     private static let center = CGPoint(x: size.width / 2, y: size.height / 2)
+    /// The cursor's square in each state, in points. Idle fills most of the 18 point height, listening is 85 percent of it
+    /// and moves left to make room for the waves, and thinking is smaller so the orbiting dot has room around it.
+    private static let idleCursorSide: CGFloat = 14
+    private static let listeningCursorSide: CGFloat = 11.9
+    private static let listeningCursorShiftLeft: CGFloat = 3
+    private static let thinkingCursorSide: CGFloat = 10
+    /// The thinking dot's orbit radius and size: the orbit passes just inside the icon's top and bottom edges.
+    private static let thinkingDotOrbitRadius: CGFloat = 7.6
+    private static let thinkingDotDiameter: CGFloat = 3.4
     /// The cursor's tilt, the same as the blue cursor's resting pose, in the flipped drawing space (y down).
     private static let triangleTiltRadians = -35.0 * Double.pi / 180
 
@@ -68,17 +77,20 @@ enum MenuBarIconArt {
             context.setStrokeColor(markColor.cgColor)
             switch state {
             case .idle:
-                drawCursor(cursor, center: center, side: 14, in: context)
+                drawCursor(cursor, center: center, side: idleCursorSide, in: context)
             case .listening:
-                drawCursor(cursor, center: CGPoint(x: center.x - 3, y: center.y), side: 11.9, in: context)
-                drawSoundWave(centerX: center.x - 3 + 3, radius: 5, halfHeight: 4, in: context)
-                drawSoundWave(centerX: center.x - 3 + 3.71, radius: 8, halfHeight: 6, in: context)
+                let listeningCursorCenter = CGPoint(x: center.x - listeningCursorShiftLeft, y: center.y)
+                drawCursor(cursor, center: listeningCursorCenter, side: listeningCursorSide, in: context)
+                // The two waves bulge to the right of the shifted cursor. Their circle centers sit where their ends meet the
+                // cursor's right side: 3 points right of its center for the inner one, and 3.71 for the outer one, whose radius is larger.
+                drawSoundWave(centerX: listeningCursorCenter.x + 3, radius: 5, halfHeight: 4, in: context)
+                drawSoundWave(centerX: listeningCursorCenter.x + 3.71, radius: 8, halfHeight: 6, in: context)
             case .thinking:
-                drawCursor(cursor, center: center, side: 10, in: context)
+                drawCursor(cursor, center: center, side: thinkingCursorSide, in: context)
                 let angle = 2 * Double.pi * Double(thinkingFrame % thinkingFrameCount) / Double(thinkingFrameCount)
                 // The dot starts at the top and turns clockwise, which is increasing angle in this space.
-                let dotCenter = CGPoint(x: center.x + 7.6 * sin(angle), y: center.y - 7.6 * cos(angle))
-                context.fillEllipse(in: CGRect(x: dotCenter.x - 1.7, y: dotCenter.y - 1.7, width: 3.4, height: 3.4))
+                let dotCenter = CGPoint(x: center.x + thinkingDotOrbitRadius * sin(angle), y: center.y - thinkingDotOrbitRadius * cos(angle))
+                context.fillEllipse(in: CGRect(x: dotCenter.x - thinkingDotDiameter / 2, y: dotCenter.y - thinkingDotDiameter / 2, width: thinkingDotDiameter, height: thinkingDotDiameter))
             }
             if badgeOnAForeground != nil { drawApprovalBadge(in: context) }
             return true

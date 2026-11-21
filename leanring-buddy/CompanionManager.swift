@@ -259,8 +259,15 @@ final class CompanionManager: ObservableObject {
         themeSettings: themeSettings,
         menuActions: AgentDiscMenuActions(
             cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
-            showReadyScene: { [weak self] in self?.startShowingTheReadyBackgroundScene() },
-            hearTaskAnswer: { [weak self] in self?.startSpeakingTheTaskAnswer() }
+            // A quiz question can open while the menu is up, so each closure checks again, as the agent list's buttons do.
+            showReadyScene: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startShowingTheReadyBackgroundScene()
+            },
+            hearTaskAnswer: { [weak self] in
+                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
+                self.startSpeakingTheTaskAnswer()
+            }
         )
     ) { [weak self] click in
         self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
@@ -4078,7 +4085,7 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Shows an agent's ending chip after the spark carries it from the agent's disc to the cursor (Bring back), so the chip pops
+    /// Shows an agent's ending chip after the spark carries it from the agent's disc to the cursor (Bring back), so the chip shows
     /// where the spark lands. An agent with no disc to leave from shows the chip at once.
     private func bringBackTheEndingChip(ofAgent agentID: UUID, showTheChip: @escaping () -> Void) {
         let agentColor = backgroundAgentStore.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary

@@ -3,10 +3,10 @@
 //  leanring-buddy
 //
 //  Bring back: when an agent ends, a spark runs from its disc in the menu bar along the screen's top edge, then drops down
-//  to the cursor, and the ending chip pops there as it lands. The route hugs the edge so the spark never crosses the
-//  video or page the learner is looking at. A 1 point tether line in the agent's color traces the route behind the spark
-//  and fades 250 ms after the landing. With Reduce Motion on, nothing travels: a still ring fades in at the cursor, and the
-//  chip follows it.
+//  to the cursor, and the ending chip shows there as it lands. The run along the edge stays off the page, and only the drop
+//  to the cursor passes over it, since the route does not read where the video is. A 1 point tether line in the agent's
+//  color traces the route behind the spark and fades 250 ms after the landing. With Reduce Motion on, nothing travels: a
+//  still ring fades in at the cursor, and the chip follows it.
 //
 //  This file is the pure route and the plans the carrier plays (`TetherCarrier`), plus the two small views the carrier
 //  draws. `AgentTokenDockController.bringBack` reads the screens and runs the move. Every point is in global AppKit screen
@@ -109,7 +109,7 @@ extension CarrierFlightPlan {
     static let secondsTheStillRingHolds: TimeInterval = 0.3
 
     /// Bring back with Reduce Motion on: no travel and no tether. A ring of `ringSize` fades in at the cursor over the move's
-    /// Reduce Motion fade (`DS.Move.bringBack.reduceMotionForm`), holds still, and the chip pops as it ends.
+    /// Reduce Motion fade (`DS.Move.bringBack.reduceMotionForm`), holds still, and the chip shows as it ends.
     static func bringBackWithReduceMotion(at cursorPoint: CGPoint, ringSize: CGSize) -> CarrierFlightPlan {
         let fadeSeconds = DS.Move.bringBack.reduceMotionForm.fadeSeconds
         let seconds = fadeSeconds + secondsTheStillRingHolds
