@@ -247,6 +247,23 @@ func TestAVoiceAnswerOnlyCountsInTheCommandsFirstReply(t *testing.T) {
 	}
 }
 
+// The offer rule keeps the model from calling the tool with no request, and the call itself refuses too, so a model that calls
+// a tool it was not offered, or a harness change that offers it too widely, still settles nothing.
+func TestAnAnswerWithNoWaitingRequestFailsAndSettlesNothing(t *testing.T) {
+	brain, written := newApprovalTestBrain(t)
+	brain.approvals.seed("approval-other", capabilitySends)
+	call := toolCall{ID: "toolu_answer", Name: answerApprovalTool, Input: json.RawMessage(`{"approved":true}`)}
+
+	outcome, resultText := brain.answerTheApproval(call, approvalOffer{}, 0, "yes")
+
+	if outcome != voiceToolFailed || !strings.Contains(resultText, "no request waits") {
+		t.Errorf("outcome %s with result %s", outcome, resultText)
+	}
+	if _, stillWaiting := brain.approvals.waitingCapability("approval-other"); !stillWaiting || written.Len() != 0 {
+		t.Error("a request the learner had not seen was settled")
+	}
+}
+
 // A press that cancelled the command comes first, so the call never answers, and the request stays waiting for the learner.
 func TestACancelledCommandNeverAnswersTheRequest(t *testing.T) {
 	brain, written := newApprovalTestBrain(t)
@@ -465,17 +482,19 @@ func TestASettledNoIsNeverRememberedAsAlways(t *testing.T) {
 func TestAWorkerSecretRefusalFailsTheCommandWithTheReasonTheAppReadsAndAnAnthropic401DoesNot(t *testing.T) {
 	for _, refusalCase := range []struct {
 		name       string
+		status     int
 		body       string
 		wantReason string
 		wantExact  bool
 	}{
-		{name: "the Worker's secret check", body: `{"error":"Missing or wrong x-clicky-app-secret"}`, wantReason: "app secret refused", wantExact: true},
-		{name: "Anthropic's own 401", body: `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`, wantReason: "401"},
-		{name: "a 401 with another Worker error", body: `{"error":"something else"}`, wantReason: "401"},
+		{name: "the Worker's secret check", status: http.StatusUnauthorized, body: `{"error":"Missing or wrong x-clicky-app-secret"}`, wantReason: "app secret refused", wantExact: true},
+		{name: "Anthropic's own 401", status: http.StatusUnauthorized, body: `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`, wantReason: "401"},
+		{name: "a 401 with another Worker error", status: http.StatusUnauthorized, body: `{"error":"something else"}`, wantReason: "401"},
+		{name: "the secret's words with another status", status: http.StatusForbidden, body: `{"error":"Missing or wrong x-clicky-app-secret"}`, wantReason: "403"},
 	} {
 		worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, _ int) {
 			writer.Header().Set("Content-Type", "application/json")
-			writer.WriteHeader(http.StatusUnauthorized)
+			writer.WriteHeader(refusalCase.status)
 			fmt.Fprint(writer, refusalCase.body)
 		})
 		driver := startHarness(t, worker.server.URL)
