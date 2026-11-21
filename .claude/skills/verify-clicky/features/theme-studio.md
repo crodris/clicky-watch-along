@@ -79,6 +79,7 @@ Preconditions:
   The row shows the new name, `theme.json` has it, the folder keeps its name, and `companionTheme` is still `custom:<id>` when this was the theme in use.
   Open the field again and press Return on an empty field, then on a name of 25 characters: the field stays open, its border turns red, and the row says "1 to 24 characters".
   Press `$V key escape`: the field closes and the old name stays. Open it once more and click another theme in the panel: the field closes and that theme is picked.
+  With the studio card open (say "change my theme" first, or launch with that step), open the panel through the dial's More token, click a row's pencil, and press `$V key escape`: the rename field closes and the card is still open with its ideas.
   Move the mouse over the row and click the trash can once: it turns into a red "Delete" button, which goes back to the trash can after 3 seconds with no second click.
   Click the trash can and then "Delete": the row goes, the theme's folder is gone from `~/Library/Application Support/Clicky/Themes/`, and when it was the theme in use, `companionTheme` is `clickyBlue` and the cursor is the blue triangle.
   Seed agents with `debug_seed_agents` before the delete: they keep their colors after it.
@@ -102,6 +103,6 @@ Preconditions:
 - A hand-edited `theme.json` that breaks a rule (a path with an arc, an accent too dark to read) is skipped at load, not repaired.
 - With Show Clicky off, the cursor overlay fades a second after the last interaction (transient cursor mode), so the preview shows on the card's tiles only until the next push-to-talk.
 - Agents started while only a preview shows take the saved theme's colors, not the preview's.
-- The menu bar panel's frame is fitted to its content when the panel opens. After a delete or a rename, check that no row is clipped and the panel does not float away from the menu bar, and reopen the panel if it does.
-- Escape in the rename field also reaches the global Escape handler, which can skip a reply Clicky is giving. Rename with Clicky idle.
+- The menu bar panel's frame is fitted to its content when the panel opens and again when the saved theme list changes. After a delete, check that no row is clipped and the panel's top stays under the menu bar.
+- Escape in the rename field cancels only the rename: `closeLiveSceneOnEscape` returns while a text field in Clicky's own window is being edited. That check runs after the field editor takes the key, so the Escape-with-the-card-open step below is what proves it.
 - Seeded agents never end on their own. Cancel them from the agent list or quit the app.

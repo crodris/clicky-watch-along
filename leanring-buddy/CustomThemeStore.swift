@@ -154,7 +154,9 @@ nonisolated struct CustomThemeStore: Sendable {
         let savedTheme = try loadTheme(inFolderNamed: themeID)
         let renamedTheme = savedTheme.theme.renamed(to: newName)
         try writeThemeFile(of: renamedTheme, inFolderAt: themeDirectoryURL)
-        try FileManager.default.setAttributes(
+        // The new name is already written, so this does not throw: a date that fails to go back only moves the theme to
+        // the front of the dial's Team fan, and the panel must still show the new name.
+        try? FileManager.default.setAttributes(
             [.modificationDate: savedTheme.savedDate],
             ofItemAtPath: themeDirectoryURL.appendingPathComponent(Self.themeFileName).path
         )

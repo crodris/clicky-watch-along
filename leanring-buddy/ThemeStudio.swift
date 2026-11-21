@@ -191,14 +191,18 @@ nonisolated enum ThemeStudioRequest: Equatable, Sendable {
 /// asks for a theme of their own or Clicky's. That takes two things, and a theme the learner is only reading about has
 /// neither:
 /// - a request word within the four words before "theme": a design word (change, make, design, create, customize,
-///   customise, redo, switch) or an asking word (give, want, need, get, try), and
-/// - an owner word: my, your, or Clicky's directly before "theme" or one word before it, or "a" one word before it, as in
-///   "a cozy theme". A design word also takes "a" directly before "theme", as in "create a theme". "The" never counts.
+///   customise, redo, switch) or an asking word (give, want, need, get, try, like), and
+/// - an owner word: my, your, or Clicky's directly before "theme", or one of the forms that also fit a theme for something
+///   else, which count only when "theme" ends the request or is followed by please, like, that, with, based, or, when the
+///   words point at the picture, from:
+///   my, your, or Clicky's one word before "theme", "a" one word before it, as in "a cozy theme", or, with a design word,
+///   "a" directly before it, as in "create a theme". "The" never counts.
 ///
-/// So "change my theme", "make me a new theme", "I want a new theme", and "create a cozy theme" open the studio. "How does
-/// the author change the theme here" has no owner word, "what's the new theme in chapter two" has neither word, "I need a
-/// theme for my essay" pairs an asking word with a bare "a", and "I need a theme of loss for my essay" is followed by "of",
-/// so those are questions for the router. "New theme" or "a new theme", alone or with "hey", "okay", "Clicky", or
+/// So "change my theme to something cozy", "make me a new theme", "I want a new theme that feels like rain", and "create
+/// a cozy theme" open the studio. "How does the author change the theme here" has no owner word, "what's the new theme in
+/// chapter two" has neither word, "I need a theme for my essay" pairs an asking word with a bare "a", "I need a good theme
+/// for my essay" and "I want a new theme song" go on past "theme", and "I need a theme of loss for my essay" is followed by
+/// "of", so those are questions for the router. "New theme" or "a new theme", alone or with "hey", "okay", "Clicky", or
 /// "please" around it, is a request too, since nothing else is in it to ask about. The words "this picture", "this image",
 /// "this photo", or "match this" make it a request from the picture.
 /// Whether the router sees the utterance instead, while the studio is already open, during a quiz question, or with the
@@ -219,7 +223,12 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
 
     let themeWordIndexes = words.indices.filter { words[$0] == "theme" || words[$0] == "themes" }
     let wordsThatAskToDesignATheme: Set<String> = ["change", "make", "design", "create", "customize", "customise", "redo", "switch"]
-    let wordsThatAskForATheme: Set<String> = ["give", "want", "need", "get", "try"]
+    let wordsThatAskForATheme: Set<String> = ["give", "want", "need", "get", "try", "like"]
+    let wordsThatMayFollowARequestedTheme: Set<String> = ["please", "like", "that", "with", "based"]
+    let wordPairsThatPointAtThePicture: Set<[String]> = [["this", "picture"], ["this", "image"], ["this", "photo"], ["match", "this"]]
+    let pointsAtThePicture = words.indices.dropLast().contains { wordIndex in
+        wordPairsThatPointAtThePicture.contains([words[wordIndex], words[wordIndex + 1]])
+    }
     let wordsThatNameTheLearnerOrClicky: Set<String> = ["my", "your", "clicky's", "clickys"]
     let nearestWordsToCheck = 4
     let nameTheTheme = themeWordIndexes.contains { themeWordIndex in
@@ -232,24 +241,26 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
         let anAskingWordIsNearby = wordIndexesBeforeTheTheme.contains { wordsThatAskForATheme.contains(words[$0]) }
         guard aDesignWordIsNearby || anAskingWordIsNearby else { return false }
 
-        // "Change my theme" says whose theme it is right before "theme", and "make me a new theme" or "create a cozy theme"
-        // one word earlier. A bare "a" right before "theme" counts only with a design word: "create a theme" asks for one,
-        // while "I need a theme for my essay" or "I want a theme song" asks about something else.
+        // "Change my theme" says whose theme it is right before "theme", and that alone is enough.
         let wordBeforeTheTheme = words.indices.contains(themeWordIndex - 1) ? words[themeWordIndex - 1] : nil
         let wordTwoBeforeTheTheme = words.indices.contains(themeWordIndex - 2) ? words[themeWordIndex - 2] : nil
-        let theLearnerOrClickyOwnsIt = [wordBeforeTheTheme, wordTwoBeforeTheTheme].contains { word in
-            word.map(wordsThatNameTheLearnerOrClicky.contains) ?? false
-        }
+        if let wordBeforeTheTheme, wordsThatNameTheLearnerOrClicky.contains(wordBeforeTheTheme) { return true }
+
+        // The other owners, "my" one word earlier ("my whole theme"), "a" one word earlier ("a cozy theme"), and a bare "a"
+        // with a design word ("create a theme"), also fit a theme for something else: "I need a good theme for my essay",
+        // "I want a new theme song", or "make a theme for my presentation". So they count only when the request ends at
+        // "theme" or goes on to say how the theme should look.
+        // "From" counts only toward the picture, so "make a theme from this image" opens and "a theme from this poem" does not.
+        let theRequestEndsAtTheTheme = wordAfterTheTheme.map { wordAfterTheTheme in
+            wordsThatMayFollowARequestedTheme.contains(wordAfterTheTheme) || (wordAfterTheTheme == "from" && pointsAtThePicture)
+        } ?? true
+        guard theRequestEndsAtTheTheme else { return false }
+        let theLearnerOrClickyOwnsIt = wordTwoBeforeTheTheme.map(wordsThatNameTheLearnerOrClicky.contains) ?? false
         let aDescribedThemeIsAskedFor = wordTwoBeforeTheTheme == "a"
         let aThemeIsAskedToBeDesigned = wordBeforeTheTheme == "a" && aDesignWordIsNearby
         return theLearnerOrClickyOwnsIt || aDescribedThemeIsAskedFor || aThemeIsAskedToBeDesigned
     }
     guard nameTheTheme || isTheWholeRequestNewTheme else { return nil }
-
-    let wordPairsThatPointAtThePicture: Set<[String]> = [["this", "picture"], ["this", "image"], ["this", "photo"], ["match", "this"]]
-    let pointsAtThePicture = words.indices.dropLast().contains { wordIndex in
-        wordPairsThatPointAtThePicture.contains([words[wordIndex], words[wordIndex + 1]])
-    }
     return pointsAtThePicture ? .fromThePicture : .fromWords
 }
 

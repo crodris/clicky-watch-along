@@ -2408,7 +2408,8 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
+    /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
+    /// is, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
     /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.

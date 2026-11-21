@@ -126,7 +126,6 @@ struct AsksToDesignAThemeTests {
             "make me a new theme",
             "can you make me a new theme",
             "give me a new theme",
-            "design a theme for night",
             "create a theme",
             "customize my theme",
             "customise my theme",
@@ -174,7 +173,7 @@ struct AsksToDesignAThemeTests {
 
     @Test func otherWordsAboutThePictureDoNotMakeItARequestFromThePicture() {
         #expect(asksToDesignATheme("change my theme, that picture is pretty") == .fromWords)
-        #expect(asksToDesignATheme("make a theme, this is great") == .fromWords)
+        #expect(asksToDesignATheme("make a theme please, this is great") == .fromWords)
         // Natural requests with a want word or one word between the owner and "theme".
         #expect(asksToDesignATheme("I want a new theme") == .fromWords)
         #expect(asksToDesignATheme("create a cozy theme") == .fromWords)
@@ -194,6 +193,21 @@ struct AsksToDesignAThemeTests {
         // A design word with a bare "a" still asks for one, and so does an asking word with a described theme.
         #expect(asksToDesignATheme("create a theme") == .fromWords)
         #expect(asksToDesignATheme("give me a new theme") == .fromWords)
+        #expect(asksToDesignATheme("I'd like a new theme") == .fromWords)
+    }
+
+    @Test func aThemeForSomethingElseOpensNothingUnlessTheOwnerIsRightBeforeIt() {
+        // Past "theme", the words say what the theme is for, so the learner asks about an essay, a song, or a poem.
+        #expect(asksToDesignATheme("I need a good theme for my essay") == nil)
+        #expect(asksToDesignATheme("give me a catchy theme for my story") == nil)
+        #expect(asksToDesignATheme("I want a new theme song for my video") == nil)
+        #expect(asksToDesignATheme("did you get a clear theme from this poem") == nil)
+        #expect(asksToDesignATheme("make a theme for my presentation") == nil)
+        #expect(asksToDesignATheme("I need my essay's theme to be clearer") == nil)
+        // Words that say how the theme should look keep it a request, and "my theme" right before it is one whatever follows.
+        #expect(asksToDesignATheme("I want a new theme that feels like a rainy night") == .fromWords)
+        #expect(asksToDesignATheme("make me a theme with soft colors") == .fromWords)
+        #expect(asksToDesignATheme("change my theme to something cozy") == .fromWords)
     }
 
     @Test func aQuestionAboutAWorksThemeOpensNothing() {
