@@ -16,7 +16,11 @@ private final class RecordingCardPresenter: ThemeStudioCardPresenting {
     private(set) var showCount = 0
     private(set) var hideCount = 0
     func show(studio: ThemeStudioController) { showCount += 1 }
-    func hide() { hideCount += 1 }
+    var lastClosingReason: ThemeStudioCardClosing?
+    func hide(because reason: ThemeStudioCardClosing) {
+        hideCount += 1
+        lastClosingReason = reason
+    }
 }
 
 /// Holds a stubbed Worker call until the test lets it go, so a test can act while a design is still running.

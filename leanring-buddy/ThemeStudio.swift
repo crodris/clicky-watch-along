@@ -125,6 +125,19 @@ nonisolated enum ThemeStudioState: Equatable, Sendable {
 
 // MARK: - Tags
 
+/// One sound of the sound preview, and when it plays.
+nonisolated struct ThemeSoundPreviewStep: Equatable, Sendable {
+    let sound: ThemeSound
+    let secondsAfterTheStart: Double
+}
+
+/// The sound preview of an idea: its done, correct, and needs-your-OK sounds in that row, `secondsBetweenSounds` apart.
+nonisolated func themeSoundPreviewPlan(for idea: ClickyTheme, secondsBetweenSounds: Double) -> [ThemeSoundPreviewStep] {
+    [idea.sounds.done, idea.sounds.correct, idea.sounds.needsYourOK].enumerated().map { soundIndex, sound in
+        ThemeSoundPreviewStep(sound: sound, secondsAfterTheStart: Double(soundIndex) * secondsBetweenSounds)
+    }
+}
+
 /// What the card says about the highlighted idea, in words, as short tags: a picture cursor's look, how it moves, and the sounds.
 nonisolated func themeStudioTags(for idea: ClickyTheme) -> [String] {
     var tags: [String] = []
