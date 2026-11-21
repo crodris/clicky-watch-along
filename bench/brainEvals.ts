@@ -4,6 +4,7 @@
 //   .claude/skills/verify-clicky/verify-clicky.sh worker-up 8797 -- --inspector-port 9307
 //   node bench/brainEvals.ts run --label baseline [--runs 1] [--only caseId,...] [--port 8797] [--checkout <path>]
 //                                [--backend worker|harness|both] [--harness <clicky-agent-harness>]
+//   node bench/brainEvals.ts session-run --label <name> [--runs 3] [--port 8797] [--harness <clicky-agent-harness>]
 //   node bench/brainEvals.ts sync-tools
 //
 // The cases and the screen each one runs in are in fixtures/brain-evals.json. The tools the router is offered are in
@@ -16,6 +17,13 @@
 // case by case, so the latency comparison shares one network and one Worker. Only the first turn's tool calls are scored,
 // since that is what the Worker backend returns. A harness command that takes a second turn, such as the one after
 // find_moment's lookup, reports that turn's cost beside the first turn's.
+//
+// The harness keeps a session across commands, so the harness backend sends `reset_session` before every case, and a case
+// that needs earlier commands (`earlierCommands`, and `interruptedBefore` for a command the learner cut short) puts them in
+// the session with the bench-only `seed_session`. The harness takes both only because the driver starts it with
+// CLICKY_BENCH=1. The cases in fixtures/brain-sessions.json need that history, so only the harness backend runs them, and
+// they are scored apart from the parity gate's cases. `session-run` measures a 10 command session against the same ten
+// commands with no memory.
 //
 // How a request is built. The app sends { messages, tools } to the Worker, which adds the model, the system prompt, and a
 // `confirmation` property on every tool. `voiceCommandUserMessageText` mirrors the app's function of the same name in
@@ -41,6 +49,7 @@ import { costOfUsageLine, isRecord, usageLinesOfRouteInLog, type UsageLine } fro
 const benchDirectory = dirname(fileURLToPath(import.meta.url));
 const checkoutRoot = dirname(benchDirectory);
 const casesPath = join(benchDirectory, "fixtures", "brain-evals.json");
+const sessionCasesPath = join(benchDirectory, "fixtures", "brain-sessions.json");
 const toolCatalogPath = join(benchDirectory, "fixtures", "brain-evals-tools.json");
 
 // ---------- Fixture types ----------
@@ -77,8 +86,18 @@ export type BrainCase = {
    * the key must be absent. Keys not listed are not checked, and a tool not listed is not checked at all.
    */
   input?: Record<string, Record<string, unknown>>;
-  /** The router's recent tool call lines, as the app writes them, for a command that corrects the last action. */
+  /**
+   * The router's recent tool call lines, as the app writes them, for a command that corrects the last action. Only the
+   * Worker backend reads them, since the harness keeps its own session. A case that has them must also list the same
+   * actions as `earlierCommands`, which the harness backend seeds, and brainEvals.test.ts checks that they agree.
+   */
   recentActions?: string[];
+  /** Commands the learner gave earlier, oldest first. The harness backend seeds them into the session before the case. */
+  earlierCommands?: EarlierCommand[];
+  /** Action lines of a command the learner interrupted, which the next command's message reports. Harness backend only. */
+  interruptedBefore?: string[];
+  /** Keys of the context's scene state that the earlier commands changed, so the case's own scene_state matches what they did. Earlier commands keep the context's state. */
+  sceneStateChanges?: Record<string, unknown>;
   /**
    * What the app answers a tool's call on the harness backend, by tool name, when the default is not enough. A lookup tool
    * with no entry gets an empty `lookedUp` result, every hand-off tool gets `handedOff`, and every other tool gets `changed`.
@@ -88,6 +107,19 @@ export type BrainCase = {
   /** Why the case exists, for the reader of a failure. */
   why: string;
 };
+
+/** One tool call of an earlier command, with the answer the app gave it. */
+export type EarlierCall = {
+  name: string;
+  input: Record<string, unknown>;
+  /** What the brain asked Clicky to say. Defaults to "done". */
+  confirmation?: string;
+  /** The app's result text. Defaults to the text a tool that changed the screen returns. */
+  resultText?: string;
+};
+
+/** A command the learner gave before the case's own, with the calls the brain made for it. */
+export type EarlierCommand = { say: string; calls: EarlierCall[] };
 
 export type BrainEvalFile = {
   /** The skills the app lists in start_background_task, as `TaskAgentSkillCatalog` reads them from its Skills folders. */
@@ -166,17 +198,95 @@ export function withSkills(tool: ToolDescriptor, skills: SkillSummary[]): ToolDe
   };
 }
 
+/** The scene_state a case's own command runs in: its context's state, with the keys the case changes, such as the yaw after a turn. */
+export function sceneStateOf(brainCase: BrainCase, evalFile: BrainEvalFile): Record<string, unknown> {
+  return { ...evalFile.contexts[brainCase.context].sceneState, ...brainCase.sceneStateChanges };
+}
+
 /** The /voice-command body for one case: the app's message and the context's tools. */
 export function requestBodyFor(brainCase: BrainCase, evalFile: BrainEvalFile, toolCatalog: ToolCatalog) {
   const context = evalFile.contexts[brainCase.context];
   const offeredToolNames = new Set(context.tools);
   return {
-    messages: [{ role: "user", content: voiceCommandUserMessageText(brainCase.say, context.sceneState, brainCase.recentActions ?? []) }],
+    messages: [{ role: "user", content: voiceCommandUserMessageText(brainCase.say, sceneStateOf(brainCase, evalFile), brainCase.recentActions ?? []) }],
     tools: toolCatalog.tools
       .filter((tool) => offeredToolNames.has(tool.name))
       .map((tool) => withSkills(tool, evalFile.skills ?? []))
       .map(({ name, description, inputSchema, readOnly }) => ({ name, description, inputSchema, readOnly })),
   };
+}
+
+// ---------- The harness's session ----------
+
+/** The line label harness/brainsession.go writes before the actions of an interrupted command. brainEvals.test.ts pins it against the Go source. */
+export const interruptedBeforeLabel = "Interrupted before:";
+
+/** What a tool that changed the screen returns, which the app writes as `VoiceToolOutcome.toolResultText`. */
+const changedToolResultText = compactJSONText({ ok: true, state: null });
+
+/**
+ * Mirrors brainUserMessageText in harness/brain.go, the message the harness's brain reads for each command: the scene, a
+ * line for the actions an interrupted command had done, and the learner's words. The harness backend never builds it, since
+ * the harness does, but a seeded session holds earlier commands in the same form.
+ */
+export function harnessUserMessageText(learnerTranscript: string, sceneState: unknown, interruptedActionLines: string[]): string {
+  const interruptedText = interruptedActionLines.length === 0 ? "" : `${interruptedBeforeLabel} ${interruptedActionLines.join("; ").replaceAll("<", " ")}\n`;
+  return `<scene_state>${compactJSONText(sceneState).replaceAll("<", " ")}</scene_state>\n${interruptedText}Learner said: "${learnerTranscript}"`;
+}
+
+/** One earlier call in the app's recent action format, which is also what the harness writes into a fold. */
+export function earlierActionLine(call: EarlierCall): string {
+  return `${call.name} ${compactJSONText(call.input)} -> ok`;
+}
+
+export type SeededMessage = { role: "user" | "assistant"; content: Array<Record<string, unknown>> };
+
+/**
+ * The Anthropic messages of earlier commands as the harness's session would hold them: for each command, the user message
+ * with the scene and the words, the assistant's tool calls, and the user message with the results. The scene state is the
+ * case's own, since the fixtures describe one screen.
+ */
+export function seedMessagesFor(earlierCommands: EarlierCommand[], sceneState: unknown): SeededMessage[] {
+  return earlierCommands.flatMap((earlierCommand, commandIndex): SeededMessage[] => {
+    const callIds = earlierCommand.calls.map((_, callIndex) => `toolu_seed_${commandIndex + 1}_${callIndex + 1}`);
+    return [
+      { role: "user", content: [{ type: "text", text: harnessUserMessageText(earlierCommand.say, sceneState, []) }] },
+      {
+        role: "assistant",
+        content: earlierCommand.calls.map((call, callIndex) => ({
+          type: "tool_use",
+          id: callIds[callIndex],
+          name: call.name,
+          input: { ...call.input, confirmation: call.confirmation ?? "done" },
+        })),
+      },
+      {
+        role: "user",
+        content: earlierCommand.calls.map((call, callIndex) => ({
+          type: "tool_result",
+          tool_use_id: callIds[callIndex],
+          content: [{ type: "text", text: call.resultText ?? changedToolResultText }],
+          is_error: false,
+        })),
+      },
+    ];
+  });
+}
+
+/**
+ * The lines the harness backend sends before a case's `voice_command`: a reset, so cases stay independent, and a seed when
+ * the case needs earlier commands or an interrupted one.
+ */
+export function sessionLinesFor(brainCase: BrainCase, evalFile: BrainEvalFile): Array<Record<string, unknown>> {
+  const lines: Array<Record<string, unknown>> = [{ type: "reset_session" }];
+  if (brainCase.earlierCommands !== undefined || brainCase.interruptedBefore !== undefined) {
+    lines.push({
+      type: "seed_session",
+      messages: seedMessagesFor(brainCase.earlierCommands ?? [], evalFile.contexts[brainCase.context].sceneState),
+      interruptedBefore: brainCase.interruptedBefore ?? [],
+    });
+  }
+  return lines;
 }
 
 /** Throws a message naming the first problem, so a typo in a case fails at load and not as a silent wrong score. */
@@ -221,6 +331,14 @@ export function validateBrainEvals(evalFile: BrainEvalFile, toolCatalog: ToolCat
     for (const toolName of Object.keys(brainCase.toolResults ?? {})) {
       if (!context.tools.includes(toolName)) {
         throw new Error(`Case ${brainCase.id} scripts the result of ${toolName}, which context ${brainCase.context} does not offer.`);
+      }
+    }
+    if (brainCase.recentActions !== undefined && brainCase.earlierCommands === undefined) {
+      throw new Error(`Case ${brainCase.id} has recentActions, which only the Worker backend reads, and no earlierCommands for the harness backend.`);
+    }
+    for (const earlierCommand of brainCase.earlierCommands ?? []) {
+      if (earlierCommand.say.trim() === "" || earlierCommand.calls.length === 0 || earlierCommand.calls.some((call) => call.name === "")) {
+        throw new Error(`Case ${brainCase.id} has an earlier command with no words or no named call.`);
       }
     }
   }
@@ -304,6 +422,8 @@ export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exc
 export type Backend = "worker" | "harness";
 
 export type BrainSample = {
+  /** "sessions" for a case of fixtures/brain-sessions.json, which the parity gate leaves out. */
+  suite?: "sessions";
   backend: Backend;
   caseId: string;
   context: string;
@@ -387,6 +507,14 @@ export function summarizeSamples(samples: BrainSample[]): ScoreSummary {
       fullCommandCosts.length === 0 || fullCommandCosts.includes(null)
         ? null
         : Number((fullCommandCosts.reduce((total: number, cost) => total + (cost ?? 0), 0) / fullCommandCosts.length).toFixed(6)),
+  };
+}
+
+/** The samples of the cases both backends run, and the samples of the session cases, which only the harness backend runs. */
+export function splitBySuite(samples: BrainSample[]): { parityCaseSamples: BrainSample[]; sessionSamples: BrainSample[] } {
+  return {
+    parityCaseSamples: samples.filter((sample) => sample.suite !== "sessions"),
+    sessionSamples: samples.filter((sample) => sample.suite === "sessions"),
   };
 }
 
@@ -691,21 +819,30 @@ export function sampleFromHarnessRecord(brainCase: BrainCase, runIndex: number, 
   };
 }
 
-/** The `voice_command` line for one case, with the same words, scene state, recent actions, and tools the Worker request has. */
+/**
+ * The `voice_command` line for one case, with the same words, scene state, and tools the Worker request has. It carries no
+ * recent actions, since the harness keeps earlier commands in its session, which `sessionLinesFor` sets up.
+ */
 export function voiceCommandMessageFor(brainCase: BrainCase, evalFile: BrainEvalFile, toolCatalog: ToolCatalog, commandID: string) {
   return {
     type: "voice_command",
     taskID: commandID,
     transcript: brainCase.say,
-    sceneState: evalFile.contexts[brainCase.context].sceneState,
-    recentActions: brainCase.recentActions ?? [],
+    sceneState: sceneStateOf(brainCase, evalFile),
     tools: requestBodyFor(brainCase, evalFile, toolCatalog).tools,
   };
 }
 
 export type HarnessBrainProcess = {
-  /** Runs one command and records how it ended. Never rejects: a harness that dies or stalls is a command that failed. */
-  runCommand: (voiceCommand: ReturnType<typeof voiceCommandMessageFor>, brainCase: BrainCase) => Promise<HarnessCommandRecord>;
+  /**
+   * Runs one command and records how it ended. Never rejects: a harness that dies or stalls is a command that failed.
+   * `sessionLines` are written first, such as `sessionLinesFor`'s reset and seed, and the command's clock starts after them.
+   */
+  runCommand: (
+    voiceCommand: ReturnType<typeof voiceCommandMessageFor>,
+    brainCase: BrainCase,
+    sessionLines?: Array<Record<string, unknown>>,
+  ) => Promise<HarnessCommandRecord>;
   stop: () => void;
 };
 
@@ -728,7 +865,8 @@ export async function startHarnessBrain(
   appSecret: string,
   commandTimeoutMs = harnessCommandTimeoutMs,
 ): Promise<HarnessBrainProcess> {
-  const { harnessProcess, stderrTail } = spawnHarness(harness, workerPort, appSecret);
+  // CLICKY_BENCH=1 lets the harness take reset_session and seed_session. The app never passes it.
+  const { harnessProcess, stderrTail } = spawnHarness(harness, workerPort, appSecret, { CLICKY_BENCH: "1" });
   let exitReason: string | null = null;
   let activeCommand: { recorder: HarnessCommandRecorder; commandID: string; startedAt: number; finish: () => void } | null = null;
   let markReady = () => {};
@@ -783,11 +921,11 @@ export async function startHarnessBrain(
   await readyToTakeCommands;
 
   return {
-    runCommand: (voiceCommand, brainCase) =>
+    runCommand: (voiceCommand, brainCase, sessionLines = []) =>
       new Promise((resolve) => {
         const recorder = new HarnessCommandRecorder(brainCase, voiceCommand.taskID);
         let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-        const startedAt = performance.now();
+        let startedAt = performance.now();
         const finish = () => {
           clearTimeout(timeoutHandle);
           activeCommand = null;
@@ -809,6 +947,12 @@ export async function startHarnessBrain(
         }
         activeCommand = { recorder, commandID: voiceCommand.taskID, startedAt, finish };
         timeoutHandle = setTimeout(giveUp, commandTimeoutMs);
+        for (const sessionLine of sessionLines) {
+          writeLine(sessionLine);
+        }
+        // The clock starts at the command's own line, so a seed's size is never charged to the command.
+        startedAt = performance.now();
+        activeCommand.startedAt = startedAt;
         writeLine(voiceCommand);
       }),
     stop: () => {
@@ -830,9 +974,14 @@ export const parityMostCostMultiple = 1.5;
 /**
  * The gate for the harness brain, from the Worker's and the harness's summaries of the same run: every harness run
  * passes, its p50 to the first tool call is within 100 ms of the Worker's, and its first-turn cost per call is within 1.5
- * times the Worker's. The full-command cost is reported beside it and is not checked.
+ * times the Worker's. The full-command cost is reported beside it and is not checked. When the run also held the session
+ * cases of fixtures/brain-sessions.json, every one of those must pass too.
  */
-export function harnessParityGate(workerSummary: ScoreSummary, harnessSummary: ScoreSummary): { passed: boolean; checks: ParityCheck[] } {
+export function harnessParityGate(
+  workerSummary: ScoreSummary,
+  harnessSummary: ScoreSummary,
+  sessionSummary?: ScoreSummary,
+): { passed: boolean; checks: ParityCheck[] } {
   const extraP50Ms = harnessSummary.p50Ms - workerSummary.p50Ms;
   const costMultiple =
     harnessSummary.meanCostUSD === null || workerSummary.meanCostUSD === null || workerSummary.meanCostUSD === 0
@@ -855,6 +1004,13 @@ export function harnessParityGate(workerSummary: ScoreSummary, harnessSummary: S
       detail: `harness $${harnessSummary.meanCostUSD}, Worker $${workerSummary.meanCostUSD}, ${costMultiple === null ? "unknown" : `${costMultiple.toFixed(2)} times`}`,
     },
   ];
+  if (sessionSummary !== undefined && sessionSummary.runs > 0) {
+    checks.push({
+      name: "every session case passes",
+      passed: sessionSummary.passed === sessionSummary.runs,
+      detail: `${sessionSummary.passed} of ${sessionSummary.runs}`,
+    });
+  }
   return { passed: checks.every((check) => check.passed), checks };
 }
 
@@ -933,11 +1089,43 @@ function writeResultFile(label: string, measuredCheckout: string, result: Record
   return resultPath;
 }
 
-function loadFixtures(): { evalFile: BrainEvalFile; toolCatalog: ToolCatalog } {
+/**
+ * fixtures/brain-sessions.json: cases that need the harness's session, and one session of ten commands that `session-run`
+ * measures. Both use the contexts of brain-evals.json.
+ */
+export type SessionFixture = {
+  cases: BrainCase[];
+  measuredSession: { context: string; commands: Array<{ say: string; accept: AcceptedAnswer[] }> };
+};
+
+/** Throws a message naming the first problem in the session fixture, with every case checked as brain-evals.json's are. */
+export function validateSessionFixture(sessionFile: SessionFixture, evalFile: BrainEvalFile, toolCatalog: ToolCatalog): void {
+  validateBrainEvals({ ...evalFile, cases: [...evalFile.cases, ...sessionFile.cases] }, toolCatalog);
+  const measuredContext = evalFile.contexts[sessionFile.measuredSession.context];
+  if (measuredContext === undefined || sessionFile.measuredSession.commands.length === 0) {
+    throw new Error("The measured session needs a known context and at least one command.");
+  }
+  for (const command of sessionFile.measuredSession.commands) {
+    for (const toolName of acceptedAnswersOf(measuredCommandCase(command, sessionFile.measuredSession.context, 0)).flat()) {
+      if (!measuredContext.tools.includes(toolName)) {
+        throw new Error(`The measured command "${command.say}" accepts ${toolName}, which context ${sessionFile.measuredSession.context} does not offer.`);
+      }
+    }
+  }
+}
+
+/** A measured session's command as a case, so it is scored like any other. */
+export function measuredCommandCase(command: SessionFixture["measuredSession"]["commands"][number], context: string, commandIndex: number): BrainCase {
+  return { id: `measured-${commandIndex + 1}`, context, say: command.say, accept: command.accept, why: "A command of the measured session." };
+}
+
+function loadFixtures(): { evalFile: BrainEvalFile; toolCatalog: ToolCatalog; sessionFile: SessionFixture } {
   const evalFile: BrainEvalFile = JSON.parse(readFileSync(casesPath, "utf8"));
   const toolCatalog: ToolCatalog = JSON.parse(readFileSync(toolCatalogPath, "utf8"));
+  const sessionFile: SessionFixture = JSON.parse(readFileSync(sessionCasesPath, "utf8"));
   validateBrainEvals(evalFile, toolCatalog);
-  return { evalFile, toolCatalog };
+  validateSessionFixture(sessionFile, evalFile, toolCatalog);
+  return { evalFile, toolCatalog, sessionFile };
 }
 
 function describeCalls(toolCalls: ToolCall[]): string {
@@ -995,15 +1183,17 @@ async function runBrainEvals() {
     process.exit(1);
   }
   const backends: Backend[] = backendOption === "both" ? backendNames : [backendOption];
-  const { evalFile, toolCatalog } = loadFixtures();
+  const { evalFile, toolCatalog, sessionFile } = loadFixtures();
 
   const onlyCaseIds = commandLineOption("only")?.split(",");
-  const unknownCaseIds = (onlyCaseIds ?? []).filter((caseId) => !evalFile.cases.some((brainCase) => brainCase.id === caseId));
+  const unknownCaseIds = (onlyCaseIds ?? []).filter((caseId) => ![...evalFile.cases, ...sessionFile.cases].some((brainCase) => brainCase.id === caseId));
   if (unknownCaseIds.length > 0) {
-    console.error(`No case named ${unknownCaseIds.join(", ")}. The ids are in bench/fixtures/brain-evals.json.`);
+    console.error(`No case named ${unknownCaseIds.join(", ")}. The ids are in bench/fixtures/brain-evals.json and brain-sessions.json.`);
     process.exit(1);
   }
   const selectedCases = evalFile.cases.filter((brainCase) => onlyCaseIds === undefined || onlyCaseIds.includes(brainCase.id));
+  // The session cases need the harness's memory, so the Worker backend never runs them.
+  const selectedSessionCases = backends.includes("harness") ? sessionFile.cases.filter((brainCase) => onlyCaseIds === undefined || onlyCaseIds.includes(brainCase.id)) : [];
   const logPath = workerLogPath(workerCheckout, port);
 
   let harnessBrain: HarnessBrainProcess | undefined;
@@ -1030,24 +1220,46 @@ async function runBrainEvals() {
               : sampleFromHarnessRecord(
                   brainCase,
                   runIndex,
-                  await harnessBrain.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase),
+                  await harnessBrain.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase, sessionLinesFor(brainCase, evalFile)),
                 );
           samples.push(sample);
-          console.log(
-            `${backend} ${brainCase.id} #${runIndex + 1}: ${Math.round(sample.totalMs)} ms, ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(5)}`}, ` +
-              `${sample.outcome === "pass" ? "PASS" : "FAIL"} ${sample.outcome} (${describeCalls(sample.toolCalls)}; accepts ${acceptedText(brainCase)})` +
-              (sample.outcome === "error" ? ` ${sample.spokenText}` : ""),
-          );
+          logSample(backend, brainCase, runIndex, sample);
         }
+      }
+    }
+    for (const brainCase of harnessBrain === undefined ? [] : selectedSessionCases) {
+      for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
+        const record = await harnessBrain?.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase, sessionLinesFor(brainCase, evalFile));
+        if (record === undefined) {
+          continue;
+        }
+        const sample: BrainSample = { ...sampleFromHarnessRecord(brainCase, runIndex, record), suite: "sessions" };
+        samples.push(sample);
+        logSample("harness", brainCase, runIndex, sample);
       }
     }
   } finally {
     harnessBrain?.stop();
   }
 
+  // The parity gate and the tables below count only the cases both backends run.
+  const { parityCaseSamples, sessionSamples } = splitBySuite(samples);
   const summaryByBackend = Object.fromEntries(
-    backends.map((backend) => [backend, summarizeByContext(samples.filter((sample) => sample.backend === backend), Object.keys(evalFile.contexts))]),
+    backends.map((backend) => [backend, summarizeByContext(parityCaseSamples.filter((sample) => sample.backend === backend), Object.keys(evalFile.contexts))]),
   );
+  const sessionSummary = sessionSamples.length === 0 ? undefined : summarizeSamples(sessionSamples);
+  if (sessionSummary !== undefined) {
+    console.log("session cases (harness backend only)");
+    console.table([summaryRow("sessions", sessionSummary)]);
+    for (const brainCase of selectedSessionCases) {
+      const failedSamples = sessionSamples.filter((sample) => sample.caseId === brainCase.id && sample.outcome !== "pass");
+      if (failedSamples.length > 0) {
+        console.log(
+          `FAIL sessions ${brainCase.id} (${failedSamples.length}/${runCount}): "${brainCase.say}" accepts ${acceptedText(brainCase)}, got ${[...new Set(failedSamples.map((sample) => `${sample.outcome}: ${describeCalls(sample.toolCalls)}`))].join("; ")}`,
+        );
+      }
+    }
+  }
   for (const backend of backends) {
     const summary = summaryByBackend[backend];
     console.log(`${backend} backend`);
@@ -1070,14 +1282,103 @@ async function runBrainEvals() {
     }
   }
 
-  const gate = backendOption === "both" ? harnessParityGate(summaryByBackend.worker.overall, summaryByBackend.harness.overall) : undefined;
+  const gate = backendOption === "both" ? harnessParityGate(summaryByBackend.worker.overall, summaryByBackend.harness.overall, sessionSummary) : undefined;
   for (const check of gate?.checks ?? []) {
     console.log(`${check.passed ? "GATE PASS" : "GATE FAIL"} ${check.name}: ${check.detail}`);
   }
 
   const models = [...new Set(samples.flatMap((sample) => sample.usageLines.map((usageLine) => usageLine.model)))];
-  console.log(`saved ${writeResultFile(label, workerCheckout, { runCount, port, backend: backendOption, models, gate, summaryByBackend, samples })}`);
+  console.log(`saved ${writeResultFile(label, workerCheckout, { runCount, port, backend: backendOption, models, gate, summaryByBackend, sessionSummary, samples })}`);
   process.exitCode = exitCodeOfGate(gate);
+}
+
+function logSample(backend: Backend, brainCase: BrainCase, runIndex: number, sample: BrainSample) {
+  console.log(
+    `${backend} ${brainCase.id} #${runIndex + 1}: ${Math.round(sample.totalMs)} ms, ${sample.costUSD === null ? "cost unknown" : `$${sample.costUSD.toFixed(5)}`}, ` +
+      `${sample.outcome === "pass" ? "PASS" : "FAIL"} ${sample.outcome} (${describeCalls(sample.toolCalls)}; accepts ${acceptedText(brainCase)})` +
+      (sample.outcome === "error" ? ` ${sample.spokenText}` : ""),
+  );
+}
+
+// ---------- The 10 command session ----------
+
+/** Cached input tokens as a share of all input tokens (fresh, cache read, and cache write) over every turn of the samples. */
+export function cacheReadShare(samples: BrainSample[]): number {
+  const lines = samples.flatMap((sample) => sample.usageLines);
+  const cacheRead = lines.reduce((total, line) => total + line.cacheReadTokens, 0);
+  const allInput = lines.reduce((total, line) => total + line.inputTokens + line.cacheReadTokens + line.cacheWriteTokens, 0);
+  return allInput === 0 ? NaN : Number((cacheRead / allInput).toFixed(4));
+}
+
+export type SessionMeasure = {
+  commands: number;
+  passed: number;
+  cacheReadShare: number;
+  /** p50 of the time to the first tool call. */
+  p50Ms: number;
+  p95Ms: number;
+  meanFirstTurnCostUSD: number | null;
+  meanFullCommandCostUSD: number | null;
+};
+
+export function measureSession(samples: BrainSample[]): SessionMeasure {
+  const summary = summarizeSamples(samples);
+  return {
+    commands: samples.length,
+    passed: summary.passed,
+    cacheReadShare: cacheReadShare(samples),
+    p50Ms: summary.p50Ms,
+    p95Ms: summary.p95Ms,
+    meanFirstTurnCostUSD: summary.meanCostUSD,
+    meanFullCommandCostUSD: summary.meanFullCommandCostUSD,
+  };
+}
+
+/**
+ * Runs the fixture's measured session twice per run on one harness: as one conversation (reset once, then each command sees
+ * the ones before it), and as the same commands with a reset before each, which is how the brain behaved with no memory.
+ * The two are then compared on cache read share, p50, and cost.
+ */
+async function runSessionMeasure() {
+  const label = commandLineOption("label");
+  if (label === undefined) {
+    console.error("Usage: node bench/brainEvals.ts session-run --label <name> [--runs 3] [--port 8797] [--checkout <path>] [--harness <path>]");
+    process.exit(1);
+  }
+  const runCount = Number(commandLineOption("runs") ?? 3);
+  const port = Number(commandLineOption("port") ?? 8789);
+  const workerCheckout = commandLineOption("checkout") ?? checkoutRoot;
+  const { evalFile, toolCatalog, sessionFile } = loadFixtures();
+  const appSecret = parseDevVars(readFileSync(join(workerCheckout, "worker/.dev.vars"), "utf8")).CLICKY_APP_SECRET;
+  if (appSecret === undefined || appSecret === "") {
+    console.error("worker/.dev.vars has no CLICKY_APP_SECRET, so the Worker would answer 401 to the harness.");
+    process.exit(1);
+  }
+  const measuredCases = sessionFile.measuredSession.commands.map((command, commandIndex) => measuredCommandCase(command, sessionFile.measuredSession.context, commandIndex));
+  const harnessBrain = await startHarnessBrain({ command: commandLineOption("harness") ?? buildHarness(), args: [] }, port, appSecret);
+
+  const samplesByMode: Record<"session" | "stateless", BrainSample[]> = { session: [], stateless: [] };
+  try {
+    for (let runIndex = 0; runIndex < runCount; runIndex += 1) {
+      // Which mode goes first flips each run, so neither always follows the other.
+      for (const mode of runIndex % 2 === 0 ? (["stateless", "session"] as const) : (["session", "stateless"] as const)) {
+        for (const [commandIndex, brainCase] of measuredCases.entries()) {
+          // Stateless resets before every command. The session resets once, so each command reads the ones before it.
+          const sessionLines = mode === "stateless" || commandIndex === 0 ? [{ type: "reset_session" }] : [];
+          const record = await harnessBrain.runCommand(voiceCommandMessageFor(brainCase, evalFile, toolCatalog, `eval-${randomUUID()}`), brainCase, sessionLines);
+          const sample = sampleFromHarnessRecord(brainCase, runIndex, record);
+          samplesByMode[mode].push(sample);
+          console.log(`${mode} run ${runIndex + 1} command ${commandIndex + 1} "${brainCase.say}": ${Math.round(sample.totalMs)} ms, ${sample.outcome}, ${describeCalls(sample.toolCalls)}`);
+        }
+      }
+    }
+  } finally {
+    harnessBrain.stop();
+  }
+
+  const measures = { session: measureSession(samplesByMode.session), stateless: measureSession(samplesByMode.stateless) };
+  console.table(measures);
+  console.log(`saved ${writeResultFile(label, workerCheckout, { runCount, port, measures, samples: [...samplesByMode.session.map((sample) => ({ ...sample, mode: "session" })), ...samplesByMode.stateless.map((sample) => ({ ...sample, mode: "stateless" }))] })}`);
 }
 
 function syncTools() {
@@ -1105,10 +1406,14 @@ if (import.meta.main) {
   const command = process.argv[2];
   if (command === "run") {
     await runBrainEvals();
+  } else if (command === "session-run") {
+    await runSessionMeasure();
   } else if (command === "sync-tools") {
     syncTools();
   } else {
-    console.error("Usage: node bench/brainEvals.ts run --label <name> [--runs N] [--only caseId,...] [--port 8789] [--backend worker|harness|both]\n       node bench/brainEvals.ts sync-tools");
+    console.error(
+      "Usage: node bench/brainEvals.ts run --label <name> [--runs N] [--only caseId,...] [--port 8789] [--backend worker|harness|both]\n       node bench/brainEvals.ts session-run --label <name> [--runs 3] [--port 8789]\n       node bench/brainEvals.ts sync-tools",
+    );
     process.exit(1);
   }
 }

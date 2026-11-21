@@ -450,6 +450,9 @@
       "recentActions": [
         "rotate_model {\"yawDegrees\":45} -> ok"
       ],
+      "earlierCommands": [
+        { "say": "turn it right", "calls": [{ "name": "rotate_model", "input": { "yawDegrees": 45 }, "confirmation": "turned it right" }] }
+      ],
       "accept": [
         "rotate_model"
       ],
@@ -533,6 +536,9 @@
       "say": "no, turn it the other way",
       "recentActions": [
         "rotate_model {\"yawDegrees\":45} -> ok"
+      ],
+      "earlierCommands": [
+        { "say": "turn it a bit", "calls": [{ "name": "rotate_model", "input": { "yawDegrees": 45 }, "confirmation": "turned it" }] }
       ],
       "accept": [
         "rotate_model"
