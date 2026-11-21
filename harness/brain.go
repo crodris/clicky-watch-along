@@ -227,6 +227,15 @@ func taggedLine(tag string, text string) string {
 	return "<" + tag + ">" + escapedLine(text) + "</" + tag + ">"
 }
 
+// taggedJSON is compact JSON inside its own tag, kept valid JSON: compact JSON already writes every line break inside a
+// string as an escape, so only "<" becomes "‹" (it cannot close the tag) and the line and paragraph separators, which JSON
+// allows raw, become their \u escapes. Doubling backslashes, as escapedLine does, would break the JSON.
+func taggedJSON(tag string, compactJSON string) string {
+	return "<" + tag + ">" + jsonForTagEscaper.Replace(compactJSON) + "</" + tag + ">"
+}
+
+var jsonForTagEscaper = strings.NewReplacer("<", tagSafeLessThanSymbol, "\u2028", `\u2028`, "\u2029", `\u2029`)
+
 // brainUserMessageText is what the model reads for one command: the scene as it is now, the actions an interrupted
 // command had already done, and the learner's words, each inside its own tag. The scene state arrives as the app's
 // compact JSON, so compacting it again keeps the app's bytes. Earlier commands are not here: they are earlier messages
@@ -237,7 +246,7 @@ func brainUserMessageText(transcript string, sceneState json.RawMessage, interru
 		compactState.Reset()
 		compactState.WriteString("null")
 	}
-	messageText := taggedLine(sceneStateTag, compactState.String()) + "\n"
+	messageText := taggedJSON(sceneStateTag, compactState.String()) + "\n"
 	if len(interruptedActionLines) > 0 {
 		messageText += taggedLine(interruptedBeforeTag, strings.Join(interruptedActionLines, "; ")) + "\n"
 	}

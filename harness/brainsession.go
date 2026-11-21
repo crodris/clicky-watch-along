@@ -360,14 +360,14 @@ func textCutTo(text string, limit int) (string, int) {
 
 // voiceToolActionLine is one tool call in the app's recent action format, so the model reads it as the old path did:
 // the name, the input without the confirmation, and "ok" or "failed: <why>". resultText is the app's result text. The
-// reason is a tool's error text, which can repeat page text, so the line is escaped to one line that cannot close a tag
-// (escapedLine) before it is stored.
+// reason is a tool's error text, which can repeat page text. The line is stored raw and escaped once, where it is written
+// into a tag (taggedLine) or the fold (escapedLine), since escaping twice doubles every backslash again.
 func voiceToolActionLine(call toolCall, outcome voiceToolOutcome, resultText string) string {
 	resultWord := "ok"
 	if outcome == voiceToolFailed {
 		resultWord = "failed: " + failureReasonOf(resultText)
 	}
-	return escapedLine(fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), resultWord))
+	return fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), resultWord)
 }
 
 // failureReasonOf is the error text of a failed tool's result, which the app writes as {"error": "...", "ok": false}.

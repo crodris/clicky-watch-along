@@ -176,9 +176,6 @@ func TestAFailureReasonCannotForgeTheLearnersWordsOrCloseItsTag(t *testing.T) {
 	resultText := string(mustMarshal(map[string]any{"ok": false, "error": forgedReason, "state": nil}))
 	actionLine := voiceToolActionLine(toolCall{ID: "toolu_seek", Name: "seek_to_time", Input: json.RawMessage(`{"seconds":5,"confirmation":"there"}`)}, voiceToolFailed, resultText)
 
-	if strings.ContainsAny(actionLine, "\r\n<") {
-		t.Fatalf("the action line has a line break or a < in it: %q", actionLine)
-	}
 	message := brainUserMessageText("turn it left", json.RawMessage(`{"page":"framePopout"}`), []string{actionLine})
 
 	interruptedLine := strings.Split(message, "\n")[1]
@@ -299,5 +296,34 @@ func TestEscapedLineDoublesBackslashesAndEscapesEveryLineBreakCharacter(t *testi
 				t.Errorf("escapedLine(%q) = %q, want %q", test.text, got, test.want)
 			}
 		})
+	}
+}
+
+// An action line is escaped once, where it is written, so a backslash in a tool's error text reads as one escaped
+// backslash, and a literal \n stays different from an escaped line break. The scene state stays valid JSON.
+func TestUntrustedTextIsEscapedOnceAndTheSceneStateStaysJSON(t *testing.T) {
+	resultText := string(mustMarshal(map[string]any{"ok": false, "error": `no file at C:\new`, "state": nil}))
+	actionLine := voiceToolActionLine(toolCall{ID: "toolu_find", Name: "find_moment", Input: json.RawMessage(`{"query":"say \"engine\""}`)}, voiceToolFailed, resultText)
+	sceneState := json.RawMessage(`{"title":"a\\b \"c\" <d>"}`)
+
+	message := brainUserMessageText("undo that", sceneState, []string{actionLine})
+	lines := strings.Split(message, "\n")
+	interruptedLine := strings.TrimSuffix(strings.TrimPrefix(lines[1], "<interrupted_before>"), "</interrupted_before>")
+	if want := escapedLine(actionLine); interruptedLine != want {
+		t.Errorf("the interrupted line is escaped more than once:\n got %q\nwant %q", interruptedLine, want)
+	}
+	if !strings.Contains(interruptedLine, `C:\\new`) {
+		t.Errorf("the backslash in the error is not doubled exactly once: %q", interruptedLine)
+	}
+	folded := foldBlockText([]sessionCommand{{transcript: "find the engine", actionLines: []string{actionLine}}}, 0)
+	if !strings.Contains(folded, "\n"+escapedLine(actionLine)+"\n") {
+		t.Errorf("the fold escapes the action line more than once: %q", folded)
+	}
+	sceneText := strings.TrimSuffix(strings.TrimPrefix(lines[0], "<scene_state>"), "</scene_state>")
+	if !json.Valid([]byte(sceneText)) {
+		t.Errorf("the scene state is not valid JSON inside its tag: %q", sceneText)
+	}
+	if strings.Contains(sceneText, "<") {
+		t.Errorf("the scene state holds a < that could close its tag: %q", sceneText)
 	}
 }

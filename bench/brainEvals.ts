@@ -236,6 +236,14 @@ export function escapedLine(text: string): string {
 
 const lineBreakPattern = new RegExp(["\\r\\n", "[\\n\\r\\v\\f\\u0085\\u2028\\u2029]"].join("|"), "g");
 
+/**
+ * Compact JSON for a tag, as `taggedJSON` in harness/brain.go: it stays valid JSON, so only "<" becomes "‹" and the line and
+ * paragraph separators, which JSON allows raw, become their \u escapes.
+ */
+export function jsonForTag(compactJSON: string): string {
+  return compactJSON.replaceAll("<", "‹").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
+}
+
 /** What a tool that changed the screen returns, which the app writes as `VoiceToolOutcome.toolResultText`. */
 const changedToolResultText = compactJSONText({ ok: true, state: null });
 
@@ -246,7 +254,7 @@ const changedToolResultText = compactJSONText({ ok: true, state: null });
  */
 export function harnessUserMessageText(learnerTranscript: string, sceneState: unknown, interruptedActionLines: string[]): string {
   const interruptedText = interruptedActionLines.length === 0 ? "" : `<${interruptedBeforeTag}>${escapedLine(interruptedActionLines.join("; "))}</${interruptedBeforeTag}>\n`;
-  return `<scene_state>${escapedLine(compactJSONText(sceneState))}</scene_state>\n${interruptedText}<learner_words>${escapedLine(learnerTranscript)}</learner_words>`;
+  return `<scene_state>${jsonForTag(compactJSONText(sceneState))}</scene_state>\n${interruptedText}<learner_words>${escapedLine(learnerTranscript)}</learner_words>`;
 }
 
 /** One earlier call in the app's recent action format, which is also what the harness writes into a fold. */
