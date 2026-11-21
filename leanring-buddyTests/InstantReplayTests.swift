@@ -38,6 +38,7 @@ private final class RecordingReplayStage {
         },
         freezeTheCursor: { [unowned self] in self.calls.append("freeze") },
         releaseTheCursor: { [unowned self] in self.calls.append("release") },
+        clearTheFocus: { [unowned self] in self.calls.append("clearFocus") },
         reduceMotionIsOn: { [unowned self] in self.reduceMotionIsOn },
         sleep: { [unowned self] _ in
             try await withCheckedThrowingContinuation { continuation in self.pendingSleeps.append(continuation) }
@@ -81,7 +82,7 @@ struct InstantReplayTests {
         await letTheReplayRun()
         // The last dwell ends the replay where the camera settled, and the cursor goes back to the mouse with no freeze.
         #expect(replay.phase == .notOpen)
-        #expect(recorder.calls.suffix(2) == ["hideNumbers", "release"])
+        #expect(recorder.calls.suffix(3) == ["hideNumbers", "release", "clearFocus"])
         #expect(!recorder.calls.contains("endFocus"))
         let pointedLabels = recorder.calls.filter { $0.hasPrefix("point") }
         #expect(pointedLabels == [
@@ -251,6 +252,61 @@ struct InstantReplayTests {
         let stops = replayStops(replayStops(replayStops([], adding: firstStop), adding: secondStop), adding: thirdStop)
         #expect(stops.map(\.partLabel) == ["chain", "fork"])
         #expect(stops[0].sentence == "The chain turns. It needs oil.")
+    }
+
+    @Test func onlyTheNewestNarrationOffersItsStops() {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        let tappedAwayNarration = replay.narrationStarted()
+        let newestNarration = replay.narrationStarted()
+        // The narration a tap cancelled unwinds after the next one started, and must not bring its stops or control back.
+        replay.narrationEnded(narrationNumber: tappedAwayNarration, recordedStops: threeStops, sceneNumber: 4, sceneIsStillOnScreen: true)
+        #expect(!replay.stopsAreRecorded(forSceneNumber: 4))
+        #expect(!recorder.calls.contains("showControl"))
+        replay.narrationEnded(narrationNumber: newestNarration, recordedStops: Array(threeStops.prefix(1)), sceneNumber: 4, sceneIsStillOnScreen: true)
+        #expect(replay.stops.count == 1)
+        #expect(recorder.calls.last == "showControl")
+    }
+
+    @Test func aNarrationThatRecordsNothingKeepsTheStopsBeforeIt() {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        let failedNarration = replay.narrationStarted()
+        #expect(recorder.calls.last == "hideControl")
+        replay.narrationEnded(narrationNumber: failedNarration, recordedStops: [], sceneNumber: 4, sceneIsStillOnScreen: true)
+        #expect(replay.stopsAreRecorded(forSceneNumber: 4))
+        #expect(recorder.calls.last == "showControl")
+        // A narration whose scene left the screen offers nothing.
+        let narrationOnAGoneScene = replay.narrationStarted()
+        replay.narrationEnded(narrationNumber: narrationOnAGoneScene, recordedStops: threeStops, sceneNumber: 4, sceneIsStillOnScreen: false)
+        #expect(recorder.calls.last == "hideControl")
+    }
+
+    @Test func aNarrationStartingEndsAnOpenReplay() async {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        _ = replay.narrationStarted()
+        #expect(replay.phase == .notOpen)
+        #expect(recorder.calls.suffix(2) == ["hideNumbers", "hideControl"])
+    }
+
+    @Test func showMeAgainRunsAheadOfTheRouterOnlyWhenNothingElseHoldsTheWords() {
+        #expect(replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: false))
+        #expect(!replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: true))
+        #expect(!replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: true, quizQuestionIsOpen: true, themeStudioIsOpen: false))
+        #expect(!replayPhraseRunsAheadOfTheRouter(asksToReplay: true, stopsAreRecorded: false, quizQuestionIsOpen: false, themeStudioIsOpen: false))
+        #expect(!replayPhraseRunsAheadOfTheRouter(asksToReplay: false, stopsAreRecorded: true, quizQuestionIsOpen: false, themeStudioIsOpen: false))
+    }
+
+    @Test func theReplayStopsOnlyACursorItPointedItself() {
+        let replayPointingID = UUID()
+        #expect(cursorPointsForTheReplay(pointingHold: .untilReleased(byNarrationID: replayPointingID), replayPointingID: replayPointingID))
+        #expect(!cursorPointsForTheReplay(pointingHold: .briefly, replayPointingID: replayPointingID))
+        #expect(!cursorPointsForTheReplay(pointingHold: .untilReleased(byNarrationID: UUID()), replayPointingID: replayPointingID))
     }
 
     @Test func noReplayOpenMeansNoCursorOfTheReplaysToFreeze() async {

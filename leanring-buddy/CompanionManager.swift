@@ -182,10 +182,11 @@ final class CompanionManager: ObservableObject {
         },
         freezeTheCursor: { [unowned self] in
             // Only the replay's own pointing is stopped, so a cursor pointing for an answer keeps its own fly-back.
-            guard self.detectedElementPointingHold == .untilReleased(byNarrationID: self.instantReplayPointingID) else { return }
+            guard cursorPointsForTheReplay(pointingHold: self.detectedElementPointingHold, replayPointingID: self.instantReplayPointingID) else { return }
             self.buddyFreezeCount += 1
         },
         releaseTheCursor: { [unowned self] in self.releaseTheBuddyTheReplayFroze() },
+        clearTheFocus: { LiveSceneOverlay.shared.highlightPart(labelText: "") },
         reduceMotionIsOn: { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
         sleep: { seconds in try await Task.sleep(for: .seconds(seconds)) },
         showControl: { [unowned self] in self.showTheInstantReplayControl() },
@@ -1270,8 +1271,12 @@ final class CompanionManager: ObservableObject {
             return
         }
         // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
-        // While the Theme Studio card is open it holds every spoken word, as with every keyword branch.
-        if asksToReplayTheExplanation(transcript), replayStopsAreRecordedForTheSceneOnScreen, !phaseIsWaitingForAQuizAnswer, !themeStudioController.isOpen {
+        if replayPhraseRunsAheadOfTheRouter(
+            asksToReplay: asksToReplayTheExplanation(transcript),
+            stopsAreRecorded: replayStopsAreRecordedForTheSceneOnScreen,
+            quizQuestionIsOpen: phaseIsWaitingForAQuizAnswer,
+            themeStudioIsOpen: themeStudioController.isOpen
+        ) {
             print("Instant replay: replaying on request")
             instantReplay.playFromTheStart()
             return
@@ -4365,15 +4370,17 @@ final class CompanionManager: ObservableObject {
         // included, and only while the same scene is still on screen.
         let sceneNumberOfThisNarration = LiveSceneOverlay.shared.scenesPlayedCount
         var recordedReplayStops: [ReplayStop] = []
-        // A replay must not move the camera or the cursor over a narration, so the old stops and their control go now,
-        // and the narration offers its own stops when it ends.
-        instantReplay.forget()
+        // A replay must not move the camera or the cursor over a narration, so an open one ends and the control hides now.
+        let replayNarrationNumber = instantReplay.narrationStarted()
         // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
         defer {
             releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID)
-            if LiveSceneOverlay.shared.isShowingAScene, LiveSceneOverlay.shared.scenesPlayedCount == sceneNumberOfThisNarration {
-                instantReplay.offer(recordedReplayStops, sceneNumber: sceneNumberOfThisNarration)
-            }
+            instantReplay.narrationEnded(
+                narrationNumber: replayNarrationNumber,
+                recordedStops: recordedReplayStops,
+                sceneNumber: sceneNumberOfThisNarration,
+                sceneIsStillOnScreen: LiveSceneOverlay.shared.isShowingAScene && LiveSceneOverlay.shared.scenesPlayedCount == sceneNumberOfThisNarration
+            )
         }
         let knownPartLabels = framePopout.parts.map(\.label)
         var sourceImagesForNarration: [(data: Data, label: String)] = []
@@ -4501,6 +4508,15 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
+    /// A click on the replay control takes over from an answer Clicky is still giving about the scene, as a press does.
+    private func stopWhatClickyIsSayingForTheReplayControl() {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        if voiceState == .responding || voiceState == .processing {
+            voiceState = .idle
+        }
+    }
+
     private func showTheInstantReplayControl() {
         Task {
             guard let mediaRectOnScreen = await LiveSceneOverlay.shared.mediaRectOnScreen(),
@@ -4510,6 +4526,7 @@ final class CompanionManager: ObservableObject {
             }
             self.instantReplayPanelController.show(
                 for: self.instantReplay,
+                stopWhatClickyIsSaying: { [weak self] in self?.stopWhatClickyIsSayingForTheReplayControl() },
                 accentHex: self.themeSettings.shownTheme.cursorColorHex,
                 mediaRectOnScreen: mediaRectOnScreen,
                 visibleFrame: visibleFrame

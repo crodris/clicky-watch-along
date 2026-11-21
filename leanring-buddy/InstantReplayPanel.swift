@@ -24,11 +24,17 @@ final class InstantReplayPanelController {
     private var replayChangeSubscription: AnyCancellable?
 
     /// Shows the control under the media. A second call moves it to the newest media rect.
-    func show(for replayController: InstantReplayController, accentHex: String, mediaRectOnScreen: CGRect, visibleFrame: CGRect) {
+    func show(
+        for replayController: InstantReplayController,
+        stopWhatClickyIsSaying: @escaping () -> Void,
+        accentHex: String,
+        mediaRectOnScreen: CGRect,
+        visibleFrame: CGRect
+    ) {
         self.mediaRectOnScreen = mediaRectOnScreen
         self.visibleFrame = visibleFrame
         if panel == nil {
-            let controlView = InstantReplayControlView(replay: replayController, accentHex: accentHex)
+            let controlView = InstantReplayControlView(replay: replayController, stopWhatClickyIsSaying: stopWhatClickyIsSaying, accentHex: accentHex)
             let firstMouseHostingView = FirstMouseHostingView(rootView: controlView)
             firstMouseHostingView.wantsLayer = true
             firstMouseHostingView.layer?.backgroundColor = .clear
@@ -86,17 +92,19 @@ private struct InstantReplayControlView: View {
     static let shadowMargin: CGFloat = 12
 
     @ObservedObject var replay: InstantReplayController
+    /// Each click first stops an answer Clicky is still giving, so the replay never moves the camera under its words.
+    let stopWhatClickyIsSaying: () -> Void
     let accentHex: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 4) {
                 if replay.isOpen {
-                    InstantReplayButton(title: "Back", style: .plain) { replay.step(.back) }
-                    InstantReplayButton(title: "Replay", style: .accent(accentHex: accentHex)) { replay.playFromTheStart() }
-                    InstantReplayButton(title: "Next", style: .plain) { replay.step(.next) }
+                    InstantReplayButton(title: "Back", style: .plain) { stopWhatClickyIsSaying(); replay.step(.back) }
+                    InstantReplayButton(title: "Replay", style: .accent(accentHex: accentHex)) { stopWhatClickyIsSaying(); replay.playFromTheStart() }
+                    InstantReplayButton(title: "Next", style: .plain) { stopWhatClickyIsSaying(); replay.step(.next) }
                 } else {
-                    InstantReplayButton(title: "Replay", style: .accent(accentHex: accentHex)) { replay.playFromTheStart() }
+                    InstantReplayButton(title: "Replay", style: .accent(accentHex: accentHex)) { stopWhatClickyIsSaying(); replay.playFromTheStart() }
                 }
                 Text(verbatim: instantReplayCountText(phase: replay.phase, stopCount: replay.stops.count))
                     .font(DS.TypeScale.caption.font)
@@ -105,7 +113,7 @@ private struct InstantReplayControlView: View {
                     .padding(.horizontal, 6)
                     .fixedSize()
                 if replay.isOpen {
-                    InstantReplayButton(title: "✕", style: .plain, accessibilityLabel: "End replay") { replay.step(.end) }
+                    InstantReplayButton(title: "✕", style: .plain, accessibilityLabel: "End replay") { stopWhatClickyIsSaying(); replay.step(.end) }
                 }
             }
             .padding(4)

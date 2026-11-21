@@ -178,6 +178,17 @@ nonisolated func instantReplayControlOrigin(windowSize: CGSize, shadowMargin: CG
     return CGPoint(x: originX, y: originY)
 }
 
+/// Whether "show me again" runs ahead of the router: only while the narration recorded stops for the scene on screen, no
+/// quiz question is open, and the Theme Studio card, which holds every spoken word, is closed.
+func replayPhraseRunsAheadOfTheRouter(asksToReplay: Bool, stopsAreRecorded: Bool, quizQuestionIsOpen: Bool, themeStudioIsOpen: Bool) -> Bool {
+    asksToReplay && stopsAreRecorded && !quizQuestionIsOpen && !themeStudioIsOpen
+}
+
+/// A replay stops or releases only the cursor it pointed itself, so a cursor pointing for an answer keeps its own fly-back.
+func cursorPointsForTheReplay(pointingHold: BuddyPointingHold, replayPointingID: UUID) -> Bool {
+    pointingHold == .untilReleased(byNarrationID: replayPointingID)
+}
+
 /// What the voice router's scene state says about the replay, so "next" and "back" read as steps while one is open.
 nonisolated func voiceCommandReplayState(phase: InstantReplayPhase, stopCount: Int) -> JSONValue {
     var replayFields: [String: JSONValue] = ["stops": .number(Double(stopCount)), "open": .bool(phase.isOpen)]
@@ -206,6 +217,8 @@ struct InstantReplayStage {
     var freezeTheCursor: () -> Void
     /// Sends the cursor back to the mouse, only while it points for the replay.
     var releaseTheCursor: () -> Void
+    /// Clears the focused part, as a narration does when it ends, so the other labels light up again.
+    var clearTheFocus: () -> Void
     var reduceMotionIsOn: () -> Bool
     /// Throws when the replay's task is cancelled.
     var sleep: (_ seconds: Double) async throws -> Void
@@ -213,7 +226,8 @@ struct InstantReplayStage {
     var hideControl: () -> Void
 }
 
-/// Runs the replay. Every way a replay changes course (a step, End, Escape, push-to-talk, a new Replay, a new scene) first
+/// Runs the replay. Every way a replay changes course (a step, End, Escape, push-to-talk, a new Replay, a narration
+/// starting, a new scene) first
 /// bumps `travelGeneration` and cancels the travel task, so no pending step of the old travel moves the camera or the cursor.
 @MainActor
 final class InstantReplayController: ObservableObject {
@@ -224,6 +238,9 @@ final class InstantReplayController: ObservableObject {
     @Published private(set) var showsTheReduceMotionList = false
     private(set) var recordedSceneNumber: Int?
     private var travelGeneration = 0
+    /// Counts narrations, so only the newest one may offer its stops: a narration a tap cancelled can unwind after the
+    /// next one started.
+    private var narrationGeneration = 0
     private var travelTask: Task<Void, Never>?
     private let stage: InstantReplayStage
 
@@ -235,6 +252,27 @@ final class InstantReplayController: ObservableObject {
 
     func stopsAreRecorded(forSceneNumber sceneNumber: Int) -> Bool {
         !stops.isEmpty && recordedSceneNumber == sceneNumber
+    }
+
+    /// A narration is about to move the camera and point the cursor, so an open replay ends and the control hides. The
+    /// stops stay, so a narration that records none, such as a failed or cut-off one, leaves the last explanation to replay.
+    /// Returns the narration's number, which `narrationEnded` checks.
+    func narrationStarted() -> Int {
+        narrationGeneration += 1
+        if isOpen { endTheReplay(freezing: false) }
+        stage.hideControl()
+        return narrationGeneration
+    }
+
+    /// Only the newest narration offers its stops, and only while its scene is still on screen. One that recorded none
+    /// shows the control again for the stops before it.
+    func narrationEnded(narrationNumber: Int, recordedStops: [ReplayStop], sceneNumber: Int, sceneIsStillOnScreen: Bool) {
+        guard narrationNumber == narrationGeneration, sceneIsStillOnScreen else { return }
+        if !recordedStops.isEmpty {
+            offer(recordedStops, sceneNumber: sceneNumber)
+        } else if stopsAreRecorded(forSceneNumber: sceneNumber) {
+            stage.showControl()
+        }
     }
 
     /// A narration's stops replace the stops before them, so "show me again" plays the latest explanation.
@@ -380,6 +418,7 @@ final class InstantReplayController: ObservableObject {
                 // The camera has settled on the last stop, so the replay ends there and the cursor goes back to the mouse.
                 self.endTheReplay(freezing: false)
                 self.stage.releaseTheCursor()
+                self.stage.clearTheFocus()
                 print("Instant replay: played every stop")
             }
         }
