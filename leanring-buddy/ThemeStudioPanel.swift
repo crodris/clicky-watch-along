@@ -31,6 +31,7 @@ final class ThemeStudioPanelController {
     /// Where the card's top-left corner sits, fixed when it opens so a taller card grows downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
+    private var resizeObserver: NSObjectProtocol?
 
     init(onSaveClicked: @escaping (ThemeStudioController.SaveOutcome) -> Void) {
         self.onSaveClicked = onSaveClicked
@@ -75,12 +76,19 @@ final class ThemeStudioPanelController {
         cardPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         cardPanel.contentView = hostingView
         panel = cardPanel
+        resizeObserver = keepThePanelOnScreenAsItResizes(cardPanel) { [weak self] in
+            (self?.anchorTopLeft ?? .zero, self?.visibleFrame ?? .zero)
+        }
         resizePanel(to: initialSize)
         // Not makeKeyAndOrderFront, which would take the keyboard from Chrome.
         cardPanel.orderFrontRegardless()
     }
 
     func hide() {
+        if let resizeObserver {
+            NotificationCenter.default.removeObserver(resizeObserver)
+            self.resizeObserver = nil
+        }
         panel?.orderOut(nil)
         panel?.contentView = nil
         panel = nil
