@@ -30,6 +30,10 @@ final class CursorLoopController: ObservableObject {
     private let waitBetweenFrontTabPolls: () async -> Void
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
+    /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
+    static func sleepBetweenFrontTabPolls() async {
+        try? await Task.sleep(for: .seconds(secondsBetweenFrontTabPolls))
+    }
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
@@ -38,7 +42,7 @@ final class CursorLoopController: ObservableObject {
     init(
         readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
-        waitBetweenFrontTabPolls: @escaping () async -> Void = { try? await Task.sleep(for: .seconds(CursorLoopController.secondsBetweenFrontTabPolls)) }
+        waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
     ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
