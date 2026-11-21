@@ -230,7 +230,10 @@ window.liveScene = {
     if (!tourDone || returnStartedAt !== null) return false;
     if (!window.liveScene.focusPart(labelText)) return false;
     if (!pose || ![pose.yaw, pose.pitch, pose.distance].every(Number.isFinite)) return true;
-    const toYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, pose.yaw));
+    // A puffed-up model turns without limit, so its yaw may be whole turns away from the recorded one. The turn back takes
+    // the shortest way round, so a model dragged around twice does not spin two turns.
+    const shortestYawTurn = Math.atan2(Math.sin(pose.yaw - yaw), Math.cos(pose.yaw - yaw));
+    const toYaw = Math.min(largestDraggedYaw, Math.max(-largestDraggedYaw, yaw + shortestYawTurn));
     const toPitch = Math.min(largestDraggedPitch, Math.max(-largestDraggedPitch, pose.pitch));
     const toDistance = Math.min(maximumDistance, Math.max(minimumDistance, pose.distance));
     if (reducedMotionQuery.matches) {
@@ -305,6 +308,8 @@ window.liveScene = {
   // Returns false while the pop-out builds or lands back in the video, so a voice tool can say so instead of confirming.
   zoomBy(amount) {
     if (!tourDone || returnStartedAt !== null) return false;
+    // A pinch or a voice zoom during a replay stop's turn takes the camera over from the turn.
+    poseMove = null;
     restingCameraDistance = Math.min(maximumDistance, Math.max(minimumDistance, restingCameraDistance * (1 - amount)));
     if (reducedMotionQuery.matches) cameraDistance = restingCameraDistance;
   },

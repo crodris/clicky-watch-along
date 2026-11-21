@@ -369,9 +369,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .explainPart:
             return "Say what one labeled part does, while the camera turns to it. label must be one of the scene state's labels. Use it, not answer_with_screen, for a question about a labeled part, such as \"what does the valve do\" or \"what is the crankshaft for\"."
         case .replayExplanation:
-            return "Replay Clicky's last explanation of the pop-out on screen, silently: the camera turns back to each part it named and the cursor points at it with the same sentence, with no new model call. Use it when the learner asks to see it again, such as \"show me again\", \"replay that\", or \"can you go through that again\". Your confirmation is a few plain words."
+            return "Replay Clicky's last explanation of the pop-out on screen, silently: the camera turns back to each part it named and the cursor points at it with the same sentence, with no new model call. Use it when the learner asks to see it again, such as \"show me again\", \"replay that\", or \"can you go through that again\". The replay is silent, so the confirmation is never spoken."
         case .replayStep:
-            return "Step through the instant replay that is open. step is next for the next part, back for the part before, or end to stop the replay and leave the pop-out where it is. While a replay is open, next, back, previous, go back, stop, and that's enough mean this tool, never seek_relative or close_scene. Your confirmation is a few plain words."
+            return "Step through the instant replay that is open. step is next for the next part, back for the part before, or end to stop the replay and leave the pop-out where it is. While a replay is open, next, back, previous, go back, stop, and that's enough mean this tool, never seek_relative or close_scene. The replay is silent, so the confirmation is never spoken."
         case .pauseVideo:
             return "Pause the video in Chrome's front tab."
         case .playVideo:

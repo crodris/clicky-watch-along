@@ -28,10 +28,15 @@ nonisolated struct ReplayCameraPose: Equatable, Sendable {
 
     /// Nil unless the page sent three finite numbers. WebKit types a page result as Any.
     init?(pageValue: Any?) {
+        // A JavaScript true bridges to an NSNumber too, so a boolean is refused by its type.
+        func number(_ fieldValue: Any?) -> Double? {
+            guard let fieldNumber = fieldValue as? NSNumber, CFGetTypeID(fieldNumber) != CFBooleanGetTypeID() else { return nil }
+            return fieldNumber.doubleValue
+        }
         guard let poseFields = pageValue as? [String: Any],
-              let yaw = (poseFields["yaw"] as? NSNumber)?.doubleValue,
-              let pitch = (poseFields["pitch"] as? NSNumber)?.doubleValue,
-              let distance = (poseFields["distance"] as? NSNumber)?.doubleValue,
+              let yaw = number(poseFields["yaw"]),
+              let pitch = number(poseFields["pitch"]),
+              let distance = number(poseFields["distance"]),
               yaw.isFinite, pitch.isFinite, distance.isFinite, distance > 0 else {
             return nil
         }
@@ -51,12 +56,12 @@ nonisolated struct ReplayStop: Equatable, Sendable {
     let cameraPose: ReplayCameraPose?
 }
 
-/// Adds a stop the narration just pointed at. A sentence about the same part as the stop before it joins that stop,
-/// since two stops on one label would put two numbers on top of each other.
+/// Adds a stop the narration just pointed at. A sentence about a part that already has a stop joins that stop, wherever
+/// it is in the list, since two stops on one label would put two numbers on top of each other.
 nonisolated func replayStops(_ recordedStops: [ReplayStop], adding newStop: ReplayStop) -> [ReplayStop] {
     var stops = recordedStops
-    if let lastStop = stops.last, lastStop.partLabel == newStop.partLabel {
-        stops[stops.count - 1].sentence = lastStop.sentence + " " + newStop.sentence
+    if let stopIndexOfThePart = stops.firstIndex(where: { stop in stop.partLabel == newStop.partLabel }) {
+        stops[stopIndexOfThePart].sentence += " " + newStop.sentence
         return stops
     }
     stops.append(newStop)
@@ -95,10 +100,11 @@ nonisolated enum InstantReplayPhase: Equatable, Sendable {
         }
     }
 
-    /// A play-through moves to the next stop, and stays open at the last one so Back still works.
+    /// A play-through moves to the next stop, and ends after the last one, so "back" and "stop" mean the video and the
+    /// scene again and the cursor goes back to the mouse.
     func afterTheStopDwelt(stopCount: Int) -> InstantReplayPhase {
         guard case .playingThrough(let stopIndex) = self else { return self }
-        return stopIndex + 1 < stopCount ? .playingThrough(stopIndex: stopIndex + 1) : .stoppedAt(stopIndex: stopIndex)
+        return stopIndex + 1 < stopCount ? .playingThrough(stopIndex: stopIndex + 1) : .notOpen
     }
 
     /// Push-to-talk keeps the replay open at the stop it reached, so "next" and "back" still work after it.
@@ -131,7 +137,8 @@ nonisolated func instantReplayCountText(phase: InstantReplayPhase, stopCount: In
 }
 
 /// "Show me again" and its close forms, as the whole utterance, so "show me again how the gears turn" stays a question
-/// for the router. It runs ahead of the router only while a narration recorded stops, so it never builds a paid scene.
+/// for the router. "Do that again" and "play it again" are left to the router, since they also mean repeat the last
+/// command or play the video. It runs ahead of the router only while a narration recorded stops, so it never builds a paid scene.
 nonisolated func asksToReplayTheExplanation(_ transcript: String) -> Bool {
     let words = transcript.lowercased()
         .replacingOccurrences(of: #"[^a-z' ]"#, with: " ", options: .regularExpression)
@@ -146,7 +153,6 @@ nonisolated func asksToReplayTheExplanation(_ transcript: String) -> Bool {
     let replayRequests: Set<String> = [
         "show me again", "show me that again", "show it again", "show that again", "show me it again",
         "replay", "replay it", "replay that", "replay the explanation",
-        "do that again", "play that again", "play it again",
     ]
     return replayRequests.contains(requestWords.joined(separator: " "))
 }
@@ -196,8 +202,10 @@ struct InstantReplayStage {
     var labelScreenPointOnceTheCameraSettles: (_ partLabel: String) async -> LiveScenePartScreenPoint?
     /// Flies the blue cursor to the label and shows the sentence in its bubble, until the replay lets it go.
     var pointTheCursor: (_ labelScreenPoint: LiveScenePartScreenPoint, _ sentence: String) -> Void
-    /// Stops the cursor where it is, mid-flight included, and hides its bubble.
+    /// Stops the cursor where it is, mid-flight included, and hides its bubble, only while it points for the replay.
     var freezeTheCursor: () -> Void
+    /// Sends the cursor back to the mouse, only while it points for the replay.
+    var releaseTheCursor: () -> Void
     var reduceMotionIsOn: () -> Bool
     /// Throws when the replay's task is cancelled.
     var sleep: (_ seconds: Double) async throws -> Void
@@ -309,6 +317,7 @@ final class InstantReplayController: ObservableObject {
 
     /// The scene left the screen, so its stops mean nothing anymore.
     func forget() {
+        if isOpen { stage.hideStopNumbers() }
         cancelTheTravel()
         phase = .notOpen
         stops = []
@@ -317,7 +326,7 @@ final class InstantReplayController: ObservableObject {
     }
 
     private func endTheReplay(freezing: Bool) {
-        cancelTheTravel()
+        cancelTheTravel(freezingTheCursor: false)
         if freezing {
             stage.endFocus()
             stage.freezeTheCursor()
@@ -328,12 +337,13 @@ final class InstantReplayController: ObservableObject {
         print("Instant replay: ended")
     }
 
-    private func cancelTheTravel() {
+    private func cancelTheTravel(freezingTheCursor: Bool = true) {
         travelGeneration += 1
         travelTask?.cancel()
         travelTask = nil
         // A cursor still flying to the old stop stops where it is, before the camera turns to the new one.
-        stage.freezeTheCursor()
+        // With no replay open there is no travel, and the cursor is not the replay's.
+        if freezingTheCursor && isOpen { stage.freezeTheCursor() }
     }
 
     /// Turns the camera to the open stop, waits for it to settle, flies the cursor to the label, and in a play-through
@@ -363,11 +373,14 @@ final class InstantReplayController: ObservableObject {
             guard !Task.isCancelled, generationOfThisTravel == self.travelGeneration else { return }
             let phaseAfterTheDwell = self.phase.afterTheStopDwelt(stopCount: self.stops.count)
             guard phaseAfterTheDwell != self.phase else { return }
-            self.phase = phaseAfterTheDwell
             if case .playingThrough = phaseAfterTheDwell {
+                self.phase = phaseAfterTheDwell
                 self.travelToTheOpenStop()
             } else {
-                print("Instant replay: reached the last stop")
+                // The camera has settled on the last stop, so the replay ends there and the cursor goes back to the mouse.
+                self.endTheReplay(freezing: false)
+                self.stage.releaseTheCursor()
+                print("Instant replay: played every stop")
             }
         }
     }

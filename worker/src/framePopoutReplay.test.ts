@@ -67,4 +67,21 @@ describe("frame-popout.html endFocus", () => {
     // The render loop reads the held target ahead of the focused part, so the pan stays where it froze.
     expect(framePopoutSource).toContain("const restingTarget = heldTarget ?? (");
   });
+
+  it("lets a pinch or a voice zoom take the camera over from a replay stop's turn", () => {
+    // The review of PR 88 found that zoomBy left the turn running, which set the distance back on every frame.
+    const zoomByStart = framePopoutSource.indexOf("  zoomBy(amount) {");
+    const zoomByBody = framePopoutSource.slice(zoomByStart, framePopoutSource.indexOf("\n  },", zoomByStart));
+    expect(zoomByBody).toContain("poseMove = null;");
+  });
+});
+
+describe("frame-popout.html focusStop", () => {
+  it("turns back to a recorded yaw the shortest way round", () => {
+    // A puffed-up model turns without limit, so a model dragged around twice would otherwise spin two turns back.
+    const focusStopStart = framePopoutSource.indexOf("  focusStop(labelText, pose) {");
+    const focusStopBody = framePopoutSource.slice(focusStopStart, framePopoutSource.indexOf("\n  },", focusStopStart));
+    expect(focusStopBody).toContain("Math.atan2(Math.sin(pose.yaw - yaw), Math.cos(pose.yaw - yaw))");
+    expect(focusStopBody).toContain("yaw + shortestYawTurn");
+  });
 });

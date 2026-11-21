@@ -180,7 +180,12 @@ final class CompanionManager: ObservableObject {
         pointTheCursor: { [unowned self] labelScreenPoint, sentence in
             self.pointTheBuddyForTheReplay(at: labelScreenPoint, sentence: sentence)
         },
-        freezeTheCursor: { [unowned self] in self.buddyFreezeCount += 1 },
+        freezeTheCursor: { [unowned self] in
+            // Only the replay's own pointing is stopped, so a cursor pointing for an answer keeps its own fly-back.
+            guard self.detectedElementPointingHold == .untilReleased(byNarrationID: self.instantReplayPointingID) else { return }
+            self.buddyFreezeCount += 1
+        },
+        releaseTheCursor: { [unowned self] in self.releaseTheBuddyTheReplayFroze() },
         reduceMotionIsOn: { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
         sleep: { seconds in try await Task.sleep(for: .seconds(seconds)) },
         showControl: { [unowned self] in self.showTheInstantReplayControl() },
@@ -1265,7 +1270,8 @@ final class CompanionManager: ObservableObject {
             return
         }
         // "Show me again" replays the recorded stops with no model call, so it never builds a paid scene.
-        if asksToReplayTheExplanation(transcript), replayStopsAreRecordedForTheSceneOnScreen, !phaseIsWaitingForAQuizAnswer {
+        // While the Theme Studio card is open it holds every spoken word, as with every keyword branch.
+        if asksToReplayTheExplanation(transcript), replayStopsAreRecordedForTheSceneOnScreen, !phaseIsWaitingForAQuizAnswer, !themeStudioController.isOpen {
             print("Instant replay: replaying on request")
             instantReplay.playFromTheStart()
             return
@@ -1454,6 +1460,8 @@ final class CompanionManager: ObservableObject {
     /// screenshot answer. requestedSceneKind comes from the transcript's keywords, or from the voice
     /// command model when it decides the request needs a new scene.
     private func respondToTranscript(transcript: String, requestedSceneKind: LiveSceneKind?) {
+        // A new answer, scene, or pop-out takes the screen, so an open replay ends with its camera and cursor where they are.
+        instantReplay.endIfOpen()
         currentResponseTask?.cancel()
         liveSceneRequestTask?.cancel()
         liveSceneTourFinishedTask?.cancel()
@@ -4357,6 +4365,9 @@ final class CompanionManager: ObservableObject {
         // included, and only while the same scene is still on screen.
         let sceneNumberOfThisNarration = LiveSceneOverlay.shared.scenesPlayedCount
         var recordedReplayStops: [ReplayStop] = []
+        // A replay must not move the camera or the cursor over a narration, so the old stops and their control go now,
+        // and the narration offers its own stops when it ends.
+        instantReplay.forget()
         // Every exit, a cancelled one too, sends the buddy back to the mouse if it still points for this narration.
         defer {
             releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: narrationID)
@@ -4486,6 +4497,8 @@ final class CompanionManager: ObservableObject {
     /// The overlay calls this once the mouse moved away from a buddy the replay stopped, so it flies back to the mouse.
     func releaseTheBuddyTheReplayFroze() {
         releaseTheBuddyFromTheLiveScenePart(pointedByNarrationID: instantReplayPointingID)
+        // A replay showed the overlay for its pointing, so with Show Clicky off it fades once the cursor is back.
+        scheduleTransientHideIfNeeded()
     }
 
     private func showTheInstantReplayControl() {

@@ -37,6 +37,7 @@ private final class RecordingReplayStage {
             self.calls.append("point \(labelScreenPoint.label): \(sentence)")
         },
         freezeTheCursor: { [unowned self] in self.calls.append("freeze") },
+        releaseTheCursor: { [unowned self] in self.calls.append("release") },
         reduceMotionIsOn: { [unowned self] in self.reduceMotionIsOn },
         sleep: { [unowned self] _ in
             try await withCheckedThrowingContinuation { continuation in self.pendingSleeps.append(continuation) }
@@ -65,7 +66,7 @@ private func letTheReplayRun() async {
 
 @MainActor
 struct InstantReplayTests {
-    @Test func aPlayThroughVisitsEveryStopInOrderAndStaysOpenAtTheLast() async {
+    @Test func aPlayThroughVisitsEveryStopInOrderAndEndsAfterTheLast() async {
         let recorder = RecordingReplayStage()
         let replay = InstantReplayController(stage: recorder.stage)
         replay.offer(threeStops, sceneNumber: 4)
@@ -78,7 +79,10 @@ struct InstantReplayTests {
         await letTheReplayRun()
         recorder.finishTheNextSleep()
         await letTheReplayRun()
-        #expect(replay.phase == .stoppedAt(stopIndex: 2))
+        // The last dwell ends the replay where the camera settled, and the cursor goes back to the mouse with no freeze.
+        #expect(replay.phase == .notOpen)
+        #expect(recorder.calls.suffix(2) == ["hideNumbers", "release"])
+        #expect(!recorder.calls.contains("endFocus"))
         let pointedLabels = recorder.calls.filter { $0.hasPrefix("point") }
         #expect(pointedLabels == [
             "point chain: The chain turns the back wheel.",
@@ -230,7 +234,7 @@ struct InstantReplayTests {
         #expect(InstantReplayPhase.playingThrough(stopIndex: 1).afterStep(.back, stopCount: 3) == .stoppedAt(stopIndex: 0))
         #expect(InstantReplayPhase.stoppedAt(stopIndex: 1).afterStep(.end, stopCount: 3) == .notOpen)
         #expect(InstantReplayPhase.playingThrough(stopIndex: 1).afterTheStopDwelt(stopCount: 3) == .playingThrough(stopIndex: 2))
-        #expect(InstantReplayPhase.playingThrough(stopIndex: 2).afterTheStopDwelt(stopCount: 3) == .stoppedAt(stopIndex: 2))
+        #expect(InstantReplayPhase.playingThrough(stopIndex: 2).afterTheStopDwelt(stopCount: 3) == .notOpen)
         #expect(InstantReplayPhase.playingThrough(stopIndex: 1).afterTheTravelStopped == .stoppedAt(stopIndex: 1))
     }
 
@@ -240,20 +244,33 @@ struct InstantReplayTests {
         #expect(abs(replayStopDwellSeconds(for: fifteenWords) - 4.5) < 0.0001)
     }
 
-    @Test func aSentenceAboutTheSamePartJoinsItsStop() {
+    @Test func aSentenceAboutAPartThatHasAStopJoinsThatStop() {
         let firstStop = ReplayStop(partLabel: "chain", sentence: "The chain turns.", cameraPose: nil)
-        let secondStop = ReplayStop(partLabel: "chain", sentence: "It needs oil.", cameraPose: nil)
-        let thirdStop = ReplayStop(partLabel: "fork", sentence: "The fork steers.", cameraPose: nil)
+        let secondStop = ReplayStop(partLabel: "fork", sentence: "The fork steers.", cameraPose: nil)
+        let thirdStop = ReplayStop(partLabel: "chain", sentence: "It needs oil.", cameraPose: nil)
         let stops = replayStops(replayStops(replayStops([], adding: firstStop), adding: secondStop), adding: thirdStop)
         #expect(stops.map(\.partLabel) == ["chain", "fork"])
         #expect(stops[0].sentence == "The chain turns. It needs oil.")
     }
 
+    @Test func noReplayOpenMeansNoCursorOfTheReplaysToFreeze() async {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.forget()
+        replay.offer(threeStops, sceneNumber: 5)
+        replay.playFromTheStart()
+        // Only a replay already open has a travel, and a cursor of its own, to stop.
+        #expect(!recorder.calls.contains("freeze"))
+        replay.step(.next)
+        #expect(recorder.calls.contains("freeze"))
+    }
+
     @Test func showMeAgainReplaysAndAQuestionThatStartsTheSameWayDoesNot() {
-        for transcript in ["Show me again.", "hey clicky, show me that again please", "Replay that", "can you do that again?"] {
+        for transcript in ["Show me again.", "hey clicky, show me that again please", "Replay that", "can you replay it?"] {
             #expect(asksToReplayTheExplanation(transcript), "\(transcript)")
         }
-        for transcript in ["show me again how the gears turn", "again", "show me the chain", "play the video again"] {
+        for transcript in ["show me again how the gears turn", "again", "show me the chain", "play the video again", "do that again", "play it again"] {
             #expect(!asksToReplayTheExplanation(transcript), "\(transcript)")
         }
     }
@@ -269,6 +286,7 @@ struct InstantReplayTests {
         #expect(ReplayCameraPose(pageValue: ["yaw": 0.5, "pitch": 0.1]) == nil)
         #expect(ReplayCameraPose(pageValue: ["yaw": Double.nan, "pitch": 0.1, "distance": 700.0]) == nil)
         #expect(ReplayCameraPose(pageValue: nil) == nil)
+        #expect(ReplayCameraPose(pageValue: ["yaw": true, "pitch": 0.1, "distance": 700.0]) == nil)
     }
 
     @Test func aStopNumberClickParsesAtThePageBoundary() {

@@ -50,6 +50,7 @@ final class InstantReplayPanelController {
             panel = controlPanel
             hostingView = firstMouseHostingView
             // The content grows from Replay alone to the full row and the Reduce Motion list, so the frame follows it.
+            // objectWillChange fires before the new value is stored, so the frame is measured on the next turn.
             replayChangeSubscription = replayController.objectWillChange.sink { [weak self] _ in
                 DispatchQueue.main.async { self?.placeThePanel() }
             }
