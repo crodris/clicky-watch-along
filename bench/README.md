@@ -179,6 +179,22 @@ node bench/brainEvals.ts session-run --label brain-session --runs 3 --port 8797
 It prints each mode's passes, cache read share (cached input tokens over all input tokens, every turn), p50 and p95 to the first tool call, and mean cost.
 The stateless mode passes fewer commands, since "undo the first turn" needs the history.
 
+### Warming the prompt cache (measured, not shipped)
+
+On 2026-11-21 a prototype warmed the brain's prompt cache at push-to-talk press, with one `max_tokens` 1 request on the command's own prefix, and it was not merged.
+On the harness alone, against a real Worker with the cache made cold by a unique line in one tool description, 12 runs per arm gave these medians for the first tool call:
+
+| Context | Cached prefix | Cold | Warmed | Gain |
+|---|---|---|---|---|
+| Video in front | 5,912 tokens | 649 ms | 635 ms | about 14 ms |
+| Nothing on screen | 3,424 tokens | 633 ms | 595 ms | about 38 ms |
+| Video, padded prompt | 48K tokens | 914 ms | 764 ms | 150 ms |
+
+A cache write of the prefix costs about 3 ms per 1,000 tokens of the request, so at the brain's 3,400 to 7,000 token prefix the gain sits inside the run-to-run noise of about 40 ms.
+The warm needed the offered tools at the press, so the app read Chrome then, which blocked the main actor for about 240 ms while the learner spoke.
+A warm cost about $0.0004 to $0.0007, and one the command did not use wasted under $0.001.
+Revisit it when the brain's cached prefix reaches tens of thousands of tokens, for example if the brain keeps screenshots in its history, and remove the press-time read before shipping it.
+
 ### Planning cases
 
 A planning case is a request whose steps depend on each other, such as "go back to where he explains the swim bladder and pop it out" (`seek_to_moment` finds the line and seeks in one call, then `pop_out` comes last in the same reply).
