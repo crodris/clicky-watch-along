@@ -6,7 +6,7 @@
 //  the notch (or past the middle of a display with no notch). Each panel hosts one SwiftUI disc and takes its own clicks
 //  without activating Clicky or taking the keyboard from Chrome. This file measures how much free space the menu bar
 //  has, and the pure rules in `AgentTokenLayout.swift` decide which tokens fill it. It also runs the serve: a new agent's
-//  token flies in from the blue cursor (`AgentTokenFlight`) while its disc shows an open slot, as `AgentTokenServe.swift` plans.
+//  token flies in from the blue cursor on the carrier panel (`TetherCarrier`) while its disc shows an open slot, as `AgentTokenServe.swift` plans.
 //
 //  macOS draws no app window in the strip beside the notch during a full-screen space, so no disc shows there, and
 //  nothing here works around that. Endings use the chip at the cursor.
@@ -234,17 +234,21 @@ final class AgentTokenDockController {
     private var observers: [Any] = []
     private var storeCancellable: AnyCancellable?
     /// The token that flies to its slot right now, and the disc it lands on. Nil when no serve runs.
-    private var flight: AgentTokenFlight?
+    private var flight: CarrierFlight?
     private var discIDTheFlightLandsOn: AgentTokenDiscID?
-    /// The flight that has landed but whose panel is still over its disc for a moment, and that disc. The disc waits to slide
-    /// to close a gap until the panel has left (`agentTokenDiscMustWaitForItsFlight`).
-    private var lingeringFlight: AgentTokenFlight?
+    /// The flight that has landed but whose token is still over its disc for a moment, and that disc. The disc waits to slide
+    /// to close a gap until the carried token has left (`agentTokenDiscMustWaitForItsFlight`).
+    private var lingeringFlight: CarrierFlight?
     private var discIDTheLingeringFlightSitsOn: AgentTokenDiscID?
     /// Callers waiting for the token to land (`waitForTheServeToLand`).
     private var callersWaitingForTheLanding: [CheckedContinuation<Void, Never>] = []
 
-    init(store: BackgroundAgentStore, onDiscClicked: @escaping (AgentTokenClick) -> Void) {
+    /// The serve's tether line takes the color of the cursor it leaves, which is the shown theme's accent.
+    private let themeSettings: CompanionThemeSettings
+
+    init(store: BackgroundAgentStore, themeSettings: CompanionThemeSettings, onDiscClicked: @escaping (AgentTokenClick) -> Void) {
         self.store = store
+        self.themeSettings = themeSettings
         self.onDiscClicked = onDiscClicked
     }
 
@@ -371,7 +375,7 @@ final class AgentTokenDockController {
                 existingDisc.hostingView.rootView = AgentTokenDiscContent(store: store, discModel: existingDisc.discModel, tokenSlot: .overflow, overflowCount: overflowCount)
             }
             guard existingDisc.panel.frame != panelFrame else { return }
-            // The slide happens when the flying panel leaves, which refreshes the dock (`forgetTheLingeringFlight`).
+            // The slide happens when the carried token leaves, which refreshes the dock (`forgetTheLingeringFlight`).
             guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else { return }
             if reduceMotionIsOn {
                 existingDisc.panel.setFrame(panelFrame, display: true)
@@ -470,23 +474,26 @@ final class AgentTokenDockController {
         case .fadeInAtTheSlot:
             print("Agent token serve: Reduce Motion is on, so the token fades in at its slot")
             slotDisc.discModel.isAnOpenSlotAwaitingItsToken = false
-            NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.2
-                slotDisc.panel.animator().alphaValue = 1
+            if case .fadeAtTheTargetLeavingAStillRing(let fadeSeconds) = DS.Move.send.reduceMotionForm {
+                NSAnimationContext.runAnimationGroup { animationContext in
+                    animationContext.duration = fadeSeconds
+                    slotDisc.panel.animator().alphaValue = 1
+                }
             }
         case .fly(let path):
             print("Agent token serve: the token flies to its slot in \(AgentTokenServePath.flightSeconds) s")
             slotDisc.panel.alphaValue = 1
-            let tokenFlight = AgentTokenFlight(
-                path: path,
-                agentID: agentID,
-                store: store,
-                onLanded: { [weak self] in self?.landTheToken(onDiscWithID: slotDiscID) },
-                onPanelHidden: { [weak self] hiddenFlight in self?.forgetTheLingeringFlight(hiddenFlight) }
-            )
-            flight = tokenFlight
+            // The token flies in a square as wide as a disc's own panel, so its shadow fits and its center is the slot's.
+            let tokenSide = AgentTokenMetrics.panelWidth
             discIDTheFlightLandsOn = slotDiscID
-            tokenFlight.start()
+            flight = TetherCarrier.shared.play(
+                .send(along: path, carriedSize: CGSize(width: tokenSide, height: tokenSide)),
+                carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: .agent(agentID), overflowCount: 0),
+                onDisplay: cursorDisplayID,
+                tetherColor: NSColor(themeSettings.shownTheme.cursorColor),
+                onLanded: { [weak self] in self?.landTheToken(onDiscWithID: slotDiscID) },
+                onGone: { [weak self] goneFlight in self?.forgetTheLingeringFlight(goneFlight) }
+            )
         }
     }
 
@@ -518,10 +525,10 @@ final class AgentTokenDockController {
         for callerToResume in callersToResume { callerToResume.resume() }
     }
 
-    /// The flight's panel has left the screen, so the disc under it may slide now if the layout moved it meanwhile. A newer
+    /// The flight's token has left the screen, so the disc under it may slide now if the layout moved it meanwhile. A newer
     /// flight that landed since stays.
-    private func forgetTheLingeringFlight(_ hiddenFlight: AgentTokenFlight) {
-        guard lingeringFlight === hiddenFlight else { return }
+    private func forgetTheLingeringFlight(_ goneFlight: CarrierFlight) {
+        guard lingeringFlight === goneFlight else { return }
         lingeringFlight = nil
         discIDTheLingeringFlightSitsOn = nil
         refresh()
