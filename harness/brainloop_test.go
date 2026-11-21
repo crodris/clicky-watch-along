@@ -22,7 +22,7 @@ const brainTestTools = `[` +
 	`]`
 
 func voiceCommandLine(commandID string, transcript string) string {
-	return fmt.Sprintf(`{"type":"voice_command","taskID":%q,"transcript":%q,"sceneState":{"page":"framePopout"},"recentActions":[],"tools":%s}`, commandID, transcript, brainTestTools)
+	return fmt.Sprintf(`{"type":"voice_command","taskID":%q,"transcript":%q,"sceneState":{"page":"framePopout"},"tools":%s}`, commandID, transcript, brainTestTools)
 }
 
 // voiceToolResultLine is the app's answer to one call, with the result text the app writes for that outcome.
@@ -148,19 +148,20 @@ func TestACommandRunsATwoCallTurnThenALookupAndItsActionAndSpeaksTheConfirmation
 	if requests[0].path != "/v1/messages" || first["stream"] != nil {
 		t.Errorf("a brain turn went to %s with stream %v, want an unstreamed /v1/messages", requests[0].path, first["stream"])
 	}
-	wantMessage := `<scene_state>{"page":"framePopout"}</scene_state>` + "\n<recent_actions>\n\n</recent_actions>\n" + `Learner said: "turn it left and zoom in"`
+	wantMessage := `<scene_state>{"page":"framePopout"}</scene_state>` + "\n" + `Learner said: "turn it left and zoom in"`
 	if got := firstUserText(t, first); got != wantMessage {
 		t.Errorf("the user message:\n got %q\nwant %q", got, wantMessage)
 	}
-	// The lookup's turn sends its reply back unchanged, then the app's result text.
+	// The lookup's turn sends the first command, the second command's words joined to its last tool results, the lookup
+	// call unchanged, then the app's result text.
 	lookupMessages := jsonValueAt(t, requests[2].body, "messages").([]any)
-	if len(lookupMessages) != 3 {
-		t.Fatalf("the lookup's next turn carried %d messages, want 3", len(lookupMessages))
+	if len(lookupMessages) != 5 {
+		t.Fatalf("the lookup's next turn carried %d messages, want 5", len(lookupMessages))
 	}
-	if jsonValueAt(t, lookupMessages[1], "content", 0, "input", "query") != "engine" {
-		t.Errorf("the lookup call sent back was %v", lookupMessages[1])
+	if jsonValueAt(t, lookupMessages[3], "content", 0, "input", "query") != "engine" {
+		t.Errorf("the lookup call sent back was %v", lookupMessages[3])
 	}
-	lookupResult := jsonValueAt(t, lookupMessages[2], "content", 0)
+	lookupResult := jsonValueAt(t, lookupMessages[4], "content", 0)
 	if jsonValueAt(t, lookupResult, "tool_use_id") != "toolu_find" || jsonValueAt(t, lookupResult, "content", 0, "text") != `{"ok":true,"result":[{"captions":"the engine","seconds":95}]}` {
 		t.Errorf("the lookup result sent back was %v", lookupResult)
 	}

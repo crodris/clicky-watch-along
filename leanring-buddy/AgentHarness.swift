@@ -170,9 +170,10 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     case cancelTask(taskID: UUID)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
-    /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, `recentActions` the
-    /// `voiceToolActionLine` strings, and `tools` the list after `voiceToolsOfferedToTheModel`.
-    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, recentActions: [String], tools: [VoiceToolDescriptor])
+    /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, and `tools` the list after
+    /// `voiceToolsOfferedToTheModel`. The line carries no recent actions, since the brain keeps every earlier command in
+    /// its own session.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor])
     /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
     /// model again, or stop for a hand-off.
     case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
@@ -209,13 +210,12 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
-        case .voiceCommand(let taskID, let transcript, let sceneState, let recentActions, let tools):
+        case .voiceCommand(let taskID, let transcript, let sceneState, let tools):
             return .object([
                 "type": .string("voice_command"),
                 "taskID": .string(taskID.uuidString),
                 "transcript": .string(transcript),
                 "sceneState": sceneState,
-                "recentActions": .array(recentActions.map(JSONValue.string)),
                 "tools": .array(tools.map(\.workerRequestJSON)),
             ])
         case .voiceToolResult(let taskID, let toolUseID, let outcome):
@@ -600,10 +600,10 @@ final class AgentHarness {
     /// Starts a voice command on the brain. The stream ends after voice_command_finished or task_failed, when the harness
     /// stops, or when `endVoiceCommand` ends it. The command's tool results and its cancel go out through
     /// `HarnessVoiceCommandLines`, never through `sendToolResult` or `cancelTask`.
-    func startVoiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, recentActions: [String], tools: [VoiceToolDescriptor]) throws -> AsyncStream<HarnessTaskEvent> {
+    func startVoiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor]) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let commandEvents = taskRouter.register(taskID: taskID)
-        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, recentActions: recentActions, tools: tools))
+        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, tools: tools))
         return commandEvents
     }
 

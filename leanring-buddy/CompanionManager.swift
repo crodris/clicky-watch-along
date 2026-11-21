@@ -2708,7 +2708,6 @@ final class CompanionManager: ObservableObject {
                 taskID: commandID,
                 transcript: transcript,
                 sceneState: sceneState,
-                recentActions: recentVoiceToolActionLines,
                 tools: tools
             )
         } catch {

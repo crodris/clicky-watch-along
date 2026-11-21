@@ -166,7 +166,6 @@ struct AgentHarnessTests {
             taskID: firstTaskID,
             transcript: "turn it left",
             sceneState: .object(["page": .string("framePopout")]),
-            recentActions: [#"zoom {"factor":1.3} -> ok"#],
             tools: [rotateTool]
         )
         #expect(try decodedJSON(of: voiceCommand.line) == .object([
@@ -174,7 +173,6 @@ struct AgentHarnessTests {
             "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),
             "transcript": .string("turn it left"),
             "sceneState": .object(["page": .string("framePopout")]),
-            "recentActions": .array([.string(#"zoom {"factor":1.3} -> ok"#)]),
             "tools": .array([rotateTool.workerRequestJSON]),
         ]))
         #expect(String(decoding: voiceCommand.line, as: UTF8.self).dropLast().contains("\n") == false)
