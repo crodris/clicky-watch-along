@@ -648,7 +648,7 @@ command_app_launch() {
       require_screen_recording_grant "$run_dir/app.log"
       if [[ "$app_launch_needs_every_permission" == true ]] && app_start_line_opens_the_permissions_panel "$run_dir/app.log"; then
         command_app_quit
-        echo "The app started without every permission or onboarding, so it shows its permissions panel. Run this script's grant command, or finish onboarding, then launch again." >&2
+        echo "The app started without every permission or onboarding, so it shows its permissions panel. The Clicky start line above names what is false: run this script's grant command for accessibility, ask Chris to allow the others under System Settings > Privacy & Security, or finish onboarding, then launch again." >&2
         exit 1
       fi
       return 0

@@ -9,7 +9,8 @@ The mouse positions in the commands below fit that screen, so another machine ne
 ## Record
 
 Run these from the main checkout, whose Debug build holds the Accessibility grant, with the Worker running on port 8787.
-A shot stops before its rehearsal steps run when the app starts without every permission, since the app's permissions panel would cover the take, and `.claude/skills/verify-clicky/verify-clicky.sh grant` opens the Accessibility setting to fix it.
+A shot stops before its rehearsal steps run when the app starts without every permission, since the app's permissions panel would cover the take.
+The app log's `Clicky start` line names what is missing, and `.claude/skills/verify-clicky/verify-clicky.sh grant` opens the Accessibility setting, the one macOS drops most often.
 The recorder brings a new Chrome window to the front of the MacBook's built-in Retina screen and records its 16:9 area at 3420x1924, so the edit's 3x zooms on Clicky's text stay sharp.
 Leave the keyboard and trackpad alone while a shot records, about 2 minutes each.
 A YouTube video plays muted with its captions hidden, so the footage carries only Clicky's voice.
