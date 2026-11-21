@@ -166,6 +166,7 @@ The two cases that hold `recentActions` for the Worker backend also hold the sam
 
 With session cases in the run, the gate adds a check that every one passes, except a case marked `knownMiss`, which the run still runs and prints as `KNOWN MISS`.
 `session-correction-after-interrupt` is one: Haiku passes it about 2 runs in 5, and the PR 7 evals decide whether Sonnet fixes it.
+It passed 2 of 5 again in the PR 7 measurement (`results/planning-known-miss-brain-evals-63cab7e6ea57.json`): it turned -45 twice and +45 once, where -90 undoes the interrupted turn.
 `measuredSession` is ten commands in one context.
 
 ```bash
@@ -200,6 +201,19 @@ They run in the same harness process as the session cases, after the parity case
 ```bash
 node bench/brainEvals.ts run --label planning-haiku --backend harness --runs 3 --port 8797
 ```
+
+The committed measurement of the PR 6 brain (Haiku 5.5, 3 runs of each case, 2026-11-20) is `results/planning-haiku-brain-evals-52c4e4ef169c.json`.
+It passes 21 of 24 runs, and `results/planning-simple-baseline-brain-evals-f8d78718f343.json` holds five simple commands from the same harness for comparison.
+Every miss is a missing or extra call in a chain: Haiku added a `pause_video` before `pop_out` once, replaced `pop_out` with `pause_video` once, and once recorded a guess and set the control but never called `run_simulation`.
+Its spoken line said it had run it.
+A command's cost includes the cache write of whichever call came first in its run, so compare the p50 and the order of magnitude, not the last digit.
+
+| Command | Turns | Full command p50 | Mean cost |
+| --- | --- | --- | --- |
+| A simple one-call command (`video-seek-back`) | 1 | 733 ms | $0.000117 |
+| A lookup (`video-find-moment`) | 2 | 1413 ms | $0.000237 |
+| A lookup, a seek, and a hand-off (`planning-find-seek-pop-out`) | 2 | 1790 ms | $0.000514 |
+| Three independent actions (`planning-pause-slow-rewind`) | 1 | 999 ms | $0.000178 |
 
 ### What each score means
 
