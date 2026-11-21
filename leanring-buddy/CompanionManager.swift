@@ -1575,7 +1575,6 @@ final class CompanionManager: ObservableObject {
 
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
 
-
                 // Play the response via TTS. Keep the thinking dots (processing state)
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
