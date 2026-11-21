@@ -287,11 +287,6 @@ final class ElevenLabsTTSClient {
         audioEngine.isRunning && (isReceivingStream || buffersWaitingToFinishPlaying > 0)
     }
 
-    /// The token of the line that is playing or still arriving, or nil when no line is.
-    var currentLineToken: SpokenLineToken? {
-        spokenLineTokenLedger.currentToken(audioIsPlayingOrArriving: isPlaying)
-    }
-
     /// How far through `text` the voice is, from 0 to 1, or nil when `text` is not the line Clicky is speaking.
     /// The player's clock starts at 0 for each line, since every line stops the player first.
     func spokenFraction(ofLine text: String) -> Double? {
