@@ -96,7 +96,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 2 Tokens and carrier | Merged: [#72](https://github.com/crodris/clicky-watch-along/pull/72) |
 | 3 Theme files | Merged: [#74](https://github.com/crodris/clicky-watch-along/pull/74) |
 | 12 App icon | Merged: [#73](https://github.com/crodris/clicky-watch-along/pull/73). Dark, tinted, and clear modes still need the layers imported into Icon Composer by hand. |
-| 4 Callouts and speech | In review: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
+| 4 Callouts and speech | Merged: [#81](https://github.com/crodris/clicky-watch-along/pull/81) |
 | 5, 6, 7, 9, 10, 11 | Building in parallel |
 | 8 Panel, onboarding, keyboard | Waiting for PRs 2, 3, and 7 |
 | 13 Theme Studio designs motion | After the build order |
@@ -105,9 +105,13 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 16 Pause every agent by voice | After the build order |
 | 17 Scrub by voice | After the build order |
 | 18 Share themes as files | After the build order |
+| 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
 Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Motion, the tether fades for about 200 ms after a disc covers its slot, and the flush is unchecked through a real Apple Event stall. PR 6 writes the first Glide caller.
 
 Deferred from PR 3: the "Add theme?" card shown before an install (PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
+
+Left open by PR 4: the ring still hides while a status line shows (PR 9), and a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
+PR 19 takes the rest: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
