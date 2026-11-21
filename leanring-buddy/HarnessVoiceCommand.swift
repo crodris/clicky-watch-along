@@ -179,11 +179,11 @@ nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 func runTheVoiceCommandEvents(
     _ commandEvents: AsyncStream<HarnessTaskEvent>,
     lines: HarnessVoiceCommandLines,
-    approvalIDWaitingWhenTheCommandStarted: String?,
+    approvalWhenTheCommandStarted: ApprovalAtPress?,
     secondsToWaitForAnEvent: Double = secondsToWaitForTheNextHarnessVoiceCommandEvent,
     secondsToWaitAfterAPlanningLine: Double = secondsToWaitForAPlanningTurn,
     whenNoEventArrivesInTime: @escaping @MainActor () -> Void,
-    runTool: (_ toolCall: VoiceToolCall, _ approvalIDTheLearnerIsAnswering: String?) async -> VoiceToolOutcome
+    runTool: (_ toolCall: VoiceToolCall, _ approvalTheLearnerIsAnswering: ApprovalAtPress?) async -> VoiceToolOutcome
 ) async -> HarnessVoiceCommandEnding {
     let eventDeadlineRecord = HarnessVoiceCommandDeadlineRecord()
     var eventDeadline: Task<Void, Never>?
@@ -212,7 +212,7 @@ func runTheVoiceCommandEvents(
                 lines.callStarted(toolUseID: toolCall.id)
                 // Only the model's first reply to the learner's words may answer a request. A later turn has read tool
                 // results, which can hold text a page or a server wrote. A call with no turn counts as a later one.
-                let outcome = await runTool(toolCall, harnessToolCall.turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil)
+                let outcome = await runTool(toolCall, harnessToolCall.turnIndex == 0 ? approvalWhenTheCommandStarted : nil)
                 lines.sendTheResult(of: outcome)
                 if outcome == .handedOff {
                     return .finished(spokenLine: "", gaveUp: false)

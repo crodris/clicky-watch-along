@@ -195,7 +195,7 @@ struct AgentHarnessTests {
             transcript: "turn it left",
             sceneState: .object(["page": .string("framePopout")]),
             tools: [rotateTool],
-            approvalIDSeenAtPress: nil
+            approvalAtPress: nil
         )
         #expect(try decodedJSON(of: voiceCommand.line) == .object([
             "type": .string("voice_command"),
@@ -203,17 +203,29 @@ struct AgentHarnessTests {
             "transcript": .string("turn it left"),
             "sceneState": .object(["page": .string("framePopout")]),
             "tools": .array([rotateTool.workerRequestJSON]),
+            "approvalIDWaitingAtPress": .null,
             "approvalIDSeenAtPress": .null,
         ]))
-        // The request the card had shown for a second at the press rides in the same line, for the harness to check.
+        // The request the card showed at the press rides in the same line, for the harness to check, and it is named as
+        // seen only when a card had shown its whole summary for a second, since only then may a yes answer it.
         let answeringCommand = HarnessCommand.voiceCommand(
             taskID: firstTaskID,
             transcript: "yes",
             sceneState: .object([:]),
             tools: [rotateTool],
-            approvalIDSeenAtPress: "approval-1"
+            approvalAtPress: ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: true)
         )
+        #expect(try decodedJSON(of: answeringCommand.line)["approvalIDWaitingAtPress"] == .string("approval-1"))
         #expect(try decodedJSON(of: answeringCommand.line)["approvalIDSeenAtPress"] == .string("approval-1"))
+        let unreadCommand = HarnessCommand.voiceCommand(
+            taskID: firstTaskID,
+            transcript: "no",
+            sceneState: .object([:]),
+            tools: [rotateTool],
+            approvalAtPress: ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: false)
+        )
+        #expect(try decodedJSON(of: unreadCommand.line)["approvalIDWaitingAtPress"] == .string("approval-1"))
+        #expect(try decodedJSON(of: unreadCommand.line)["approvalIDSeenAtPress"] == .null, "a no may answer it, a yes may not")
         #expect(String(decoding: voiceCommand.line, as: UTF8.self).dropLast().contains("\n") == false)
 
         // harness/protocol_test.go parses this exact line.
@@ -344,15 +356,15 @@ struct AgentHarnessTests {
         var shownOutcomes: [(approved: Bool, scope: HarnessApprovalScope)] = []
         desk.onApprovalSettled = { approved, scope in shownOutcomes.append((approved, scope)) }
         desk.receive(anApprovalRequest("approval-1"))
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1", on: .agentList)
         now += 2
 
         // The learner clicks No, and the click is on its way to the harness.
-        #expect(desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once))
+        #expect(desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once, on: .agentList))
         #expect(desk.answeringApprovalIDs == ["approval-1"])
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-1"], "the card stays until the harness settles the request")
         #expect(shownOutcomes.isEmpty, "a click shows no outcome of its own")
-        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once), "a second click while answering changes nothing")
+        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once, on: .agentList), "a second click while answering changes nothing")
 
         // The gate had already taken the voice yes, so the settlement says yes.
         desk.settle(approvalID: "approval-1", approved: true, scope: .once)
@@ -370,7 +382,7 @@ struct AgentHarnessTests {
         let desk = HarnessApprovalDesk(currentDate: { now }) { approvalID, _, _ in answers.append(approvalID) }
         desk.onApprovalSettled = { _, _ in shownOutcomeCount += 1 }
         desk.receive(anApprovalRequest("approval-1"))
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1", on: .agentList)
         now += 2
 
         desk.settle(approvalID: "approval-1", approved: true, scope: .always)
@@ -378,7 +390,7 @@ struct AgentHarnessTests {
         #expect(ApprovalVoiceAnswer(approved: true, scope: .always).chipPhrase == "Allowed it for this task")
         #expect(ApprovalVoiceAnswer(approved: false, scope: .once).chipPhrase == "Declined it")
 
-        #expect(!desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once))
+        #expect(!desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once, on: .agentList))
         desk.settle(approvalID: "approval-1", approved: false, scope: .once)
         #expect(answers.isEmpty, "the late click sent nothing")
         #expect(shownOutcomeCount == 1, "a second settlement for a request the desk dropped shows nothing")
@@ -464,6 +476,7 @@ struct AgentHarnessTests {
         #expect(desk.answeringApprovalIDs.isEmpty)
         #expect(changedQueues.last == ["approval-next"])
         #expect(shownOutcomeCount == 0, "nobody knows which answer the gate took, so no outcome shows")
+        #expect(desk.cardToShow(on: .agentList, at: Date())?.request.approvalID == "approval-next", "the next request shows before the ending")
 
         desk.settle(approvalID: "approval-stuck", approved: true, scope: .once)
         #expect(shownOutcomeCount == 0, "a settlement that arrives after the drop shows nothing")
@@ -496,36 +509,82 @@ struct AgentHarnessTests {
         #expect(answers.map(\.approved) == [false], "an action the app cannot name is declined at once")
     }
 
-    /// The card dims its buttons from `approvalAnswerReadiness`, and the desk's click check reads the same function, so at
-    /// every moment the card looks ready exactly when `answerByClick` counts.
-    @Test func theCardLooksReadyExactlyWhenAClickCounts() {
+    /// The card dims Yes and Always from `approvalAnswerReadiness`, and the desk's click check reads the same function, so
+    /// at every moment the card looks ready exactly when `answerByClick` counts a yes.
+    @Test func theCardLooksReadyExactlyWhenAYesCounts() {
         var now = Date(timeIntervalSince1970: 1_000)
         let desk = HarnessApprovalDesk(currentDate: { now }) { _, _, _ in }
         desk.listIsShowing = { true }
         desk.receive(anApprovalRequest("approval-1"))
 
-        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now) == .summaryNotYetSeen)
-        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now).buttonsAreDimmed)
-        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now).waitingLine == "Scroll through the whole request to answer")
+        #expect(desk.answerReadiness(on: .agentList, at: now) == .summaryNotYetSeen)
+        #expect(desk.answerReadiness(on: .agentList, at: now).allowButtonsAreDimmed)
+        #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .waiting(.summaryNotYetSeen))
+        #expect(approvalCardStatusText(phase: .waiting(.summaryNotYetSeen), reduceMotionIsOn: false) == "Read the whole request to allow it")
 
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1", on: .agentList)
         now += 0.4
-        let readinessDuringTheSecond = approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now)
-        #expect(readinessDuringTheSecond == .readyInAMoment)
-        #expect(readinessDuringTheSecond.buttonsAreDimmed)
-        #expect(readinessDuringTheSecond.waitingLine == "Ready in a second")
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == nil, "a dimmed card is a click that does not count")
+        #expect(desk.answerReadiness(on: .agentList, at: now) == .readyInAMoment)
+        #expect(desk.answerReadiness(on: .agentList, at: now).allowButtonsAreDimmed)
+        #expect(abs(approvalReadyClockProgress(wholeSummaryShownSince: desk.wholeSummaryShownSinceBySurface[.agentList], at: now) - 0.4) < 0.0001)
+        #expect(approvalCardStatusText(phase: .waiting(.readyInAMoment), reduceMotionIsOn: true) == "Ready in 1 s", "Reduce Motion says the clock in words")
+        #expect(desk.approvalAtPress(at: now)?.wholeSummaryWasSeen != true, "a dimmed card is a yes that does not count")
 
         now += 0.7
-        let readinessAfterTheSecond = approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now)
-        #expect(readinessAfterTheSecond == .ready)
-        #expect(!readinessAfterTheSecond.buttonsAreDimmed)
-        #expect(readinessAfterTheSecond.waitingLine == nil)
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == "approval-1", "a ready card is a click that counts")
+        #expect(desk.answerReadiness(on: .agentList, at: now) == .ready)
+        #expect(!desk.answerReadiness(on: .agentList, at: now).allowButtonsAreDimmed)
+        #expect(approvalReadyClockProgress(wholeSummaryShownSince: desk.wholeSummaryShownSinceBySurface[.agentList], at: now) == 1)
+        #expect(desk.approvalAtPress(at: now) == ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: true), "a ready card is a yes that counts")
 
         // Closing the list discards what the card had shown, so the buttons dim again.
-        desk.theCardHasNotShownTheWholeSummary()
-        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now) == .summaryNotYetSeen)
+        desk.theCardHasNotShownTheWholeSummary(on: .agentList)
+        #expect(desk.answerReadiness(on: .agentList, at: now) == .summaryNotYetSeen)
+    }
+
+    /// Instant No: a wrong no costs the agent a retry, while a wrong yes can send data out, so Don't allow counts before
+    /// the summary was read, and Allow once and For this task do not.
+    @Test func aNoCountsAtOnceBeforeTheSummaryWasReadAndAYesDoesNot() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        var answers: [(approvalID: String, approved: Bool)] = []
+        let desk = HarnessApprovalDesk(currentDate: { now }) { approvalID, approved, _ in answers.append((approvalID, approved)) }
+        desk.listIsShowing = { true }
+        desk.receive(anApprovalRequest("approval-1"))
+        desk.receive(anApprovalRequest("approval-2", taskID: secondTaskID))
+
+        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once, on: .agentList))
+        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .always, on: .agentList))
+        #expect(!desk.answerByClick(approvalID: "approval-2", approved: false, scope: .once, on: .agentList), "a no answers only the request the card shows")
+        #expect(desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once, on: .agentList))
+        #expect(answers.map(\.approvalID) == ["approval-1"])
+        #expect(answers.map(\.approved) == [false])
+        #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .sending)
+
+        // A voice no from a press before reading reaches the same request: the press names it, unread.
+        #expect(desk.approvalAtPress(at: now) == ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: false))
+    }
+
+    /// The card shows only what the desk knows: sending until the harness settles, then how the request ended, for a
+    /// moment when no other request waits, while a request behind it shows at once.
+    @Test(.timeLimit(.minutes(1))) func theCardShowsEachEndingFromTheDeskAndTheNextRequestAtOnce() async {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let desk = HarnessApprovalDesk(timeoutSeconds: 60, answerSettleGraceSeconds: 60, secondsAnEndedCardStays: 0.2, currentDate: { now }) { _, _, _ in }
+        desk.receive(anApprovalRequest("approval-1"))
+        #expect(desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once, on: .agentList))
+        #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .sending)
+
+        desk.settle(approvalID: "approval-1", approved: false, scope: .once)
+        #expect(desk.cardToShow(on: .agentList, at: now) == ShownApprovalCard(request: anApprovalRequest("approval-1"), phase: .ended(.declined)))
+
+        desk.receive(anApprovalRequest("approval-2"))
+        #expect(desk.cardToShow(on: .agentList, at: now)?.request.approvalID == "approval-2", "a waiting request comes before an ended one")
+        desk.settle(approvalID: "approval-2", approved: true, scope: .always)
+        #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .ended(.allowed(.always)))
+
+        let deadline = Date().addingTimeInterval(10)
+        while desk.cardToShow(on: .agentList, at: now) != nil, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(desk.cardToShow(on: .agentList, at: now) == nil, "the ended card goes")
     }
 
     @Test func anAnswerCountsOnlyOnceTheCardHasShownTheWholeSummaryForASecond() {
@@ -535,23 +594,23 @@ struct AgentHarnessTests {
         desk.listIsShowing = { true }
 
         desk.receive(anApprovalRequest("approval-1"))
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now + 60) == nil, "no card has shown it yet")
+        #expect(desk.approvalAtPress(at: now + 60)?.wholeSummaryWasSeen != true, "no card has shown it yet")
 
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1", on: .agentList)
         now += 0.5
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == nil, "a summary on screen for an instant is one nobody read")
-        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once), "a click meant for the page must not land on Yes")
+        #expect(desk.approvalAtPress(at: now)?.wholeSummaryWasSeen != true, "a summary on screen for an instant is one nobody read")
+        #expect(!desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once, on: .agentList), "a click meant for the page must not land on Yes")
 
         // A click closes the list before the second is up, so a later press finds nothing it may answer.
-        desk.theCardHasNotShownTheWholeSummary()
+        desk.theCardHasNotShownTheWholeSummary(on: .agentList)
         now += 5
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == nil)
+        #expect(desk.approvalAtPress(at: now)?.wholeSummaryWasSeen != true)
 
         // The list opens again and the card shows all of it for a second, so the press and the click both count.
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1", on: .agentList)
         now += 1.1
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == "approval-1")
-        #expect(desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once))
+        #expect(desk.approvalAtPress(at: now) == ApprovalAtPress(approvalID: "approval-1", wholeSummaryWasSeen: true))
+        #expect(desk.answerByClick(approvalID: "approval-1", approved: true, scope: .once, on: .agentList))
         #expect(answeredIDs == ["approval-1"])
     }
 
@@ -566,11 +625,11 @@ struct AgentHarnessTests {
         desk.receive(anApprovalRequest("approval-A"))
         desk.receive(anApprovalRequest("approval-B", taskID: secondTaskID))
         // Only the oldest has a card, so a report about another request changes nothing.
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-B")
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now + 60) == nil)
-        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-A")
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-B", on: .agentList)
+        #expect(desk.approvalAtPress(at: now + 60)?.wholeSummaryWasSeen != true)
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-A", on: .agentList)
         now += 2
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == "approval-A")
+        #expect(desk.approvalAtPress(at: now) == ApprovalAtPress(approvalID: "approval-A", wholeSummaryWasSeen: true))
 
         // A ends while the list is closed. B becomes the oldest with no card showing it, so the list is asked to open,
         // and nothing can answer B until its own card has shown it for a second.
@@ -578,8 +637,8 @@ struct AgentHarnessTests {
         desk.dropRequests(forTaskID: firstTaskID)
         #expect(requestsThatNeededShowing == ["approval-B"])
         now += 5
-        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == nil)
-        #expect(!desk.answerByClick(approvalID: "approval-B", approved: true, scope: .once))
+        #expect(desk.approvalAtPress(at: now)?.wholeSummaryWasSeen != true)
+        #expect(!desk.answerByClick(approvalID: "approval-B", approved: true, scope: .once, on: .agentList))
     }
 
     @Test func theHarnessStoppingDropsEveryRequestWithoutOpeningTheList() {
