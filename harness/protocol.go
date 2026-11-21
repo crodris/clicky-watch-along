@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"sync"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // The protocol between the Clicky app and this harness is one JSON object per line on stdin and stdout. Every message
@@ -68,14 +70,26 @@ func (outcome voiceToolOutcome) isKnown() bool {
 }
 
 // voiceCommandMessage starts one voice command on the brain. SceneState is the JSON object the app builds of what is
-// on screen, RecentActions are the app's lines for its last few tool calls, and Tools are the tools this command may
-// call, already filtered by the app.
+// on screen, and Tools are the tools this command may call, already filtered by the app. The message has no
+// recentActions, since the brain's session holds every earlier command, and a line that carries one is read with it left out.
 type voiceCommandMessage struct {
-	TaskID        string           `json:"taskID"`
-	Transcript    string           `json:"transcript"`
-	SceneState    json.RawMessage  `json:"sceneState"`
-	RecentActions []string         `json:"recentActions"`
-	Tools         []voiceToolOffer `json:"tools"`
+	TaskID     string           `json:"taskID"`
+	Transcript string           `json:"transcript"`
+	SceneState json.RawMessage  `json:"sceneState"`
+	Tools      []voiceToolOffer `json:"tools"`
+}
+
+// resetSessionMessage empties the brain's session. Only a harness started with CLICKY_BENCH=1 takes it, so the brain
+// evals can keep their cases independent.
+type resetSessionMessage struct{}
+
+// seedSessionMessage replaces the brain's session with fixed messages, with no model call, so an eval starts from the
+// same history every run. Messages are the user, assistant, and tool result messages of earlier commands in the
+// Anthropic format. InterruptedBefore are the action lines of an interrupted command the next command's user message
+// reports. Only a harness started with CLICKY_BENCH=1 takes it.
+type seedSessionMessage struct {
+	Messages          []anthropic.MessageParam `json:"messages"`
+	InterruptedBefore []string                 `json:"interruptedBefore"`
 }
 
 // voiceToolOffer is one tool in the WebMCP and MCP shape, as the app offers it. ReadOnly marks a lookup, whose call
@@ -111,6 +125,8 @@ func (toolResultMessage) inboundMessage()     {}
 func (cancelTaskMessage) inboundMessage()     {}
 func (approvalResultMessage) inboundMessage() {}
 func (voiceCommandMessage) inboundMessage()   {}
+func (resetSessionMessage) inboundMessage()   {}
+func (seedSessionMessage) inboundMessage()    {}
 
 // parseInboundMessage checks one line from the app at the boundary and returns the typed message, or an error that
 // names what is wrong with the line.
@@ -151,6 +167,14 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		}
 		if message.TaskID == "" || message.Transcript == "" || len(message.Tools) == 0 {
 			return nil, fmt.Errorf("voice_command needs a taskID, a transcript, and at least one tool")
+		}
+		return message, nil
+	case "reset_session":
+		return resetSessionMessage{}, nil
+	case "seed_session":
+		var message seedSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil, fmt.Errorf("seed_session is malformed: %w", err)
 		}
 		return message, nil
 	case "cancel_task":

@@ -52,15 +52,30 @@ func TestParsingAMessageFromTheApp(t *testing.T) {
 			want: toolResultMessage{TaskID: "E621E1F8-C36C-495A-93FC-0C247A3E6E5F", ToolUseID: "toolu_pop", Content: []byte(`"{\"ok\":true}"`), Outcome: voiceToolHandedOff},
 		},
 		{
-			name: "voice_command",
+			// An older app's recentActions is accepted and ignored.
+			name: "voice_command with an older app's recentActions",
 			line: `{"type":"voice_command","taskID":"command-1","transcript":"turn it left","sceneState":{"page":"framePopout"},"recentActions":["zoom {} -> ok"],"tools":[{"name":"rotate_model","description":"Turns it.","inputSchema":{"type":"object"},"readOnly":false}]}`,
 			want: voiceCommandMessage{
-				TaskID:        "command-1",
-				Transcript:    "turn it left",
-				SceneState:    []byte(`{"page":"framePopout"}`),
-				RecentActions: []string{"zoom {} -> ok"},
-				Tools:         []voiceToolOffer{{Name: "rotate_model", Description: "Turns it.", InputSchema: []byte(`{"type":"object"}`)}},
+				TaskID:     "command-1",
+				Transcript: "turn it left",
+				SceneState: []byte(`{"page":"framePopout"}`),
+				Tools:      []voiceToolOffer{{Name: "rotate_model", Description: "Turns it.", InputSchema: []byte(`{"type":"object"}`)}},
 			},
+		},
+		{
+			name: "voice_command with no recentActions",
+			line: `{"type":"voice_command","taskID":"command-1","transcript":"turn it left","sceneState":{"page":"framePopout"},"tools":[{"name":"rotate_model","description":"Turns it.","inputSchema":{"type":"object"},"readOnly":false}]}`,
+			want: voiceCommandMessage{
+				TaskID:     "command-1",
+				Transcript: "turn it left",
+				SceneState: []byte(`{"page":"framePopout"}`),
+				Tools:      []voiceToolOffer{{Name: "rotate_model", Description: "Turns it.", InputSchema: []byte(`{"type":"object"}`)}},
+			},
+		},
+		{
+			name: "reset_session",
+			line: `{"type":"reset_session"}`,
+			want: resetSessionMessage{},
 		},
 	}
 	for _, test := range tests {

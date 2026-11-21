@@ -12,6 +12,8 @@
 //   other    calls rotate_model once.
 // Every command but "hang" is answered 30 ms after it arrives, so the stray lines above land while the next command waits.
 // A command that ends after a tool finishes with the outcome and text the app answered.
+// It takes reset_session and seed_session only with CLICKY_BENCH=1, as the real harness does, and says what it took in a
+// log line (the real harness writes nothing), so a test can see which lines the driver sent before a command.
 import { createInterface } from "node:readline";
 import { isRecord } from "../usage.ts";
 
@@ -35,6 +37,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (message.type === "voice_command" && typeof message.taskID === "string" && typeof message.transcript === "string") {
     const voiceCommand = { taskID: message.taskID, transcript: message.transcript };
     setTimeout(() => answerCommand(voiceCommand), voiceCommand.transcript.includes("hang") ? 0 : 30);
+  } else if (message.type === "reset_session" || message.type === "seed_session") {
+    const taken = process.env.CLICKY_BENCH === "1";
+    const seededCount = Array.isArray(message.messages) ? message.messages.length : 0;
+    const interruptedCount = Array.isArray(message.interruptedBefore) ? message.interruptedBefore.length : 0;
+    write({
+      type: "log",
+      message: taken ? `Fake: ${message.type}${message.type === "seed_session" ? ` ${seededCount} messages, ${interruptedCount} interrupted` : ""}` : `Fake: ignored ${message.type}`,
+    });
   } else if (message.type === "cancel_task") {
     clearTimeout(lateTurnTimer);
     turnLine(1, 777, 777, "none");

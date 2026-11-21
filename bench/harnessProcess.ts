@@ -13,12 +13,13 @@ const stderrTailLength = 500;
 /**
  * Starts the harness with the minimum environment, as the app does, so none of this machine's Anthropic credentials reach
  * the Worker. `stderrTail` is the last 500 characters of its stderr with the app secret replaced, which is the only
- * place a driver may print stderr from. A write to a harness that already exited fails with an error event, which would
+ * place a driver may print stderr from. `extraEnvironment` adds variables the app never passes, such as the brain evals'
+ * `CLICKY_BENCH=1`, which lets the harness take `reset_session` and `seed_session`. A write to a harness that already exited fails with an error event, which would
  * end the run with no result file, so the driver learns of it from the `close` event and the write's callback instead.
  */
-export function spawnHarness(harness: HarnessCommand, workerPort: number, appSecret: string) {
+export function spawnHarness(harness: HarnessCommand, workerPort: number, appSecret: string, extraEnvironment: Record<string, string> = {}) {
   const harnessProcess: ChildProcessWithoutNullStreams = spawn(harness.command, harness.args, {
-    env: { CLICKY_WORKER_BASE_URL: `http://127.0.0.1:${workerPort}`, CLICKY_APP_SECRET: appSecret, PATH: "/usr/bin:/bin" },
+    env: { CLICKY_WORKER_BASE_URL: `http://127.0.0.1:${workerPort}`, CLICKY_APP_SECRET: appSecret, PATH: "/usr/bin:/bin", ...extraEnvironment },
     stdio: ["pipe", "pipe", "pipe"],
   });
   // Kept longer than it is shown, so a secret that a chunk boundary splits is whole when it is scrubbed.

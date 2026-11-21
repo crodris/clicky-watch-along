@@ -195,6 +195,56 @@ struct HarnessVoiceCommandTests {
         #expect(cancelledAfterTheResult.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_close", outcome: .handedOff)])
     }
 
+    @Test func aCancelAfterACallFinishedWritesItsResultBeforeCancelTaskAndACancelDuringTheCallWritesOnlyCancelTask() {
+        // The call finished, and the press arrived before its result line went out: the harness must hear the result
+        // first, so the call's action line reaches the next command's interrupted_before line.
+        let cancelledAfterTheCallFinished = HarnessLineRecorder()
+        let linesCancelledAfterTheCallFinished = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledAfterTheCallFinished.record(harnessCommand) })
+        linesCancelledAfterTheCallFinished.callStarted(toolUseID: "toolu_rotate")
+        linesCancelledAfterTheCallFinished.callFinished(with: .changed(state: nil))
+        linesCancelledAfterTheCallFinished.commandWasCancelled()
+        // The normal path's own line, and a second cancel, add nothing: the result went out once.
+        linesCancelledAfterTheCallFinished.sendTheResult(of: .changed(state: nil))
+        linesCancelledAfterTheCallFinished.commandWasCancelled()
+        #expect(cancelledAfterTheCallFinished.lines == [
+            .voiceToolResult(taskID: commandID, toolUseID: "toolu_rotate", outcome: .changed(state: nil)),
+            .cancelTask(taskID: commandID),
+        ])
+
+        // A call still running at the press has no outcome, so only the cancel goes out, and a call that finishes
+        // after the cancel writes nothing.
+        let cancelledDuringTheCall = HarnessLineRecorder()
+        let linesCancelledDuringTheCall = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledDuringTheCall.record(harnessCommand) })
+        linesCancelledDuringTheCall.callStarted(toolUseID: "toolu_play")
+        linesCancelledDuringTheCall.commandWasCancelled()
+        linesCancelledDuringTheCall.callFinished(with: .changed(state: nil))
+        linesCancelledDuringTheCall.sendTheResult(of: .changed(state: nil))
+        #expect(cancelledDuringTheCall.lines == [.cancelTask(taskID: commandID)])
+
+        // The result of an earlier call that already went out is never written again for the next call's cancel.
+        let cancelledBetweenCalls = HarnessLineRecorder()
+        let linesCancelledBetweenCalls = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in cancelledBetweenCalls.record(harnessCommand) })
+        linesCancelledBetweenCalls.callStarted(toolUseID: "toolu_rotate")
+        linesCancelledBetweenCalls.callFinished(with: .changed(state: nil))
+        linesCancelledBetweenCalls.sendTheResult(of: .changed(state: nil))
+        linesCancelledBetweenCalls.commandWasCancelled()
+        #expect(cancelledBetweenCalls.lines == [
+            .voiceToolResult(taskID: commandID, toolUseID: "toolu_rotate", outcome: .changed(state: nil)),
+            .cancelTask(taskID: commandID),
+        ])
+    }
+
+    @Test func aHandOffMarkWinsOverAFinishedCallsResultWhenTheCommandIsCancelled() {
+        let recorder = HarnessLineRecorder()
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID, sendLine: { harnessCommand in recorder.record(harnessCommand) })
+        commandLines.callStarted(toolUseID: "toolu_pop")
+        commandLines.callFinished(with: .handedOff)
+        commandLines.handOffHasStarted()
+        commandLines.commandWasCancelled()
+        // One result, as handed off, and no cancel: the command is complete.
+        #expect(recorder.lines == [.voiceToolResult(taskID: commandID, toolUseID: "toolu_pop", outcome: .handedOff)])
+    }
+
     @Test func theWaitForAnEventStopsWhileAToolRunsAndFailsTheCommandWhenNothingComes() async {
         final class DeadlineRecord {
             var toolIsRunning = false

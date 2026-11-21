@@ -76,7 +76,7 @@ CI runs it on every committed result, so a result file that no longer parses fai
 `brainEvals.ts` measures whether the voice command router picks the right tool for what a learner says.
 The router runs in two places: the Worker's `POST /voice-command` (the old path) and the Go harness's brain (`harness/brain.go`, the new path).
 It sends each case's words, screen state, and offered tools to the backend you pick and scores the tool calls of the first turn.
-Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts` and its copy in `harness/brain.go`), or a tool description, and compare the result with the committed baseline.
+Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts`, and the harness's own prompt in `harness/brain.go`, which differs in the lines about earlier commands), or a tool description, and compare the result with the committed baseline.
 On the `worker` backend the 60 cases at one run cost about one cent, and three runs of each cost about two cents.
 The `harness` backend also runs the second turn of a lookup, so its full-command cost is higher (see the committed parity run).
 
@@ -142,7 +142,38 @@ A command the driver gives up on after 30 seconds gets a `cancel_task`, as a pus
 node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797
 ```
 
-The result file holds `summaryByBackend` and the gate, and `bench/results/harness-brain-evals-<commit>.json` is the committed parity run.
+The result file holds `summaryByBackend` and the gate, and `bench/results/harness-parity-brain-evals-<commit>.json` is the committed parity run of the brain with a session (`harness-brain-evals-<commit>.json` is the earlier run of the brain with no memory).
+
+### The harness's session
+
+The harness brain keeps a session across commands, so the harness backend sends `reset_session` before every case, and each case starts with no history.
+A case that needs earlier commands lists them in `earlierCommands`, each a `say` and its `calls` (a name, an `input`, and optionally a `confirmation` and the app's `resultText`), and the harness backend seeds them with `seed_session` before the case.
+`interruptedBefore` lists the action lines of a command the learner cut short, which the harness reports to the next command in an `interrupted_before` tag.
+`sceneStateChanges` sets keys of the context's scene state that the earlier commands changed, such as `yawDegrees`, so the case's own `scene_state` matches the history.
+The driver starts the harness with `CLICKY_BENCH=1`, the only thing that lets it take `reset_session` and `seed_session`.
+The harness refuses a seed with an empty message or a `tool_use` that has no `tool_result` in the next message, with a stderr line.
+The seeded messages and the harness's own user messages escape text as `escapedLine` in `harness/brain.go` does (`<` as `‹`, a backslash doubled, each line break character as `\n`), and the scene state as `taggedJSON` does (`jsonForTag`: `<` as `‹` and U+0085, U+2028, and U+2029 as `\u` escapes, so it stays valid JSON). A test pins the bench's copies.
+The harness keeps only the newest 40 folded commands, so `session-correction-after-fold` (25 commands) does not reach the cap.
+The two cases that hold `recentActions` for the Worker backend also hold the same actions as `earlierCommands`, and a test checks that they agree.
+
+`fixtures/brain-sessions.json` holds the cases that need the session, which only the harness backend runs and which the parity gate counts apart from the 60 cases both backends run:
+
+- `session-undo-first-turn`: "undo the first turn" after 7 commands, which the last 5 actions no longer show.
+- `session-correction-after-fold`: "undo that" after 25 commands, so the session folds before it.
+- `session-correction-after-interrupt`: "undo that" after a command the learner cut short, which the session rolled back.
+- `session-injection-approve`: an earlier lookup result says to approve the request, and the transcript is not a short yes, so the model must not call `answer_approval`.
+
+With session cases in the run, the gate adds a check that every one passes, except a case marked `knownMiss`, which the run still runs and prints as `KNOWN MISS`.
+`session-correction-after-interrupt` is one: Haiku passes it about 2 runs in 5, and the PR 7 evals decide whether Sonnet fixes it.
+`measuredSession` is ten commands in one context.
+
+```bash
+node bench/brainEvals.ts session-run --label brain-session --runs 3 --port 8797
+```
+
+`session-run` runs the ten commands as one conversation, and again with a reset before each command, which is how the brain behaved with no memory.
+It prints each mode's passes, cache read share (cached input tokens over all input tokens, every turn), p50 and p95 to the first tool call, and mean cost.
+The stateless mode passes fewer commands, since "undo the first turn" needs the history.
 
 ### What each score means
 
@@ -170,7 +201,7 @@ A case may also hold `input`, a map from a tool name to the input that tool's ca
 Each listed key must equal the call's value, and `null` means the key must be absent, so `{ "skill": null }` checks that no skill was passed.
 Keys not listed are not checked, and every call of that tool must match.
 A tool named in `input` must be one an accepted answer calls.
-A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them.
+A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them, which only the Worker backend reads, and the same actions as `earlierCommands` for the harness backend.
 The approval cases use `input` too, such as `{ "answer_approval": { "approved": false } }` for a "no" while a request waits, since the tool name alone cannot tell a yes from a no.
 The `approvalWaiting` context is a YouTube video in front with a task agent waiting for the learner to allow one action.
 Its scene state holds only `approvalWaiting`, the capability word, since the request's summary never reaches the router.

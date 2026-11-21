@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -36,6 +37,9 @@ type configuration struct {
 	skillsDirectories []string
 	// mcpConfigPath is the mcp.json to read, from CLICKY_MCP_CONFIG. Empty means no MCP servers.
 	mcpConfigPath string
+	// benchMode is true when CLICKY_BENCH is 1. Only then does the harness take reset_session and seed_session, which
+	// let the brain evals start each case from a known session. The app's environment never carries it.
+	benchMode bool
 	// lookupEnvironment reads this process's variables, which a stdio MCP server's baseline environment copies a few of.
 	// A nil one reads the real environment.
 	lookupEnvironment func(string) string
@@ -57,6 +61,7 @@ func loadConfiguration(lookupEnvironment func(string) string) (configuration, er
 		appSecret:         lookupEnvironment("CLICKY_APP_SECRET"),
 		skillsDirectories: skillsDirectories,
 		mcpConfigPath:     lookupEnvironment("CLICKY_MCP_CONFIG"),
+		benchMode:         lookupEnvironment("CLICKY_BENCH") == "1",
 		lookupEnvironment: lookupEnvironment,
 	}, nil
 }
@@ -87,6 +92,10 @@ type harness struct {
 	tasks      map[string]*runningTask
 	// runningVoiceCommandID is the voice command still running, which a new one cancels, so two never interleave.
 	runningVoiceCommandID string
+	// lastVoiceCommandEnded closes when the newest voice command's goroutine has ended. A new command waits for it, so it
+	// begins only after the one it cancelled has rolled back, and the session it reads is whole.
+	lastVoiceCommandEnded chan struct{}
+	benchMode             bool
 	taskGroup             sync.WaitGroup
 }
 
@@ -113,8 +122,9 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 	serving := &harness{
 		rootContext: rootContext,
 		runner:      &taskRunner{client: client, writer: writer, skillsDirectories: harnessConfiguration.skillsDirectories, mcp: servers, approvals: newApprovalGate()},
-		brain:       &brainRunner{client: client, writer: writer},
+		brain:       &brainRunner{client: client, writer: writer, session: newBrainSession(time.Now)},
 		tasks:       map[string]*runningTask{},
+		benchMode:   harnessConfiguration.benchMode,
 	}
 
 	writer.send(newReadyMessage())
@@ -153,6 +163,20 @@ func (serving *harness) handle(line []byte) {
 		serving.startTask(message)
 	case voiceCommandMessage:
 		serving.startVoiceCommand(message)
+	case resetSessionMessage:
+		if !serving.benchMode {
+			fmt.Fprintln(os.Stderr, "harness: dropped reset_session, which only a harness started with CLICKY_BENCH=1 takes")
+			return
+		}
+		serving.brain.session.reset()
+	case seedSessionMessage:
+		if !serving.benchMode {
+			fmt.Fprintln(os.Stderr, "harness: dropped seed_session, which only a harness started with CLICKY_BENCH=1 takes")
+			return
+		}
+		if err := serving.brain.session.seed(message.Messages, message.InterruptedBefore); err != nil {
+			fmt.Fprintf(os.Stderr, "harness: dropped seed_session: %v\n", err)
+		}
 	case toolResultMessage:
 		serving.deliverToolResult(message)
 	case cancelTaskMessage:
@@ -200,12 +224,19 @@ func (serving *harness) startVoiceCommand(voiceCommand voiceCommandMessage) {
 	command := &runningTask{cancel: cancel, done: commandContext.Done(), toolResults: make(chan toolResultMessage, 32), isVoiceCommand: true}
 	serving.tasks[voiceCommand.TaskID] = command
 	serving.runningVoiceCommandID = voiceCommand.TaskID
+	previousCommandEnded := serving.lastVoiceCommandEnded
+	commandEnded := make(chan struct{})
+	serving.lastVoiceCommandEnded = commandEnded
 	serving.tasksMutex.Unlock()
 
 	serving.taskGroup.Add(1)
 	go func() {
 		defer serving.taskGroup.Done()
+		defer close(commandEnded)
 		defer serving.removeTask(voiceCommand.TaskID)
+		if previousCommandEnded != nil {
+			<-previousCommandEnded
+		}
 		serving.brain.runCommand(commandContext, command, voiceCommand)
 	}()
 }

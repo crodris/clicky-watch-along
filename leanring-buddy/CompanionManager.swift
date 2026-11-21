@@ -2708,7 +2708,6 @@ final class CompanionManager: ObservableObject {
                 taskID: commandID,
                 transcript: transcript,
                 sceneState: sceneState,
-                recentActions: recentVoiceToolActionLines,
                 tools: tools
             )
         } catch {
@@ -2781,7 +2780,8 @@ final class CompanionManager: ObservableObject {
     /// Runs one of the model's tool calls with its chips, its log line, and its recent action line, the same on both
     /// paths. Nil when a push-to-talk press cancelled the command during the call, since its outcome is then never shown
     /// or recorded. A hand-off cancels this task itself when it starts the new path, and runs with no await, so it goes
-    /// on to show its chip and record its action. `handOffMark` is the harness command's, which each hand-off sets.
+    /// on to show its chip and record its action. `handOffMark` is the harness command's, which each hand-off sets and
+    /// which hears when a call finished.
     private func runOneVoiceToolCall(
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
@@ -2801,6 +2801,8 @@ final class CompanionManager: ObservableObject {
         )
         // A push-to-talk press during a slow call, like play_video's check, ends the command here.
         if Task.isCancelled && outcome != .handedOff { return nil }
+        // The call finished, so a press from here on still lets the harness hear its result before the cancel.
+        handOffMark?.callFinished(with: outcome)
         showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
         print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
         logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
