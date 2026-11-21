@@ -156,7 +156,7 @@ func (brain *brainRunner) requestTurn(commandContext context.Context, run *sessi
 
 // errAppSecretRefused is the failure of a turn the Worker's own app secret check refused. Its text is the reason the
 // command's task_failed carries, which the app reads: it then sends the same command once on the old path, which needs
-// no secret, and uses that path for the rest of the launch. leanring-buddy/HarnessVoiceCommand.swift
+// no secret, and uses that path for the rest of the launch. leanring-buddy/VoiceCommandTools.swift
 // (`harnessFailureReasonAppSecretRefused`) holds the same words.
 var errAppSecretRefused = errors.New("app secret refused")
 

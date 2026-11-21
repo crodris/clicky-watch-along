@@ -186,7 +186,7 @@ final class CompanionManager: ObservableObject {
             self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
         }
         // The harness's gate takes the first answer to a request, a click's or a voice answer's, and says which one won.
-        agentHarness.approvalDesk.onApprovalSettled = { _, approved, scope in
+        agentHarness.approvalDesk.onApprovalSettled = { approved, scope in
             let settledAnswer = ApprovalVoiceAnswer(approved: approved, scope: scope)
             VoiceToolCallChip.shared.show(settledAnswer.chipPhrase)
         }

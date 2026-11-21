@@ -332,6 +332,8 @@ final class HarnessTaskRouter {
 // MARK: - Approvals
 
 /// Holds each approval_request until the learner answers it, its task ends, or `timeoutSeconds` pass, which declines it.
+/// An answer the harness does not settle within `answerSettleGraceSeconds` drops the card, since a harness that hung
+/// after it took the answer would otherwise leave the card with no buttons for as long as its task lives.
 /// Requests wait in arrival order, and the learner answers the oldest first (by the buttons in the agent list, or by
 /// voice with `answer_approval`). The desk only keeps the queue and sends the answers. `onRequestArrived` and
 /// `onWaitingRequestsChanged` let CompanionManager show the request, and a Debug build's `debug_answer_approval` tool
@@ -341,6 +343,10 @@ final class HarnessApprovalDesk: ObservableObject {
     /// How long a request waits for an answer before it is declined, so a learner who walked away does not leave the
     /// agent waiting for good. harness/approval.go waits as long as the task lives.
     nonisolated static let defaultTimeoutSeconds: Double = 120
+
+    /// How long an answered request waits for the harness's `approval_settled` before its card is dropped. The harness
+    /// settles an answer within milliseconds, so this only runs out when the harness hung.
+    nonisolated static let defaultAnswerSettleGraceSeconds: Double = 15
 
     /// A yes, by voice or by click, counts only once the card has shown the oldest request's whole summary, scrolled
     /// through from top to bottom, and this long has passed since it did. Scrolling away afterward does not stop the
@@ -353,8 +359,9 @@ final class HarnessApprovalDesk: ObservableObject {
     /// The requests whose answer went to the harness and whose `approval_settled` has not come back. The card shows them as
     /// answering, since the gate takes the first answer, and a voice answer may have won over this click.
     @Published private(set) var answeringApprovalIDs: Set<String> = []
-    /// A request was settled, with the answer the harness's gate took, so the owner shows the outcome.
-    var onApprovalSettled: ((_ request: HarnessApprovalRequest, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
+    /// A request was settled, with the answer the harness's gate took, so the owner shows the outcome. It is not called
+    /// for a request the desk's own timeout declined, since "Declined it" under the cursor would come with no context.
+    var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
     /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest.
     private var oldestRequestVisibleSince: Date?
@@ -368,16 +375,22 @@ final class HarnessApprovalDesk: ObservableObject {
     var taskIsRunning: (UUID) -> Bool = { _ in true }
     var onWaitingRequestsChanged: (([HarnessApprovalRequest]) -> Void)?
 
+    /// The requests the desk's own timeout declined, so their settlement shows no outcome of its own.
+    private var timedOutApprovalIDs: Set<String> = []
+
     private let timeoutSeconds: Double
+    private let answerSettleGraceSeconds: Double
     private let sendAnswer: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     private let currentDate: () -> Date
 
     init(
         timeoutSeconds: Double = HarnessApprovalDesk.defaultTimeoutSeconds,
+        answerSettleGraceSeconds: Double = HarnessApprovalDesk.defaultAnswerSettleGraceSeconds,
         currentDate: @escaping () -> Date = Date.init,
         sendAnswer: @escaping (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     ) {
         self.timeoutSeconds = timeoutSeconds
+        self.answerSettleGraceSeconds = answerSettleGraceSeconds
         self.currentDate = currentDate
         self.sendAnswer = sendAnswer
     }
@@ -456,9 +469,24 @@ final class HarnessApprovalDesk: ObservableObject {
 
     /// An answer that came first stands, since `answer` finds nothing left to decline.
     private func declineIfStillWaiting(approvalID: String) {
-        if answer(approvalID: approvalID, approved: false, scope: .once) {
-            print("Agent harness: approval \(approvalID) timed out after \(timeoutSeconds) s, so it was declined")
-        }
+        guard waitingRequests.contains(where: { $0.approvalID == approvalID }), !answeringApprovalIDs.contains(approvalID) else { return }
+        timedOutApprovalIDs.insert(approvalID)
+        answer(approvalID: approvalID, approved: false, scope: .once)
+        print("Agent harness: approval \(approvalID) timed out after \(timeoutSeconds) s, so it was declined")
+    }
+
+    /// The harness took the answer but never said so, so the card would stay as "Sending your answer..." for good. The
+    /// log names only the approval ID, and no outcome shows, since nobody knows which answer the gate took.
+    private func dropAnsweringRequestIfTheHarnessNeverSettledIt(approvalID: String) {
+        guard answeringApprovalIDs.contains(approvalID),
+              let requestIndex = waitingRequests.firstIndex(where: { $0.approvalID == approvalID }) else { return }
+        let oldestApprovalIDBefore = waitingRequests.first?.approvalID
+        waitingRequests.remove(at: requestIndex)
+        answeringApprovalIDs.remove(approvalID)
+        timedOutApprovalIDs.remove(approvalID)
+        noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
+        print("Agent harness: approval \(approvalID) was answered but not settled within \(answerSettleGraceSeconds) s, so its card was dropped")
+        onWaitingRequestsChanged?(waitingRequests)
     }
 
     /// Sends the learner's answer to the harness, which takes the first answer it gets and replies with `approval_settled`.
@@ -470,6 +498,10 @@ final class HarnessApprovalDesk: ObservableObject {
         answeringApprovalIDs.insert(approvalID)
         print("Agent harness: approval \(approvalID) answered \(approved ? "yes" : "no") (\(scope.rawValue)), waiting for the harness to settle it")
         sendAnswer(approvalID, approved, scope)
+        Task { [weak self, answerSettleGraceSeconds] in
+            try? await Task.sleep(for: .seconds(answerSettleGraceSeconds))
+            self?.dropAnsweringRequestIfTheHarnessNeverSettledIt(approvalID: approvalID)
+        }
         return true
     }
 
@@ -480,14 +512,16 @@ final class HarnessApprovalDesk: ObservableObject {
             print("Agent harness: approval \(approvalID) was settled, and the desk no longer holds it")
             return
         }
-        let settledRequest = waitingRequests[requestIndex]
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.remove(at: requestIndex)
         answeringApprovalIDs.remove(approvalID)
+        let desksOwnTimeoutDeclinedIt = timedOutApprovalIDs.remove(approvalID) != nil
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         print("Agent harness: approval \(approvalID) \(approved ? "given" : "declined") (\(scope.rawValue))")
         onWaitingRequestsChanged?(waitingRequests)
-        onApprovalSettled?(settledRequest, approved, scope)
+        // A yes still shows, since it means the learner's answer beat the timeout's decline to the gate.
+        guard !(desksOwnTimeoutDeclinedIt && !approved) else { return }
+        onApprovalSettled?(approved, scope)
     }
 
     /// Forgets every request at once when the harness process stops, so the list never opens for a request that the
@@ -496,6 +530,7 @@ final class HarnessApprovalDesk: ObservableObject {
         guard !waitingRequests.isEmpty else { return }
         waitingRequests.removeAll()
         answeringApprovalIDs.removeAll()
+        timedOutApprovalIDs.removeAll()
         oldestRequestVisibleSince = nil
         onWaitingRequestsChanged?(waitingRequests)
     }
@@ -506,6 +541,7 @@ final class HarnessApprovalDesk: ObservableObject {
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.removeAll { $0.taskID == taskID }
         answeringApprovalIDs.formIntersection(waitingRequests.map(\.approvalID))
+        timedOutApprovalIDs.formIntersection(waitingRequests.map(\.approvalID))
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         if waitingRequests.count != requestCountBefore {
             onWaitingRequestsChanged?(waitingRequests)

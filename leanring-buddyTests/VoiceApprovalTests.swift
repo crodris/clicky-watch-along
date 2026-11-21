@@ -108,20 +108,17 @@ struct VoiceApprovalTests {
         #expect(ApprovalVoiceAnswer(toolInput: ["always": .bool(true)]) == nil)
     }
 
-    @Test func theChipSaysWhatTheAnswerDid() {
-        func chipPhrase(_ toolInput: [String: JSONValue]) -> String? {
-            VoiceToolCall(id: "answer", name: "answer_approval", input: toolInput).chipPhrase
-        }
-        #expect(chipPhrase(["approved": .bool(true), "always": .bool(false), "confirmation": .string("allowed it")]) == "Allowed it")
-        #expect(chipPhrase(["approved": .bool(false), "always": .bool(false)]) == "Declined it")
-        #expect(chipPhrase(["approved": .bool(true), "always": .bool(true)]) == "Allowed it for this task")
-        #expect(chipPhrase(["approved": .bool(false), "always": .bool(true)]) == "Declined it")
-        #expect(chipPhrase([:]) == nil)
+    /// The harness's approval_settled shows the one chip, with the answer its gate took, so the call shows none of its own.
+    /// A voice yes on the old path would otherwise show it twice.
+    @Test func theAnswerCallShowsNoChipSinceTheSettlementShowsTheOutcome() {
+        #expect(ApprovalVoiceAnswer(approved: true, scope: .once).chipPhrase == "Allowed it")
+        #expect(ApprovalVoiceAnswer(approved: true, scope: .always).chipPhrase == "Allowed it for this task")
+        #expect(ApprovalVoiceAnswer(approved: false, scope: .once).chipPhrase == "Declined it")
 
-        let answer = VoiceToolCall(id: "answer", name: "answer_approval", input: ["approved": .bool(true)])
-        #expect(answer.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: ["answer_approval"]) == "Allowed it")
-        #expect(answer.chipPhraseToShow(at: .afterTheCall(.failed(error: "No request is waiting for an answer", state: nil)), offeredToolNames: ["answer_approval"]) == nil)
-        #expect(answer.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: []) == nil, "a tool the turn did not offer shows nothing")
+        let answer = VoiceToolCall(id: "answer", name: "answer_approval", input: ["approved": .bool(true), "always": .bool(false), "confirmation": .string("allowed it")])
+        #expect(answer.chipPhrase == nil)
+        #expect(answer.chipPhraseToShow(at: .beforeTheCall, offeredToolNames: ["answer_approval"]) == nil)
+        #expect(answer.chipPhraseToShow(at: .afterTheCall(.changed(state: nil)), offeredToolNames: ["answer_approval"]) == nil)
     }
 
     // MARK: - What the router reads

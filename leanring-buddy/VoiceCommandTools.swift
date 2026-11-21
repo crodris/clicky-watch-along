@@ -530,10 +530,6 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return themeSavedChipPhrase
         case "close_theme_studio":
             return "Kept your old theme"
-        case "answer_approval":
-            // A missing approved is refused by the app, so the chip says nothing for it.
-            guard let approvalAnswer = ApprovalVoiceAnswer(toolInput: inputWithoutConfirmation) else { return nil }
-            return approvalAnswer.chipPhrase
         case "set_labels":
             // The page shows labels only for a true visible, so the chip reads it the same way.
             return input["visible"]?.boolValue == true ? "Showing the labels" : "Hiding the labels"
@@ -575,7 +571,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Starting a task"
         default:
             // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to
-            // a path with its own status line, thinking dots, rising scene, or voice.
+            // a path with its own status line, thinking dots, rising scene, or voice. answer_approval shows no chip of its
+            // own, since the desk's approval_settled shows the outcome the harness's gate took, on both paths.
             return nil
         }
     }

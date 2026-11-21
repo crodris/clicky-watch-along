@@ -1342,7 +1342,7 @@ describe("the approval cases on the harness backend", () => {
     const protocolSource = readFileSync(join(benchDirectory, "..", "harness", "protocol.go"), "utf8");
     // The log line is "Brain: approval <id> given|declined (<scope>)", which the recorder's pattern reads.
     assert.ok(voiceApprovalSource.includes('"Brain: approval %s %s (%s)"'));
-    assert.ok(voiceApprovalSource.includes('verdict = "given"') && voiceApprovalSource.includes('verdict := "declined"'));
+    assert.ok(voiceApprovalSource.includes('logVerdict, answerWord = "given", "allowed"') && voiceApprovalSource.includes('logVerdict, answerWord := "declined", "declined"'));
     assert.ok(protocolSource.includes('Type: "approval_settled"'));
     assert.ok(protocolSource.includes('case "seed_approval_request":'));
   });

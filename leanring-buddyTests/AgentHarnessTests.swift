@@ -336,8 +336,8 @@ struct AgentHarnessTests {
         var answers: [(approvalID: String, approved: Bool)] = []
         var now = Date(timeIntervalSince1970: 1_000)
         let desk = HarnessApprovalDesk(currentDate: { now }) { approvalID, approved, _ in answers.append((approvalID, approved)) }
-        var shownOutcomes: [(approvalID: String, approved: Bool, scope: HarnessApprovalScope)] = []
-        desk.onApprovalSettled = { request, approved, scope in shownOutcomes.append((request.approvalID, approved, scope)) }
+        var shownOutcomes: [(approved: Bool, scope: HarnessApprovalScope)] = []
+        desk.onApprovalSettled = { approved, scope in shownOutcomes.append((approved, scope)) }
         desk.receive(anApprovalRequest("approval-1"))
         desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
         now += 2
@@ -351,7 +351,6 @@ struct AgentHarnessTests {
 
         // The gate had already taken the voice yes, so the settlement says yes.
         desk.settle(approvalID: "approval-1", approved: true, scope: .once)
-        #expect(shownOutcomes.map(\.approvalID) == ["approval-1"])
         #expect(shownOutcomes.map(\.approved) == [true])
         #expect(ApprovalVoiceAnswer(approved: shownOutcomes[0].approved, scope: shownOutcomes[0].scope).chipPhrase == "Allowed it")
         #expect(desk.waitingRequests.isEmpty)
@@ -364,7 +363,7 @@ struct AgentHarnessTests {
         var shownOutcomeCount = 0
         var now = Date(timeIntervalSince1970: 1_000)
         let desk = HarnessApprovalDesk(currentDate: { now }) { approvalID, _, _ in answers.append(approvalID) }
-        desk.onApprovalSettled = { _, _, _ in shownOutcomeCount += 1 }
+        desk.onApprovalSettled = { _, _ in shownOutcomeCount += 1 }
         desk.receive(anApprovalRequest("approval-1"))
         desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
         now += 2
@@ -412,6 +411,69 @@ struct AgentHarnessTests {
         #expect(answers.map(\.approved) == [true, false], "the learner's answer stands and the unanswered request is declined")
         #expect(desk.answeringApprovalIDs == ["approval-1", "approval-2"], "both wait for the harness to settle them")
         #expect(HarnessApprovalDesk.defaultTimeoutSeconds == 120)
+    }
+
+    /// The desk's own timeout declines the request, and "Declined it" under the cursor would come with no context.
+    @Test(.timeLimit(.minutes(1))) func aSettlementTheDesksOwnTimeoutCausedShowsNoOutcomeUnlessTheAnswerWasYes() async {
+        var shownOutcomes: [Bool] = []
+        let desk = HarnessApprovalDesk(timeoutSeconds: 0.2, answerSettleGraceSeconds: 60) { _, _, _ in }
+        desk.onApprovalSettled = { approved, _ in shownOutcomes.append(approved) }
+        desk.receive(anApprovalRequest("approval-timed-out"))
+        desk.receive(anApprovalRequest("approval-raced"))
+        desk.receive(anApprovalRequest("approval-answered"))
+        #expect(desk.answer(approvalID: "approval-answered", approved: false, scope: .once))
+
+        let deadline = Date().addingTimeInterval(10)
+        while desk.answeringApprovalIDs.count < 3, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(desk.answeringApprovalIDs.count == 3, "the timeout declined the two requests no one answered")
+
+        desk.settle(approvalID: "approval-timed-out", approved: false, scope: .once)
+        #expect(shownOutcomes.isEmpty, "the timeout's own decline shows no chip")
+        #expect(!desk.waitingRequests.contains { $0.approvalID == "approval-timed-out" }, "the card still goes")
+        desk.settle(approvalID: "approval-raced", approved: true, scope: .once)
+        #expect(shownOutcomes == [true], "a yes that beat the timeout's decline to the gate still shows")
+        desk.settle(approvalID: "approval-answered", approved: false, scope: .once)
+        #expect(shownOutcomes == [true, false], "a decline the learner chose shows")
+    }
+
+    /// A harness that hung after it took an answer never sends approval_settled, which would leave the card stuck on
+    /// "Sending your answer..." for as long as the task lives, since `answer` refuses an ID that is already answering.
+    @Test(.timeLimit(.minutes(1))) func anAnsweredRequestTheHarnessNeverSettlesIsDroppedAfterTheGracePeriodWithNoOutcome() async {
+        var shownOutcomeCount = 0
+        var changedQueues: [[String]] = []
+        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 0.2) { _, _, _ in }
+        desk.onApprovalSettled = { _, _ in shownOutcomeCount += 1 }
+        desk.onWaitingRequestsChanged = { waitingRequests in changedQueues.append(waitingRequests.map(\.approvalID)) }
+        desk.receive(anApprovalRequest("approval-stuck"))
+        desk.receive(anApprovalRequest("approval-next"))
+        #expect(desk.answer(approvalID: "approval-stuck", approved: true, scope: .once))
+        #expect(desk.waitingRequests.map(\.approvalID) == ["approval-stuck", "approval-next"], "the card waits through the grace period")
+
+        let deadline = Date().addingTimeInterval(10)
+        while desk.waitingRequests.count > 1, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(desk.waitingRequests.map(\.approvalID) == ["approval-next"], "the stuck card is dropped and the next request becomes the oldest")
+        #expect(desk.answeringApprovalIDs.isEmpty)
+        #expect(changedQueues.last == ["approval-next"])
+        #expect(shownOutcomeCount == 0, "nobody knows which answer the gate took, so no outcome shows")
+
+        desk.settle(approvalID: "approval-stuck", approved: true, scope: .once)
+        #expect(shownOutcomeCount == 0, "a settlement that arrives after the drop shows nothing")
+    }
+
+    /// A settled request is gone before its grace period ends, so the grace task finds nothing to drop.
+    @Test(.timeLimit(.minutes(1))) func aRequestTheHarnessSettledInTimeKeepsItsLaterRequestsAfterTheGracePeriod() async {
+        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 0.2) { _, _, _ in }
+        desk.receive(anApprovalRequest("approval-1"))
+        #expect(desk.answer(approvalID: "approval-1", approved: true, scope: .once))
+        desk.settle(approvalID: "approval-1", approved: true, scope: .once)
+        desk.receive(anApprovalRequest("approval-2"))
+
+        try? await Task.sleep(for: .milliseconds(600))
+        #expect(desk.waitingRequests.map(\.approvalID) == ["approval-2"], "the grace period of an answered request never touches a later one")
     }
 
     @Test func aRequestForAnEndedTaskOrAnUnknownActionNeverWaitsForTheLearner() {

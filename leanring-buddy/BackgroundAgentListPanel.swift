@@ -898,7 +898,9 @@ private struct ApprovalCardView: View {
                 Text(verbatim: "Sending your answer...")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
+                    // The buttons' own padding (5 point rows and 2 points above), so the card keeps its height while an answer is sent.
                     .padding(.vertical, 5)
+                    .padding(.top, 2)
             } else {
                 HStack(spacing: 6) {
                     AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {

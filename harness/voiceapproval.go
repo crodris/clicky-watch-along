@@ -219,14 +219,10 @@ func (brain *brainRunner) answerTheApproval(call toolCall, offer approvalOffer, 
 		return voiceToolFailed, voiceToolFailureText("the request was already answered")
 	}
 	brain.writer.send(newApprovalSettledMessage(offer.approvalID, learnerAnswer.approved, learnerAnswer.scope))
-	verdict := "declined"
+	logVerdict, answerWord := "declined", "declined"
 	if learnerAnswer.approved {
-		verdict = "given"
+		logVerdict, answerWord = "given", "allowed"
 	}
-	brain.writer.send(newLogMessage(fmt.Sprintf("Brain: approval %s %s (%s)", offer.approvalID, verdict, learnerAnswer.scope)))
-	answerWord := "declined"
-	if learnerAnswer.approved {
-		answerWord = "allowed"
-	}
+	brain.writer.send(newLogMessage(fmt.Sprintf("Brain: approval %s %s (%s)", offer.approvalID, logVerdict, learnerAnswer.scope)))
 	return voiceToolChanged, string(mustMarshal(map[string]any{"ok": true, "state": map[string]any{"approval": answerWord}}))
 }
