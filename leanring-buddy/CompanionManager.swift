@@ -254,7 +254,7 @@ final class CompanionManager: ObservableObject {
         )
     )
     /// The discs floating beside the notch, one per running agent or waiting result. A click opens the agent list under it.
-    private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore) { [weak self] click in
+    private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore, themeSettings: themeSettings) { [weak self] click in
         self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.

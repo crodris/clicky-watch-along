@@ -5,7 +5,7 @@
 //  The serve: when a tool starts a background agent, that agent's own token leaves the blue cursor and arcs into its slot
 //  beside the notch, so the learner sees the cursor hand the work off. This file is the plain data and pure functions:
 //  whether the token flies, fades in, or just appears, the arc it flies along, and which display it flies to. The AppKit
-//  side (`AgentTokenFlight`, `AgentTokenDockController`) reads the screens and runs the flight. Every point here is in
+//  side (`AgentTokenDockController`, which plays the flight on `TetherCarrier`) reads the screens and runs the flight. Every point here is in
 //  global AppKit screen coordinates, where y grows upward.
 //
 
@@ -50,8 +50,9 @@ struct AgentTokenServePath: Equatable {
     let control: CGPoint
     let end: CGPoint
 
-    /// "About half a second", which is shorter than the cursor's own flights, since the token only crosses to the menu bar.
-    static let flightSeconds: TimeInterval = 0.5
+    /// The Send move's half second, which is shorter than the cursor's own flights, since the token only crosses to the
+    /// menu bar.
+    static var flightSeconds: TimeInterval { DS.Move.send.curve.seconds() }
 
     /// The point on the arc after `flightProgress` of the flight, from 0 (the cursor) to 1 (the slot). The token eases in
     /// and out with `agentTokenServeEasedProgress`.
@@ -93,15 +94,14 @@ func agentTokenServePath(from cursorPoint: CGPoint, to slotPoint: CGPoint) -> Ag
 /// Smoothstep, `3t² - 2t³`, the same easing the cursor's flight uses: it leaves slowly, moves fastest in the middle, and
 /// settles into the slot. Progress outside 0 to 1 is clamped.
 func agentTokenServeEasedProgress(_ linearProgress: Double) -> Double {
-    let clampedProgress = min(1, max(0, linearProgress))
-    return clampedProgress * clampedProgress * (3 - 2 * clampedProgress)
+    DS.Move.send.curve.progress(atSeconds: linearProgress * AgentTokenServePath.flightSeconds)
 }
 
 // MARK: - A disc under a flight stays put
 
-/// Whether a disc has to stay where it is for now. A disc that a token is flying to, or that a landed token's flying panel
-/// still covers for a moment, does not slide to close a gap until the panel has left. The panel stays at the old slot, so a
-/// slide before then shows the token there and in the disc that slides away.
+/// Whether a disc has to stay where it is for now. A disc that a token is flying to, or that a landed token still covers on
+/// the carrier for a moment, does not slide to close a gap until the carried token has left. That token stays at the old
+/// slot, so a slide before then shows the token there and in the disc that slides away.
 func agentTokenDiscMustWaitForItsFlight<DiscID: Equatable>(_ discID: DiscID, flightLandsOn: DiscID?, lingeringFlightSitsOn: DiscID?) -> Bool {
     discID == flightLandsOn || discID == lingeringFlightSitsOn
 }
