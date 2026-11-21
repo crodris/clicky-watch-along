@@ -169,6 +169,8 @@ struct HarnessVoiceCommandTests {
         #expect(secondsToWaitForAPlanningTurn == 35)
 
         // After the planning line the larger wait applies: the finish comes after the normal wait, and still counts.
+        // The planning wait is a minute, far past the 300 ms finish, so a busy CI runner that stalls this test
+        // for seconds cannot run it out. On 2026-11-21 a 5 second wait ran out on main's CI run for 30862e4.
         let (planningEvents, planningContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
         planningContinuation.yield(.planningTurnStarted)
         let sendsTheFinishLater = Task {
@@ -182,7 +184,7 @@ struct HarnessVoiceCommandTests {
             lines: HarnessVoiceCommandLines(taskID: commandID, sendLine: { _ in }),
             approvalIDWaitingWhenTheCommandStarted: nil,
             secondsToWaitForAnEvent: 0.05,
-            secondsToWaitAfterAPlanningLine: 5,
+            secondsToWaitAfterAPlanningLine: 60,
             whenNoEventArrivesInTime: { waitRanOutAfterThePlanningLine = true },
             runTool: { _, _ in .changed(state: nil) }
         )
