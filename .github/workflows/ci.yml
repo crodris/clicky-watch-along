@@ -156,6 +156,7 @@ jobs:
       # of the app and its tests, which took about 4 minutes of every job. The folder is named after the runner, since one
       # runner runs one job at a time, and after the Xcode build, so an Xcode update starts from scratch.
       # GitHub's runner for fork pull requests starts empty anyway, so it builds in the job's temp folder.
+      # Later jobs trust what earlier jobs left in the kept folder, so only refs with write access may reach these runners.
       - run: |
           # Three Mac runners build at once on one 32 GB Mac, and with Xcode's default of one compile job per core the Mac
           # swapped about 37 GB on 2026-11-21 and a 2 minute build took 10. Four jobs each keeps the three builds in memory.
@@ -164,7 +165,15 @@ jobs:
           echo "CLICKY_BUNDLE_ID_SUFFIX=.ci-$runner_name_for_ids" >> "$GITHUB_ENV"
           if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
             xcode_build_version="$(xcodebuild -version | awk '/Build version/ { print $3 }')"
-            echo "CLICKY_DERIVED_DATA=$HOME/Library/Caches/clicky-ci-derived-data/$runner_name_for_ids-$xcode_build_version" >> "$GITHUB_ENV"
+            if [ -z "$xcode_build_version" ]; then
+              echo "xcodebuild -version printed no build version, so the kept DerivedData folder has no name." >&2
+              exit 1
+            fi
+            # Each runner has a folder of its own, so pruning one runner's folders never reaches another runner's build.
+            runner_derived_data_folder="$HOME/Library/Caches/clicky-ci-derived-data/$runner_name_for_ids"
+            # A folder this runner kept under an earlier Xcode build is never used again.
+            find "$runner_derived_data_folder" -mindepth 1 -maxdepth 1 ! -name "$xcode_build_version" -exec rm -rf {} + 2>/dev/null || true
+            echo "CLICKY_DERIVED_DATA=$runner_derived_data_folder/$xcode_build_version" >> "$GITHUB_ENV"
           else
             echo "CLICKY_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
           fi
@@ -178,6 +187,7 @@ jobs:
           -jobs "$CLICKY_BUILD_JOBS"
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
+      # The result bundle goes to the job's temp folder, since xcodebuild otherwise adds one to the kept DerivedData every run.
       - run: >
           xcodebuild test
           -project leanring-buddy.xcodeproj
@@ -190,3 +200,10 @@ jobs:
           -resultBundlePath "$RUNNER_TEMP/TestResults.xcresult"
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
+      # A build that failed or was cancelled can leave the kept folder half written, and every later job on this runner
+      # would then fail, so the next job on this runner builds from scratch instead.
+      - if: (failure() || cancelled()) && runner.environment == 'self-hosted'
+        run: |
+          if [ -n "$CLICKY_DERIVED_DATA" ]; then
+            rm -rf "$CLICKY_DERIVED_DATA"
+          fi
