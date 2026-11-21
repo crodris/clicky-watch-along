@@ -36,8 +36,8 @@ import {
   sampleFromHarnessRecord,
   scoreApprovalCase,
   scoreBrainCase,
-  scoreToolCalls,
   scoreWholeCommand,
+  scoreToolCalls,
   skillInputDescription,
   skillInstructionSentence,
   standInToolResult,
@@ -1289,6 +1289,78 @@ describe("the harness driver's session lines", () => {
       assert.ok((record.firstToolCallMs ?? NaN) >= 25 && (record.firstToolCallMs ?? NaN) < 1000, String(record.firstToolCallMs));
     } finally {
       harnessBrain.stop();
+    }
+  });
+});
+
+describe("a number with a change on the Theme Studio card", () => {
+  const refineCases = ["theme-refine-sound", "theme-refine-cursor-shape"].map((caseId) => fixtureCase(caseId));
+  const ideaNumberOf = (brainCase: BrainCase): number => Number(brainCase.input?.design_theme?.basedOnIdea);
+
+  it("passes the design alone and the design with a pick of the same idea, in either order", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      const pick = { name: "pick_theme_idea", input: { number: ideaNumber } };
+      assert.equal(scoreBrainCase([design], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([pick, design], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([design, pick], brainCase), "pass", brainCase.id);
+    }
+  });
+
+  it("passes the design then a pick as the harness records it, since a pick after a hand-off never runs", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      // The recorded flake: the harness sent a tool_call line for the design only, so the pick is known by its name.
+      const { record } = replay(brainCase, [
+        [turn1Line("design_theme,pick_theme_idea"), 410],
+        [toolCallLine("call-1", "design_theme", { request: "x", basedOnIdea: ideaNumber }, 0), 412],
+        [finishedLine(""), 430],
+      ]);
+
+      assert.deepEqual(firstTurnToolCalls(record).at(-1), { name: "pick_theme_idea", input: {}, inputIsUnknown: true });
+      assert.equal(sampleFromHarnessRecord(brainCase, 0, record).outcome, "pass", brainCase.id);
+    }
+  });
+
+  it("still checks the input of a call that ran before the hand-off, and the name of one after it", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const otherIdeaNumber = ideaNumber === 1 ? 3 : 1;
+      const hiddenPick = { name: "pick_theme_idea", input: {}, inputIsUnknown: true };
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      assert.equal(scoreBrainCase([design, hiddenPick], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([hiddenPick, design], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([{ ...design, input: { request: "x", basedOnIdea: otherIdeaNumber } }, hiddenPick], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([design, { name: "pause_video", input: {}, inputIsUnknown: true }], brainCase), "wrongTool", brainCase.id);
+    }
+  });
+
+  it("checks the input of a call after a skipped hand-off in a whole command, since the command went on", () => {
+    // A seek fails, the harness skips the pop_out after it, and the model seeks again in a later turn, so that seek ran.
+    const planningCase: BrainCase = {
+      id: "test-skipped-hand-off",
+      context: "video",
+      say: "go back to where he explains the gills and pop it out",
+      accept: [["seek_to_moment", "pop_out", "seek_to_time"]],
+      input: { seek_to_time: { seconds: 98 } },
+      scoreWholeCommand: true,
+      why: "A seek that fails skips the pop_out after it, and the seek the model makes in a later turn runs, so its input is checked.",
+    };
+    const failedSeek = { name: "seek_to_moment", input: { query: "gills" } };
+    const skippedPopOut = { name: "pop_out", input: {}, inputIsUnknown: true };
+    assert.equal(scoreWholeCommand([failedSeek, skippedPopOut, { name: "seek_to_time", input: { seconds: 98 } }], planningCase), "pass");
+    assert.equal(scoreWholeCommand([failedSeek, skippedPopOut, { name: "seek_to_time", input: { seconds: 5 } }], planningCase), "wrongInput");
+  });
+
+  it("fails a pick of another idea, a pick alone, and a design of another idea", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const otherIdeaNumber = ideaNumber === 1 ? 3 : 1;
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      assert.equal(scoreBrainCase([{ name: "pick_theme_idea", input: { number: otherIdeaNumber } }, design], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([{ name: "pick_theme_idea", input: { number: ideaNumber } }], brainCase), "wrongTool", brainCase.id);
+      assert.equal(scoreBrainCase([{ name: "design_theme", input: { request: "x", basedOnIdea: otherIdeaNumber } }], brainCase), "wrongInput", brainCase.id);
     }
   });
 });

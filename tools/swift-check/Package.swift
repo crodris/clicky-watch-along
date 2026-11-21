@@ -25,9 +25,7 @@ let package = Package(
     name: "ClickySwiftCheck",
     platforms: [.macOS("14.2")],
     targets: [
-        .target(name: "PostHog", swiftSettings: [.swiftLanguageMode(.v5)]),
-        .target(name: "Sparkle", swiftSettings: [.swiftLanguageMode(.v5)]),
-        .target(name: "Clicky", dependencies: ["PostHog", "Sparkle"], swiftSettings: appTargetSettings),
+        .target(name: "Clicky", swiftSettings: appTargetSettings),
         .testTarget(name: "ClickyTests", dependencies: ["Clicky"], swiftSettings: testTargetSettings),
     ]
 )
