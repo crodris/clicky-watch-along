@@ -268,8 +268,8 @@ enum CompanionTheme: Equatable {
     case custom(CustomTheme)
 
     /// The built-in choices in the order the menu bar panel's picker and the settings dial's Team fan show them: Clicky blue,
-    /// the ten schools, then Random. The saved custom themes are not here, so the dial's Team fan keeps its ring of
-    /// twelve. The menu bar panel lists them after these.
+    /// the ten schools, then Random. The saved custom themes are not here. The menu bar panel lists them all after these,
+    /// and the dial's Team fan lists the three newest (`SettingsDialFans`).
     static let allChoices: [CompanionTheme] =
         [.clickyBlue] + HaikyuSchool.allCases.map(CompanionTheme.school) + [.random]
 
@@ -379,8 +379,11 @@ final class CompanionThemeSettings: ObservableObject {
         didSet { userDefaults.set(theme.rawValue, forKey: Self.userDefaultsKey) }
     }
 
-    /// The custom themes the learner saved, sorted by name, for the menu bar panel's picker.
-    @Published private(set) var savedCustomThemes: [CustomTheme]
+    /// The custom themes the learner saved with their saved dates, sorted by name. The menu bar panel's picker lists them in
+    /// this order, and the settings dial's Team fan sorts the same list by date.
+    @Published private(set) var savedCustomThemesWithSavedDates: [SavedCustomTheme]
+
+    var savedCustomThemes: [CustomTheme] { savedCustomThemesWithSavedDates.map(\.theme) }
 
     /// The idea the Theme Studio is previewing on the real cursor. Nil when the studio is closed. Never saved.
     @Published private(set) var previewTheme: CompanionTheme?
@@ -393,14 +396,12 @@ final class CompanionThemeSettings: ObservableObject {
     init(userDefaults: UserDefaults = .standard, customThemeStore: CustomThemeStore = .standard()) {
         self.userDefaults = userDefaults
         self.customThemeStore = customThemeStore
-        let savedCustomThemes = customThemeStore.loadSavedThemes()
-        self.savedCustomThemes = savedCustomThemes
-        theme = CompanionTheme(rawValue: userDefaults.string(forKey: Self.userDefaultsKey) ?? "", savedCustomThemes: savedCustomThemes)
-    }
-
-    /// What the menu bar panel's "Team theme" section lists: the built-in choices, then the themes the learner designed and saved.
-    var menuBarThemeChoices: [CompanionTheme] {
-        CompanionTheme.allChoices + savedCustomThemes.map(CompanionTheme.custom)
+        let savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
+        self.savedCustomThemesWithSavedDates = savedCustomThemesWithSavedDates
+        theme = CompanionTheme(
+            rawValue: userDefaults.string(forKey: Self.userDefaultsKey) ?? "",
+            savedCustomThemes: savedCustomThemesWithSavedDates.map(\.theme)
+        )
     }
 
     /// What every view that draws the theme reads: the preview while the studio is open, else the saved theme.
@@ -410,7 +411,7 @@ final class CompanionThemeSettings: ObservableObject {
     var shownThemePicture: NSImage? {
         if previewTheme != nil { return previewPicture }
         guard case .custom(let customTheme) = theme, customTheme.usesPicture else { return nil }
-        return CustomThemePictureCache.image(forThemeID: customTheme.id)
+        return CustomThemePictureCache.image(forThemeID: customTheme.id, in: customThemeStore)
     }
 
     func preview(_ idea: CustomTheme, picture: NSImage?) {
@@ -427,10 +428,33 @@ final class CompanionThemeSettings: ObservableObject {
     @discardableResult
     func saveAndApply(_ idea: CustomTheme, pictureJPEG: Data?) throws -> CustomTheme {
         let savedTheme = try customThemeStore.save(idea, pictureJPEG: pictureJPEG)
-        savedCustomThemes = customThemeStore.loadSavedThemes()
+        savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
         clearPreview()
         theme = .custom(savedTheme)
         return savedTheme
+    }
+
+    /// Gives a saved theme a new name, and puts the list back in name order. The theme in use stays in use, now under its
+    /// new name. Throws what `CustomThemeStore.rename` throws, such as a name over 24 characters, and changes nothing then.
+    func renameSavedTheme(themeID: String, to typedName: String) throws {
+        let renamedTheme = try customThemeStore.rename(themeID: themeID, to: typedName)
+        savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
+        if case .custom(let themeInUse) = theme, themeInUse.id == themeID {
+            // The saved setting is the id, which did not change, so only the name this holds needs replacing.
+            theme = .custom(renamedTheme)
+        }
+    }
+
+    /// Deletes a saved theme from disk and from the list. If it was the theme in use, Clicky blue takes over. An agent that
+    /// is running keeps the color it was given when it started, as agents keep theirs for life, and a picture face it wore
+    /// falls back to the triangle, since the picture went with the folder.
+    func deleteSavedTheme(themeID: String) throws {
+        try customThemeStore.delete(themeID: themeID)
+        savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
+        CustomThemePictureCache.forgetImage(forThemeID: themeID)
+        if case .custom(let themeInUse) = theme, themeInUse.id == themeID {
+            theme = .clickyBlue
+        }
     }
 }
 
@@ -493,18 +517,24 @@ enum HaikyuPortraitCache {
 }
 
 /// Loads the picture a saved custom theme keeps (picture.jpg), once. Nil when the theme has none or the file is unreadable.
-/// Themes never change after they are saved, so an id's picture is cached for the life of the app.
+/// A saved theme's picture never changes, so an id's picture is cached for the life of the app, until the theme is deleted
+/// (`forgetImage(forThemeID:)`).
 @MainActor
 enum CustomThemePictureCache {
     private static var imagesByThemeID: [String: NSImage?] = [:]
 
-    static func image(forThemeID themeID: String) -> NSImage? {
+    static func image(forThemeID themeID: String, in store: CustomThemeStore = .standard()) -> NSImage? {
         if let cachedImage = imagesByThemeID[themeID] {
             return cachedImage
         }
-        let image = NSImage(contentsOf: CustomThemeStore.standard().pictureURL(forThemeID: themeID))
+        let image = NSImage(contentsOf: store.pictureURL(forThemeID: themeID))
         imagesByThemeID[themeID] = .some(image)
         return image
+    }
+
+    /// A deleted theme's picture, and a "no picture" answer cached for its id, are not looked up again from memory.
+    static func forgetImage(forThemeID themeID: String) {
+        imagesByThemeID.removeValue(forKey: themeID)
     }
 }
 

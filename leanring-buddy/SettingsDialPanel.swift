@@ -19,9 +19,13 @@ import SwiftUI
 /// needs to follow later changes.
 struct SettingsDialSnapshot {
     let theme: CompanionTheme
+    /// The picture a custom `theme`'s cursor uses, which a preview holds in memory and a saved theme keeps in picture.jpg.
+    let themePicture: NSImage?
     let modelID: String
     let isClickyCursorEnabled: Bool
     let runningAgentCount: Int
+    /// What the Team and Model fans offer, including the saved themes the learner designed.
+    let fans: SettingsDialFans
 }
 
 @MainActor
@@ -79,7 +83,7 @@ final class SettingsDialController {
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let viewModel = SettingsDialViewModel(snapshot: snapshot, showsTheFirstRunHint: showsTheFirstRunHint, reduceMotion: reduceMotion)
         self.viewModel = viewModel
-        picker = SettingsDialPicker(pointerOffsetWhenOpened: pointerOffsetFromTheDialCenter(for: mouseLocation))
+        picker = SettingsDialPicker(pointerOffsetWhenOpened: pointerOffsetFromTheDialCenter(for: mouseLocation), fans: snapshot.fans)
 
         let panelSize = SettingsDialPlacement.panelSize
         let hostingView = NSHostingView(rootView: SettingsDialView(viewModel: viewModel))
@@ -119,7 +123,7 @@ final class SettingsDialController {
         guard isOpen else { return nil }
         // Read the pointer once more, since it may have moved since the last timer tick.
         readThePointer()
-        let choice = viewModel.flatMap { SettingsDialChoice(committing: $0.selection) }
+        let choice = viewModel.flatMap { SettingsDialChoice(committing: $0.selection, fans: $0.snapshot.fans) }
         close()
         return choice
     }
@@ -172,8 +176,9 @@ struct SettingsDialView: View {
     private var centerInView: CGPoint {
         CGPoint(x: SettingsDialPlacement.reachLeft, y: SettingsDialPlacement.reachAbove)
     }
+    private var fans: SettingsDialFans { viewModel.snapshot.fans }
     private var openFanSlice: SettingsDialSlice? {
-        viewModel.selection.openFanLayout == nil ? nil : viewModel.selection.slice
+        viewModel.selection.openFanLayout(in: fans) == nil ? nil : viewModel.selection.slice
     }
 
     var body: some View {
@@ -273,12 +278,25 @@ struct SettingsDialView: View {
         let lineColor = isSelected ? inkColor : Color.white
         switch slice {
         case .team:
-            // Clicky blue and Random have no school ball, so the token shows a light ball with blue seams.
-            SettingsDialBall(
-                volleyballColors: theme.cursorVolleyballColors
-                    ?? .lightTokenBall,
-                size: 22
-            )
+            if case .custom(let customTheme) = theme {
+                // The learner's own cursor. Its shapes are often filled in the accent color, so on the selected token's
+                // accent fill it would vanish. A dark disc inside the accent ring keeps it readable.
+                ZStack {
+                    if isSelected {
+                        Circle()
+                            .fill(tokenFillColor)
+                            .frame(width: Self.customCursorBackingDiameterOnTheSelectedToken, height: Self.customCursorBackingDiameterOnTheSelectedToken)
+                    }
+                    SettingsDialCustomCursor(customTheme: customTheme, picture: viewModel.snapshot.themePicture, longestSide: 22)
+                }
+            } else {
+                // Clicky blue and Random have no school ball, so the token shows a light ball with blue seams.
+                SettingsDialBall(
+                    volleyballColors: theme.cursorVolleyballColors
+                        ?? .lightTokenBall,
+                    size: 22
+                )
+            }
         case .model:
             Image(systemName: "sparkle")
                 .font(.system(size: 17, weight: .semibold))
@@ -302,13 +320,20 @@ struct SettingsDialView: View {
         }
     }
 
-    /// The dial's center glyph: the team's volleyball, or a triangle in the accent color. The triangle is Clicky blue for the
-    /// default theme and the theme's accent for a custom one, which draws its own cursor everywhere else but gets only the
-    /// accent triangle here.
+    /// The dial's center glyph, the cursor the learner is using: the team's volleyball, the learner's own cursor for a custom
+    /// theme, or the Clicky blue triangle. The custom cursor is drawn still, with no motion and no streaks, at its natural size.
     @ViewBuilder private var cursorGlyph: some View {
         if let volleyballColors = theme.cursorVolleyballColors {
             VolleyballCursorView(volleyballColors: volleyballColors, flightStreakColor: accentColor, streakOpacity: 0)
                 .shadow(color: accentColor, radius: 8)
+        } else if case .custom(let customTheme) = theme {
+            let naturalDrawingSize = CustomCursorView.drawingSize(of: customTheme, picture: viewModel.snapshot.themePicture)
+            SettingsDialCustomCursor(
+                customTheme: customTheme,
+                picture: viewModel.snapshot.themePicture,
+                longestSide: max(naturalDrawingSize.width, naturalDrawingSize.height)
+            )
+            .shadow(color: accentColor, radius: 8)
         } else {
             Triangle()
                 .fill(accentColor)
@@ -344,13 +369,16 @@ struct SettingsDialView: View {
     }
 
     private var teamFan: some View {
-        let themes = CompanionTheme.allChoices
-        let fanLayout = SettingsDialSlice.team.fanLayout
+        let themes = fans.teamThemes
+        let fanLayout = fans.layout(of: .team)
         let emphasizedIndex = emphasizedItemIndex(currentItemIndex: themes.firstIndex(of: theme))
         return ZStack {
             ForEach(Array(themes.enumerated()), id: \.offset) { itemIndex, itemTheme in
                 let isEmphasized = emphasizedIndex == itemIndex
-                SettingsDialThemeBall(theme: itemTheme, size: isEmphasized ? Self.emphasizedFanBallSize : Self.fanBallSize)
+                SettingsDialThemeBall(
+                    theme: itemTheme,
+                    size: isEmphasized ? SettingsDialGeometry.emphasizedFanBallDiameter : SettingsDialGeometry.fanBallDiameter
+                )
                     .shadow(color: isEmphasized ? accentColor.opacity(0.7) : .clear, radius: 8)
                     .position(fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0))
                     // The enlarged ball draws over the smaller balls next to it.
@@ -359,11 +387,18 @@ struct SettingsDialView: View {
                     .transition(fanItemTransition(forItemAt: itemIndex))
             }
             if let emphasizedIndex, themes.indices.contains(emphasizedIndex) {
-                let labelText = themes[emphasizedIndex].displayName
                 let ballCenter = fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: emphasizedIndex) ?? 0)
+                let ballCenterOffset = CGPoint(x: ballCenter.x - centerInView.x, y: ballCenter.y - centerInView.y)
+                let ballRadius = SettingsDialGeometry.emphasizedFanBallDiameter / 2
+                // A saved theme's long name is cut to fit inside the window, so the pill is never clipped at the edge.
+                let labelText = SettingsDialLabel.fanLabelText(
+                    themes[emphasizedIndex].displayName,
+                    ballCenterOffset: ballCenterOffset,
+                    ballRadius: ballRadius
+                )
                 let labelCenterOffset = SettingsDialLabel.fanLabelCenterOffset(
-                    ballCenterOffset: CGPoint(x: ballCenter.x - centerInView.x, y: ballCenter.y - centerInView.y),
-                    ballRadius: Self.emphasizedFanBallSize / 2,
+                    ballCenterOffset: ballCenterOffset,
+                    ballRadius: ballRadius,
                     labelPillSize: SettingsDialLabel.pillSize(forText: labelText)
                 )
                 labelPill(labelText)
@@ -374,8 +409,8 @@ struct SettingsDialView: View {
         }
     }
 
-    private static let fanBallSize: CGFloat = 21
-    private static let emphasizedFanBallSize: CGFloat = 30
+    /// The accent ring's inner disc on the selected Team token when it shows a custom cursor.
+    private static let customCursorBackingDiameterOnTheSelectedToken: CGFloat = 32
 
     private func fanBallCenter(angleDegrees: Double) -> CGPoint {
         point(atAngleDegrees: angleDegrees, radius: SettingsDialGeometry.fanRadius)
@@ -383,7 +418,7 @@ struct SettingsDialView: View {
 
     private var modelFan: some View {
         let modelChoices = SettingsDialModelChoice.allCases
-        let fanLayout = SettingsDialSlice.model.fanLayout
+        let fanLayout = fans.layout(of: .model)
         let currentIndex = modelChoices.firstIndex { $0.modelID == viewModel.snapshot.modelID }
         let emphasizedIndex = emphasizedItemIndex(currentItemIndex: currentIndex)
         return ZStack {
@@ -449,10 +484,29 @@ private struct SettingsDialBall: View {
     }
 }
 
-/// A theme's ball in the Team fan: the school's ball, a Clicky blue ball, or a gray ball with a question mark for Random.
+/// A custom cursor drawn still, with no motion and no streaks, scaled so its longest side is `longestSide` points. Shapes
+/// draw in the 24 point box and a picture in its own size, so the scale brings both to the same footprint.
+struct SettingsDialCustomCursor: View {
+    let customTheme: CustomTheme
+    let picture: NSImage?
+    let longestSide: CGFloat
+
+    var body: some View {
+        let naturalDrawingSize = CustomCursorView.drawingSize(of: customTheme, picture: picture)
+        CustomCursorView(customTheme: customTheme, picture: picture, streakOpacity: 0, voiceState: .idle, audioPowerLevel: 0)
+            .scaleEffect(longestSide / max(naturalDrawingSize.width, naturalDrawingSize.height))
+            .frame(width: longestSide, height: longestSide)
+    }
+}
+
+/// A theme's ball in the Team fan: the school's ball, a Clicky blue ball, a gray ball with a question mark for Random, or a
+/// saved theme's own cursor on a dark disc.
 private struct SettingsDialThemeBall: View {
     let theme: CompanionTheme
     let size: CGFloat
+
+    /// How much of the disc a saved theme's cursor spans. A wide picture's corners stay inside the circle at this size.
+    private static let customCursorShareOfTheDisc: CGFloat = 0.72
 
     var body: some View {
         switch theme {
@@ -464,11 +518,18 @@ private struct SettingsDialThemeBall: View {
                 size: size
             )
         case .custom(let customTheme):
-            // The fan lists only the built-in themes, so this is never on screen. A ball in the theme's two colors keeps the switch whole.
-            SettingsDialBall(
-                volleyballColors: VolleyballCursorColors(fillHex: customTheme.accentHex, outlineHex: "#1A1A1A", seamHex: customTheme.contrastHex),
-                size: size
-            )
+            // A saved theme is its own cursor, drawn still. The fan sits past the plate, over whatever page is behind the
+            // dial, so the cursor gets a dark disc like the tokens have, and a pale cursor still reads over a light page.
+            ZStack {
+                Circle().fill(DS.Colors.settingsDialToken)
+                Circle().stroke(Color.white.opacity(0.14), lineWidth: 1)
+                SettingsDialCustomCursor(
+                    customTheme: customTheme,
+                    picture: customTheme.usesPicture ? CustomThemePictureCache.image(forThemeID: customTheme.id) : nil,
+                    longestSide: size * Self.customCursorShareOfTheDisc
+                )
+            }
+            .frame(width: size, height: size)
         case .random:
             ZStack {
                 Circle().fill(DS.Colors.settingsDialRandomBall)

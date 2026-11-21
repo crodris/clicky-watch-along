@@ -16,6 +16,19 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case couldNotChooseAFreeFolderName
     /// The id is joined onto the Themes folder as a folder name, so one that is not a theme id could write outside it.
     case themeIDIsNotAValidFolderName
+    /// A rename or delete named a theme id that has no folder, such as a theme already deleted.
+    case noThemeHasThatID
+    /// A new name is empty after trimming, or longer than `CustomTheme.longestName`.
+    case themeNameIsNotValid
+}
+
+/// A theme read back from the Themes folder, with when it was saved.
+nonisolated struct SavedCustomTheme: Equatable, Sendable {
+    let theme: CustomTheme
+    /// The modification date of the theme's theme.json, which `write` creates last, so it is the moment of the save. A hand
+    /// edit moves it too. A file system that reports no date gives `.distantPast`, so that theme counts as the oldest.
+    /// The settings dial's Team fan lists the newest saved themes first by this date.
+    let savedDate: Date
 }
 
 nonisolated struct CustomThemeStore: Sendable {
@@ -110,17 +123,68 @@ nonisolated struct CustomThemeStore: Sendable {
             if savedTheme.usesPicture, let pictureJPEG {
                 try pictureJPEG.write(to: themeDirectoryURL.appendingPathComponent(Self.pictureFileName))
             }
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            try encoder.encode(savedTheme.ideaJSON).write(to: themeDirectoryURL.appendingPathComponent(Self.themeFileName))
+            try writeThemeFile(of: savedTheme, inFolderAt: themeDirectoryURL)
         } catch {
             try? fileManager.removeItem(at: themeDirectoryURL)
             throw error
         }
     }
 
-    /// Every theme that parses, sorted by name. Anything else in the folder is skipped with a log line.
-    func loadSavedThemes() -> [CustomTheme] {
+    /// Writes theme.json in one step, so a crash halfway through never leaves a half-written file where a theme was.
+    private func writeThemeFile(of savedTheme: CustomTheme, inFolderAt themeDirectoryURL: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try encoder.encode(savedTheme.ideaJSON).write(
+            to: themeDirectoryURL.appendingPathComponent(Self.themeFileName),
+            options: .atomic
+        )
+    }
+
+    // MARK: - Renaming and deleting
+
+    /// Rewrites only the name in the theme's theme.json and returns the renamed theme. The id and the folder stay, since the
+    /// saved `companionTheme` setting and the agents that wear the theme's picture refer to the id. The name follows the
+    /// rule `CustomTheme.parse` applies to a saved name, after trimming the spaces a typed name often carries.
+    /// The saved date stays too when the file system allows it, since the settings dial's Team fan lists the most recently saved themes, and a renamed
+    /// theme was not saved again.
+    @discardableResult
+    func rename(themeID: String, to typedName: String) throws -> CustomTheme {
+        let themeDirectoryURL = try existingThemeDirectoryURL(forThemeID: themeID)
+        guard let newName = CustomTheme.validName(from: typedName) else { throw CustomThemeStoreError.themeNameIsNotValid }
+        let savedTheme = try loadTheme(inFolderNamed: themeID)
+        let renamedTheme = savedTheme.theme.renamed(to: newName)
+        try writeThemeFile(of: renamedTheme, inFolderAt: themeDirectoryURL)
+        // The new name is already written, so this does not throw: a date that fails to go back only moves the theme to
+        // the front of the dial's Team fan, and the panel must still show the new name.
+        try? FileManager.default.setAttributes(
+            [.modificationDate: savedTheme.savedDate],
+            ofItemAtPath: themeDirectoryURL.appendingPathComponent(Self.themeFileName).path
+        )
+        return renamedTheme
+    }
+
+    /// Removes the theme's folder with its theme.json and picture.jpg. Only a folder this store could have made goes: the id
+    /// check is what keeps this inside the Themes folder, since an empty id would name the Themes folder itself, and
+    /// "../x" a sibling of it.
+    func delete(themeID: String) throws {
+        let themeDirectoryURL = try existingThemeDirectoryURL(forThemeID: themeID)
+        try FileManager.default.removeItem(at: themeDirectoryURL)
+    }
+
+    /// The folder of a saved theme. The id check comes first, before any file call, for the reason `delete` gives.
+    private func existingThemeDirectoryURL(forThemeID themeID: String) throws -> URL {
+        guard Self.isAValidThemeID(themeID) else { throw CustomThemeStoreError.themeIDIsNotAValidFolderName }
+        let themeDirectoryURL = themesDirectoryURL.appendingPathComponent(themeID, isDirectory: true)
+        var themeDirectoryIsAFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: themeDirectoryURL.path, isDirectory: &themeDirectoryIsAFolder),
+              themeDirectoryIsAFolder.boolValue else {
+            throw CustomThemeStoreError.noThemeHasThatID
+        }
+        return themeDirectoryURL
+    }
+
+    /// Every theme that parses, with its saved date, sorted by name. Anything else in the folder is skipped with a log line.
+    func loadSavedThemes() -> [SavedCustomTheme] {
         let fileManager = FileManager.default
         guard let themeDirectoryURLs = try? fileManager.contentsOfDirectory(
             at: themesDirectoryURL,
@@ -129,7 +193,7 @@ nonisolated struct CustomThemeStore: Sendable {
         ) else {
             return []
         }
-        var savedThemes: [CustomTheme] = []
+        var savedThemes: [SavedCustomTheme] = []
         for themeDirectoryURL in themeDirectoryURLs {
             let folderName = themeDirectoryURL.lastPathComponent
             guard (try? themeDirectoryURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
@@ -141,21 +205,26 @@ nonisolated struct CustomThemeStore: Sendable {
                 print("Custom themes: skipped \(folderName): \(error)")
             }
         }
-        return savedThemes.sorted { firstTheme, secondTheme in
+        return savedThemes.sorted { firstSavedTheme, secondSavedTheme in
+            let firstTheme = firstSavedTheme.theme
+            let secondTheme = secondSavedTheme.theme
             let nameOrder = firstTheme.name.localizedCaseInsensitiveCompare(secondTheme.name)
             return nameOrder == .orderedSame ? firstTheme.id < secondTheme.id : nameOrder == .orderedAscending
         }
     }
 
-    private func loadTheme(inFolderNamed folderName: String) throws -> CustomTheme {
+    private func loadTheme(inFolderNamed folderName: String) throws -> SavedCustomTheme {
         guard Self.isAValidThemeID(folderName) else {
             throw CustomThemeParseError(reason: "the folder name is not a theme id")
         }
-        let themeFileData = try Data(contentsOf: themesDirectoryURL
+        let themeFileURL = themesDirectoryURL
             .appendingPathComponent(folderName, isDirectory: true)
-            .appendingPathComponent(Self.themeFileName))
+            .appendingPathComponent(Self.themeFileName)
+        let themeFileData = try Data(contentsOf: themeFileURL)
         let ideaJSON = try JSONDecoder().decode(JSONValue.self, from: themeFileData)
         let pictureIsThere = FileManager.default.fileExists(atPath: pictureURL(forThemeID: folderName).path)
-        return try CustomTheme.parse(idea: ideaJSON, id: folderName, pictureIsAvailable: pictureIsThere)
+        let theme = try CustomTheme.parse(idea: ideaJSON, id: folderName, pictureIsAvailable: pictureIsThere)
+        let savedDate = (try? themeFileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        return SavedCustomTheme(theme: theme, savedDate: savedDate)
     }
 }

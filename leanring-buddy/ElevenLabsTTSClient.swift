@@ -45,6 +45,39 @@ struct PCM16StreamChunker {
     }
 }
 
+/// Names one line the TTS client played, so a caller can stop the line it started without stopping whatever plays now.
+/// Only `SpokenLineTokenLedger` makes one, and two lines never share a token.
+nonisolated struct SpokenLineToken: Equatable, Sendable {
+    fileprivate let sequenceNumber: Int
+}
+
+/// Keeps which line is current apart from the audio engine, so the rule for a stop request is testable without audio.
+/// A flag set by the caller that wants to stop its own line cannot tell whether that line is still the one playing, since
+/// another answer may have replaced it. A token can: it matches only the latest line, and only while that line plays.
+nonisolated struct SpokenLineTokenLedger {
+    private var lastIssuedSequenceNumber = 0
+    private var latestToken: SpokenLineToken?
+
+    /// Makes the token of a line that is about to start playing, which replaces the previous line as the current one.
+    mutating func issueTokenForANewLine() -> SpokenLineToken {
+        lastIssuedSequenceNumber += 1
+        let newToken = SpokenLineToken(sequenceNumber: lastIssuedSequenceNumber)
+        latestToken = newToken
+        return newToken
+    }
+
+    /// The token of the line that is playing or still arriving, or nil when no line is. A line that has ended stays the
+    /// latest one, so `audioIsPlayingOrArriving` is what says it is no longer current.
+    func currentToken(audioIsPlayingOrArriving: Bool) -> SpokenLineToken? {
+        audioIsPlayingOrArriving ? latestToken : nil
+    }
+
+    /// Whether a request to stop `token`'s line applies, which is only while that line is the current one.
+    func stopRequestApplies(to token: SpokenLineToken, audioIsPlayingOrArriving: Bool) -> Bool {
+        currentToken(audioIsPlayingOrArriving: audioIsPlayingOrArriving) == token
+    }
+}
+
 @MainActor
 final class ElevenLabsTTSClient {
     private static let sampleRate: Double = 24_000
@@ -69,6 +102,7 @@ final class ElevenLabsTTSClient {
     private var playbackGeneration = 0
     private var isReceivingStream = false
     private var buffersWaitingToFinishPlaying = 0
+    private var spokenLineTokenLedger = SpokenLineTokenLedger()
     /// The line now playing and how many of its samples have arrived, so a caption can follow the voice.
     private var currentLineText: String?
     private var currentLineScheduledSampleCount = 0
@@ -103,9 +137,10 @@ final class ElevenLabsTTSClient {
     }
 
     /// Sends `text` to ElevenLabs TTS and starts playing it as soon as the first audio arrives.
-    /// Returns once playback has started, and the rest of the line keeps streaming in behind it.
+    /// Returns the line's token once playback has started, and the rest of the line keeps streaming in behind it.
     /// Throws on network or HTTP errors before playback starts. Cancellation-safe.
-    func speakText(_ text: String) async throws {
+    @discardableResult
+    func speakText(_ text: String) async throws -> SpokenLineToken {
         stopPlayback()
         let generation = playbackGeneration
 
@@ -186,6 +221,9 @@ final class ElevenLabsTTSClient {
             // The engine is paused between lines and stops after an output device change, so it starts again here.
             try audioEngine.start()
         }
+        // The token is issued in the same synchronous run that starts the audio, so a caller that cancels its task before
+        // this point never has a line playing that it holds no token for.
+        let lineToken = spokenLineTokenLedger.issueTokenForANewLine()
         isReceivingStream = true
         scheduleBuffer(of: firstChunk, generation: generation)
         playerNode.play()
@@ -216,6 +254,7 @@ final class ElevenLabsTTSClient {
                 self.pauseEngineWhenTheLineHasFinished()
             }
         }
+        return lineToken
     }
 
     private func scheduleBuffer(of samples: [Float], generation: Int) {
@@ -248,6 +287,11 @@ final class ElevenLabsTTSClient {
         audioEngine.isRunning && (isReceivingStream || buffersWaitingToFinishPlaying > 0)
     }
 
+    /// The token of the line that is playing or still arriving, or nil when no line is.
+    var currentLineToken: SpokenLineToken? {
+        spokenLineTokenLedger.currentToken(audioIsPlayingOrArriving: isPlaying)
+    }
+
     /// How far through `text` the voice is, from 0 to 1, or nil when `text` is not the line Clicky is speaking.
     /// The player's clock starts at 0 for each line, since every line stops the player first.
     func spokenFraction(ofLine text: String) -> Double? {
@@ -261,6 +305,15 @@ final class ElevenLabsTTSClient {
             allAudioHasArrived: !isReceivingStream,
             characterCount: text.count
         )
+    }
+
+    /// Stops playback only when `token` names the line playing now. A caller that started a line and wants it gone uses this
+    /// instead of `stopPlayback()`, since by then an unrelated answer may have replaced its line. Returns whether it stopped.
+    @discardableResult
+    func stopPlayback(ifTheCurrentLineIs token: SpokenLineToken) -> Bool {
+        guard spokenLineTokenLedger.stopRequestApplies(to: token, audioIsPlayingOrArriving: isPlaying) else { return false }
+        stopPlayback()
+        return true
     }
 
     /// Stops any in-progress playback immediately.

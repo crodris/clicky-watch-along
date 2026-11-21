@@ -20,6 +20,9 @@ enum SettingsDialGeometry {
     static let tokenRingRadius: CGFloat = 78
     static let tokenDiameter: CGFloat = 44
     static let fanRadius: CGFloat = 152
+    /// A Team fan ball, and the one under the pointer. The tests check that the gaps between balls leave room for both.
+    static let fanBallDiameter: CGFloat = 21
+    static let emphasizedFanBallDiameter: CGFloat = 30
     /// Releasing inside this circle around the cursor glyph cancels, so a hold with no movement changes nothing.
     static let centerDeadZoneRadius: CGFloat = 32
     /// Past this distance nothing is highlighted, so releasing after the pointer wandered off cancels instead of
@@ -32,16 +35,23 @@ enum SettingsDialGeometry {
 
 /// How far the dial's window reaches from the dial's center, wide enough for the plate, both fans with their labels,
 /// and the first-run hint. One fixed size keeps the window from resizing as a fan opens.
-/// The sides reach past the Team fan's widest label pill, "Clicky blue" at the fan's left end, and the top reaches past
-/// the pills above the fan's top balls. `SettingsDialTests` checks that every pill fits.
+/// The sides reach past the Team fan's widest built-in label pill, "Clicky blue" at the fan's left end, and the top reaches
+/// past the pills above the fan's top balls. A saved theme's name can be longer than any built-in one, so a fan label that
+/// would stick out is cut to fit (`SettingsDialLabel.fanLabelText`), and the right side reaches farther than the left, since
+/// the saved themes sit at the fan's right end. `SettingsDialTests` checks that every pill fits.
 enum SettingsDialPlacement {
     static let reachLeft: CGFloat = 252
-    static let reachRight: CGFloat = 252
+    static let reachRight: CGFloat = 300
     static let reachAbove: CGFloat = 200
     static let reachBelow: CGFloat = 160
 
     static var panelSize: CGSize {
         CGSize(width: reachLeft + reachRight, height: reachAbove + reachBelow)
+    }
+
+    /// The window as offsets from the dial's center, with y growing down like every other offset here.
+    static var windowOffsetsFromTheDialCenter: CGRect {
+        CGRect(x: -reachLeft, y: -reachAbove, width: panelSize.width, height: panelSize.height)
     }
 
     /// Where the dial's center goes for a mouse at `mouseLocation`, moved inward so the whole window stays inside
@@ -70,6 +80,8 @@ enum SettingsDialLabel {
     static let verticalPadding: CGFloat = 3
     /// The space between a token or fan ball and the pill of its label.
     static let gapFromItem: CGFloat = 3
+    /// How far inside the dial's window a fan pill stays, since its hairline edge is drawn half outside the pill.
+    static let windowEdgeMargin: CGFloat = 2
 
     /// The pill that holds `text`, measured with the same font the dial draws it in.
     static func pillSize(forText text: String) -> CGSize {
@@ -102,6 +114,34 @@ enum SettingsDialLabel {
             x: ballCenterOffset.x + outwardX * distanceFromBallCenter,
             y: ballCenterOffset.y + outwardY * distanceFromBallCenter
         )
+    }
+
+    /// What a fan ball's pill says for `fullText`: all of it when the pill fits inside the dial's window, else the longest
+    /// start of it that fits, with "…" after. The built-in names all fit. A saved theme's name runs to 24 characters, wider
+    /// than the window has room for at the fan's right end, where the saved themes sit. The check places the
+    /// pill with `fanLabelCenterOffset`, the way the view does, so a text that passes here is drawn inside the window.
+    static func fanLabelText(_ fullText: String, ballCenterOffset: CGPoint, ballRadius: CGFloat) -> String {
+        let roomForPills = SettingsDialPlacement.windowOffsetsFromTheDialCenter
+            .insetBy(dx: windowEdgeMargin, dy: windowEdgeMargin)
+        for keptCharacterCount in stride(from: fullText.count, through: 1, by: -1) {
+            let candidateText = keptCharacterCount == fullText.count
+                ? fullText
+                : String(fullText.prefix(keptCharacterCount)).trimmingCharacters(in: .whitespaces) + "…"
+            let candidatePillSize = pillSize(forText: candidateText)
+            let candidatePillCenter = fanLabelCenterOffset(
+                ballCenterOffset: ballCenterOffset,
+                ballRadius: ballRadius,
+                labelPillSize: candidatePillSize
+            )
+            let candidatePillRect = CGRect(
+                x: candidatePillCenter.x - candidatePillSize.width / 2,
+                y: candidatePillCenter.y - candidatePillSize.height / 2,
+                width: candidatePillSize.width,
+                height: candidatePillSize.height
+            )
+            if roomForPills.contains(candidatePillRect) { return candidateText }
+        }
+        return "…"
     }
 }
 
@@ -167,35 +207,66 @@ enum SettingsDialSlice: CaseIterable, Equatable {
         }
     }
 
-    /// Team and Model fan their choices on the outer arc, and the other slices act on release.
-    var fanLayout: SettingsDialFanLayout? {
-        switch self {
-        case .team:
-            // The ten schools, Clicky blue, and Random span 156 degrees across the top, with Clicky blue and Random at the ends.
-            let themeCount = CompanionTheme.allChoices.count
-            return SettingsDialFanLayout(
-                centerAngleDegrees: angleDegrees,
-                angleBetweenItemsDegrees: 156 / Double(themeCount - 1),
-                itemCount: themeCount
-            )
-        case .model:
-            // Two labeled pills need more room than the balls do.
-            return SettingsDialFanLayout(
-                centerAngleDegrees: angleDegrees,
-                angleBetweenItemsDegrees: 24,
-                itemCount: SettingsDialModelChoice.allCases.count
-            )
-        case .agents, .show, .more:
-            return nil
-        }
-    }
-
     static func nearest(toAngleDegrees angleDegrees: Double) -> SettingsDialSlice {
         let slicesWithAngleGaps = allCases.map { slice in
             (slice, abs(angleDifferenceInDegrees(from: slice.angleDegrees, to: angleDegrees)))
         }
         // allCases is never empty, and `min` keeps the first of two equal gaps.
         return slicesWithAngleGaps.min(by: { $0.1 < $1.1 })!.0
+    }
+}
+
+/// What the two fans offer, fixed when the dial opens. Team and Model fan their choices on the outer arc, and the other
+/// slices act on release. The Team fan's size depends on how many themes the learner saved, so every pick goes through
+/// this value instead of a constant.
+struct SettingsDialFans: Equatable {
+    /// How many saved themes the Team fan lists after Random. Twelve built-in balls plus three is the most the ring holds.
+    static let mostSavedThemesInTheTeamFan = 3
+    /// The Team fan always spans this many degrees across the top, whatever it holds. The ends stay where they were with
+    /// twelve items: Clicky blue at -168 degrees, where its label has room, and the last item at -12 degrees. More items only
+    /// narrow the gaps, from 14.2 degrees at 12 items to 11.1 at 15, a chord of 29.5 points at the 152 point fan radius.
+    /// That is wider than the 25.5 points an enlarged ball (30 points) next to an ordinary one (21 points) needs, so no ball
+    /// touches the next. A wider span would push the right end, where the saved themes' long names sit, nearer the
+    /// window's edge.
+    static let teamFanSpanDegrees = 156.0
+
+    /// The Team fan's items in order: Clicky blue, the ten schools, Random, then up to 3 saved themes, the newest first.
+    let teamThemes: [CompanionTheme]
+
+    /// `savedCustomThemes` in any order. The newest by saved date go after Random, and a tie keeps the order of the theme ids,
+    /// so the fan never reshuffles between two openings.
+    init(savedCustomThemes: [SavedCustomTheme]) {
+        let newestSavedThemes = savedCustomThemes
+            .sorted { firstSavedTheme, secondSavedTheme in
+                firstSavedTheme.savedDate == secondSavedTheme.savedDate
+                    ? firstSavedTheme.theme.id < secondSavedTheme.theme.id
+                    : firstSavedTheme.savedDate > secondSavedTheme.savedDate
+            }
+            .prefix(Self.mostSavedThemesInTheTeamFan)
+        teamThemes = CompanionTheme.allChoices + newestSavedThemes.map { CompanionTheme.custom($0.theme) }
+    }
+
+    /// The fan with no saved themes: the twelve built-in choices.
+    static let builtIn = SettingsDialFans(savedCustomThemes: [])
+
+    func layout(of slice: SettingsDialSlice) -> SettingsDialFanLayout? {
+        switch slice {
+        case .team:
+            return SettingsDialFanLayout(
+                centerAngleDegrees: slice.angleDegrees,
+                angleBetweenItemsDegrees: Self.teamFanSpanDegrees / Double(teamThemes.count - 1),
+                itemCount: teamThemes.count
+            )
+        case .model:
+            // Two labeled pills need more room than the balls do.
+            return SettingsDialFanLayout(
+                centerAngleDegrees: slice.angleDegrees,
+                angleBetweenItemsDegrees: 24,
+                itemCount: SettingsDialModelChoice.allCases.count
+            )
+        case .agents, .show, .more:
+            return nil
+        }
     }
 }
 
@@ -221,7 +292,9 @@ struct SettingsDialSelection: Equatable {
     var fanItemIndex: Int?
 
     /// The fan that is open, which is the highlighted slice's fan.
-    var openFanLayout: SettingsDialFanLayout? { slice?.fanLayout }
+    func openFanLayout(in fans: SettingsDialFans) -> SettingsDialFanLayout? {
+        slice.flatMap { fans.layout(of: $0) }
+    }
 
     /// The selection after the pointer moves to `pointerOffset`.
     /// Inside the plate the pointer picks the slice at its angle, and the center picks nothing. Once a fan is open,
@@ -229,17 +302,18 @@ struct SettingsDialSelection: Equatable {
     /// angle, so the learner can travel outward to a far item. The slice changes only when the pointer comes back
     /// inside the plate. With no fan open, a pointer beyond the plate still picks the slice at its angle, so a flick
     /// that overshoots the plate lands. Past the picking radius nothing is highlighted but an open fan stays open.
-    func afterPointerMoved(to pointerOffset: CGVector) -> SettingsDialSelection {
+    func afterPointerMoved(to pointerOffset: CGVector, fans: SettingsDialFans) -> SettingsDialSelection {
+        let layoutOfTheOpenFan = openFanLayout(in: fans)
         let distanceFromCenter = hypot(pointerOffset.dx, pointerOffset.dy)
         if distanceFromCenter > SettingsDialGeometry.pickingOuterRadius {
-            return SettingsDialSelection(slice: openFanLayout == nil ? nil : slice, fanItemIndex: nil)
+            return SettingsDialSelection(slice: layoutOfTheOpenFan == nil ? nil : slice, fanItemIndex: nil)
         }
         if distanceFromCenter <= SettingsDialGeometry.centerDeadZoneRadius {
             return SettingsDialSelection(slice: nil, fanItemIndex: nil)
         }
         let angleDegrees = pointerAngleDegrees(of: pointerOffset)
-        if let openFanLayout, distanceFromCenter > SettingsDialGeometry.plateRadius {
-            return SettingsDialSelection(slice: slice, fanItemIndex: openFanLayout.nearestItemIndex(toAngleDegrees: angleDegrees))
+        if let layoutOfTheOpenFan, distanceFromCenter > SettingsDialGeometry.plateRadius {
+            return SettingsDialSelection(slice: slice, fanItemIndex: layoutOfTheOpenFan.nearestItemIndex(toAngleDegrees: angleDegrees))
         }
         return SettingsDialSelection(slice: .nearest(toAngleDegrees: angleDegrees), fanItemIndex: nil)
     }
@@ -249,11 +323,13 @@ struct SettingsDialSelection: Equatable {
 /// edge shifted off the pointer cannot commit on a release with no movement.
 struct SettingsDialPicker {
     private let pointerOffsetWhenOpened: CGVector
+    private let fans: SettingsDialFans
     private var pointerHasMovedSinceOpening = false
     private(set) var selection = SettingsDialSelection(slice: nil, fanItemIndex: nil)
 
-    init(pointerOffsetWhenOpened: CGVector) {
+    init(pointerOffsetWhenOpened: CGVector, fans: SettingsDialFans) {
         self.pointerOffsetWhenOpened = pointerOffsetWhenOpened
+        self.fans = fans
     }
 
     mutating func pointerMoved(to pointerOffset: CGVector) {
@@ -262,7 +338,7 @@ struct SettingsDialPicker {
             guard movement >= SettingsDialGeometry.pointerMovementBeforePickingBegins else { return }
             pointerHasMovedSinceOpening = true
         }
-        selection = selection.afterPointerMoved(to: pointerOffset)
+        selection = selection.afterPointerMoved(to: pointerOffset, fans: fans)
     }
 }
 
@@ -277,12 +353,12 @@ enum SettingsDialChoice: Equatable {
     case more
 
     /// Nil when the release cancels: in the center, or on Team or Model with no item of their fan highlighted.
-    init?(committing selection: SettingsDialSelection) {
+    init?(committing selection: SettingsDialSelection, fans: SettingsDialFans) {
         guard let slice = selection.slice else { return nil }
         switch slice {
         case .team:
-            guard let themeIndex = selection.fanItemIndex, CompanionTheme.allChoices.indices.contains(themeIndex) else { return nil }
-            self = .theme(CompanionTheme.allChoices[themeIndex])
+            guard let themeIndex = selection.fanItemIndex, fans.teamThemes.indices.contains(themeIndex) else { return nil }
+            self = .theme(fans.teamThemes[themeIndex])
         case .model:
             guard let modelIndex = selection.fanItemIndex, SettingsDialModelChoice.allCases.indices.contains(modelIndex) else { return nil }
             self = .model(SettingsDialModelChoice.allCases[modelIndex])

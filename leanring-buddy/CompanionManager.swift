@@ -267,9 +267,13 @@ final class CompanionManager: ObservableObject {
         )
     }()
     private var themeStudioSpeechTask: Task<Void, Never>?
-    /// True from the moment the studio's own line starts to play until it ends, so closing the card stops that line and never
-    /// an unrelated answer that is playing when the card closes.
-    private var themeStudioLineIsPlaying = false
+    /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
+    /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
+    private var themeStudioLineToken: SpokenLineToken?
+    /// How many times push-to-talk has been pressed, which tells a studio line whether the learner made a request after the
+    /// current design started (`themeStudioLineMayStart`).
+    private var pushToTalkPressCount = 0
+    private var pushToTalkPressCountWhenTheThemeDesignStarted = 0
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -808,9 +812,11 @@ final class CompanionManager: ObservableObject {
             agentListPanelController.close()
             settingsDialController.open(snapshot: SettingsDialSnapshot(
                 theme: themeSettings.shownTheme,
+                themePicture: themeSettings.shownThemePicture,
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
-                runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count
+                runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
+                fans: SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
             ))
         case .released:
             if let settingsDialChoice = settingsDialController.releaseAndReturnTheChoice() {
@@ -883,6 +889,7 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
+            pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
@@ -1066,8 +1073,9 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
-            // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
+            pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
             let harnessVoiceCommandsSentBeforeThisStep = harnessVoiceCommandsSent
@@ -2400,11 +2408,17 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
+    /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
+    /// is, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
     /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
+        // A text field being edited in Clicky's own window, such as a saved theme's rename field, takes Escape as its
+        // cancel. The event tap sees that key too, so it closes nothing else, such as the studio card or a scene.
+        if NSApp.keyWindow?.firstResponder is NSText {
+            return
+        }
         // With the settings dial open, Escape only cancels it. The monitor sends Escape ahead of the dial's own
         // cancel, so the dial is still open here.
         if settingsDialController.isOpen {
@@ -3028,6 +3042,8 @@ final class CompanionManager: ObservableObject {
     /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
     private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
+        // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
+        pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
         liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
@@ -3062,7 +3078,8 @@ final class CompanionManager: ObservableObject {
     /// Says a studio line once nothing else is happening: no audio playing, so a "no picture" line is not cut off by the
     /// ideas' own line, no push-to-talk held, and no request of the learner's being worked on, so it never plays over their
     /// voice or over the request that followed it. The three are checked together in one loop, since each can start while
-    /// the line waits for another.
+    /// the line waits for another. The press counts tell the studio's own design apart from a request the learner made
+    /// after it started, since both hold the thinking state.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
     private func speakAThemeStudioLine(_ line: String) {
         themeStudioSpeechTask?.cancel()
@@ -3071,16 +3088,19 @@ final class CompanionManager: ObservableObject {
                 dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
                 clickyIsThinking: self.voiceState == .processing,
                 audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
-                themeStudioIsDesigning: self.themeStudioController.state.isDesigning
+                themeStudioIsDesigning: self.themeStudioController.state.isDesigning,
+                pushToTalkPressCount: self.pushToTalkPressCount,
+                pushToTalkPressCountWhenTheDesignStarted: self.pushToTalkPressCountWhenTheThemeDesignStarted
             ) {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
             guard !Task.isCancelled else { return }
-            self.themeStudioLineIsPlaying = true
-            await self.speakLiveSceneLine(line)
+            // A line that did not start keeps the previous token, which matches nothing once that line has ended.
+            if let lineToken = await self.speakLiveSceneLineAndReturnItsToken(line) {
+                self.themeStudioLineToken = lineToken
+            }
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
-            self.themeStudioLineIsPlaying = false
             if self.voiceState == .responding {
                 self.voiceState = .idle
             }
@@ -3090,14 +3110,15 @@ final class CompanionManager: ObservableObject {
 
     /// Ends the studio's spoken line when the card closes or saves. Cancelling the speech task also drops a line still waiting
     /// for its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
-    /// runs once it is cancelled, so this does it. Playback stops only while the studio's own line is playing, since the
-    /// audio may be an answer the router handed off with the card open.
+    /// runs once it is cancelled, so this does it, but only when the stop reached the studio's own line, since the audio may
+    /// be an answer the router handed off with the card open. A line still loading never started playing, so cancelling the
+    /// task is what ends it, and the token ends a line that is already playing.
     private func stopTheThemeStudioSpeech() {
         themeStudioSpeechTask?.cancel()
         themeStudioSpeechTask = nil
-        guard themeStudioLineIsPlaying else { return }
-        themeStudioLineIsPlaying = false
-        elevenLabsTTSClient.stopPlayback()
+        let studioLineToken = themeStudioLineToken
+        themeStudioLineToken = nil
+        guard let studioLineToken, elevenLabsTTSClient.stopPlayback(ifTheCurrentLineIs: studioLineToken) else { return }
         if voiceState == .responding {
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -4015,17 +4036,23 @@ final class CompanionManager: ObservableObject {
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
     @discardableResult
     private func speakLiveSceneLine(_ line: String) async -> Bool {
+        await speakLiveSceneLineAndReturnItsToken(line) != nil
+    }
+
+    /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
+    /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
         do {
-            try await elevenLabsTTSClient.speakText(line)
+            let lineToken = try await elevenLabsTTSClient.speakText(line)
             voiceState = .responding
-            return true
+            return lineToken
         } catch is CancellationError {
-            return false
+            return nil
         } catch {
             ClickyAnalytics.trackTTSError(error: error.localizedDescription)
             print("⚠️ ElevenLabs TTS error: \(error)")
             speakCreditsErrorFallback()
-            return false
+            return nil
         }
     }
 

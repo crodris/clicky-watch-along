@@ -212,6 +212,28 @@ nonisolated struct CustomThemeParseError: Error, Equatable, Sendable {
 nonisolated extension CustomTheme {
     static let longestName = 24
 
+    /// The rule `parse` applies to a name, for a name the learner types: trimmed, then 1 to `longestName` characters. Nil when
+    /// the name breaks it.
+    static func validName(from typedName: String) -> String? {
+        let trimmedName = typedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (1...longestName).contains(trimmedName.count) ? trimmedName : nil
+    }
+
+    /// The same theme under another name. The id stays, so everything that refers to the theme still finds it.
+    func renamed(to newName: String) -> CustomTheme {
+        CustomTheme(
+            id: id,
+            name: newName,
+            accentHex: accentHex,
+            contrastHex: contrastHex,
+            agentColorHexes: agentColorHexes,
+            cursor: cursor,
+            motion: motion,
+            sounds: sounds,
+            usesPicture: usesPicture
+        )
+    }
+
     /// The one place an idea becomes a `CustomTheme`. It reads the Worker's idea shape, which is also the shape of a saved
     /// theme.json, and throws `CustomThemeParseError` naming the first rule it breaks.
     ///

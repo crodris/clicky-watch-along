@@ -33,7 +33,7 @@ struct CustomThemeStoreTests {
             let savedTheme = try store.save(idea, pictureJPEG: nil)
             #expect(savedTheme.id.hasPrefix("moonlit-"))
             #expect(CustomThemeStore.isAValidThemeID(savedTheme.id))
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
@@ -42,7 +42,7 @@ struct CustomThemeStoreTests {
             let idea = try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true)
             let savedTheme = try store.save(idea, pictureJPEG: pictureBytes)
             #expect(try Data(contentsOf: store.pictureURL(forThemeID: savedTheme.id)) == pictureBytes)
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
@@ -50,7 +50,7 @@ struct CustomThemeStoreTests {
         try withATemporaryThemeStore { store in
             let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: pictureBytes)
             #expect(!FileManager.default.fileExists(atPath: store.pictureURL(forThemeID: savedTheme.id).path))
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
@@ -92,7 +92,7 @@ struct CustomThemeStoreTests {
 
             #expect(try Data(contentsOf: themeFileURL) == themeFileBeforeTheWrite)
             #expect(try Data(contentsOf: store.pictureURL(forThemeID: existingTheme.id)) == pictureBytes)
-            #expect(store.loadSavedThemes() == [existingTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [existingTheme])
         }
     }
 
@@ -136,7 +136,38 @@ struct CustomThemeStoreTests {
             for themeName in ["ember", "Zen", "Aurora"] {
                 _ = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string(themeName))), pictureJPEG: nil)
             }
-            #expect(store.loadSavedThemes().map(\.name) == ["Aurora", "ember", "Zen"])
+            #expect(store.loadSavedThemes().map(\.theme.name) == ["Aurora", "ember", "Zen"])
+        }
+    }
+
+    @Test func eachLoadedThemeCarriesTheModificationDateOfItsThemeFile() throws {
+        try withATemporaryThemeStore { store in
+            let olderTheme = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string("Older"))), pictureJPEG: nil)
+            let newerTheme = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string("Newer"))), pictureJPEG: nil)
+            // Whole seconds, so the dates are exact on any file system, and a day ahead of the clock. APFS moves a file's
+            // creation date back to match a modification date set earlier than it, which would make the two dates equal and
+            // hide a read of the wrong one.
+            let dayFromNow = Date(timeIntervalSinceReferenceDate: Date().timeIntervalSinceReferenceDate.rounded() + 86_400)
+            let olderSavedDate = dayFromNow
+            let newerSavedDate = dayFromNow.addingTimeInterval(3600)
+            for (savedTheme, savedDate) in [(olderTheme, olderSavedDate), (newerTheme, newerSavedDate)] {
+                let themeFilePath = store.themesDirectoryURL
+                    .appendingPathComponent(savedTheme.id, isDirectory: true)
+                    .appendingPathComponent(CustomThemeStore.themeFileName).path
+                try FileManager.default.setAttributes([.modificationDate: savedDate], ofItemAtPath: themeFilePath)
+            }
+            let savedDatesByName = Dictionary(uniqueKeysWithValues: store.loadSavedThemes().map { ($0.theme.name, $0.savedDate) })
+            #expect(savedDatesByName == ["Older": olderSavedDate, "Newer": newerSavedDate])
+        }
+    }
+
+    @Test func aThemeJustSavedIsDatedAtTheMomentOfTheSave() throws {
+        try withATemporaryThemeStore { store in
+            let momentBeforeTheSave = Date()
+            _ = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+            let savedDate = try #require(store.loadSavedThemes().first?.savedDate)
+            // File systems round to a fraction of a second, so allow a little either way.
+            #expect(abs(savedDate.timeIntervalSince(momentBeforeTheSave)) < 5)
         }
     }
 
@@ -149,7 +180,7 @@ struct CustomThemeStoreTests {
             try FileManager.default.createDirectory(at: brokenFolderURL, withIntermediateDirectories: true)
             try brokenIdeaText.write(to: brokenFolderURL.appendingPathComponent(CustomThemeStore.themeFileName), atomically: true, encoding: .utf8)
             try FileManager.default.createDirectory(at: store.themesDirectoryURL.appendingPathComponent("empty-0000", isDirectory: true), withIntermediateDirectories: true)
-            #expect(store.loadSavedThemes() == [goodTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [goodTheme])
         }
     }
 
@@ -179,5 +210,157 @@ struct CustomThemeStoreTests {
         #expect(!CustomThemeStore.isAValidThemeID("../x"))
         #expect(!CustomThemeStore.isAValidThemeID("Moonlit"))
         #expect(!CustomThemeStore.isAValidThemeID(""))
+    }
+}
+
+// MARK: - Renaming and deleting
+
+struct CustomThemeStoreRenameAndDeleteTests {
+    private let pictureBytes = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46])
+
+    private func themeFileJSON(of themeID: String, in store: CustomThemeStore) throws -> JSONValue {
+        let themeFileURL = store.themesDirectoryURL
+            .appendingPathComponent(themeID, isDirectory: true)
+            .appendingPathComponent(CustomThemeStore.themeFileName)
+        return try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: themeFileURL))
+    }
+
+    /// A folder next to the Themes folder with one file in it, for a test to check a bad id never reached.
+    private func makeASiblingFolder(of store: CustomThemeStore) throws -> (folderName: String, fileURL: URL) {
+        let folderName = "clicky-sibling-\(UUID().uuidString.lowercased())"
+        let folderURL = store.themesDirectoryURL.deletingLastPathComponent().appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        let fileURL = folderURL.appendingPathComponent("keep.txt")
+        try Data("keep".utf8).write(to: fileURL)
+        return (folderName, fileURL)
+    }
+
+    @Test func renamingChangesOnlyTheNameAndKeepsTheIdTheFolderAndThePicture() throws {
+        try withATemporaryThemeStore { store in
+            let savedTheme = try store.save(try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true), pictureJPEG: pictureBytes)
+            let themeFileBeforeTheRename = try themeFileJSON(of: savedTheme.id, in: store)
+
+            let renamedTheme = try store.rename(themeID: savedTheme.id, to: "  Night Owl \n")
+
+            #expect(renamedTheme.id == savedTheme.id)
+            #expect(renamedTheme.name == "Night Owl")
+            #expect(store.loadSavedThemes().map(\.theme) == [renamedTheme])
+            // The file holds the old file with the name replaced and nothing else changed.
+            #expect(try themeFileJSON(of: savedTheme.id, in: store) == replacingField(in: themeFileBeforeTheRename, at: ["name"], with: .string("Night Owl")))
+            #expect(try Data(contentsOf: store.pictureURL(forThemeID: savedTheme.id)) == pictureBytes)
+        }
+    }
+
+    @Test func renamingKeepsTheSavedDate() throws {
+        try withATemporaryThemeStore { store in
+            let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+            let themeFilePath = store.themesDirectoryURL
+                .appendingPathComponent(savedTheme.id, isDirectory: true)
+                .appendingPathComponent(CustomThemeStore.themeFileName).path
+            // Whole seconds a day ahead, for the reason `eachLoadedThemeCarriesTheModificationDateOfItsThemeFile` gives.
+            let savedDate = Date(timeIntervalSinceReferenceDate: Date().timeIntervalSinceReferenceDate.rounded() + 86_400)
+            try FileManager.default.setAttributes([.modificationDate: savedDate], ofItemAtPath: themeFilePath)
+
+            try store.rename(themeID: savedTheme.id, to: "Night Owl")
+            #expect(store.loadSavedThemes().map(\.savedDate) == [savedDate])
+        }
+    }
+
+    @Test func aNameThatIsEmptyOrTooLongIsRefusedAndTheFileIsLeftAlone() throws {
+        try withATemporaryThemeStore { store in
+            let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+            let themeFileBeforeTheRename = try themeFileJSON(of: savedTheme.id, in: store)
+
+            for badName in ["", "   ", "\n", String(repeating: "a", count: CustomTheme.longestName + 1)] {
+                #expect(throws: CustomThemeStoreError.themeNameIsNotValid) {
+                    try store.rename(themeID: savedTheme.id, to: badName)
+                }
+            }
+            #expect(try themeFileJSON(of: savedTheme.id, in: store) == themeFileBeforeTheRename)
+
+            // The longest name that is allowed, counted after trimming.
+            let longestAllowedName = String(repeating: "a", count: CustomTheme.longestName)
+            #expect(try store.rename(themeID: savedTheme.id, to: " \(longestAllowedName) ").name == longestAllowedName)
+        }
+    }
+
+    @Test func aThemeIdWithNoFolderIsRefusedAndNothingIsCreated() throws {
+        try withATemporaryThemeStore { store in
+            #expect(throws: CustomThemeStoreError.noThemeHasThatID) {
+                try store.rename(themeID: "gone-0000", to: "Night Owl")
+            }
+            #expect(throws: CustomThemeStoreError.noThemeHasThatID) {
+                try store.delete(themeID: "gone-0000")
+            }
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+
+            // A file with a valid theme id for a name is not a theme folder either.
+            try FileManager.default.createDirectory(at: store.themesDirectoryURL, withIntermediateDirectories: true)
+            let aFileNamedLikeATheme = store.themesDirectoryURL.appendingPathComponent("file-0000")
+            try Data("not a folder".utf8).write(to: aFileNamedLikeATheme)
+            #expect(throws: CustomThemeStoreError.noThemeHasThatID) {
+                try store.delete(themeID: "file-0000")
+            }
+            #expect(FileManager.default.fileExists(atPath: aFileNamedLikeATheme.path))
+        }
+    }
+
+    @Test func deletingRemovesOnlyThatThemesFolder() throws {
+        try withATemporaryThemeStore { store in
+            let themeToDelete = try store.save(try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true), pictureJPEG: pictureBytes)
+            let themeToKeep = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+
+            try store.delete(themeID: themeToDelete.id)
+
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.appendingPathComponent(themeToDelete.id).path))
+            #expect(store.loadSavedThemes().map(\.theme) == [themeToKeep])
+            #expect(FileManager.default.fileExists(atPath: store.themesDirectoryURL.appendingPathComponent(themeToKeep.id).path))
+        }
+    }
+
+    @Test func aSymbolicLinkInTheThemesFolderIsRemovedWithoutTouchingWhereItPoints() throws {
+        try withATemporaryThemeStore { store in
+            let outsideFolder = try makeASiblingFolder(of: store)
+            let outsideFolderURL = outsideFolder.fileURL.deletingLastPathComponent()
+            defer { try? FileManager.default.removeItem(at: outsideFolderURL) }
+            try FileManager.default.createDirectory(at: store.themesDirectoryURL, withIntermediateDirectories: true)
+            let linkURL = store.themesDirectoryURL.appendingPathComponent("link-0000")
+            try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideFolderURL)
+
+            try store.delete(themeID: "link-0000")
+
+            #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path)) == nil)
+            #expect(FileManager.default.fileExists(atPath: outsideFolder.fileURL.path))
+        }
+    }
+
+    @Test func anIdThatIsNotAFolderNameIsRefusedBeforeAnyFileIsTouched() throws {
+        try withATemporaryThemeStore { store in
+            let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+            let sibling = try makeASiblingFolder(of: store)
+            defer { try? FileManager.default.removeItem(at: sibling.fileURL.deletingLastPathComponent()) }
+
+            // "../name" names a sibling of the Themes folder, and "" would name the Themes folder itself. ".." is left out on
+            // purpose: with the guard broken, a test that deletes it would delete the folder above the Themes folder.
+            for badThemeID in ["../\(sibling.folderName)", "a/b", "Moonlit", ""] {
+                #expect(throws: CustomThemeStoreError.themeIDIsNotAValidFolderName, "delete \(badThemeID)") {
+                    try store.delete(themeID: badThemeID)
+                }
+                #expect(throws: CustomThemeStoreError.themeIDIsNotAValidFolderName, "rename \(badThemeID)") {
+                    try store.rename(themeID: badThemeID, to: "Night Owl")
+                }
+            }
+
+            #expect(FileManager.default.fileExists(atPath: sibling.fileURL.path))
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
+        }
+    }
+
+    @Test func aBadIdIsReportedBeforeABadName() throws {
+        try withATemporaryThemeStore { store in
+            #expect(throws: CustomThemeStoreError.themeIDIsNotAValidFolderName) {
+                try store.rename(themeID: "../x", to: "")
+            }
+        }
     }
 }

@@ -119,20 +119,40 @@ struct ThemeStudioStateTests {
 // MARK: - Opening the studio
 
 struct AsksToDesignAThemeTests {
-    @Test func themeWithAChangeWordNearbyOpensTheStudioFromTheWords() {
+    @Test func aRequestWordAndAnOwnerWordBeforeThemeOpenTheStudioFromTheWords() {
         let phrases = [
             "change my theme",
             "Hey Clicky, change my theme",
+            "make me a new theme",
             "can you make me a new theme",
-            "design a theme for night",
-            "create a cozy theme",
+            "give me a new theme",
+            "create a theme",
             "customize my theme",
-            "redo the theme",
-            "I want a new theme",
+            "customise my theme",
+            "redo my theme",
+            "switch my theme",
+            "change your theme",
+            "change Clicky's theme",
+            "change Clicky\u{2019}s theme",
+            "change Clickys theme",
             "make my theme something cozy for night",
         ]
         for phrase in phrases {
             #expect(asksToDesignATheme(phrase) == .fromWords, "\(phrase)")
+        }
+    }
+
+    @Test func newThemeAloneOrWithPleaseIsARequestButNotInsideAQuestion() {
+        let phrases = [
+            "new theme", "New theme.", "new theme please", "Hey Clicky, new theme please",
+            "Clicky, new theme", "okay Clicky, new theme", "new theme, Clicky", "a new theme please",
+        ]
+        for phrase in phrases {
+            #expect(asksToDesignATheme(phrase) == .fromWords, "\(phrase)")
+        }
+        // The same words inside a longer utterance ask about a theme that already exists.
+        for phrase in ["what's the new theme please", "tell me about the new theme", "new theme in chapter two", "I love the new theme please"] {
+            #expect(asksToDesignATheme(phrase) == nil, "\(phrase)")
         }
     }
 
@@ -141,6 +161,8 @@ struct AsksToDesignAThemeTests {
             "make my theme from this picture",
             "make a theme from this image",
             "design a theme from this photo",
+            "design a theme from this picture",
+            "design me a theme from this picture",
             "change my theme to match this",
             "Make my theme from THIS picture.",
         ]
@@ -151,19 +173,76 @@ struct AsksToDesignAThemeTests {
 
     @Test func otherWordsAboutThePictureDoNotMakeItARequestFromThePicture() {
         #expect(asksToDesignATheme("change my theme, that picture is pretty") == .fromWords)
-        #expect(asksToDesignATheme("make a theme, this is great") == .fromWords)
+        #expect(asksToDesignATheme("make a theme please, this is great") == .fromWords)
+        // Natural requests with a want word or one word between the owner and "theme".
+        #expect(asksToDesignATheme("I want a new theme") == .fromWords)
+        #expect(asksToDesignATheme("create a cozy theme") == .fromWords)
+        #expect(asksToDesignATheme("can I get a different theme") == .fromWords)
+        #expect(asksToDesignATheme("I'd like to try a darker theme from this picture") == .fromThePicture)
+        // A possessive "'s" comes off, so "theme's" and "image's" read as "theme" and "image".
+        #expect(asksToDesignATheme("change my theme's colors") == .fromWords)
+        #expect(asksToDesignATheme("design a theme from this image's colors") == .fromThePicture)
     }
 
-    @Test func aQuestionAboutThePoemsOrPicturesThemeOpensNothing() {
-        // "new" sits within four words of "theme", but the learner asks what a theme is and wants none designed.
+    @Test func anAskingWordWithABareAAsksAboutSomethingElse() {
+        // "need", "want", "give", and "get" with "a" right before "theme" ask for a theme for an essay, a song, or a story.
+        #expect(asksToDesignATheme("I need a theme for my essay") == nil)
+        #expect(asksToDesignATheme("give me a theme for my story") == nil)
+        #expect(asksToDesignATheme("I want a theme song for my video") == nil)
+        #expect(asksToDesignATheme("did you get a theme from this poem") == nil)
+        // A design word with a bare "a" still asks for one, and so does an asking word with a described theme.
+        #expect(asksToDesignATheme("create a theme") == .fromWords)
+        #expect(asksToDesignATheme("give me a new theme") == .fromWords)
+        #expect(asksToDesignATheme("I'd like a new theme") == .fromWords)
+    }
+
+    @Test func aThemeForSomethingElseOpensNothingUnlessTheOwnerIsRightBeforeIt() {
+        // Past "theme", the words say what the theme is for, so the learner asks about an essay, a song, or a poem.
+        #expect(asksToDesignATheme("I need a good theme for my essay") == nil)
+        #expect(asksToDesignATheme("give me a catchy theme for my story") == nil)
+        #expect(asksToDesignATheme("I want a new theme song for my video") == nil)
+        #expect(asksToDesignATheme("did you get a clear theme from this poem") == nil)
+        #expect(asksToDesignATheme("make a theme for my presentation") == nil)
+        #expect(asksToDesignATheme("I need my essay's theme to be clearer") == nil)
+        // Words that say how the theme should look keep it a request, and "my theme" right before it is one whatever follows.
+        #expect(asksToDesignATheme("I want a new theme that feels like a rainy night") == .fromWords)
+        #expect(asksToDesignATheme("make me a theme with soft colors") == .fromWords)
+        #expect(asksToDesignATheme("change my theme to something cozy") == .fromWords)
+        // The tail rule sends a design word with "for" after "theme" to the router too, which the owner chose on PR 57.
+        #expect(asksToDesignATheme("design a theme for night") == nil)
+        #expect(asksToDesignATheme("make a theme, this is great") == nil)
+    }
+
+    @Test func likeAsksForAThemeOnlyAfterIdOrWould() {
+        #expect(asksToDesignATheme("I'd like a new theme") == .fromWords)
+        #expect(asksToDesignATheme("I would like a darker theme") == .fromWords)
+        #expect(asksToDesignATheme("this sounds like a pirate theme") == nil)
+        #expect(asksToDesignATheme("it looks like a space theme") == nil)
+        #expect(asksToDesignATheme("I like your theme") == nil)
+        #expect(asksToDesignATheme("I really like my new theme") == nil)
+    }
+
+    @Test func aQuestionAboutAWorksThemeOpensNothing() {
+        // "change" sits within four words of "theme", but nobody says whose theme it is, so the learner asks about a work.
+        #expect(asksToDesignATheme("how does the author change the theme here") == nil)
+        // "new" sits next to "theme", but there is no request word and no owner word.
+        #expect(asksToDesignATheme("what's the new theme in chapter two") == nil)
+        // The learner asks what a theme is and wants none designed.
         #expect(asksToDesignATheme("what's the main theme of this new poem") == nil)
         #expect(asksToDesignATheme("explain the theme of this new picture") == nil)
+        // "need" and "a" make a request for a theme, but "of" after it names a work's theme.
+        #expect(asksToDesignATheme("I need a theme of loss for my essay") == nil)
         // A request word that comes only after "theme" is not a request for one.
         #expect(asksToDesignATheme("theme make") == nil)
-        // The matches still hold.
-        #expect(asksToDesignATheme("make a new theme") == .fromWords)
-        #expect(asksToDesignATheme("change my theme") == .fromWords)
-        #expect(asksToDesignATheme("design me a theme from this picture") == .fromThePicture)
+    }
+
+    @Test func aRequestWordWithNoOwnerWordOrAnOwnerWordWithNoRequestWordOpensNothing() {
+        // "the" says nothing about whose theme it is, so it stays a question about the screen.
+        #expect(asksToDesignATheme("change the theme") == nil)
+        #expect(asksToDesignATheme("make the new theme darker") == nil)
+        // An owner word alone asks about the theme, not for another.
+        #expect(asksToDesignATheme("what is my theme") == nil)
+        #expect(asksToDesignATheme("tell me about a new theme") == nil)
     }
 
     @Test func aThemeWithNoChangeWordNearbyOrNoThemeAtAllOpensNothing() {
@@ -172,18 +251,21 @@ struct AsksToDesignAThemeTests {
         #expect(asksToDesignATheme("make a model of this engine") == nil)
         #expect(asksToDesignATheme("") == nil)
         // The change word is more than four words from "theme".
-        #expect(asksToDesignATheme("make sure you tell me one more time about the theme") == nil)
+        #expect(asksToDesignATheme("make sure you tell me one more time about my theme") == nil)
     }
 }
 
 // MARK: - When a line may play
 
 struct ThemeStudioLineTimingTests {
+    /// The design started at press number 3, and `pressesSinceTheDesignStarted` is how many presses came after it.
     private func lineMayStart(
-        dictation: Bool = false, thinking: Bool = false, audioPlaying: Bool = false, designing: Bool = false
+        dictation: Bool = false, thinking: Bool = false, audioPlaying: Bool = false, designing: Bool = false,
+        pressesSinceTheDesignStarted: Int = 0
     ) -> Bool {
         themeStudioLineMayStart(
-            dictationIsInProgress: dictation, clickyIsThinking: thinking, audioIsPlaying: audioPlaying, themeStudioIsDesigning: designing
+            dictationIsInProgress: dictation, clickyIsThinking: thinking, audioIsPlaying: audioPlaying, themeStudioIsDesigning: designing,
+            pushToTalkPressCount: 3 + pressesSinceTheDesignStarted, pushToTalkPressCountWhenTheDesignStarted: 3
         )
     }
 
@@ -199,6 +281,16 @@ struct ThemeStudioLineTimingTests {
         #expect(lineMayStart(thinking: true, designing: true))
         #expect(!lineMayStart(dictation: true, thinking: true, designing: true))
         #expect(!lineMayStart(thinking: true, audioPlaying: true, designing: true))
+    }
+
+    @Test func aPushToTalkPressAfterTheDesignStartedMakesThinkingTheLearnersRequestAndHoldsTheLineBack() {
+        // The thinking state while a design runs is still the studio's own until the learner presses.
+        #expect(lineMayStart(thinking: true, designing: true, pressesSinceTheDesignStarted: 0))
+        // After a press, the same state is the learner's request, whether or not the design is still running.
+        #expect(!lineMayStart(thinking: true, designing: true, pressesSinceTheDesignStarted: 1))
+        #expect(!lineMayStart(thinking: true, designing: false, pressesSinceTheDesignStarted: 1))
+        // A press that left Clicky idle holds nothing back, so the line still plays once the learner's request ended.
+        #expect(lineMayStart(thinking: false, designing: true, pressesSinceTheDesignStarted: 1))
     }
 }
 

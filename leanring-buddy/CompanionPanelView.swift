@@ -802,7 +802,8 @@ struct CompanionPanelView: View {
 
 // MARK: - Team Theme Picker
 
-/// The "Team theme" section: Clicky blue, the ten Haikyu!! schools, Random, then the learner's saved custom themes, in two columns.
+/// The "Team theme" section: Clicky blue, the ten Haikyu!! schools, and Random in two columns, then the learner's saved custom
+/// themes as full-width rows that can be renamed or deleted (`SavedThemeRow`).
 /// Picking one recolors the cursor now, and gives each agent that starts afterward a player of that team.
 private struct TeamThemePickerView: View {
     @ObservedObject var themeSettings: CompanionThemeSettings
@@ -819,12 +820,27 @@ private struct TeamThemePickerView: View {
                 .foregroundColor(DS.Colors.textSecondary)
 
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(themeSettings.menuBarThemeChoices, id: \.rawValue) { theme in
+                ForEach(CompanionTheme.allChoices, id: \.rawValue) { theme in
                     TeamThemeOptionButton(
                         theme: theme,
                         isSelected: themeSettings.theme == theme,
                         select: { themeSettings.theme = theme }
                     )
+                }
+            }
+
+            // Full width, since a row holds the theme's name and, on hover, two buttons, or a field for a new name.
+            if !themeSettings.savedCustomThemes.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(themeSettings.savedCustomThemes, id: \.id) { customTheme in
+                        SavedThemeRow(
+                            customTheme: customTheme,
+                            isSelected: themeSettings.theme == .custom(customTheme),
+                            select: { themeSettings.theme = .custom(customTheme) },
+                            rename: { typedName in try themeSettings.renameSavedTheme(themeID: customTheme.id, to: typedName) },
+                            delete: { try themeSettings.deleteSavedTheme(themeID: customTheme.id) }
+                        )
+                    }
                 }
             }
         }
@@ -874,7 +890,8 @@ private struct TeamThemeOptionButton: View {
 }
 
 /// A small round swatch: solid blue for Clicky blue, the team's two colors for a school, and four teams' colors for Random.
-private struct TeamThemeSwatch: View {
+/// A saved theme's row draws it too.
+struct TeamThemeSwatch: View {
     let theme: CompanionTheme
 
     var body: some View {

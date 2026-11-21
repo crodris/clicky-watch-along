@@ -145,7 +145,7 @@ nonisolated struct CustomThemeSounds: Equatable, Codable, Sendable { let done: T
 - `rawValue` is `custom:<id>`, and `CompanionTheme(rawValue:savedCustomThemes:)` reads it back, with an unknown id reading as Clicky blue.
 - `cursorColor` and `cursorContrastColor` come from the theme's two colors, and `cursorVolleyballColors` is nil.
 - `nextHaikyuPlayer` returns nil, so agents have no player.
-- `CompanionTheme.allChoices` stays the built-in list, which the settings dial's Team fan keeps using unchanged.
+- `CompanionTheme.allChoices` stays the built-in list. The settings dial's Team fan lists it, then the 3 newest saved themes (`SettingsDialFans`, added in #57).
   The menu bar panel's "Team theme" section lists the built-in choices, then the saved custom themes.
 
 `CompanionThemeSettings` gets `@Published var previewTheme: CompanionTheme?` and `var shownTheme: CompanionTheme { previewTheme ?? theme }`.
@@ -187,7 +187,10 @@ The transitions are pure functions, tested one by one: open, ideas arrived, the 
 Flow:
 
 1. `asksToDesignATheme(_ transcript:) -> ThemeStudioRequest?` is a keyword branch ahead of the router, like "let me try it".
-   It matches "theme" with change, new, make, design, create, customize, or redo in the four words before it, unless "of" follows "theme" ("what's the main theme of this new poem" is a question), and returns `.fromThePicture` when the words also say this picture, this image, this photo, or match this, and `.fromWords` otherwise.
+   It matches "theme" with a request word in the four words before it and an owner word, unless "of" follows "theme" ("what's the main theme of this new poem" is a question).
+   The doc comment on `asksToDesignATheme` and the Theme Studio section of AGENTS.md hold the current word lists, which #57 widened.
+   "New theme" or "new theme please" alone matches too, and #57 also accepts "a new theme" and hey, okay, or Clicky around it.
+   It returns `.fromThePicture` when the words also say this picture, this image, this photo, or match this, and `.fromWords` otherwise.
    It does not fire while a quiz question is open or while the studio is already open, since the router reads those.
    With the studio open no keyword branch runs at all, so "let me try it" and "animate this" reach the router too, and a failed router request says "Sorry, I couldn't do that one." instead of falling back to the keyword path.
    Starting a design cancels a scene still building, as "let me try it" does.
@@ -211,7 +214,8 @@ Flow:
 6. Escape closes the studio first when it is open, ahead of the scene behavior, and keeps the old theme.
    A push-to-talk press does not close it. A new `design_theme` cancels a design call still running.
    Closing the card by Escape, the Close button, or `close_theme_studio` stops the line Clicky is saying about the ideas, and only that line: an answer playing for another request keeps playing.
-   A studio line waits until no audio plays, push-to-talk is not held, and Clicky is not thinking about a request, all checked together (`themeStudioLineMayStart`). The studio's own design does not count as thinking.
+   A studio line waits until no audio plays, push-to-talk is not held, and Clicky is not thinking about a request, all checked together (`themeStudioLineMayStart`). The studio's own design does not count as thinking, until the learner presses push-to-talk after the design started, since the thinking state after a press is their request. The check compares a press count now with the count recorded when the design started.
+   The studio keeps the playback token of its own line, which `ElevenLabsTTSClient.speakText` returns, and closing the card stops playback only through `stopPlayback(ifTheCurrentLineIs:)`. A line another answer replaced, or one that ended, is not stopped, and the responding state is reset only when the stop reached the studio's line.
 
 The card is a borderless nonactivating panel that never becomes key, like the agent list, placed at the first corner around the mouse where it does not cover the pointer (reuse `approvalListAnchorTopLeft`).
 It shows the title, three tiles (the idea's cursor drawn by `CustomCursorView`, its name, its accent and agent colors as swatches, and a small agent token in its first agent color with the picture face when it uses the picture), the highlighted tile's tags (shape motion in words, the sounds), and the hint line "Say one, two, or three · or what to change · say save it".
@@ -228,8 +232,7 @@ One runnable check per logic change:
 
 ## Out of scope
 
-- The settings dial's Team fan keeps the built-in themes. Custom themes show in the menu bar panel.
-- Deleting or renaming a saved theme.
+- The settings dial's Team fan and renaming or deleting a saved theme were left out of this plan, and #57 added them.
 - Animated or SVG pictures. The picture is the JPEG capture.
 
 ## Where the build differs from this plan
@@ -246,7 +249,7 @@ One runnable check per logic change:
   `AgentFace` (`triangle`, `player`, `themePicture`) replaces the chip's `player:` input, and `BackgroundAgent.themePictureThemeID` keeps the picture face for an agent's whole life.
   `agentTokenRingColorChoice` needed no new case.
 - Agents take the saved theme, never the studio's preview, so an agent started while the learner only tries an idea does not keep that idea's colors.
-- `CompanionThemeSettings.previewTheme` is `private(set)`, set by `preview(_:picture:)` and `clearPreview()`, with a matching `previewPicture`, `shownThemePicture`, `savedCustomThemes`, `menuBarThemeChoices`, and `saveAndApply(_:pictureJPEG:)`.
+- `CompanionThemeSettings.previewTheme` is `private(set)`, set by `preview(_:picture:)` and `clearPreview()`, with a matching `previewPicture`, `shownThemePicture`, `savedCustomThemes`, and `saveAndApply(_:pictureJPEG:)`. #57 removed `menuBarThemeChoices`, and the menu bar panel reads the built-in choices and `savedCustomThemes` itself.
 - `ThemeStudioController` owns the state, takes the Worker call, the picture capture, and the spoken line as functions (`Environment`), and shows the card through `ThemeStudioCardPresenting`, so tests drive it with a stub Worker and no window.
   CompanionManager's part is wiring: one lazy controller, the keyword branch, the four tools, the Escape check, and the speech and capture functions.
 - `design_theme`'s `fromPicture` has three values: true captures the largest picture in Chrome's front tab again, false drops the card's picture, and a missing input keeps the card's picture.

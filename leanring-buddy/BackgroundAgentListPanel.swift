@@ -21,6 +21,31 @@ func agentListPanelOrigin(anchorTopLeft: CGPoint, panelSize: CGSize, visibleFram
     return CGPoint(x: originX, y: originY)
 }
 
+/// Places a panel again with its new size each time it resizes. The hosting view grows the window from its top-left corner
+/// as the SwiftUI content grows, and the size the content reports can be 0 while the window starts with no height, so a
+/// card that opened low on the screen grew past its bottom edge, with the studio card's Save and Close buttons off screen.
+/// Placing it again after each resize keeps it inside `visibleFrame`, by the same rule as the first placement.
+/// The anchor and the visible frame are read at each resize from the controller, which sets them each time it opens.
+func keepThePanelOnScreenAsItResizes(
+    _ panel: NSPanel,
+    currentPlacement: @escaping @MainActor () -> (anchorTopLeft: CGPoint, visibleFrame: CGRect)
+) -> NSObjectProtocol {
+    NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: panel, queue: .main) { [weak panel] _ in
+        MainActor.assumeIsolated {
+            guard let panel else { return }
+            let placement = currentPlacement()
+            let placedOrigin = agentListPanelOrigin(
+                anchorTopLeft: placement.anchorTopLeft,
+                panelSize: panel.frame.size,
+                visibleFrame: placement.visibleFrame
+            )
+            if panel.frame.origin != placedOrigin {
+                panel.setFrameOrigin(placedOrigin)
+            }
+        }
+    }
+}
+
 /// Where the list opens for an approval request: the first corner around the mouse whose panel, at its tallest and
 /// after it is kept on screen, does not cover the pointer, so a click the learner aimed at the page cannot be taken as
 /// Yes. It returns the panel's top-left corner, the anchor `agentListPanelOrigin` takes.
@@ -154,6 +179,7 @@ final class AgentListPanelController {
     /// Where the panel's top-left corner sits, fixed when it opens so a row that expands grows the panel downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
+    private var resizeObserver: NSObjectProtocol?
     /// The disc the list was opened from, nil when the settings dial opened it, so a second click on the same disc closes it.
     private var discTheListWasOpenedFrom: AgentTokenDiscID?
 
@@ -237,6 +263,9 @@ final class AgentListPanelController {
         agentListPanel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         agentListPanel.contentView = hostingView
         panel = agentListPanel
+        resizeObserver = keepThePanelOnScreenAsItResizes(agentListPanel) { [weak self] in
+            (self?.anchorTopLeft ?? .zero, self?.visibleFrame ?? .zero)
+        }
         resizePanel(to: initialSize)
         // Not makeKeyAndOrderFront, which would take the keyboard from Chrome.
         agentListPanel.orderFrontRegardless()
@@ -267,6 +296,10 @@ final class AgentListPanelController {
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
+        }
+        if let resizeObserver {
+            NotificationCenter.default.removeObserver(resizeObserver)
+            self.resizeObserver = nil
         }
         panel?.orderOut(nil)
         // Dropping the view stops the running agents' clocks, which tick only while the list is open.
