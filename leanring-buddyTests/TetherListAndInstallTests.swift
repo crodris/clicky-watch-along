@@ -96,20 +96,20 @@ struct AgentListLiveLineTests {
     }
 
     @Test func aFailedAgentIsTriedAgainOnlyByTheRulesTheVoiceToolsKeep() {
-        func mayRetry(_ kind: BackgroundAgentKind, quiz: Bool = false, step: ExperimentRequestStep = .startBuilding, experimentOnScreen: Bool = false, video: Bool = true) -> Bool {
-            backgroundAgentMayBeTriedAgain(agentKind: kind, aQuizQuestionIsOpen: quiz, experimentRequestStep: step, anExperimentIsOnScreen: experimentOnScreen, aVideoIsInFront: video)
+        func mayBeTriedAgain(_ kind: BackgroundAgentKind, aQuizQuestionIsOpen: Bool = false, experimentRequestStep: ExperimentRequestStep = .startBuilding, anExperimentIsOnScreen: Bool = false, aVideoIsInFront: Bool = true) -> Bool {
+            backgroundAgentMayBeTriedAgain(agentKind: kind, aQuizQuestionIsOpen: aQuizQuestionIsOpen, experimentRequestStep: experimentRequestStep, anExperimentIsOnScreen: anExperimentIsOnScreen, aVideoIsInFront: aVideoIsInFront)
         }
-        #expect(mayRetry(.experiment))
-        #expect(!mayRetry(.experiment, step: .sayItIsStillBuilding))
-        #expect(!mayRetry(.experiment, step: .showTheReadyExperiment))
-        #expect(!mayRetry(.experiment, experimentOnScreen: true))
-        #expect(mayRetry(.threeDModel))
-        #expect(!mayRetry(.threeDModel, video: false))
-        #expect(mayRetry(.task))
-        #expect(mayRetry(.studyGuide))
+        #expect(mayBeTriedAgain(.experiment))
+        #expect(!mayBeTriedAgain(.experiment, experimentRequestStep: .sayItIsStillBuilding))
+        #expect(!mayBeTriedAgain(.experiment, experimentRequestStep: .showTheReadyExperiment))
+        #expect(!mayBeTriedAgain(.experiment, anExperimentIsOnScreen: true))
+        #expect(mayBeTriedAgain(.threeDModel))
+        #expect(!mayBeTriedAgain(.threeDModel, aVideoIsInFront: false))
+        #expect(mayBeTriedAgain(.task))
+        #expect(mayBeTriedAgain(.studyGuide))
         // An open quiz question owns every kind of work.
         for kind in [BackgroundAgentKind.experiment, .threeDModel, .task, .studyGuide, .studyGuideUpdate] {
-            #expect(!mayRetry(kind, quiz: true))
+            #expect(!mayBeTriedAgain(kind, aQuizQuestionIsOpen: true))
         }
     }
 

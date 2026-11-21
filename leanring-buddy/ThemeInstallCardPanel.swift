@@ -78,7 +78,7 @@ struct ThemeInstallCardView: View {
     private static let entranceStartScale: CGFloat = 0.97
     /// How long the buttons ignore clicks after the card appears, so the second click of a double-click that answered the
     /// card before cannot answer this one.
-    private static let secondsTheButtonsWaitBeforeTheyCount = 0.4
+    private static let secondsTheButtonsIgnoreClicks = 0.4
 
     var body: some View {
         VStack(spacing: 14) {
@@ -131,7 +131,7 @@ struct ThemeInstallCardView: View {
             withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { hasAppeared = true }
         }
         .task {
-            try? await Task.sleep(for: .seconds(Self.secondsTheButtonsWaitBeforeTheyCount))
+            try? await Task.sleep(for: .seconds(Self.secondsTheButtonsIgnoreClicks))
             buttonsAcceptClicks = true
         }
     }
