@@ -163,6 +163,13 @@ enum LiveSceneAnswerJudge {
     }
 }
 
+/// The scene state's `sceneNumber`: which scene is on screen, counted up each time one starts to show. The harness brain
+/// tells whether a change it recorded was made to the scene still on screen by this number, since Escape closes a scene
+/// outside the brain and two pop-outs of the same video look the same in every other field. Nil with no scene showing.
+nonisolated func sceneNumberForTheSceneState(sceneIsOnScreen: Bool, scenesPlayedCount: Int) -> JSONValue? {
+    sceneIsOnScreen ? .number(Double(scenesPlayedCount)) : nil
+}
+
 /// The scene the keyword path builds for a transcript. An experiment is built only by its background agent, so a
 /// "let me try it" that reaches the keyword path, such as after the voice command router failed, is a plain question.
 nonisolated func keywordPathSceneKind(for transcript: String) -> LiveSceneKind? {

@@ -4162,6 +4162,10 @@ final class CompanionManager: ObservableObject {
         case .generatedPage, nil: pageName = "generated3DScene"
         }
         sceneStateFields["page"] = .string(pageName)
+        sceneStateFields["sceneNumber"] = sceneNumberForTheSceneState(
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            scenesPlayedCount: LiveSceneOverlay.shared.scenesPlayedCount
+        )
         if let frontVideoState {
             sceneStateFields["video"] = frontVideoState
         }

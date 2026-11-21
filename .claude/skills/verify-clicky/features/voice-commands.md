@@ -65,13 +65,19 @@ Preconditions:
   The last step turns the model right, and the `Brain: turn` lines show `cache read` growing with the history from the second command on.
   The first command's request has no history, so its `cache read` covers only the tools and the system prompt.
   After a pause of 5 minutes the session folds the older commands into one block of at most the newest 40, so a cold request stays small however many commands came before.
+- **The harness undoes the newest change.** Keep the Debug "Log tool call JSON" switch off, since with it on the chip shows code and not plain words.
+  Run `$V app-launch --brain --harness-brain "pop this out|turn it to the left|undo that"`, then `$V app-wait`.
+  The last step's app log has a `Brain: turn N ... calls undo_last_change` line, then `Voice command: rotate_model(yawDegrees: 45) ran in ... ms, ... ms after the command, ok`, which is the inverse the harness sent for the turn of -45 degrees, and the chip says "Turning it right".
+  The inverse's call ID (the model's ID plus `-undo`) is in the app log only as the `id` field of a `Voice command JSON tool call from the harness` line, which `logVoiceCommandJSONIfEnabled` writes only with the switch on, so a switch-off run does not show it.
+  For a video, run `$V app-launch --brain --harness-brain "go back ten seconds|undo that"`: the last step logs `Voice command: seek_relative(seconds: 10) ran ... ok` after its `calls undo_last_change` line.
+  The harness offers `undo_last_change` only while the newest change has an inverse, so with a pop-out as the newest action, "undo that" is the model's own call to `close_scene`.
 - **The brain's evals on both backends.** With `$V worker-up 8797` ready, run `node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797`.
   It builds the harness, runs every case in `bench/fixtures/brain-evals.json` on the Worker's `/voice-command` and on the harness brain, one after the other, and prints a table for each backend and the parity gate.
   The gate passes when every harness run passes, its p50 to the first `tool_call` is within 100 ms of the Worker's, and its first-turn cost per call is within 1.5 times the Worker's.
   The command exits nonzero when the gate fails.
   The harness backend sends `reset_session` before each case, since the harness keeps a session, and the cases that need earlier commands seed them with `seed_session`.
   The harness takes both only with `CLICKY_BENCH=1`, which the driver sets and the app never does.
-  It also runs the cases in `bench/fixtures/brain-sessions.json` (an undo after 7 commands, a correction after a fold, a correction after an interrupted command, and an injection in an earlier tool result), and the gate adds a check that every one passes.
+  It also runs the cases in `bench/fixtures/brain-sessions.json` (an undo after 7 commands, a correction after a fold, a correction after an interrupted command, an injection in an earlier tool result, and an undo after a zoom, after a seek, and behind a pop-out), and the gate adds a check that every one passes.
   `node bench/brainEvals.ts session-run --label brain-session --runs 3 --port 8797` runs ten commands as one session and again with a reset before each, and prints the cache read share, p50, and cost of both.
   The harness backend scores the `approvalWaiting` cases (7 of the 60 parity cases) from the answer the harness's gate settled: it seeds a waiting request with `seed_approval_request`, names it in `approvalIDSeenAtPress`, and reads `approval_settled` or the `Brain: approval` log line, because `answer_approval` never reaches the app. The two unrelated cases pass only with their own tool call and no settlement.
   The harness backend scores the first turn from the call names in its `Brain: turn` line, so a call the app never saw, after a hand-off or refused, still counts as the model's choice.

@@ -934,7 +934,7 @@ export type HarnessCommandEnding = { kind: "finished"; spokenLine: string; gaveU
 
 /** Everything one voice command wrote, with the time of each event since the `voice_command` line was sent. */
 export type HarnessCommandRecord = {
-  toolCalls: Array<ToolCall & { turnIndex: number }>;
+  toolCalls: Array<ToolCall & { turnIndex: number; toolUseID: string }>;
   turns: BrainTurnUsage[];
   firstToolCallMs: number | null;
   endedMs: number | null;
@@ -947,6 +947,10 @@ export type HarnessCommandRecord = {
 };
 
 export type ApprovalSettlement = { approved: boolean; scope: "once" | "always" };
+
+// These match `undoLastChangeTool` and `undoCallIDSuffix` in harness/brainundo.go, which brainEvals.test.ts checks.
+const undoLastChangeTool = "undo_last_change";
+const undoCallIDSuffix = "-undo";
 
 // Matches harness/voiceapproval.go: "Brain: approval %s given (once)" or "declined (once)", with the scope in parentheses.
 const brainApprovalLinePattern = /^Brain: approval (\S+) (given|declined) \((once|always)\)$/;
@@ -999,7 +1003,7 @@ export class HarnessCommandRecorder {
     if (message.type === "tool_call") {
       this.record.firstToolCallMs ??= elapsedMs;
       const toolName = String(message.name);
-      this.record.toolCalls.push({ name: toolName, input: isRecord(message.input) ? message.input : {}, turnIndex: Number(message.turnIndex) });
+      this.record.toolCalls.push({ name: toolName, input: isRecord(message.input) ? message.input : {}, turnIndex: Number(message.turnIndex), toolUseID: String(message.toolUseID) });
       const standIn = standInToolResult(toolName, this.brainCase);
       return { type: "tool_result", taskID: this.commandID, toolUseID: message.toolUseID, content: standIn.content, isError: standIn.isError, outcome: standIn.outcome };
     }
@@ -1035,6 +1039,12 @@ function toolCallsOfTurn(record: HarnessCommandRecord, turnIndex: number): ToolC
   return (record.turns[turnIndex]?.calledToolNames ?? []).map((calledToolName) => {
     const sentCall = sentCalls[nextSentCall];
     if (sentCall !== undefined && sentCall.name === calledToolName) {
+      nextSentCall += 1;
+      return { name: sentCall.name, input: sentCall.input };
+    }
+    // The harness handles undo_last_change itself and sends the app the inverse of the newest change, under the model's call
+    // ID plus a suffix. The learner sees that inverse, so it is the call that is scored. An undo with no such line was refused.
+    if (calledToolName === undoLastChangeTool && sentCall?.toolUseID.endsWith(undoCallIDSuffix) === true) {
       nextSentCall += 1;
       return { name: sentCall.name, input: sentCall.input };
     }
