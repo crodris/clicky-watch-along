@@ -592,7 +592,7 @@ pnpm 12 refuses to install a dependency with an unapproved build script.
 The `worker` job runs `pnpm test` and `pnpm run typecheck` in `worker/`.
 The `harness` job runs `go vet ./...` and `go test -race ./...` in `harness/`, with Go from `actions/setup-go` and the version in `harness/go.mod`.
 The `bench` job typechecks `bench/`, runs its unit tests with `pnpm test`, and checks that the committed results in `bench/results/` still parse.
-It also runs `verify-clicky.test.sh`, which checks how `verify-clicky.sh build` tells that the app is older than a Swift file and how `app-launch` tells that a Clicky is already running.
+It also runs `verify-clicky.test.sh`, which checks how `verify-clicky.sh build` tells that the app is older than a Swift file, how `app-launch` tells that a Clicky is already running, and how `app-launch` moves an earlier launch's files aside.
 The `app` job installs Go with `actions/setup-go`, which the app's "Build Agent Harness" phase finds on PATH, so the Mac runner needs no Go of its own.
 It then builds the `leanring-buddy` scheme with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
 Pushes and same-repo pull requests run it on the self-hosted Mac runner `clicky-mac`, because GitHub's macOS queue can take over 10 minutes.
