@@ -145,12 +145,19 @@ nonisolated struct CustomThemeStore: Sendable {
     /// Rewrites only the name in the theme's theme.json and returns the renamed theme. The id and the folder stay, since the
     /// saved `companionTheme` setting and the agents that wear the theme's picture refer to the id. The name follows the
     /// rule `CustomTheme.parse` applies to a saved name, after trimming the spaces a typed name often carries.
+    /// The saved date stays too, since the settings dial's Team fan lists the most recently saved themes, and a renamed
+    /// theme was not saved again.
     @discardableResult
     func rename(themeID: String, to typedName: String) throws -> CustomTheme {
         let themeDirectoryURL = try existingThemeDirectoryURL(forThemeID: themeID)
         guard let newName = CustomTheme.validName(from: typedName) else { throw CustomThemeStoreError.themeNameIsNotValid }
-        let renamedTheme = try loadTheme(inFolderNamed: themeID).theme.renamed(to: newName)
+        let savedTheme = try loadTheme(inFolderNamed: themeID)
+        let renamedTheme = savedTheme.theme.renamed(to: newName)
         try writeThemeFile(of: renamedTheme, inFolderAt: themeDirectoryURL)
+        try FileManager.default.setAttributes(
+            [.modificationDate: savedTheme.savedDate],
+            ofItemAtPath: themeDirectoryURL.appendingPathComponent(Self.themeFileName).path
+        )
         return renamedTheme
     }
 

@@ -5,8 +5,9 @@
 //  One saved custom theme in the menu bar panel's "Team theme" section. A click on the name picks the theme. Hovering the
 //  row shows a pencil, which turns the name into a text field, and a trash can, which asks once before it deletes.
 //
-//  The row keeps its height in every state, since the panel's frame is fitted to its content once, when the panel opens.
-//  A problem is therefore a short red phrase in the row's trailing space instead of a second line.
+//  The row keeps its height in every state, since the panel's frame is fitted to its content only when the panel opens
+//  and when the saved theme list changes, never on hover or while a name is edited. A problem is therefore a short red
+//  phrase in the row's trailing space instead of a second line.
 //
 
 import AppKit

@@ -25,7 +25,7 @@ func agentListPanelOrigin(anchorTopLeft: CGPoint, panelSize: CGSize, visibleFram
 /// as the SwiftUI content grows, and the size the content reports can be 0 while the window starts with no height, so a
 /// card that opened low on the screen grew past its bottom edge, with the studio card's Save and Close buttons off screen.
 /// Placing it again after each resize keeps it inside `visibleFrame`, by the same rule as the first placement.
-/// The anchor and the visible frame are read at each resize, since the agent list moves its anchor while it stays open.
+/// The anchor and the visible frame are read at each resize from the controller, which sets them each time it opens.
 func keepThePanelOnScreenAsItResizes(
     _ panel: NSPanel,
     currentPlacement: @escaping @MainActor () -> (anchorTopLeft: CGPoint, visibleFrame: CGRect)

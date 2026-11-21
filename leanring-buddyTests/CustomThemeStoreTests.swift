@@ -251,6 +251,21 @@ struct CustomThemeStoreRenameAndDeleteTests {
         }
     }
 
+    @Test func renamingKeepsTheSavedDate() throws {
+        try withATemporaryThemeStore { store in
+            let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+            let themeFilePath = store.themesDirectoryURL
+                .appendingPathComponent(savedTheme.id, isDirectory: true)
+                .appendingPathComponent(CustomThemeStore.themeFileName).path
+            // Whole seconds a day ahead, for the reason `eachLoadedThemeCarriesTheModificationDateOfItsThemeFile` gives.
+            let savedDate = Date(timeIntervalSinceReferenceDate: Date().timeIntervalSinceReferenceDate.rounded() + 86_400)
+            try FileManager.default.setAttributes([.modificationDate: savedDate], ofItemAtPath: themeFilePath)
+
+            try store.rename(themeID: savedTheme.id, to: "Night Owl")
+            #expect(store.loadSavedThemes().map(\.savedDate) == [savedDate])
+        }
+    }
+
     @Test func aNameThatIsEmptyOrTooLongIsRefusedAndTheFileIsLeftAlone() throws {
         try withATemporaryThemeStore { store in
             let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: nil)

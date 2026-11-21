@@ -144,7 +144,11 @@ struct AsksToDesignAThemeTests {
     }
 
     @Test func newThemeAloneOrWithPleaseIsARequestButNotInsideAQuestion() {
-        for phrase in ["new theme", "New theme.", "new theme please", "Hey Clicky, new theme please"] {
+        let phrases = [
+            "new theme", "New theme.", "new theme please", "Hey Clicky, new theme please",
+            "Clicky, new theme", "okay Clicky, new theme", "new theme, Clicky", "a new theme please",
+        ]
+        for phrase in phrases {
             #expect(asksToDesignATheme(phrase) == .fromWords, "\(phrase)")
         }
         // The same words inside a longer utterance ask about a theme that already exists.
@@ -176,6 +180,20 @@ struct AsksToDesignAThemeTests {
         #expect(asksToDesignATheme("create a cozy theme") == .fromWords)
         #expect(asksToDesignATheme("can I get a different theme") == .fromWords)
         #expect(asksToDesignATheme("I'd like to try a darker theme from this picture") == .fromThePicture)
+        // A possessive "'s" comes off, so "theme's" and "image's" read as "theme" and "image".
+        #expect(asksToDesignATheme("change my theme's colors") == .fromWords)
+        #expect(asksToDesignATheme("design a theme from this image's colors") == .fromThePicture)
+    }
+
+    @Test func anAskingWordWithABareAAsksAboutSomethingElse() {
+        // "need", "want", "give", and "get" with "a" right before "theme" ask for a theme for an essay, a song, or a story.
+        #expect(asksToDesignATheme("I need a theme for my essay") == nil)
+        #expect(asksToDesignATheme("give me a theme for my story") == nil)
+        #expect(asksToDesignATheme("I want a theme song for my video") == nil)
+        #expect(asksToDesignATheme("did you get a theme from this poem") == nil)
+        // A design word with a bare "a" still asks for one, and so does an asking word with a described theme.
+        #expect(asksToDesignATheme("create a theme") == .fromWords)
+        #expect(asksToDesignATheme("give me a new theme") == .fromWords)
     }
 
     @Test func aQuestionAboutAWorksThemeOpensNothing() {

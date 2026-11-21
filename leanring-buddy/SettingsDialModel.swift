@@ -117,8 +117,8 @@ enum SettingsDialLabel {
     }
 
     /// What a fan ball's pill says for `fullText`: all of it when the pill fits inside the dial's window, else the longest
-    /// start of it that fits, with "…" after. The built-in names all fit. A saved theme's name runs to 24 characters, and at
-    /// the fan's right end, where the saved themes sit, the window has room for about 85 points of pill. The check places the
+    /// start of it that fits, with "…" after. The built-in names all fit. A saved theme's name runs to 24 characters, wider
+    /// than the window has room for at the fan's right end, where the saved themes sit. The check places the
     /// pill with `fanLabelCenterOffset`, the way the view does, so a text that passes here is drawn inside the window.
     static func fanLabelText(_ fullText: String, ballCenterOffset: CGPoint, ballRadius: CGFloat) -> String {
         let roomForPills = SettingsDialPlacement.windowOffsetsFromTheDialCenter

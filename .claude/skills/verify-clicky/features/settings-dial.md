@@ -10,7 +10,9 @@ Team and Model fan their choices on an outer arc, Agents opens the agent list, S
   A key, a left, right, or middle mouse press, control, or command during the hold breaks it, and so does a mouse button already down from a drag.
 - `dial-hint` shows "hold ⇧⌥ · flick, release to pick" under the dial the first time it opens (`settingsDialHintWasShown` in UserDefaults), and never again.
 - `dial-preview` fills the token at the pointer's angle with the team's color and draws its icon in the team's ink color, while the pointer is inside the plate.
-- `dial-team-fan` opens Clicky blue, the ten schools, and Random on an arc over the top when the pointer is on Team, with the item under the pointer larger and named.
+- `dial-team-fan` opens Clicky blue, the ten schools, and Random on an arc over the top when the pointer is on Team, then up to 3 saved custom themes, newest first, each its own cursor drawn still on a dark disc, with the item under the pointer larger and named.
+  The fan spans 156 degrees whatever it holds, and a long saved name is cut with an ellipsis.
+- `dial-custom-glyph` draws a custom theme's own cursor, still, in the dial's center and on the Team token, where it sits on a dark disc inside the accent ring.
 - `dial-fan-travel` keeps a fan open while the pointer travels outward past the plate, even across another slice's angle, and changes the slice only when the pointer comes back inside the plate.
 - `dial-commit` applies the highlighted item on release: a Team item sets the theme, a Model item sets the voice model, Agents opens the agent list at the mouse, Show toggles Show Clicky, and More opens the menu bar panel.
 - `dial-cancel` commits nothing when the keys are released in the center, on Team or Model with no item highlighted, or far past the fan, and when Escape or another key is pressed.
@@ -45,6 +47,10 @@ Steps:
   Run `$V shot dial-fan`: the Team token is filled with the team's color, the ball under the pointer is larger with its school's name on a dark pill on the ball's side away from the dial's center, and the plate stays.
   Run `$V key dial-release`, then `defaults read com.crodris.clicky-watch-along companionTheme`, which now names that school, such as `school:nekoma`.
   Write the original value back when done, since the key is shared with the everyday app.
+- **Saved themes in the fan.** Save 2 themes with the Theme Studio first (see `theme-studio.md`), so `~/Library/Application Support/Clicky/Themes` has 2 folders.
+  Hold, move the pointer straight up out of the plate past Team, then around the outside of the plate to the fan's right end, about 160 points out at -20 degrees, and run `$V shot dial-fan-saved`.
+  The fan ends with the saved themes after Random, newest first, the one under the pointer named on a pill, and the center and the Team token show the current custom cursor.
+  Run `$V key escape` and then `$V key dial-release`, and `companionTheme` is unchanged.
 - **Agents.** Post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{}}}` to `http://127.0.0.1:8790/mcp`, then run `$V key agents-list` and `$V shot dial-agents-list`.
   The agent list opens at the mouse with the seeded agents, and stays until `$V key escape` or a click outside.
 - **Escape.** Run `$V key dial-hold`, wait 0.8 s, run `$V key escape`, then `$V shot dial-escaped`.
@@ -55,7 +61,7 @@ Steps:
 
 - Each rebuild can drop Clicky's Accessibility grant, and then the dial never opens, since the event tap needs it.
   Check that the app log says `accessibility: true` before the first `$V key dial-hold`.
-- The mouse must sit at least 260 points from the left and right screen edges, 200 points below the bottom of the menu bar (about 224 points from the screen's top on a 24 point bar, or 237 on a notched display), and 160 points above the bottom of the visible frame (above the Dock).
+- The mouse must sit at least 260 points from the left screen edge and 310 points from the right one, 200 points below the bottom of the menu bar (about 224 points from the screen's top on a 24 point bar, or 237 on a notched display), and 160 points above the bottom of the visible frame (above the Dock).
   Otherwise the dial shifts inward and the Agents token is no longer 46 points right and 63 down of where the mouse was.
 - The first-run hint shows once per Mac, so run `defaults delete com.crodris.clicky-watch-along settingsDialHintWasShown` before a run that photographs it.
 - A Team or Model commit writes `companionTheme` or `selectedClaudeModel`, and Show writes `isClickyCursorEnabled`, in the defaults the everyday Debug app shares.

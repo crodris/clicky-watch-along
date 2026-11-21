@@ -19,7 +19,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
   It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
 - `studio-router` sends every word spoken with the card open to `/voice-command`, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
   A failed router request says "Sorry, I couldn't do that one." and leaves the card as it was, instead of answering the words as a question about the screen.
-- `studio-manage` renames or deletes a saved theme from its row under "Team theme" in the menu bar panel (`SavedThemeRow`, `CompanionThemeSettings.renameSavedTheme` and `deleteSavedTheme`). A rename changes only the name in `theme.json`, and a delete removes the theme's folder.
+- `studio-manage` renames or deletes a saved theme from its row under "Team theme" in the menu bar panel (`SavedThemeRow`, `CompanionThemeSettings.renameSavedTheme` and `deleteSavedTheme`). A rename changes only the name in `theme.json` and keeps its modification date, and a delete removes the theme's folder. Escape in the rename field cancels only the rename, and leaves an open studio card or scene alone.
 - `studio-agents` gives each new agent the first theme agent color no running agent or waiting result has, and the picture as its round face when the theme uses it.
 
 ## How to get to it (user POV)

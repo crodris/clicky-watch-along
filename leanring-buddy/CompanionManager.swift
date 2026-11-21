@@ -1073,9 +1073,9 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
-            // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
+            // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
             let harnessVoiceCommandsSentBeforeThisStep = harnessVoiceCommandsSent
@@ -2413,6 +2413,11 @@ final class CompanionManager: ObservableObject {
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
+        // A text field being edited in Clicky's own window, such as a saved theme's rename field, takes Escape as its
+        // cancel. The event tap sees that key too, so it closes nothing else, such as the studio card or a scene.
+        if NSApp.keyWindow?.firstResponder is NSText {
+            return
+        }
         // With the settings dial open, Escape only cancels it. The monitor sends Escape ahead of the dial's own
         // cancel, so the dial is still open here.
         if settingsDialController.isOpen {
