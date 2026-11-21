@@ -426,54 +426,31 @@ private struct AgentListView: View {
         _expandedAgentID = State(initialValue: initiallyExpandedAgentID)
     }
 
-    /// A school theme borders the panel in the team's color. Every other theme keeps today's thin gray border.
+    /// A theme whose agents all wear its accent, such as a team in its jersey color, borders the panel in that color.
+    /// Every other theme keeps the thin gray border.
+    private var agentsWearTheAccent: Bool {
+        themeSettings.shownTheme.agents.ring == .accent
+    }
+
     private var panelBorderColor: Color {
-        if case .school(let school) = themeSettings.shownTheme { return school.accentColor }
-        return DS.Colors.borderSubtle
+        agentsWearTheAccent ? themeSettings.shownTheme.cursorColor : DS.Colors.borderSubtle
     }
 
     private var panelBorderWidth: CGFloat {
-        if case .school = themeSettings.shownTheme { return 1.5 }
-        return 1
+        agentsWearTheAccent ? 1.5 : 1
     }
 
-    /// "Agents" with Clicky blue, the team's name after a small accent square for a school, or "Random lineup".
+    /// The theme's name after a small square in its accent, with every name coming from the theme's file.
     @ViewBuilder private var headerTitle: some View {
-        switch themeSettings.shownTheme {
-        case .clickyBlue:
-            Text("Agents")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textPrimary)
-        case .school(let school):
-            RoundedRectangle(cornerRadius: 3)
-                .fill(school.accentColor)
-                .frame(width: 10, height: 10)
-            Text(school.displayName)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
-        case .random:
-            Text("Random lineup")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
-        case .custom(let customTheme):
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color(hex: customTheme.accentHex))
-                .frame(width: 10, height: 10)
-            // A saved name runs to 24 characters, so it is cut before it pushes the running count off the header.
-            Text(customTheme.name)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-
-    /// "running" with Clicky blue or a custom theme, and "on court" for the volleyball themes.
-    private var runningAgentsWord: String {
-        switch themeSettings.shownTheme {
-        case .clickyBlue, .custom: return "running"
-        case .school, .random: return "on court"
-        }
+        RoundedRectangle(cornerRadius: 3)
+            .fill(themeSettings.shownTheme.cursorColor)
+            .frame(width: 10, height: 10)
+        // A saved name runs to 24 characters, so it is cut before it pushes the running count off the header.
+        Text(themeSettings.shownTheme.name)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     var body: some View {
@@ -481,7 +458,7 @@ private struct AgentListView: View {
             HStack(spacing: 8) {
                 headerTitle
                 Spacer()
-                Text("\(store.agents.filter(\.isRunning).count) \(runningAgentsWord)")
+                Text("\(store.agents.filter(\.isRunning).count) running")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(1)
@@ -498,7 +475,7 @@ private struct AgentListView: View {
             if let oldestRequest = approvalDesk.oldestWaitingRequest {
                 ApprovalCardView(
                     approvalRequest: oldestRequest,
-                    agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map { agent in agent.player?.displayName ?? agent.kind.displayName } ?? "An agent",
+                    agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map(\.displayName) ?? "An agent",
                     isAnswering: approvalDesk.answeringApprovalIDs.contains(oldestRequest.approvalID),
                     summaryShownSince: approvalDesk.oldestRequestVisibleSince,
                     answerApproval: actions.answerApproval,
@@ -576,8 +553,8 @@ private struct AgentRowView: View {
     /// The meter's filled segments and the token's ring share one color for each phase.
     private var meterColor: Color {
         switch agent.phase {
-        // The team's color only shows while the agent runs, so it never stands for a state.
-        case .running: return agent.player?.school.accentColor ?? agent.displayColor.color
+        // The agent's own color only shows while it runs, so it never stands for a state.
+        case .running: return agent.displayColor.color
         case .finished: return DS.Colors.success
         case .failed: return DS.Colors.destructive
         case .cancelled: return DS.Colors.textTertiary
@@ -627,9 +604,9 @@ private struct AgentRowView: View {
     }
 
     @ViewBuilder private var rowIcon: some View {
-        if case .player(let player) = agent.face {
-            HaikyuPortraitView(player: player, size: 28, isGrayscale: agent.phase.isFailed)
-                .overlay(Circle().stroke(agentListPortraitBorderColor(phase: agent.phase, school: player.school), lineWidth: 2))
+        if case .rosterFace(let rosterFace) = agent.face {
+            RosterFaceView(rosterFace: rosterFace, size: 28, isGrayscale: agent.phase.isFailed)
+                .overlay(Circle().stroke(agentListPortraitBorderColor(phase: agent.phase, agentColor: agent.displayColor.color), lineWidth: 2))
                 // A finished agent's portrait steps back, as its meter turns green.
                 .opacity(agent.finishedResult == nil ? 1 : 0.5)
         } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
@@ -647,11 +624,11 @@ private struct AgentRowView: View {
         let kindName = Text(agent.kind.displayName)
             .font(.system(size: 12, weight: .semibold))
             .foregroundColor(DS.Colors.textPrimary)
-        guard let player = agent.player else { return kindName }
-        let playerName = Text(player.displayName)
+        guard let player = agent.rosterFace?.player else { return kindName }
+        let playerName = Text(player.name)
             .font(.system(size: 12, weight: .semibold))
             .foregroundColor(DS.Colors.textPrimary)
-        let jerseyNumber = Text(" #\(player.jerseyNumber)")
+        let jerseyNumber = Text(player.number.map { " #\($0)" } ?? "")
             .font(.system(size: 11, weight: .medium))
             .foregroundColor(DS.Colors.textSecondary)
         let separator = Text(" · ")
@@ -822,10 +799,10 @@ private struct StepMeterFill: Shape {
 }
 
 /// The portrait took the triangle's place in the list, so its border carries the state the triangle's color used to:
-/// red for a failed agent and gray for a cancelled one. The team's color only marks a running or finished agent.
-func agentListPortraitBorderColor(phase: BackgroundAgentPhase, school: HaikyuSchool) -> Color {
+/// red for a failed agent and gray for a cancelled one. The agent's own color only marks a running or finished agent.
+func agentListPortraitBorderColor(phase: BackgroundAgentPhase, agentColor: Color) -> Color {
     switch phase {
-    case .running, .finished: return school.accentColor
+    case .running, .finished: return agentColor
     case .failed: return DS.Colors.destructive
     case .cancelled: return DS.Colors.textTertiary
     }

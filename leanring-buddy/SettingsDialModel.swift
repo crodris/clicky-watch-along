@@ -220,22 +220,22 @@ enum SettingsDialSlice: CaseIterable, Equatable {
 /// slices act on release. The Team fan's size depends on how many themes the learner saved, so every pick goes through
 /// this value instead of a constant.
 struct SettingsDialFans: Equatable {
-    /// How many saved themes the Team fan lists after Random. Twelve built-in balls plus three is the most the ring holds.
+    /// How many saved themes the Team fan lists after the bundled ones. Eleven bundled themes plus three is the most the
+    /// ring holds.
     static let mostSavedThemesInTheTeamFan = 3
-    /// The Team fan always spans this many degrees across the top, whatever it holds. The ends stay where they were with
-    /// twelve items: Clicky blue at -168 degrees, where its label has room, and the last item at -12 degrees. More items only
-    /// narrow the gaps, from 14.2 degrees at 12 items to 11.1 at 15, a chord of 29.5 points at the 152 point fan radius.
-    /// That is wider than the 25.5 points an enlarged ball (30 points) next to an ordinary one (21 points) needs, so no ball
-    /// touches the next. A wider span would push the right end, where the saved themes' long names sit, nearer the
-    /// window's edge.
+    /// The Team fan always spans this many degrees across the top, whatever it holds: the first item at -168 degrees, where
+    /// its label has room, and the last item at -12 degrees. More items only narrow the gaps, from 15.6 degrees at 11 items
+    /// to 12 at 14, a chord of 31.8 points at the 152 point fan radius. That is wider than the 25.5 points an enlarged ball
+    /// (30 points) next to an ordinary one (21 points) needs, so no ball touches the next. A wider span would push the
+    /// right end, where the saved themes' long names sit, nearer the window's edge.
     static let teamFanSpanDegrees = 156.0
 
-    /// The Team fan's items in order: Clicky blue, the ten schools, Random, then up to 3 saved themes, the newest first.
-    let teamThemes: [CompanionTheme]
+    /// The Team fan's items in order: the bundled themes (Clicky blue first), then up to 3 saved themes, the newest first.
+    let teamThemes: [ClickyTheme]
 
-    /// `savedCustomThemes` in any order. The newest by saved date go after Random, and a tie keeps the order of the theme ids,
-    /// so the fan never reshuffles between two openings.
-    init(savedCustomThemes: [SavedCustomTheme]) {
+    /// `savedCustomThemes` in any order. The newest by saved date go after the bundled themes, and a tie keeps the order of
+    /// the theme ids, so the fan never reshuffles between two openings.
+    init(bundledThemes: [ClickyTheme], savedCustomThemes: [SavedCustomTheme]) {
         let newestSavedThemes = savedCustomThemes
             .sorted { firstSavedTheme, secondSavedTheme in
                 firstSavedTheme.savedDate == secondSavedTheme.savedDate
@@ -243,11 +243,8 @@ struct SettingsDialFans: Equatable {
                     : firstSavedTheme.savedDate > secondSavedTheme.savedDate
             }
             .prefix(Self.mostSavedThemesInTheTeamFan)
-        teamThemes = CompanionTheme.allChoices + newestSavedThemes.map { CompanionTheme.custom($0.theme) }
+        teamThemes = bundledThemes + newestSavedThemes.map(\.theme)
     }
-
-    /// The fan with no saved themes: the twelve built-in choices.
-    static let builtIn = SettingsDialFans(savedCustomThemes: [])
 
     func layout(of slice: SettingsDialSlice) -> SettingsDialFanLayout? {
         switch slice {
@@ -346,7 +343,7 @@ struct SettingsDialPicker {
 
 /// What releasing the keys does for the highlighted item.
 enum SettingsDialChoice: Equatable {
-    case theme(CompanionTheme)
+    case theme(ClickyTheme)
     case model(SettingsDialModelChoice)
     case agents
     case toggleShowClicky

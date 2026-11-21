@@ -4,8 +4,9 @@
 //
 //  What an agent token looks like. Each background agent that runs, or whose result waits, is a 22 point disc beside
 //  the notch: a progress ring (an opaque dark track, filled in the team's color or the agent's own color) around a face,
-//  which is the team player's portrait, a custom theme's picture, or a triangle in the agent's color. A finished agent gets a green check mark, and a failed one
-//  a gray face in a red ring. The "+N" disc counts the agents with no position of their own, and the open slot is the dashed
+//  which is a roster player's portrait, a theme's picture, or a triangle in the agent's color. The state shows by shape, so
+//  a theme may use any ring color: a finished agent gets a green check badge, a failed one a cross badge on a gray face in
+//  a red ring, and one that waits for the learner's OK a "!" badge and a notch in its ring (`agentTokenBadge`). The "+N" disc counts the agents with no position of their own, and the open slot is the dashed
 //  outline a new agent's token flies to.
 //  Motion here is one-shot only. Nothing pulses or spins, because a looping animation pegs the GPU on high-refresh displays.
 //  The same triangle and progress view also draw the agent list's rows.
@@ -18,8 +19,13 @@ import SwiftUI
 /// One agent's disc. The ring fills in a straight line with the agent's progress, from 12 o'clock, clockwise.
 struct AgentTokenDiscView: View {
     let agent: BackgroundAgent
+    /// Whether the agent has a request in the approval desk.
+    var isWaitingForApproval = false
     /// Set by the dock while the mouse is over the disc.
     var isHovered = false
+
+    /// The gap the "!" badge's notch cuts in the ring at 12 o'clock, as a share of the ring.
+    private static let approvalNotchShareOfTheRing = 0.12
 
     private static let ringWidth: CGFloat = 2.5
     private static let edgeWidth: CGFloat = 1.5
@@ -39,8 +45,8 @@ struct AgentTokenDiscView: View {
     }
 
     @ViewBuilder private var face: some View {
-        if case .player(let player) = agent.face {
-            HaikyuPortraitView(player: player, size: faceDiameter, isGrayscale: agent.phase.isFailed)
+        if case .rosterFace(let rosterFace) = agent.face {
+            RosterFaceView(rosterFace: rosterFace, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else if case .themePicture(let themeID) = agent.face, let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {
             ThemePictureFaceView(picture: themePicture, size: faceDiameter, isGrayscale: agent.phase.isFailed)
         } else {
@@ -67,28 +73,38 @@ struct AgentTokenDiscView: View {
                     .rotationEffect(.degrees(-90))
                     .padding(Self.ringWidth / 2)
             }
+            if isWaitingForApproval {
+                // The notch: the track's color drawn over the ring, centered on 12 o'clock.
+                Circle()
+                    .trim(from: 0, to: Self.approvalNotchShareOfTheRing)
+                    .stroke(DS.Colors.agentTokenTrack, style: StrokeStyle(lineWidth: Self.ringWidth + 0.5, lineCap: .butt))
+                    .rotationEffect(.degrees(-90 - 180 * Self.approvalNotchShareOfTheRing))
+                    .padding(Self.ringWidth / 2)
+            }
             face
         }
         .frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter)
         .agentTokenEdgeAndShadow(isHovered: isHovered, edgeWidth: Self.edgeWidth)
         .overlay(alignment: .bottomTrailing) {
-            if agent.finishedResult != nil {
-                // Dark rim and the same size as the design's badge, so the check reads on a light menu bar too.
+            if let badge = agentTokenBadge(phase: agent.phase, isWaitingForApproval: isWaitingForApproval) {
+                // Dark rim and the same size as the design's badge, so the badge reads on a light menu bar too.
                 // The 2 point offset keeps the whole rim inside the disc's panel, which is as tall as the menu bar. A screenshot of
                 // a 1080p display's bar showed a 3 point offset cutting the rim's bottom, and 2 points leaving it whole.
-                FinishedCheckMark(size: 11)
+                AgentTokenBadgeView(badge: badge, size: 11)
                     .overlay(Circle().stroke(Color.black, lineWidth: 1))
                     .offset(x: 2, y: 2)
                     .transition(.scale.combined(with: .opacity))
             }
         }
         .animation(.easeOut(duration: 0.25), value: agent.phase)
+        .animation(.easeOut(duration: 0.25), value: isWaitingForApproval)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
     }
 
     private var accessibilityDescription: String {
         let kindName = agent.kind.displayName
+        if isWaitingForApproval { return "\(kindName) agent needs your OK" }
         switch agent.phase {
         case .running: return "\(kindName) agent running"
         case .finished: return agent.resultIsWaitingToBeDelivered ? "\(kindName) agent done, result ready" : "\(kindName) agent done"
@@ -279,6 +295,48 @@ struct AgentTriangleFill: Shape {
 }
 
 /// A white check on a green dot, at the base of a finished agent's token or triangle.
+/// The badge at a token's lower right, which says the agent's state by its shape, so no ring color has to.
+enum AgentTokenBadge: Equatable {
+    case done
+    case failed
+    /// The agent waits for the learner's OK. It wins over the others, since it is the one state that needs the learner.
+    case needsYourOK
+}
+
+/// The badge a token shows, or nil for a running or cancelled agent with nothing waiting.
+func agentTokenBadge(phase: BackgroundAgentPhase, isWaitingForApproval: Bool) -> AgentTokenBadge? {
+    if isWaitingForApproval { return .needsYourOK }
+    switch phase {
+    case .finished: return .done
+    case .failed: return .failed
+    case .running, .cancelled: return nil
+    }
+}
+
+struct AgentTokenBadgeView: View {
+    let badge: AgentTokenBadge
+    let size: CGFloat
+
+    var body: some View {
+        switch badge {
+        case .done:
+            FinishedCheckMark(size: size)
+        case .failed:
+            Image(systemName: "xmark")
+                .font(.system(size: size * 0.5, weight: .heavy))
+                .foregroundColor(.white)
+                .frame(width: size, height: size)
+                .background(Circle().fill(DS.Colors.destructive))
+        case .needsYourOK:
+            Text("!")
+                .font(.system(size: size * 0.72, weight: .heavy, design: .rounded))
+                .foregroundColor(.black)
+                .frame(width: size, height: size)
+                .background(Circle().fill(DS.Colors.warning))
+        }
+    }
+}
+
 struct FinishedCheckMark: View {
     let size: CGFloat
 

@@ -62,6 +62,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
+    /// A `.clickytheme` the learner double-clicked in Finder, or dropped on the app, which Info.plist registers.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for themePackageURL in urls where themePackageURL.pathExtension == CustomThemeStore.packageExtension {
+            companionManager.installTheThemePackage(at: themePackageURL)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         companionManager.stop()
     }

@@ -2,8 +2,8 @@
 //  CustomCursorView.swift
 //  leanring-buddy
 //
-//  The cursor a learner designed in the Theme Studio, drawn in place of the blue triangle: SVG shapes in the 24 point box
-//  the volleyball uses, or the picture the learner pointed at (long side 32 points). Its motion rules are pure functions
+//  Every theme's cursor: the triangle, SVG shapes in the 24 point box (a school theme's volleyball is one), or the picture
+//  the learner pointed at (long side 32 points). Its motion rules are pure functions
 //  of the voice state and the clock, so tests check them without drawing: a thinking motion (spin, pulse, wobble) that
 //  runs only while Clicky thinks, a listening pulse that follows the microphone, and streaks behind it while it moves.
 //  Reduce Motion turns every motion and the streaks off.
@@ -16,21 +16,18 @@ import SwiftUI
 
 /// How the cursor turns while it follows the mouse and flies to a target.
 enum CursorFacing: Equatable {
-    /// The blue triangle: it keeps its pointer angle while following, and turns toward its target in flight.
+    /// The triangle: it keeps its pointer angle while following, and turns toward its target in flight.
     case pointerAngle
-    /// The volleyball, and a custom cursor that turns toward movement: it faces the mouse's movement while following.
+    /// A cursor that turns toward movement, such as a school's volleyball: it faces the mouse's movement while following.
     case followsMouseMovement
-    /// A custom cursor that does not turn, such as a star or a round picture: it stays upright in every state.
+    /// A cursor that does not turn, such as a star or a round picture: it stays upright in every state.
     case upright
 }
 
-extension CompanionTheme {
+extension ClickyTheme {
     var cursorFacing: CursorFacing {
-        switch self {
-        case .clickyBlue, .random: return .pointerAngle
-        case .school: return .followsMouseMovement
-        case .custom(let customTheme): return customTheme.motion.turnsTowardMovement ? .followsMouseMovement : .upright
-        }
+        if case .triangle = cursor { return .pointerAngle }
+        return motion.turnsTowardMovement ? .followsMouseMovement : .upright
     }
 }
 
@@ -121,12 +118,13 @@ enum CustomCursorMotionRules {
 
 // MARK: - View
 
-/// The custom cursor, centered in a frame of its own size: 24 points square for shapes, the picture's size for a picture.
+/// A theme's cursor, centered in a frame of its own size: 16 points for the triangle, 24 points square for shapes, the
+/// picture's size for a picture.
 struct CustomCursorView: View {
-    let customTheme: CustomTheme
+    let customTheme: ClickyTheme
     /// The picture a picture cursor draws: the saved picture.jpg, or the studio's picture while the idea is only previewed.
     let picture: NSImage?
-    /// 0 hides the streaks and 1 shows them fully, the same value the volleyball's streaks take.
+    /// 0 hides the streaks and 1 shows them fully.
     let streakOpacity: Double
     /// How far the streaks alone are turned, so they trail behind the movement of a cursor that stays upright. The overlay
     /// turns the whole cursor for one that faces its movement, and passes 0 here then, since its streaks turn with it.
@@ -179,10 +177,15 @@ struct CustomCursorView: View {
         Self.drawingSize(of: customTheme, picture: picture)
     }
 
-    /// The size the cursor draws at before any motion: the 24 point box for shapes, the picture's size for a picture. The
-    /// settings dial reads it to scale the cursor into a token or a fan slot.
-    static func drawingSize(of customTheme: CustomTheme, picture: NSImage?) -> CGSize {
+    /// The triangle's side, which it has always drawn at.
+    static let triangleSideLength: CGFloat = 16
+
+    /// The size the cursor draws at before any motion: 16 points for the triangle, the 24 point box for shapes, the picture's
+    /// size for a picture. The settings dial reads it to scale the cursor into a token or a fan slot.
+    static func drawingSize(of customTheme: ClickyTheme, picture: NSImage?) -> CGSize {
         switch customTheme.cursor {
+        case .triangle:
+            return CGSize(width: triangleSideLength, height: triangleSideLength)
         case .shapes:
             return CGSize(width: CursorDrawingBox.sideLength, height: CursorDrawingBox.sideLength)
         case .picture(let pictureStyle):
@@ -192,6 +195,10 @@ struct CustomCursorView: View {
 
     @ViewBuilder private var drawing: some View {
         switch customTheme.cursor {
+        case .triangle:
+            Triangle()
+                .fill(Color(hex: customTheme.accentHex))
+                .frame(width: Self.triangleSideLength, height: Self.triangleSideLength)
         case .shapes(let shapes):
             ZStack {
                 ForEach(shapes.indices, id: \.self) { shapeIndex in
@@ -206,7 +213,7 @@ struct CustomCursorView: View {
                 // The picture file could not be read, so the cursor is the accent triangle instead of nothing.
                 Triangle()
                     .fill(Color(hex: customTheme.accentHex))
-                    .frame(width: 16, height: 16)
+                    .frame(width: Self.triangleSideLength, height: Self.triangleSideLength)
             }
         }
     }

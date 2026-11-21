@@ -2,7 +2,7 @@
 //  CustomThemeTests.swift
 //  leanring-buddyTests
 //
-//  The SVG path parser and the boundary function that turns a Worker idea or a saved theme.json into a CustomTheme.
+//  The SVG path parser and the boundary function that turns a Worker idea or a saved theme.json into a ClickyTheme.
 //  Each rule the Worker's checkThemeIdeas applies is pinned here too, since the app applies it again to a saved file.
 //
 
@@ -59,6 +59,22 @@ nonisolated let goodThemeIdea: JSONValue = .object([
     "usesPicture": .bool(false),
 ])
 
+/// The good idea as a version 2 theme.json, the shape the app writes and the Worker sends: `agents` instead of
+/// `agentColors` and `usesPicture`, and an id, which only a bundled theme reads.
+nonisolated let goodVersion2ThemeJSON: JSONValue = {
+    guard case .object(var fields) = goodThemeIdea else { return goodThemeIdea }
+    fields["agentColors"] = nil
+    fields["usesPicture"] = nil
+    fields["version"] = .number(2)
+    fields["id"] = .string("moonlit")
+    fields["agents"] = .object([
+        "ring": .string("perAgent"),
+        "colors": .array([.string("#7DD3FC"), .string("#C4B5FD"), .string("#FDE68A")]),
+        "faces": .object(["kind": .string("triangle")]),
+    ])
+    return .object(fields)
+}()
+
 /// An idea whose cursor is the picture itself.
 nonisolated let goodPictureCursorThemeIdea: JSONValue = {
     var idea = replacingField(in: goodThemeIdea, at: ["cursor"], with: .object([
@@ -75,8 +91,8 @@ nonisolated let goodPictureCursorThemeIdea: JSONValue = {
     return idea
 }()
 
-nonisolated func parsedThemeIdea(_ idea: JSONValue = goodThemeIdea, pictureIsAvailable: Bool = false) throws -> CustomTheme {
-    try CustomTheme.parse(idea: idea, id: "idea-1", pictureIsAvailable: pictureIsAvailable)
+nonisolated func parsedThemeIdea(_ idea: JSONValue = goodThemeIdea, pictureIsAvailable: Bool = false) throws -> ClickyTheme {
+    try ClickyTheme.parse(themeJSON: idea, id: "idea-1", pictureIsAvailable: pictureIsAvailable)
 }
 
 /// What rule an idea breaks, or nil when it parses.
@@ -245,7 +261,8 @@ struct CustomThemeParserTests {
         #expect(theme.name == "Moonlit")
         #expect(theme.accentHex == "#7DD3FC")
         #expect(theme.contrastHex == "#1E1B4B")
-        #expect(theme.agentColorHexes == ["#7DD3FC", "#C4B5FD", "#FDE68A"])
+        // A version 1 idea's agent colors and its usesPicture of false are per-agent rings and triangle faces.
+        #expect(theme.agents == ThemeAgents(ring: .perAgent(colorHexes: ["#7DD3FC", "#C4B5FD", "#FDE68A"]), faces: .triangle))
         #expect(theme.motion == CustomCursorMotion(turnsTowardMovement: true, trailStreaks: 3, whileThinking: .spin, whileListening: .pulse))
         #expect(theme.sounds == CustomThemeSounds(done: .purr, correct: .glass, needsYourOK: .pop))
         #expect(theme.usesPicture == false)
@@ -357,7 +374,7 @@ struct CustomThemeParserTests {
     @Test func aPaleOrGrayColorIsNotAStateColorEvenWithARedOrGreenHue() throws {
         // Saturation 0.35 and under reads as pastel or gray, so a soft pink stays allowed.
         let palePinkIdea = replacingField(in: goodThemeIdea, at: ["agentColors", "1"], with: .string("#E5D0D0"))
-        #expect(try parsedThemeIdea(palePinkIdea).agentColorHexes[1] == "#E5D0D0")
+        #expect(try parsedThemeIdea(palePinkIdea).agentColorsInOrder[1] == .custom(try #require(ThemeRGBColor(hex: "#E5D0D0"))))
         #expect(try #require(ThemeRGBColor(hex: "#9CA3AF")).looksLikeAStateColor == false)
     }
 
@@ -490,8 +507,104 @@ struct CustomThemeParserTests {
 
     @Test func theIdeaJSONRoundTripsThroughTheParser() throws {
         let shapesTheme = try parsedThemeIdea()
-        #expect(try parsedThemeIdea(shapesTheme.ideaJSON) == shapesTheme)
+        #expect(try parsedThemeIdea(shapesTheme.themeJSON) == shapesTheme)
         let pictureTheme = try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true)
-        #expect(try parsedThemeIdea(pictureTheme.ideaJSON, pictureIsAvailable: true) == pictureTheme)
+        #expect(try parsedThemeIdea(pictureTheme.themeJSON, pictureIsAvailable: true) == pictureTheme)
+    }
+
+    // MARK: - Version 2
+
+    private func version2(changing path: [String], to newValue: JSONValue) -> JSONValue {
+        replacingField(in: goodVersion2ThemeJSON, at: path, with: newValue)
+    }
+
+    private func rosterAgents(players: [JSONValue], order: JSONValue = .string("firstUnused")) -> JSONValue {
+        .object([
+            "ring": .string("accent"),
+            "faces": .object(["kind": .string("roster"), "order": order, "players": .array(players)]),
+        ])
+    }
+
+    @Test func aVersion2ThemeParsesWithItsAgentsAndRoundTripsThroughThemeJSON() throws {
+        let theme = try parsedThemeIdea(goodVersion2ThemeJSON)
+        #expect(theme.agents == ThemeAgents(ring: .perAgent(colorHexes: ["#7DD3FC", "#C4B5FD", "#FDE68A"]), faces: .triangle))
+        #expect(try parsedThemeIdea(theme.themeJSON) == theme)
+        #expect(theme.themeJSON["version"] == .number(2))
+        #expect(theme.themeJSON["agentColors"] == nil)
+        // A version 1 theme is written back as version 2 and reads back the same.
+        let versionOneTheme = try parsedThemeIdea()
+        #expect(try parsedThemeIdea(versionOneTheme.themeJSON) == versionOneTheme)
+    }
+
+    @Test func anAccentRingSkipsTheAgentColorRulesSoARedTeamIsAllowed() throws {
+        var redTeamJSON = version2(changing: ["agents"], to: .object(["ring": .string("accent"), "faces": .object(["kind": .string("triangle")])]))
+        redTeamJSON = replacingField(in: redTeamJSON, at: ["accent"], with: .string("#E0313B"))
+        let redTeam = try parsedThemeIdea(redTeamJSON)
+        #expect(redTeam.agents.ring == .accent)
+        #expect(redTeam.agentColorsInOrder == [.custom(try #require(ThemeRGBColor(hex: "#E0313B")))])
+        #expect(try parsedThemeIdea(redTeam.themeJSON) == redTeam)
+        // An accent ring never reads a color list, so one in the file is refused instead of ignored.
+        let accentWithColors = version2(changing: ["agents", "ring"], to: .string("accent"))
+        #expect(reasonAThemeIdeaIsRefused(accentWithColors)?.contains("agents.colors must be empty when ring is accent") == true)
+    }
+
+    @Test func aPerAgentRingKeepsTheColorRules() throws {
+        let twoColors = version2(changing: ["agents", "colors"], to: .array([.string("#7DD3FC"), .string("#C4B5FD")]))
+        #expect(reasonAThemeIdeaIsRefused(twoColors)?.contains("3 to 6 colors") == true)
+        let redColor = version2(changing: ["agents", "colors", "2"], to: .string("#E0313B"))
+        #expect(reasonAThemeIdeaIsRefused(redColor)?.contains("agents.colors[2]") == true)
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents", "ring"], to: .string("rainbow")))?.contains("agents.ring") == true)
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: .null))?.contains("agents") == true)
+    }
+
+    @Test func aPerKindRingAndATriangleCursorAreClickyBluesOwnShape() throws {
+        var clickyBlueJSON = version2(changing: ["agents"], to: .object(["ring": .string("perKind"), "faces": .object(["kind": .string("triangle")])]))
+        clickyBlueJSON = replacingField(in: clickyBlueJSON, at: ["cursor"], with: .object(["kind": .string("triangle")]))
+        let theme = try parsedThemeIdea(clickyBlueJSON)
+        #expect(theme.cursor == .triangle)
+        #expect(theme.agents.ring == .perKind)
+        #expect(try parsedThemeIdea(theme.themeJSON) == theme)
+        let triangleWithShapes = replacingField(in: clickyBlueJSON, at: ["cursor", "shapes"], with: goodVersion2ThemeJSON["cursor"]?["shapes"] ?? .null)
+        #expect(reasonAThemeIdeaIsRefused(triangleWithShapes)?.contains("cursor.shapes must be empty when kind is triangle") == true)
+    }
+
+    @Test func pictureFacesNeedThePictureAndAPictureCursorCanKeepTriangleFaces() throws {
+        let pictureFaces = version2(changing: ["agents", "faces"], to: .object(["kind": .string("picture")]))
+        #expect(reasonAThemeIdeaIsRefused(pictureFaces)?.contains("no picture") == true)
+        #expect(try parsedThemeIdea(pictureFaces, pictureIsAvailable: true).usesPicture)
+        let pictureCursorWithTriangleFaces = replacingField(in: goodVersion2ThemeJSON, at: ["cursor"], with: goodPictureCursorThemeIdea["cursor"] ?? .null)
+        let theme = try parsedThemeIdea(pictureCursorWithTriangleFaces, pictureIsAvailable: true)
+        #expect(theme.usesPicture)
+        #expect(theme.agents.faces == .triangle)
+    }
+
+    @Test func aRosterParsesItsPlayersAndRefusesAPortraitOutsideTheTheme() throws {
+        let players: [JSONValue] = [
+            .object(["name": .string("Hinata"), "fullName": .string("Shōyō Hinata"), "number": .number(10), "portrait": .string("portraits/10.jpg")]),
+            .object(["name": .string("Kenma")]),
+        ]
+        let theme = try parsedThemeIdea(version2(changing: ["agents"], to: rosterAgents(players: players)))
+        #expect(theme.agents.faces == .roster([
+            ThemeRosterPlayer(name: "Hinata", fullName: "Shōyō Hinata", number: 10, portraitFileName: "portraits/10.jpg"),
+            ThemeRosterPlayer(name: "Kenma", fullName: "Kenma", number: nil, portraitFileName: nil),
+        ]))
+        #expect(try parsedThemeIdea(theme.themeJSON) == theme)
+
+        for escapingPath in ["../x.jpg", "/etc/x.jpg", "portraits/../../x.jpg", ".hidden.jpg", "a//b.jpg", "pörträt.jpg"] {
+            let escapingPlayer: JSONValue = .object(["name": .string("Out"), "portrait": .string(escapingPath)])
+            let reason = reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: [escapingPlayer])))
+            #expect(reason?.contains("must be a file inside the theme") == true, "\(escapingPath) was not refused")
+        }
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: [])))?.contains("players") == true)
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: players, order: .string("random"))))?.contains("firstUnused") == true)
+        let badNumber: JSONValue = .object(["name": .string("Half"), "number": .number(1.5)])
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: [badNumber])))?.contains("whole number") == true)
+    }
+
+    @Test func aVersionThisAppDoesNotKnowIsRefused() throws {
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["version"], to: .number(3)))?.contains("version") == true)
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["version"], to: .number(0)))?.contains("version") == true)
+        // Version 1 named outright still reads the version 1 fields.
+        #expect(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["version"], with: .number(1))) == parsedThemeIdea())
     }
 }

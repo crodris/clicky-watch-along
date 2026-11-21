@@ -81,11 +81,7 @@ struct CustomThemeStoreTests {
             let themeFileBeforeTheWrite = try Data(contentsOf: themeFileURL)
 
             // A folder made after the free-name check holds a theme of the same id, and a second write must not touch it.
-            let otherTheme = CustomTheme(
-                id: existingTheme.id, name: "Other", accentHex: existingTheme.accentHex, contrastHex: existingTheme.contrastHex,
-                agentColorHexes: existingTheme.agentColorHexes, cursor: existingTheme.cursor, motion: existingTheme.motion,
-                sounds: existingTheme.sounds, usesPicture: false
-            )
+            let otherTheme = existingTheme.renamed(to: "Other")
             #expect(throws: (any Error).self) {
                 try store.write(otherTheme, pictureJPEG: nil)
             }
@@ -105,11 +101,7 @@ struct CustomThemeStoreTests {
             defer { try? FileManager.default.removeItem(at: escapedFolderURL) }
 
             for badThemeID in ["../\(escapingFolderName)", "a/b", "Moonlit", ""] {
-                let themeWithABadID = CustomTheme(
-                    id: badThemeID, name: idea.name, accentHex: idea.accentHex, contrastHex: idea.contrastHex,
-                    agentColorHexes: idea.agentColorHexes, cursor: idea.cursor, motion: idea.motion,
-                    sounds: idea.sounds, usesPicture: false
-                )
+                let themeWithABadID = idea.with(id: badThemeID, origin: .idea)
                 #expect(throws: CustomThemeStoreError.themeIDIsNotAValidFolderName) {
                     try store.write(themeWithABadID, pictureJPEG: nil)
                 }
@@ -271,7 +263,7 @@ struct CustomThemeStoreRenameAndDeleteTests {
             let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
             let themeFileBeforeTheRename = try themeFileJSON(of: savedTheme.id, in: store)
 
-            for badName in ["", "   ", "\n", String(repeating: "a", count: CustomTheme.longestName + 1)] {
+            for badName in ["", "   ", "\n", String(repeating: "a", count: ClickyTheme.longestName + 1)] {
                 #expect(throws: CustomThemeStoreError.themeNameIsNotValid) {
                     try store.rename(themeID: savedTheme.id, to: badName)
                 }
@@ -279,7 +271,7 @@ struct CustomThemeStoreRenameAndDeleteTests {
             #expect(try themeFileJSON(of: savedTheme.id, in: store) == themeFileBeforeTheRename)
 
             // The longest name that is allowed, counted after trimming.
-            let longestAllowedName = String(repeating: "a", count: CustomTheme.longestName)
+            let longestAllowedName = String(repeating: "a", count: ClickyTheme.longestName)
             #expect(try store.rename(themeID: savedTheme.id, to: " \(longestAllowedName) ").name == longestAllowedName)
         }
     }
@@ -362,5 +354,102 @@ struct CustomThemeStoreRenameAndDeleteTests {
                 try store.rename(themeID: "../x", to: "")
             }
         }
+    }
+
+    // MARK: - Installing a package
+
+    /// A `.clickytheme` folder in its own temporary folder, holding `themeJSON` and any extra files named.
+    private func makeThemePackage(themeJSON: JSONValue, extraFiles: [String: Data] = [:]) throws -> URL {
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clicky-test-package-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Shared.clickytheme", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try JSONEncoder().encode(themeJSON).write(to: packageURL.appendingPathComponent(CustomThemeStore.themeFileName))
+        for (relativePath, fileData) in extraFiles {
+            let fileURL = packageURL.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileData.write(to: fileURL)
+        }
+        return packageURL
+    }
+
+    @Test func installingAPackageCopiesItInUnderANewIdAndItLoadsBackAsASavedTheme() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON, extraFiles: ["notes.txt": Data("not a theme file".utf8)])
+            let installedTheme = try store.install(packageAt: packageURL)
+            #expect(installedTheme.name == "Moonlit")
+            #expect(installedTheme.id.hasPrefix("moonlit-"))
+            #expect(installedTheme.origin == .saved(folderURL: store.folderURL(forThemeID: installedTheme.id)))
+            #expect(store.loadSavedThemes().map(\.theme) == [installedTheme])
+            // Only the theme's own files are copied in.
+            let installedFiles = try FileManager.default.contentsOfDirectory(atPath: store.folderURL(forThemeID: installedTheme.id).path)
+            #expect(installedFiles == [CustomThemeStore.themeFileName])
+            // The package itself is left where it was.
+            #expect(FileManager.default.fileExists(atPath: packageURL.path))
+        }
+    }
+
+    @Test func aPackageThatDoesNotParseIsRefusedAndNothingIsInstalled() throws {
+        try withATemporaryThemeStore { store in
+            let darkAccentPackage = try makeThemePackage(themeJSON: replacingField(in: goodVersion2ThemeJSON, at: ["accent"], with: .string("#101010")))
+            #expect(throws: CustomThemeParseError.self) { try store.install(packageAt: darkAccentPackage) }
+            let notAPackage = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-missing-\(UUID().uuidString).clickytheme")
+            #expect(throws: CustomThemeStoreError.packageIsNotAThemeFolder) { try store.install(packageAt: notAPackage) }
+            #expect(store.loadSavedThemes().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
+    }
+
+    @Test func aPackageWithAPictureNeedsItsPictureAndKeepsIt() throws {
+        try withATemporaryThemeStore { store in
+            let pictureFacesJSON = replacingField(in: goodVersion2ThemeJSON, at: ["agents", "faces"], with: .object(["kind": .string("picture")]))
+            #expect(throws: CustomThemeParseError.self) { try store.install(packageAt: try makeThemePackage(themeJSON: pictureFacesJSON)) }
+            let installedTheme = try store.install(packageAt: try makeThemePackage(themeJSON: pictureFacesJSON, extraFiles: [CustomThemeStore.pictureFileName: pictureBytes]))
+            #expect(installedTheme.agents.faces == .picture)
+            #expect(try Data(contentsOf: store.pictureURL(forThemeID: installedTheme.id)) == pictureBytes)
+        }
+    }
+
+    @Test func aRosterPackageKeepsThePortraitsItHasAndAFaceWithoutOneShowsItsInitials() throws {
+        try withATemporaryThemeStore { store in
+            let rosterJSON = replacingField(in: goodVersion2ThemeJSON, at: ["agents"], with: .object([
+                "ring": .string("accent"),
+                "faces": .object([
+                    "kind": .string("roster"),
+                    "order": .string("firstUnused"),
+                    "players": .array([
+                        .object(["name": .string("Ace"), "number": .number(1), "portrait": .string("portraits/1.jpg")]),
+                        .object(["name": .string("Blue"), "fullName": .string("Blue Sky"), "portrait": .string("portraits/2.jpg")]),
+                    ]),
+                ]),
+            ]))
+            let packageURL = try makeThemePackage(themeJSON: rosterJSON, extraFiles: ["portraits/1.jpg": pictureBytes])
+            let installedTheme = try store.install(packageAt: packageURL)
+            let installedFolderURL = store.folderURL(forThemeID: installedTheme.id)
+            #expect(try Data(contentsOf: installedFolderURL.appendingPathComponent("portraits/1.jpg")) == pictureBytes)
+            #expect(!FileManager.default.fileExists(atPath: installedFolderURL.appendingPathComponent("portraits/2.jpg").path))
+            guard case .roster(let players) = installedTheme.agents.faces else {
+                Issue.record("the installed theme lost its roster")
+                return
+            }
+            let blueFace = AgentRosterFace(player: players[1], of: installedTheme)
+            #expect(blueFace.portraitURL == installedFolderURL.appendingPathComponent("portraits/2.jpg"))
+            #expect(players[1].initials == "BS")
+            #expect(players[0].initials == "A")
+        }
+    }
+
+    @Test func theBundledLoaderSkipsAPackageWithoutAnIdAndKeepsFolderNameOrder() throws {
+        let bundledFolderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-bundled-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundledFolderURL) }
+        for (folderName, themeID) in [("02-second.clickytheme", "second"), ("01-first.clickytheme", "first"), ("03-no-id.clickytheme", nil)] {
+            let packageURL = bundledFolderURL.appendingPathComponent(folderName, isDirectory: true)
+            try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+            let themeJSON = replacingField(in: goodVersion2ThemeJSON, at: ["id"], with: themeID.map(JSONValue.string) ?? .null)
+            try JSONEncoder().encode(themeJSON).write(to: packageURL.appendingPathComponent(CustomThemeStore.themeFileName))
+        }
+        let bundledThemes = CustomThemeStore.loadBundledThemes(inDirectoryAt: bundledFolderURL, imagesFolderURL: bundledFolderURL)
+        #expect(bundledThemes.map(\.id) == ["first", "second"])
+        #expect(bundledThemes.first?.origin == .bundled(imagesFolderURL: bundledFolderURL))
     }
 }

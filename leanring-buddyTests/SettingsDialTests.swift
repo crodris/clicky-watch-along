@@ -22,6 +22,11 @@ private func pointerOffset(atAngleDegrees angleDegrees: Double, distance: CGFloa
 private let insideThePlateDistance: CGFloat = 80
 private let beyondThePlateDistance: CGFloat = 152
 
+/// The fans with no saved theme: the bundled themes from themes/.
+private extension SettingsDialFans {
+    static let builtIn = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
+}
+
 /// The picking tests below describe the dial before the learner saves a theme, so they pick from the built-in fans. The
 /// saved-theme tests pass their own fans.
 private extension SettingsDialSelection {
@@ -86,9 +91,9 @@ struct SettingsDialPickingTests {
         #expect(flickedToTeam.openFanLayout(in: .builtIn) != nil)
     }
 
-    @Test func theTeamFanPicksEachBallWithClickyBlueAndRandomAtTheEnds() throws {
+    @Test func theTeamFanPicksEachBallWithClickyBlueFirst() throws {
         let teamFanLayout = try #require(SettingsDialFans.builtIn.layout(of: .team))
-        #expect(teamFanLayout.itemCount == CompanionTheme.allChoices.count)
+        #expect(teamFanLayout.itemCount == bundledThemesForTests.count)
         #expect(teamFanLayout.angleDegrees(ofItemAt: 0) == -168)
         #expect(abs(teamFanLayout.angleDegrees(ofItemAt: teamFanLayout.itemCount - 1) - -12) < 0.000_001)
 
@@ -98,11 +103,10 @@ struct SettingsDialPickingTests {
             let selection = teamOpen.afterPointerMoved(to: pointerOnTheBall)
             #expect(selection.slice == .team)
             #expect(selection.fanItemIndex == itemIndex)
-            #expect(SettingsDialChoice(committing: selection) == .theme(CompanionTheme.allChoices[itemIndex]))
+            #expect(SettingsDialChoice(committing: selection) == .theme(bundledThemesForTests[itemIndex]))
         }
-        #expect(CompanionTheme.allChoices.first == .clickyBlue)
-        #expect(CompanionTheme.allChoices.last == .random)
-        #expect(CompanionTheme.allChoices.count == 12)
+        #expect(bundledThemesForTests.first == clickyBlueTheme)
+        #expect(bundledThemesForTests.count == 11)
     }
 
     @Test func theModelFanPicksSonnetThenOpus() throws {
@@ -148,10 +152,10 @@ struct SettingsDialPickingTests {
 
     @Test func anAngleBeyondTheEndOfTheFanPicksNoItem() {
         let teamOpen = SettingsDialSelection(slice: .team, fanItemIndex: nil)
-        // The fan ends at -12 degrees and its items are about 14 degrees apart, so 20 degrees is past Random.
-        let pastRandom = teamOpen.afterPointerMoved(to: pointerOffset(atAngleDegrees: 20, distance: SettingsDialGeometry.fanRadius))
-        #expect(pastRandom.slice == .team)
-        #expect(pastRandom.fanItemIndex == nil)
+        // The fan ends at -12 degrees and its items are about 16 degrees apart, so 20 degrees is past the last ball.
+        let pastTheLastBall = teamOpen.afterPointerMoved(to: pointerOffset(atAngleDegrees: 20, distance: SettingsDialGeometry.fanRadius))
+        #expect(pastTheLastBall.slice == .team)
+        #expect(pastTheLastBall.fanItemIndex == nil)
     }
 
     @Test func wanderingPastThePickingRadiusPicksNothingButKeepsAnOpenFanOpen() {
@@ -241,26 +245,26 @@ private let referenceSavedDate = Date(timeIntervalSinceReferenceDate: 1_000_000)
 private func savedTheme(named themeName: String, id themeID: String, minutesAgo: Double) throws -> SavedCustomTheme {
     let idea = replacingField(in: goodThemeIdea, at: ["name"], with: .string(themeName))
     return SavedCustomTheme(
-        theme: try CustomTheme.parse(idea: idea, id: themeID, pictureIsAvailable: false),
+        theme: try ClickyTheme.parse(themeJSON: idea, id: themeID, pictureIsAvailable: false),
         savedDate: referenceSavedDate.addingTimeInterval(-minutesAgo * 60)
     )
 }
 
 /// Fans whose saved themes carry `themeNames` in order, the first saved last, so the Team fan lists them in that order
-/// after Random.
+/// after the bundled themes.
 private func fansWithSavedThemes(named themeNames: [String]) throws -> SettingsDialFans {
     let savedThemes = try themeNames.enumerated().map { themeIndex, themeName in
         try savedTheme(named: themeName, id: "theme-\(themeIndex)", minutesAgo: Double(themeIndex))
     }
-    return SettingsDialFans(savedCustomThemes: savedThemes)
+    return SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: savedThemes)
 }
 
 /// A name of the 24 characters a saved theme may have, in the widest letter, so it is the widest label any theme can make.
 private let widestPossibleThemeName = String(repeating: "W", count: 24)
 
-private let builtInTeamFanItemCount = CompanionTheme.allChoices.count
-/// The Team fan holds 12 items with no saved theme and 15 with three.
-private let teamFanItemCounts = [12, 13, 14, 15]
+private let builtInTeamFanItemCount = bundledThemesForTests.count
+/// The Team fan holds 11 items with no saved theme and 14 with three.
+private let teamFanItemCounts = [11, 12, 13, 14]
 
 private func teamFanBallCenter(itemIndex: Int, in fans: SettingsDialFans) -> CGPoint {
     let angleInRadians = (fans.layout(of: .team)?.angleDegrees(ofItemAt: itemIndex) ?? 0) * .pi / 180
@@ -272,14 +276,14 @@ private func teamFanBallCenter(itemIndex: Int, in fans: SettingsDialFans) -> CGP
 
 struct SettingsDialSavedThemeFanTests {
 
-    @Test func withNoSavedThemeTheTeamFanIsTheTwelveBuiltInChoices() {
-        let fans = SettingsDialFans(savedCustomThemes: [])
+    @Test func withNoSavedThemeTheTeamFanIsTheBundledThemes() {
+        let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [])
         #expect(fans == .builtIn)
-        #expect(fans.teamThemes == CompanionTheme.allChoices)
-        #expect(fans.layout(of: .team)?.itemCount == 12)
+        #expect(fans.teamThemes == bundledThemesForTests)
+        #expect(fans.layout(of: .team)?.itemCount == 11)
     }
 
-    @Test func theNewestThreeSavedThemesFollowRandomNewestFirst() throws {
+    @Test func theNewestThreeSavedThemesFollowTheBundledOnesNewestFirst() throws {
         // Handed over in name order, as the store lists them, so the order below comes from the dates alone.
         let savedThemes = [
             try savedTheme(named: "Aurora", id: "aurora-0001", minutesAgo: 500),
@@ -287,19 +291,19 @@ struct SettingsDialSavedThemeFanTests {
             try savedTheme(named: "Moonlit", id: "moonlit-0003", minutesAgo: 90),
             try savedTheme(named: "Zen", id: "zen-0004", minutesAgo: 40),
         ]
-        let fans = SettingsDialFans(savedCustomThemes: savedThemes)
-        #expect(Array(fans.teamThemes.prefix(12)) == CompanionTheme.allChoices)
-        #expect(fans.teamThemes.last.map(\.displayName) == "Moonlit")
-        #expect(fans.teamThemes.suffix(3).map(\.displayName) == ["Ember", "Zen", "Moonlit"])
-        #expect(!fans.teamThemes.contains(.custom(savedThemes[0].theme)), "the oldest of four is left out")
+        let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: savedThemes)
+        #expect(Array(fans.teamThemes.prefix(bundledThemesForTests.count)) == bundledThemesForTests)
+        #expect(fans.teamThemes.last.map(\.name) == "Moonlit")
+        #expect(fans.teamThemes.suffix(3).map(\.name) == ["Ember", "Zen", "Moonlit"])
+        #expect(!fans.teamThemes.contains(savedThemes[0].theme), "the oldest of four is left out")
     }
 
     @Test func twoThemesSavedAtTheSameMomentKeepTheOrderOfTheirIds() throws {
         let firstSavedTheme = try savedTheme(named: "Beta", id: "beta-0002", minutesAgo: 5)
         let secondSavedTheme = try savedTheme(named: "Alpha", id: "alpha-0001", minutesAgo: 5)
-        let fans = SettingsDialFans(savedCustomThemes: [firstSavedTheme, secondSavedTheme])
-        #expect(fans.teamThemes.suffix(2).map(\.displayName) == ["Alpha", "Beta"])
-        #expect(SettingsDialFans(savedCustomThemes: [secondSavedTheme, firstSavedTheme]) == fans)
+        let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [firstSavedTheme, secondSavedTheme])
+        #expect(fans.teamThemes.suffix(2).map(\.name) == ["Alpha", "Beta"])
+        #expect(SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: [secondSavedTheme, firstSavedTheme]) == fans)
     }
 
     @Test func releasingOnASavedThemeCommitsThatThemeAsACustomTheme() throws {
@@ -308,7 +312,7 @@ struct SettingsDialSavedThemeFanTests {
             try savedTheme(named: "Moonlit", id: "moonlit-0002", minutesAgo: 2),
             try savedTheme(named: "Zen", id: "zen-0003", minutesAgo: 3),
         ]
-        let fans = SettingsDialFans(savedCustomThemes: savedThemes)
+        let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: savedThemes)
         let teamFanLayout = try #require(fans.layout(of: .team))
         let teamOpen = SettingsDialSelection(slice: .team, fanItemIndex: nil)
         for (savedThemeIndex, savedTheme) in savedThemes.enumerated() {
@@ -316,12 +320,12 @@ struct SettingsDialSavedThemeFanTests {
             let pointerOnTheBall = pointerOffset(atAngleDegrees: teamFanLayout.angleDegrees(ofItemAt: itemIndex), distance: SettingsDialGeometry.fanRadius)
             let selection = teamOpen.afterPointerMoved(to: pointerOnTheBall, fans: fans)
             #expect(selection.fanItemIndex == itemIndex, "\(savedTheme.theme.name)")
-            #expect(SettingsDialChoice(committing: selection, fans: fans) == .theme(.custom(savedTheme.theme)), "\(savedTheme.theme.name)")
+            #expect(SettingsDialChoice(committing: selection, fans: fans) == .theme(savedTheme.theme), "\(savedTheme.theme.name)")
         }
     }
 
     @Test func anItemPastTheEndOfTheFanCommitsNothing() {
-        // The built-in fan has 12 items, so index 12 is where a saved theme would be, and with none saved it is no item.
+        // The built-in fan has 11 items, so index 11 is where a saved theme would be, and with none saved it is no item.
         #expect(SettingsDialChoice(committing: SettingsDialSelection(slice: .team, fanItemIndex: builtInTeamFanItemCount), fans: .builtIn) == nil)
     }
 
@@ -401,7 +405,7 @@ struct SettingsDialLabelTests {
         let otherBallRadius = SettingsDialGeometry.fanBallDiameter / 2
         let ballCenters = fans.teamThemes.indices.map { teamFanBallCenter(itemIndex: $0, in: fans) }
         for (itemIndex, theme) in fans.teamThemes.enumerated() {
-            let labelText = SettingsDialLabel.fanLabelText(theme.displayName, ballCenterOffset: ballCenters[itemIndex], ballRadius: emphasizedBallRadius)
+            let labelText = SettingsDialLabel.fanLabelText(theme.name, ballCenterOffset: ballCenters[itemIndex], ballRadius: emphasizedBallRadius)
             let pillSize = SettingsDialLabel.pillSize(forText: labelText)
             let pillCenter = SettingsDialLabel.fanLabelCenterOffset(
                 ballCenterOffset: ballCenters[itemIndex],
@@ -409,11 +413,11 @@ struct SettingsDialLabelTests {
                 labelPillSize: pillSize
             )
             let pillRect = rect(centeredAt: pillCenter, size: pillSize)
-            let itemDescription = "\(theme.displayName) at \(itemIndex) of \(itemCount)"
+            let itemDescription = "\(theme.name) at \(itemIndex) of \(itemCount)"
 
             // "Shiratorizawa", "Aoba Johsai", and "Clicky blue" are the long built-in ones, and none of them is cut.
             if itemIndex < builtInTeamFanItemCount {
-                #expect(labelText == theme.displayName, "\(itemDescription) was cut")
+                #expect(labelText == theme.name, "\(itemDescription) was cut")
             }
             #expect(dialWindowOffsets.contains(pillRect), "\(itemDescription) sticks out of the dial's window")
             #expect(distance(from: ballCenters[itemIndex], to: pillRect) >= emphasizedBallRadius, "\(itemDescription) covers its own ball")
@@ -424,12 +428,12 @@ struct SettingsDialLabelTests {
     }
 
     @Test func aLongSavedNameIsCutWithAnEllipsisAndAShortOneIsNot() throws {
-        // The saved themes are items 12, 13, and 14 of 15, at -34, -23, and -12 degrees, in the order of these names.
+        // The saved themes are items 11, 12, and 13 of 14, at -36, -24, and -12 degrees, in the order of these names.
         let fans = try fansWithSavedThemes(named: [widestPossibleThemeName, "Ember", "Moonlit Harbor"])
         let emphasizedBallRadius = SettingsDialGeometry.emphasizedFanBallDiameter / 2
         func labelText(forItemAt itemIndex: Int) -> String {
             SettingsDialLabel.fanLabelText(
-                fans.teamThemes[itemIndex].displayName,
+                fans.teamThemes[itemIndex].name,
                 ballCenterOffset: teamFanBallCenter(itemIndex: itemIndex, in: fans),
                 ballRadius: emphasizedBallRadius
             )

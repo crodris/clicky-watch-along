@@ -857,7 +857,10 @@ final class CompanionManager: ObservableObject {
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
                 runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
-                fans: SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
+                fans: SettingsDialFans(
+                    bundledThemes: themeSettings.bundledThemes,
+                    savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates
+                )
             ))
         case .released:
             if let settingsDialChoice = settingsDialController.releaseAndReturnTheChoice() {
@@ -3526,6 +3529,25 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    // MARK: - Installing a theme file
+
+    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
+    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    func installTheThemePackage(at themePackageURL: URL) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
+            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
+            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
+            installedTheme.sounds.done.play()
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+        } catch {
+            print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+        }
+    }
+
     // MARK: - Task Agent Approvals
 
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
@@ -3537,13 +3559,14 @@ final class CompanionManager: ObservableObject {
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
     private func syncTheApprovalWaitingState(_ waitingRequests: [HarnessApprovalRequest]) {
+        backgroundAgentStore.agentIDsWaitingForApproval = Set(waitingRequests.map(\.taskID))
         if let previousChipText = approvalWaitingChipPrimaryText {
             VoiceToolCallChip.shared.hide(ifShowing: previousChipText)
             approvalWaitingChipPrimaryText = nil
         }
         guard let oldestRequest = waitingRequests.first,
               let waitingAgent = backgroundAgentStore.agents.first(where: { $0.id == oldestRequest.taskID }) else { return }
-        let chipTexts = approvalWaitingChipTexts(agentName: waitingAgent.player?.displayName ?? waitingAgent.kind.displayName)
+        let chipTexts = approvalWaitingChipTexts(agentName: waitingAgent.displayName)
         approvalWaitingChipPrimaryText = chipTexts.primary
         VoiceToolCallChip.shared.show(
             chipTexts.primary,

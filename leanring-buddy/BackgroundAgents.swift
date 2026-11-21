@@ -183,29 +183,27 @@ struct BackgroundAgent: Identifiable, Equatable {
     var phase: BackgroundAgentPhase
     /// The steps a task agent said it was on, oldest first. Empty for every other kind, whose steps are fixed.
     var reportedSteps: [String] = []
-    /// The Haikyu!! player this agent is while a team theme is on, kept for the agent's whole life, so a running agent
-    /// keeps its player when the learner changes the theme. Nil under the Clicky blue theme.
-    var player: HaikyuPlayer? = nil
     /// True while a finished agent's result still waits for the learner, such as a 3D model not yet shown or a task answer
     /// not yet heard. Its token stays beside the notch until the result is delivered or `secondsAWaitingResultKeepsItsToken`
     /// pass. A result delivered at once, such as a study guide page, never waits.
     var resultIsWaitingToBeDelivered = false
-    /// The color this agent has under Clicky blue or a custom theme, picked when it started and kept for its whole life, so
-    /// two agents of one kind never look alike. Nil for an agent that is a team player, whose color is its team's.
+    /// The color this agent has, picked from its theme when it started (`newAgentLook`) and kept for its whole life, so
+    /// changing the theme only affects later agents and two agents of one kind never look alike under Clicky blue.
     var tokenColor: AgentPaletteColor? = nil
-    /// The id of the saved custom theme whose picture is this agent's face, when the theme was using its picture as the
-    /// agent started. Kept for the agent's whole life like its player, so changing the theme only affects later agents.
-    var themePictureThemeID: String? = nil
+    /// What fills the agent's token, chip, and list row besides its color, picked with its color and kept as long.
+    var face: AgentFace = .triangle
 
     /// The color the agent shows: its token ring and triangle, its ending chip, and its row in the agent list.
     var displayColor: AgentPaletteColor { tokenColor ?? kind.preferredPaletteColor }
 
-    /// What fills the agent's token, chip, and list row besides its color.
-    var face: AgentFace {
-        if let player { return .player(player) }
-        if let themePictureThemeID { return .themePicture(themeID: themePictureThemeID) }
-        return .triangle
+    /// The player this agent is, under a theme with a roster.
+    var rosterFace: AgentRosterFace? {
+        if case .rosterFace(let rosterFace) = face { return rosterFace }
+        return nil
     }
+
+    /// What the chip and the list call the agent: its player's name, or its kind's name.
+    var displayName: String { rosterFace?.player.name ?? kind.displayName }
 
     /// The steps the agent list shows: a task agent's reported steps, or the kind's fixed steps.
     var stepNames: [String] {
@@ -293,10 +291,10 @@ struct BackgroundAgent: Identifiable, Equatable {
     }
 }
 
-/// What an agent shows as its face: a team player's portrait, the picture of a custom theme, or the agent's triangle.
+/// What an agent shows as its face: a roster player's portrait, a saved theme's picture, or the agent's triangle.
 enum AgentFace: Equatable {
     case triangle
-    case player(HaikyuPlayer)
+    case rosterFace(AgentRosterFace)
     case themePicture(themeID: String)
 }
 
@@ -354,7 +352,11 @@ final class BackgroundAgentStore: ObservableObject {
     /// question opens or closes.
     @Published var aVideoQuizQuestionIsOpen = false
 
-    /// Read when an agent starts, to pick its player. Changing the theme later never changes a running agent.
+    /// The agents with a request in the approval desk, which `CompanionManager` keeps in step with the desk. Their tokens
+    /// show the "!" badge and a notch in the ring.
+    @Published var agentIDsWaitingForApproval: Set<UUID> = []
+
+    /// Read when an agent starts, to pick its color and face. Changing the theme later never changes a running agent.
     private let themeSettings: CompanionThemeSettings
 
     init(themeSettings: CompanionThemeSettings) {
@@ -367,20 +369,40 @@ final class BackgroundAgentStore: ObservableObject {
     @discardableResult
     func start(kind: BackgroundAgentKind, studyGuideVideoKey: String? = nil) -> UUID {
         var systemRandomNumberGenerator = SystemRandomNumberGenerator()
-        let player = nextHaikyuPlayer(
-            for: themeSettings.theme,
-            playersOfRunningAgents: agents.filter(\.isRunning).compactMap(\.player),
-            playersOfEndedAgentsStillListed: agents.filter { !$0.isRunning }.compactMap(\.player),
-            randomNumberGenerator: &systemRandomNumberGenerator
-        )
-        return startAgent(kind: kind, studyGuideVideoKey: studyGuideVideoKey, player: player)
+        return startAgent(kind: kind, studyGuideVideoKey: studyGuideVideoKey, look: nextLook(for: kind, randomNumberGenerator: &systemRandomNumberGenerator))
     }
 
-    /// The saved theme, never the studio's preview, so an agent started while the learner is only trying an idea does not
-    /// keep that idea's colors after the learner closes the card.
-    private var customThemeAgentsTake: CustomTheme? {
-        if case .custom(let customTheme) = themeSettings.theme { return customTheme }
-        return nil
+    /// The theme a new agent takes its look from: the saved theme, never the studio's preview, so an agent started while
+    /// the learner only tries an idea does not keep that idea's look after the card closes. With Shuffle on, a theme picked
+    /// at random from every installed theme.
+    private func themeForANewAgent(randomNumberGenerator: inout some RandomNumberGenerator) -> ClickyTheme {
+        guard themeSettings.shufflesAgentThemes else { return themeSettings.theme }
+        return themeSettings.themesAgentsMayShuffleThrough.randomElement(using: &randomNumberGenerator) ?? themeSettings.theme
+    }
+
+    /// The look the next agent of `kind` takes. `extraRunningAgentLooks` counts agents about to start in the same seed.
+    private func nextLook(
+        for kind: BackgroundAgentKind,
+        extraRunningAgentLooks: [NewAgentLook] = [],
+        randomNumberGenerator: inout some RandomNumberGenerator
+    ) -> NewAgentLook {
+        let now = Date()
+        // Only running agents and agents with a waiting result hold a color. An agent in its 4 second ending has given its color up.
+        let colorsInUse = agents.compactMap { existingAgent -> AgentPaletteColor? in
+            guard let tokenRank = existingAgent.tokenRank(at: now), tokenRank != .ending else { return nil }
+            return existingAgent.tokenColor
+        } + extraRunningAgentLooks.map(\.tokenColor)
+        let extraRosterFaces = extraRunningAgentLooks.compactMap { look -> AgentRosterFace? in
+            if case .rosterFace(let rosterFace) = look.face { return rosterFace }
+            return nil
+        }
+        return newAgentLook(
+            kind: kind,
+            theme: themeForANewAgent(randomNumberGenerator: &randomNumberGenerator),
+            colorsInUse: colorsInUse,
+            rosterFacesOfRunningAgents: agents.filter(\.isRunning).compactMap(\.rosterFace) + extraRosterFaces,
+            rosterFacesOfEndedAgentsStillListed: agents.filter { !$0.isRunning }.compactMap(\.rosterFace)
+        )
     }
 
     #if DEBUG
@@ -392,36 +414,30 @@ final class BackgroundAgentStore: ObservableObject {
     @discardableResult
     func seedAgentsForScreenshots(runningAgentCount: Int = 3) -> UUID {
         var systemRandomNumberGenerator = SystemRandomNumberGenerator()
-        // Agents already in the store count too, so a second seed follows the same rule as any new agent
-        // (nextHaikyuPlayer) instead of handing out the first five players again.
-        let playersOfRunningAgents = agents.filter(\.isRunning).compactMap(\.player)
-        let playersOfEndedAgents = agents.filter { !$0.isRunning }.compactMap(\.player)
-        var seedPlayers: [HaikyuPlayer?] = []
-        for _ in 0..<5 {
-            seedPlayers.append(nextHaikyuPlayer(
-                for: themeSettings.theme,
-                playersOfRunningAgents: playersOfRunningAgents + seedPlayers.compactMap { $0 },
-                playersOfEndedAgentsStillListed: playersOfEndedAgents,
-                randomNumberGenerator: &systemRandomNumberGenerator
-            ))
+        // Agents already in the store count too, so a second seed follows the same rule as any new agent (`newAgentLook`)
+        // instead of handing out the first five players again. Each look counts the ones picked before it.
+        let seedKinds: [BackgroundAgentKind] = [.task, .threeDModel, .studyGuide, .task, .experiment]
+        var seedLooks: [NewAgentLook] = []
+        for seedKind in seedKinds {
+            seedLooks.append(nextLook(for: seedKind, extraRunningAgentLooks: seedLooks, randomNumberGenerator: &systemRandomNumberGenerator))
         }
         if runningAgentCount >= 3 {
-            let studyGuideAgentID = startAgent(kind: .studyGuide, studyGuideVideoKey: nil, player: seedPlayers[2])
+            let studyGuideAgentID = startAgent(kind: .studyGuide, studyGuideVideoKey: nil, look: seedLooks[2])
             setSubject("HAIKYU!! The Dumpster Battle trailer", for: studyGuideAgentID)
             completeStep(for: studyGuideAgentID)
         }
-        let failedAgentID = startAgent(kind: .experiment, studyGuideVideoKey: nil, player: seedPlayers[4])
+        let failedAgentID = startAgent(kind: .experiment, studyGuideVideoKey: nil, look: seedLooks[4])
         setSubject("The spin on a jump serve", for: failedAgentID)
         fail(failedAgentID, reason: "The experiment could not be built. Ask again to try once more.")
-        let finishedAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[3])
+        let finishedAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, look: seedLooks[3])
         setSubject("Who won the Spring High final", for: finishedAgentID)
         finish(finishedAgentID, with: .answer(spokenSummary: "Karasuno won 2 sets to 1.", pageURL: nil))
         if runningAgentCount >= 2 {
-            let threeDModelAgentID = startAgent(kind: .threeDModel, studyGuideVideoKey: nil, player: seedPlayers[1])
+            let threeDModelAgentID = startAgent(kind: .threeDModel, studyGuideVideoKey: nil, look: seedLooks[1])
             setSubject("The volleyball court with the net", for: threeDModelAgentID)
         }
         if runningAgentCount >= 1 {
-            let taskAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, player: seedPlayers[0])
+            let taskAgentID = startAgent(kind: .task, studyGuideVideoKey: nil, look: seedLooks[0])
             setSubject("Karasuno vs Nekoma at nationals", for: taskAgentID)
             reportStep("Reading the Haikyuu wiki", for: taskAgentID)
         }
@@ -443,24 +459,20 @@ final class BackgroundAgentStore: ObservableObject {
     }
     #endif
 
-    private func startAgent(kind: BackgroundAgentKind, studyGuideVideoKey: String?, player: HaikyuPlayer?) -> UUID {
+    private func startAgent(kind: BackgroundAgentKind, studyGuideVideoKey: String?, look: NewAgentLook) -> UUID {
         let startedAt = Date()
-        // Only running agents and agents with a waiting result hold a color. An agent in its 4 second ending has given its color up.
-        let colorsInUse = agents.compactMap { existingAgent -> AgentPaletteColor? in
-            guard let tokenRank = existingAgent.tokenRank(at: startedAt), tokenRank != .ending else { return nil }
-            return existingAgent.tokenColor
-        }
-        let customTheme = customThemeAgentsTake
-        let tokenColor: AgentPaletteColor?
-        if player != nil {
-            tokenColor = nil
-        } else if let customTheme {
-            tokenColor = agentPaletteColorToAssign(forCustomThemeAgentColorHexes: customTheme.agentColorHexes, colorsInUse: colorsInUse)
-        } else {
-            tokenColor = agentPaletteColorToAssign(forKind: kind, colorsInUse: colorsInUse)
-        }
-        let themePictureThemeID = customTheme?.usesPicture == true ? customTheme?.id : nil
-        let agent = BackgroundAgent(id: UUID(), kind: kind, subject: nil, studyGuideVideoKey: studyGuideVideoKey, startedAt: startedAt, currentStepStartedAt: startedAt, endedAt: nil, phase: .running(completedStepCount: 0), player: player, tokenColor: tokenColor, themePictureThemeID: themePictureThemeID)
+        let agent = BackgroundAgent(
+            id: UUID(),
+            kind: kind,
+            subject: nil,
+            studyGuideVideoKey: studyGuideVideoKey,
+            startedAt: startedAt,
+            currentStepStartedAt: startedAt,
+            endedAt: nil,
+            phase: .running(completedStepCount: 0),
+            tokenColor: look.tokenColor,
+            face: look.face
+        )
         agents.insert(agent, at: 0)
         var endedAgentsKept = 0
         agents = agents.filter { existingAgent in

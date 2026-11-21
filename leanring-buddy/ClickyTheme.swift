@@ -1,13 +1,16 @@
 //
-//  CustomTheme.swift
+//  ClickyTheme.swift
 //  leanring-buddy
 //
-//  A theme the learner designed with Clicky in the Theme Studio: a cursor (SVG shapes, or the picture the learner
-//  pointed at), its motion, an accent and contrast color, agent token colors, and sounds. This file holds the data and
-//  the one boundary function that turns an idea from the Worker's `/theme-ideas` reply, or a saved theme.json, into a
-//  `CustomTheme`. Everything past that function trusts the type, so no view re-checks a color or a path.
+//  Every theme Clicky wears is a `ClickyTheme` read from one theme.json: the `.clickytheme` packages the app bundles
+//  (Clicky blue and the volleyball schools, kept in themes/ of the repository), the themes the learner designed in the
+//  Theme Studio or installed by double-clicking a file, and the ideas on the studio card. A theme sets a cursor (the
+//  triangle, SVG shapes, or the picture the learner pointed at), its motion, an accent and a contrast color, how agents
+//  look (their ring color and their faces), and three sounds. This file holds the data and the one boundary function that
+//  turns a theme.json or a Worker idea into a `ClickyTheme`. Everything past that function trusts the type, so no view
+//  re-checks a color or a path.
 //  The rules match the Worker's `checkThemeIdeas` (worker/src/themeIdeas.ts), and the app applies them again because a
-//  saved file can be edited by hand.
+//  saved file can be edited by hand. Version 1 files, which the Theme Studio wrote before version 2, still parse.
 //
 
 import CoreGraphics
@@ -15,27 +18,93 @@ import Foundation
 
 // MARK: - Data
 
-nonisolated struct CustomTheme: Equatable, Sendable {
-    /// Assigned when the theme is saved, such as "moonlit-3f9a", and also its folder name. An idea on the studio card has a
-    /// temporary id, "idea-1" to "idea-3".
+nonisolated struct ClickyTheme: Equatable, Sendable {
+    /// A bundled theme's id is written in its theme.json, such as "school-karasuno". A saved theme's id is its folder name,
+    /// such as "moonlit-3f9a". An idea on the studio card has a temporary id, "idea-1" to "idea-3".
     let id: String
     let name: String
     /// The cursor's glow, ring, loop, bubble, and chip color, `#RRGGBB`. Bright enough to read on the dark overlay surfaces.
     let accentHex: String
     /// For letters drawn on an accent fill, such as the navigation bubble's text.
     let contrastHex: String
-    /// 3 to 6 colors the agent tokens take in turn, none of them red (failed) or green (done).
-    let agentColorHexes: [String]
     let cursor: CustomCursorDrawing
     let motion: CustomCursorMotion
+    /// The ring color and the face each agent that starts under this theme takes.
+    let agents: ThemeAgents
     let sounds: CustomThemeSounds
-    /// True when the theme keeps the picture the learner pointed at, as the cursor, as the agent tokens' faces, or both.
-    /// A picture cursor always uses the picture.
-    let usesPicture: Bool
+    /// Where the theme came from, which decides how the settings name it and where its images are.
+    let origin: ThemeOrigin
+
+    /// True when the theme needs the picture the learner pointed at (picture.jpg), as the cursor, as the agents' faces, or
+    /// both.
+    var usesPicture: Bool {
+        if case .picture = cursor { return true }
+        return agents.faces == .picture
+    }
+}
+
+/// Where a theme came from.
+nonisolated enum ThemeOrigin: Equatable, Sendable {
+    /// One of the `.clickytheme` packages in the app bundle. Its roster portraits are files in `imagesFolderURL`.
+    case bundled(imagesFolderURL: URL)
+    /// A theme in ~/Library/Application Support/Clicky/Themes, which the Theme Studio saved or a double-click installed.
+    /// Its picture.jpg and its roster portraits are files in its folder.
+    case saved(folderURL: URL)
+    /// An idea on the Theme Studio card, not saved yet.
+    case idea
+}
+
+/// How every agent that starts under a theme looks. An agent keeps its look for its whole life.
+nonisolated struct ThemeAgents: Equatable, Sendable {
+    let ring: ThemeAgentRing
+    let faces: ThemeAgentFaces
+}
+
+/// The color of an agent's progress ring, triangle, chip, and list row. The color never says the agent's state: a check
+/// badge says done, a cross badge says failed, and a "!" badge says it waits for the learner's OK.
+nonisolated enum ThemeAgentRing: Equatable, Sendable {
+    /// Each agent kind's own color while no other agent has it (study guide amber, 3D model violet, experiment lime, task
+    /// teal), then the first free color of Clicky's fixed palette. Clicky blue uses this.
+    case perKind
+    /// 3 to 6 colors the agents take in turn, none of them red (failed) or green (done).
+    case perAgent(colorHexes: [String])
+    /// Every agent in the theme's accent color, as a team in its jersey color.
+    case accent
+}
+
+/// What fills an agent's token, chip, and list row.
+nonisolated enum ThemeAgentFaces: Equatable, Sendable {
+    /// A triangle in the agent's color.
+    case triangle
+    /// The picture the learner pointed at, as a round face.
+    case picture
+    /// Named faces handed out in order, first the ones the agent list does not show (`rosterPlayerForANewAgent`).
+    case roster([ThemeRosterPlayer])
+}
+
+/// One face of a roster, such as a team's player.
+nonisolated struct ThemeRosterPlayer: Equatable, Hashable, Sendable {
+    /// The short name the agent list and the chip show, such as "Hinata".
+    let name: String
+    /// The whole name, such as "Shōyō Hinata", whose first letters are the initials drawn when no portrait file is there.
+    /// tools/fetch-haikyu-portraits.py looks the bundled rosters' full names up on the wiki.
+    let fullName: String
+    /// A jersey number the agent list shows after the name, or nil for none.
+    let number: Int?
+    /// The portrait's file name in the theme's images folder, or nil for initials only. A missing file falls back to the
+    /// initials too, so a roster still works where the portraits are not there, as in CI or a fresh clone.
+    let portraitFileName: String?
+
+    /// The first letter of each word of the full name.
+    var initials: String {
+        fullName.split(separator: " ").compactMap { $0.first }.map(String.init).joined()
+    }
 }
 
 /// What the cursor looks like.
 nonisolated enum CustomCursorDrawing: Equatable, Sendable {
+    /// Clicky's own triangle in the accent color, 16 points, which keeps its pointer angle while it follows the mouse.
+    case triangle
     /// 1 to 6 SVG shapes drawn in the cursor's 24 point box.
     case shapes([CustomCursorShape])
     /// The picture itself, drawn from the theme's picture.jpg.
@@ -205,12 +274,16 @@ nonisolated struct ThemeRGBColor: Equatable, Sendable {
 // MARK: - The boundary
 
 nonisolated struct CustomThemeParseError: Error, Equatable, Sendable {
-    /// What rule the idea broke, in one plain sentence, for the log.
+    /// What rule the theme broke, in one plain sentence, for the log.
     let reason: String
 }
 
-nonisolated extension CustomTheme {
+nonisolated extension ClickyTheme {
     static let longestName = 24
+    /// The theme.json version this app writes. A file with no version is version 1.
+    static let newestFileVersion = 2
+    static let mostRosterPlayers = 60
+    static let longestPortraitFileName = 120
 
     /// The rule `parse` applies to a name, for a name the learner types: trimmed, then 1 to `longestName` characters. Nil when
     /// the name breaks it.
@@ -220,87 +293,156 @@ nonisolated extension CustomTheme {
     }
 
     /// The same theme under another name. The id stays, so everything that refers to the theme still finds it.
-    func renamed(to newName: String) -> CustomTheme {
-        CustomTheme(
-            id: id,
-            name: newName,
-            accentHex: accentHex,
-            contrastHex: contrastHex,
-            agentColorHexes: agentColorHexes,
-            cursor: cursor,
-            motion: motion,
-            sounds: sounds,
-            usesPicture: usesPicture
-        )
+    func renamed(to newName: String) -> ClickyTheme {
+        ClickyTheme(id: id, name: newName, accentHex: accentHex, contrastHex: contrastHex, cursor: cursor, motion: motion, agents: agents, sounds: sounds, origin: origin)
     }
 
-    /// The one place an idea becomes a `CustomTheme`. It reads the Worker's idea shape, which is also the shape of a saved
-    /// theme.json, and throws `CustomThemeParseError` naming the first rule it breaks.
+    /// The same theme with another id and origin, for a theme the store saves or installs.
+    func with(id newID: String, origin newOrigin: ThemeOrigin) -> ClickyTheme {
+        ClickyTheme(id: newID, name: name, accentHex: accentHex, contrastHex: contrastHex, cursor: cursor, motion: motion, agents: agents, sounds: sounds, origin: newOrigin)
+    }
+
+    /// The one place a theme.json or a Worker idea becomes a `ClickyTheme`. It reads version 1 (the Theme Studio's files
+    /// before version 2, with `agentColors` and `usesPicture`) and version 2 (with `agents`), and throws
+    /// `CustomThemeParseError` naming the first rule it breaks.
     ///
-    /// - `id`: the temporary id of an idea on the card, or the folder name of a saved theme.
+    /// - `id`: the temporary id of an idea on the card, a saved theme's folder name, or a bundled theme's own id.
+    /// - `origin`: where the theme came from, which the result keeps.
     /// - `pictureIsAvailable`: whether the request carried a picture, or whether the saved folder holds a picture.jpg.
-    ///   A theme that uses the picture, or draws it as the cursor, is refused without one.
-    static func parse(idea: JSONValue, id: String, pictureIsAvailable: Bool) throws -> CustomTheme {
-        let reader = IdeaReader(idea, location: "idea")
+    ///   A theme that uses the picture is refused without one.
+    static func parse(themeJSON: JSONValue, id: String, origin: ThemeOrigin = .idea, pictureIsAvailable: Bool) throws -> ClickyTheme {
+        let reader = IdeaReader(themeJSON, location: "theme")
+        let fileVersion = try reader.optionalWholeNumber("version", range: 1...newestFileVersion) ?? 1
         let name = try reader.string("name", lengths: 1...longestName)
         let accentHex = try reader.color("accent")
-        guard let accentColor = ThemeRGBColor(hex: accentHex),
-              let surfaceColor = ThemeRGBColor(hex: ThemeRGBColor.overlaySurfaceHex),
-              accentColor.contrastRatio(against: surfaceColor) >= ThemeRGBColor.leastContrastAgainstTheSurface else {
+        guard try readsOnTheOverlaySurface(accentHex) else {
             throw CustomThemeParseError(reason: "accent \(accentHex) is too dark to read on the overlay surface")
         }
         let contrastHex = try reader.color("contrast")
-
-        let agentColorHexes = try reader.array("agentColors", counts: 3...6).enumerated().map { colorIndex, colorValue in
-            guard let colorText = colorValue.stringValue, let agentHex = ThemeRGBColor.normalizedHex(colorText),
-                  let agentColor = ThemeRGBColor(hex: agentHex) else {
-                throw CustomThemeParseError(reason: "agentColors[\(colorIndex)] is not a #RRGGBB color")
-            }
-            guard agentColor.contrastRatio(against: surfaceColor) >= ThemeRGBColor.leastContrastAgainstTheSurface else {
-                throw CustomThemeParseError(reason: "agentColors[\(colorIndex)] \(agentHex) is too dark to read on the overlay surface")
-            }
-            guard !agentColor.looksLikeAStateColor else {
-                throw CustomThemeParseError(reason: "agentColors[\(colorIndex)] \(agentHex) looks red or green, which mean failed and done")
-            }
-            return agentHex
-        }
-
         let cursor = try parseCursor(reader.object("cursor"), pictureIsAvailable: pictureIsAvailable)
         let motion = try parseMotion(reader.object("motion"))
         let sounds = try parseSounds(reader.object("sounds"))
 
-        let declaredUsesPicture = try reader.bool("usesPicture")
-        // A picture cursor draws the picture, so it uses it whether or not the idea said so.
-        var cursorIsAPicture = false
-        if case .picture = cursor { cursorIsAPicture = true }
-        let usesPicture = declaredUsesPicture || cursorIsAPicture
-        if usesPicture && !pictureIsAvailable {
-            throw CustomThemeParseError(reason: "usesPicture is true but there is no picture")
+        let agents: ThemeAgents
+        if fileVersion == 1 {
+            let agentColorHexes = try parseAgentColors(reader.array("agentColors", counts: 3...6), location: "agentColors")
+            // Version 1 had one switch for the picture: a theme that used it showed it as the agents' faces too, and a
+            // picture cursor always used it.
+            var cursorIsAPicture = false
+            if case .picture = cursor { cursorIsAPicture = true }
+            let facesArePictures = try reader.bool("usesPicture") || cursorIsAPicture
+            agents = ThemeAgents(ring: .perAgent(colorHexes: agentColorHexes), faces: facesArePictures ? .picture : .triangle)
+        } else {
+            agents = try parseAgents(reader.object("agents"))
         }
 
-        return CustomTheme(
-            id: id,
+        let theme = ClickyTheme(id: id, name: name, accentHex: accentHex, contrastHex: contrastHex, cursor: cursor, motion: motion, agents: agents, sounds: sounds, origin: origin)
+        if theme.usesPicture && !pictureIsAvailable {
+            throw CustomThemeParseError(reason: "the theme uses the picture but there is no picture")
+        }
+        return theme
+    }
+
+    private static func readsOnTheOverlaySurface(_ colorHex: String) throws -> Bool {
+        guard let color = ThemeRGBColor(hex: colorHex), let surfaceColor = ThemeRGBColor(hex: ThemeRGBColor.overlaySurfaceHex) else {
+            throw CustomThemeParseError(reason: "\(colorHex) is not a #RRGGBB color")
+        }
+        return color.contrastRatio(against: surfaceColor) >= ThemeRGBColor.leastContrastAgainstTheSurface
+    }
+
+    /// Agent colors must read on the dark track and never look like the failed red or the done green.
+    private static func parseAgentColors(_ colorValues: [JSONValue], location: String) throws -> [String] {
+        try colorValues.enumerated().map { colorIndex, colorValue in
+            guard let colorText = colorValue.stringValue, let agentHex = ThemeRGBColor.normalizedHex(colorText),
+                  let agentColor = ThemeRGBColor(hex: agentHex) else {
+                throw CustomThemeParseError(reason: "\(location)[\(colorIndex)] is not a #RRGGBB color")
+            }
+            guard try readsOnTheOverlaySurface(agentHex) else {
+                throw CustomThemeParseError(reason: "\(location)[\(colorIndex)] \(agentHex) is too dark to read on the overlay surface")
+            }
+            guard !agentColor.looksLikeAStateColor else {
+                throw CustomThemeParseError(reason: "\(location)[\(colorIndex)] \(agentHex) looks red or green, which mean failed and done")
+            }
+            return agentHex
+        }
+    }
+
+    private static func parseAgents(_ agentsReader: IdeaReader) throws -> ThemeAgents {
+        let ringText = try agentsReader.string("ring", lengths: 1...20)
+        let colorValues = try agentsReader.optionalArray("colors", counts: 0...6) ?? []
+        let ring: ThemeAgentRing
+        switch ringText {
+        case "perAgent":
+            guard colorValues.count >= 3 else { throw CustomThemeParseError(reason: "agents.colors needs 3 to 6 colors when ring is perAgent") }
+            ring = .perAgent(colorHexes: try parseAgentColors(colorValues, location: "agents.colors"))
+        case "accent", "perKind":
+            // These rings never read a color list, so one in the file would be a color the learner expects and never sees.
+            guard colorValues.isEmpty else { throw CustomThemeParseError(reason: "agents.colors must be empty when ring is \(ringText)") }
+            ring = ringText == "accent" ? .accent : .perKind
+        default:
+            throw CustomThemeParseError(reason: "agents.ring must be perAgent, accent, or perKind")
+        }
+
+        let facesReader = try agentsReader.object("faces")
+        let faces: ThemeAgentFaces
+        switch try facesReader.string("kind", lengths: 1...20) {
+        case "triangle":
+            faces = .triangle
+        case "picture":
+            faces = .picture
+        case "roster":
+            if let orderText = try facesReader.optionalString("order", lengths: 1...20), orderText != "firstUnused" {
+                throw CustomThemeParseError(reason: "agents.faces.order must be firstUnused")
+            }
+            let playerValues = try facesReader.array("players", counts: 1...mostRosterPlayers)
+            faces = .roster(try playerValues.enumerated().map { playerIndex, playerValue in
+                try parseRosterPlayer(IdeaReader(playerValue, location: "agents.faces.players[\(playerIndex)]"))
+            })
+        default:
+            throw CustomThemeParseError(reason: "agents.faces.kind must be triangle, picture, or roster")
+        }
+        return ThemeAgents(ring: ring, faces: faces)
+    }
+
+    private static func parseRosterPlayer(_ playerReader: IdeaReader) throws -> ThemeRosterPlayer {
+        let name = try playerReader.string("name", lengths: 1...longestName)
+        let portraitFileName = try playerReader.optionalString("portrait", lengths: 1...longestPortraitFileName)
+        if let portraitFileName, !isAPortraitPathInsideTheTheme(portraitFileName) {
+            throw CustomThemeParseError(reason: "\(playerReader.location).portrait must be a file inside the theme, such as portraits/10.jpg")
+        }
+        return ThemeRosterPlayer(
             name: name,
-            accentHex: accentHex,
-            contrastHex: contrastHex,
-            agentColorHexes: agentColorHexes,
-            cursor: cursor,
-            motion: motion,
-            sounds: sounds,
-            usesPicture: usesPicture
+            fullName: try playerReader.optionalString("fullName", lengths: 1...60) ?? name,
+            number: try playerReader.optionalWholeNumber("number", range: 0...999),
+            portraitFileName: portraitFileName
         )
+    }
+
+    /// A portrait path is joined onto the theme's folder, so it may only name a file below it: letters, digits, dots,
+    /// hyphens, and underscores in segments split by "/", with no empty segment and none that starts with a dot, which
+    /// rules out ".." and hidden files.
+    static func isAPortraitPathInsideTheTheme(_ portraitPath: String) -> Bool {
+        let segments = portraitPath.split(separator: "/", omittingEmptySubsequences: false)
+        return segments.allSatisfy { segment in
+            !segment.isEmpty && segment.first != "." && segment.allSatisfy { character in
+                character.isASCII && (character.isLetter || character.isNumber || character == "." || character == "-" || character == "_")
+            }
+        }
     }
 
     private static func parseCursor(_ cursorReader: IdeaReader, pictureIsAvailable: Bool) throws -> CustomCursorDrawing {
         let kind = try cursorReader.string("kind", lengths: 1...20)
-        let shapeValues = try cursorReader.array("shapes", counts: 0...6)
+        let shapeValues = try cursorReader.optionalArray("shapes", counts: 0...6) ?? []
         let pictureValue = cursorReader.optionalValue("picture")
+        let pictureIsAbsent = pictureValue == nil || pictureValue == .null
         switch kind {
+        case "triangle":
+            guard shapeValues.isEmpty else { throw CustomThemeParseError(reason: "cursor.shapes must be empty when kind is triangle") }
+            guard pictureIsAbsent else { throw CustomThemeParseError(reason: "cursor.picture must be null when kind is triangle") }
+            return .triangle
         case "shapes":
             guard !shapeValues.isEmpty else { throw CustomThemeParseError(reason: "cursor.shapes needs 1 to 6 shapes") }
-            guard pictureValue == nil || pictureValue == .null else {
-                throw CustomThemeParseError(reason: "cursor.picture must be null when kind is shapes")
-            }
+            guard pictureIsAbsent else { throw CustomThemeParseError(reason: "cursor.picture must be null when kind is shapes") }
             let shapes = try shapeValues.enumerated().map { shapeIndex, shapeValue in
                 try parseShape(IdeaReader(shapeValue, location: "cursor.shapes[\(shapeIndex)]"))
             }
@@ -308,10 +450,10 @@ nonisolated extension CustomTheme {
         case "picture":
             guard shapeValues.isEmpty else { throw CustomThemeParseError(reason: "cursor.shapes must be empty when kind is picture") }
             guard pictureIsAvailable else { throw CustomThemeParseError(reason: "a picture cursor needs a picture") }
-            guard let pictureValue, pictureValue != .null else { throw CustomThemeParseError(reason: "cursor.picture is missing") }
+            guard let pictureValue, !pictureIsAbsent else { throw CustomThemeParseError(reason: "cursor.picture is missing") }
             return .picture(try parsePictureStyle(IdeaReader(pictureValue, location: "cursor.picture")))
         default:
-            throw CustomThemeParseError(reason: "cursor.kind must be shapes or picture")
+            throw CustomThemeParseError(reason: "cursor.kind must be triangle, shapes, or picture")
         }
     }
 
@@ -442,16 +584,40 @@ private nonisolated struct IdeaReader {
         }
         return normalizedHex
     }
+    /// A missing key or null reads as nil.
+    func optionalString(_ key: String, lengths: ClosedRange<Int>) throws -> String? {
+        guard let fieldValue = value[key], fieldValue != .null else { return nil }
+        return try string(key, lengths: lengths)
+    }
+
+    /// A whole number in the range, or nil for a missing key or null.
+    func optionalWholeNumber(_ key: String, range: ClosedRange<Int>) throws -> Int? {
+        guard let fieldValue = value[key], fieldValue != .null else { return nil }
+        guard let number = fieldValue.numberValue, number.isFinite, number == number.rounded(), range.contains(Int(number)) else {
+            throw CustomThemeParseError(reason: "\(location).\(key) must be a whole number from \(range.lowerBound) to \(range.upperBound)")
+        }
+        return Int(number)
+    }
+
+    /// A list, or nil for a missing key or null.
+    func optionalArray(_ key: String, counts: ClosedRange<Int>) throws -> [JSONValue]? {
+        guard let fieldValue = value[key], fieldValue != .null else { return nil }
+        return try array(key, counts: counts)
+    }
 }
 
-// MARK: - Back to the idea shape
 
-nonisolated extension CustomTheme {
-    /// The idea shape the Worker sends and a saved theme.json holds, so `parse(idea:)` reads back what this writes.
-    /// The studio sends it as `currentIdeas` when the learner refines the ideas on the card.
-    var ideaJSON: JSONValue {
+// MARK: - Back to theme.json
+
+nonisolated extension ClickyTheme {
+    /// The version 2 theme.json shape, which the Worker also sends for an idea, so `parse(themeJSON:)` reads back what this
+    /// writes. The store writes it to a saved theme's folder, and the studio sends it as `currentIdeas` when the learner
+    /// refines the ideas on the card. The id is not in it: a saved theme's id is its folder name.
+    var themeJSON: JSONValue {
         let cursorJSON: JSONValue
         switch cursor {
+        case .triangle:
+            cursorJSON = .object(["kind": .string("triangle"), "shapes": .array([]), "picture": .null])
         case .shapes(let shapes):
             cursorJSON = .object([
                 "kind": .string("shapes"),
@@ -478,10 +644,10 @@ nonisolated extension CustomTheme {
             ])
         }
         return .object([
+            "version": .number(Double(Self.newestFileVersion)),
             "name": .string(name),
             "accent": .string(accentHex),
             "contrast": .string(contrastHex),
-            "agentColors": .array(agentColorHexes.map(JSONValue.string)),
             "cursor": cursorJSON,
             "motion": .object([
                 "turnsTowardMovement": .bool(motion.turnsTowardMovement),
@@ -489,12 +655,42 @@ nonisolated extension CustomTheme {
                 "whileThinking": .string(motion.whileThinking.rawValue),
                 "whileListening": .string(motion.whileListening.rawValue),
             ]),
+            "agents": agents.themeJSON,
             "sounds": .object([
                 "done": .string(sounds.done.rawValue),
                 "correct": .string(sounds.correct.rawValue),
                 "needsYourOK": .string(sounds.needsYourOK.rawValue),
             ]),
-            "usesPicture": .bool(usesPicture),
         ])
+    }
+}
+
+nonisolated extension ThemeAgents {
+    var themeJSON: JSONValue {
+        let ringFields: [String: JSONValue]
+        switch ring {
+        case .perKind: ringFields = ["ring": .string("perKind"), "colors": .array([])]
+        case .accent: ringFields = ["ring": .string("accent"), "colors": .array([])]
+        case .perAgent(let colorHexes): ringFields = ["ring": .string("perAgent"), "colors": .array(colorHexes.map(JSONValue.string))]
+        }
+        let facesJSON: JSONValue
+        switch faces {
+        case .triangle:
+            facesJSON = .object(["kind": .string("triangle")])
+        case .picture:
+            facesJSON = .object(["kind": .string("picture")])
+        case .roster(let players):
+            facesJSON = .object([
+                "kind": .string("roster"),
+                "order": .string("firstUnused"),
+                "players": .array(players.map { player in
+                    var playerFields: [String: JSONValue] = ["name": .string(player.name), "fullName": .string(player.fullName)]
+                    if let number = player.number { playerFields["number"] = .number(Double(number)) }
+                    if let portraitFileName = player.portraitFileName { playerFields["portrait"] = .string(portraitFileName) }
+                    return .object(playerFields)
+                }),
+            ])
+        }
+        return .object(ringFields.merging(["faces": facesJSON]) { ringField, _ in ringField })
     }
 }
