@@ -119,4 +119,52 @@ struct VoiceCommandScreenReadTests {
         #expect(frontVideoStateSourceForTheTranscript(phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false, screenReadAtRelease: readWithAVideo) == .noVideoIsRead)
         #expect(frontVideoStateSourceForTheTranscript(phaseIsWaitingForAQuizAnswer: false, sceneIsBuilding: true, screenReadAtRelease: nil) == .noVideoIsRead)
     }
+
+    // The rehearsal's `^` step presses only after the command's line has gone to the harness, so a press during the release
+    // read is pinned here, on the function the command awaits that read through.
+    private func slowPageRead() -> (read: Task<VoiceCommandPageRead, Never>, finishTheRead: () -> Void) {
+        let (readIsAllowedToFinish, finishTheRead) = AsyncStream<Void>.makeStream()
+        let read = Task {
+            // The stream ends when the read is cancelled, as the study guide check's wait does. The deadline keeps a command
+            // whose cancel never reaches the read from hanging the test run, so it fails on `isCancelled` instead.
+            let deadline = Task { try? await Task.sleep(for: .seconds(2)); finishTheRead.yield() }
+            for await _ in readIsAllowedToFinish { break }
+            deadline.cancel()
+            return VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date())
+        }
+        return (read, { finishTheRead.yield() })
+    }
+
+    @Test func aPressDuringTheReleaseReadSendsNoCommand() async {
+        let (read, _) = slowPageRead()
+        let command = Task { await pageReadForTheVoiceCommand(startedAtRelease: read, readNow: { fatalError("the release read exists") }) }
+        // The press cancels the command while the read is still running.
+        command.cancel()
+        #expect(await command.value == nil)
+        #expect(read.isCancelled, "the press must stop the read too, since a hung study guide check would hold the command up")
+    }
+
+    @Test func aPressDuringAFreshReadSendsNoCommand() async {
+        let command = Task {
+            await pageReadForTheVoiceCommand(startedAtRelease: nil, readNow: {
+                // The cancel arrives while the fresh read runs.
+                while !Task.isCancelled { await Task.yield() }
+                return VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: Date())
+            })
+        }
+        command.cancel()
+        #expect(await command.value == nil)
+    }
+
+    @Test func aCommandNobodyCancelledGetsTheReleaseReadOrAFreshOne() async {
+        let (read, finishTheRead) = slowPageRead()
+        let commandWithARead = Task { await pageReadForTheVoiceCommand(startedAtRelease: read, readNow: { fatalError("the release read exists") }) }
+        finishTheRead()
+        #expect(await commandWithARead.value != nil)
+        let freshReadTime = Date(timeIntervalSince1970: 42)
+        let commandWithNoRead = await pageReadForTheVoiceCommand(startedAtRelease: nil, readNow: {
+            VoiceCommandPageRead(pageTools: [], pageState: nil, studyGuideExistsForTheFrontVideo: false, finishedAt: freshReadTime)
+        })
+        #expect(commandWithNoRead?.finishedAt == freshReadTime)
+    }
 }
