@@ -29,12 +29,15 @@ type startTaskMessage struct {
 }
 
 // toolResultMessage answers one tool_call. Content is a JSON string or an array of content blocks, such as the image
-// block look_at_video returns.
+// block look_at_video returns. SourceURL is the link of the video a read_video_captions result is about, which the app
+// sets for that tool alone and the task may then cite (see citableSources in taskagent.go). It is empty for every other result, and the
+// harness reads it only from a read_video_captions result, never from Content, which a page's text can write into.
 type toolResultMessage struct {
 	TaskID    string          `json:"taskID"`
 	ToolUseID string          `json:"toolUseID"`
 	Content   json.RawMessage `json:"content"`
 	IsError   bool            `json:"isError"`
+	SourceURL string          `json:"sourceURL"`
 }
 
 // cancelTaskMessage stops a task. The harness sends nothing more for it.

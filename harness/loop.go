@@ -87,6 +87,7 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 		anthropic.NewUserMessage(anthropic.NewTextBlock(firstMessage(start.Goal, start.FrontTabTitle, start.FrontTabURL, chosenSkill))),
 	}
 	var page pageOutcome
+	sources := newCitableSources(start.FrontTabURL)
 
 	for turnNumber := 1; turnNumber <= mostTaskAgentTurns; turnNumber++ {
 		reply, err := runner.requestTurn(taskContext, messages, tools)
@@ -98,13 +99,14 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 			return "", err
 		}
 		messages = append(messages, reply.message.ToParam())
+		sources.addSearchResultsOf(reply.message)
 
 		switch step := nextStepAfter(reply).(type) {
 		case continueThePausedTurn:
 			continue
 
 		case finishTask:
-			toolResults, err := runner.runToolCalls(taskContext, task, start.TaskID, step.afterRunning, offered, &page)
+			toolResults, err := runner.runToolCalls(taskContext, task, start.TaskID, step.afterRunning, offered, &page, sources)
 			if err != nil {
 				return "", err
 			}
@@ -131,7 +133,7 @@ func (runner *taskRunner) converse(taskContext context.Context, task *runningTas
 			return step.text, nil
 
 		case runTools:
-			toolResults, err := runner.runToolCalls(taskContext, task, start.TaskID, step.calls, offered, &page)
+			toolResults, err := runner.runToolCalls(taskContext, task, start.TaskID, step.calls, offered, &page, sources)
 			if err != nil {
 				return "", err
 			}
@@ -193,7 +195,9 @@ type pageOutcome struct {
 //
 // A call to a tool the task was not offered (the set in offered) is answered here with an error. A tool with no capability starts at once.
 // One with a capability waits for the learner's approval, one call at a time in the turn's order, and a declined one
-// gets the declined result and never runs. It sets page once a write_notion_page call succeeds.
+// gets the declined result and never runs. A write_notion_page call that cites a link outside sources is refused with an
+// error naming it, and one that passes reaches the app with each source's link as sources spelled it. It sets page once
+// a write_notion_page call succeeds, and adds the video link of a successful read_video_captions result to sources.
 func (runner *taskRunner) runToolCalls(
 	taskContext context.Context,
 	task *runningTask,
@@ -201,6 +205,7 @@ func (runner *taskRunner) runToolCalls(
 	calls []toolCall,
 	offered map[toolName]bool,
 	page *pageOutcome,
+	sources *citableSources,
 ) ([]anthropic.ContentBlockParamUnion, error) {
 	resultsByToolUseID := map[string]toolResultMessage{}
 	// An MCP server's tool runs in the harness, in its own goroutine, and its result arrives here.
@@ -226,7 +231,26 @@ func (runner *taskRunner) runToolCalls(
 	for _, call := range calls {
 		// A tool the task was not offered is not a tool, even when the app or a server has it. A skill that limits the
 		// tools holds the agent to them here, and not only in the request, since the model may call a name it never saw.
-		switch needed, known := runner.capabilityOf(call.Name); {
+		needed, known := runner.capabilityOf(call.Name)
+		// The page is private, but a source link is one the learner may click, so a link the agent could have written
+		// from what it read is refused before the call reaches the app.
+		pageRefusal := ""
+		// A page the task was not offered gets "is not a tool" below, so its sources are not checked or logged.
+		if call.Name == writeNotionPageTool && known && offered[call.Name] {
+			check := sources.checkPageSources(call.Input)
+			pageRefusal = check.refusal
+			switch {
+			case pageRefusal == "":
+				// The page cites each link as the set spelled it, never as the agent did.
+				call.Input = check.input
+			case check.refusedCount == 0:
+				runner.log(taskContext, "Task agent: refused a page whose sources could not be read")
+			default:
+				// A count only, since a refused link can hold what the agent read on the screen or the clipboard.
+				runner.log(taskContext, fmt.Sprintf("Task agent: refused a page, unresearched sources: %d", check.refusedCount))
+			}
+		}
+		switch {
 		case !known || !offered[call.Name]:
 			resultsByToolUseID[call.ID] = toolResultMessage{
 				TaskID:    taskID,
@@ -234,6 +258,8 @@ func (runner *taskRunner) runToolCalls(
 				Content:   mustMarshal(fmt.Sprintf("%s is not a tool", call.Name)),
 				IsError:   true,
 			}
+		case pageRefusal != "":
+			resultsByToolUseID[call.ID] = toolResultMessage{TaskID: taskID, ToolUseID: call.ID, Content: mustMarshal(pageRefusal), IsError: true}
 		case needed.needsApproval():
 			callsThatNeedApproval = append(callsThatNeedApproval, call)
 		default:
@@ -282,6 +308,11 @@ func (runner *taskRunner) runToolCalls(
 		result := resultsByToolUseID[call.ID]
 		if call.Name == writeNotionPageTool && !result.IsError {
 			page.written = true
+		}
+		// The video link comes only from this field of this tool's result, never from the captions text, which a video
+		// writes.
+		if call.Name == readVideoCaptionsTool && !result.IsError {
+			sources.add(result.SourceURL)
 		}
 		toolResultBlocks = append(toolResultBlocks, toolResultBlock(result))
 	}

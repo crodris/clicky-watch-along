@@ -106,6 +106,12 @@ struct AgentHarnessTests {
         #expect(try decodedJSON(of: imageResult.line)["content"] == .array([imageBlock]))
         #expect(try decodedJSON(of: imageResult.line)["isError"] == .bool(true))
 
+        // The video link rides in its own field and is left out of every other result, so the harness reads it from there
+        // alone.
+        #expect(try decodedJSON(of: textResult.line)["sourceURL"] == nil)
+        let captionsResult = HarnessCommand.toolResult(taskID: firstTaskID, toolUseID: "toolu_captions", content: .string("Title: A video"), isError: false, sourceURL: "https://www.youtube.com/watch?v=abc")
+        #expect(try decodedJSON(of: captionsResult.line)["sourceURL"] == .string("https://www.youtube.com/watch?v=abc"))
+
         #expect(try decodedJSON(of: HarnessCommand.cancelTask(taskID: firstTaskID).line) == .object([
             "type": .string("cancel_task"),
             "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),

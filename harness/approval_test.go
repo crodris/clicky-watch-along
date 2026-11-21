@@ -572,6 +572,8 @@ func TestAToolOutsideTheTasksOfferedSetIsNeverDispatched(t *testing.T) {
 				toolUseBlock("toolu_shot", "take_screenshot", `{}`),
 				// A server tool the skill did not offer, so the harness refuses it before any approval.
 				toolUseBlock("toolu_note", "mcp__fixture__read_note", `{"text":"x"}`),
+				// A page the skill did not offer, whose sources are neither checked nor logged.
+				toolUseBlock("toolu_page", "write_notion_page", `{"title":"t","summary":"s","sections":[],"sources":[{"title":"x","url":"https://b.example/?q=secret"}]}`),
 			)
 			return
 		}
@@ -588,7 +590,10 @@ func TestAToolOutsideTheTasksOfferedSetIsNeverDispatched(t *testing.T) {
 		t.Errorf("the server ran %v for a tool the task was not offered", got)
 	}
 	results := jsonValueAt(t, worker.requests()[1].body, "messages", 2, "content").([]any)
-	for resultIndex, wantName := range []string{"take_screenshot", "mcp__fixture__read_note"} {
+	if driver.logsContain("Task agent: refused a page") {
+		t.Errorf("a page the task was not offered logged a source refusal: %v", driver.logs)
+	}
+	for resultIndex, wantName := range []string{"take_screenshot", "mcp__fixture__read_note", "write_notion_page"} {
 		if jsonValueAt(t, results[resultIndex], "is_error") != true || jsonValueAt(t, results[resultIndex], "content", 0, "text") != wantName+" is not a tool" {
 			t.Errorf("the result for %s was %v", wantName, results[resultIndex])
 		}
