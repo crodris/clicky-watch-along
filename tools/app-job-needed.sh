@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Reads a pull request's changed file paths, one per line, on stdin, and prints "true" when the CI app job must run.
-# The app job runs on the Mac runner, which takes one job at a time, so a pull request that changes nothing the Xcode
-# build or its tests read skips it. The list names what is known to be outside the app, so a new top-level path runs it.
+# Reads the changed file paths of a pull request or a push, one per line, on stdin, and prints "true" when the CI app
+# job must run. The app job runs on the Mac runners, which are few and take one job each, so a change that touches
+# nothing the Xcode build or its tests read skips it. The list names what is known to be outside the app, so a new
+# top-level path runs it.
 set -euo pipefail
 
 # The second test keeps a last line that has no line break, which read reports as the end of input.

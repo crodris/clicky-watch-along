@@ -32,6 +32,14 @@ struct SeededRandomNumberGenerator: RandomNumberGenerator {
 /// A store whose folder does not exist, so a test never reads the themes the developer saved on this Mac.
 let themeStoreWithNoSavedThemes = CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("clicky-tests-no-saved-themes", isDirectory: true))
 
+/// The name of a fixed UserDefaults suite for a test that reads its saved values back, after the test host's bundle ID.
+/// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
+/// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
+/// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
+func fixedTestDefaultsSuiteName(_ testName: String) -> String {
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)"
+}
+
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
 func makeThemeSettings(startingWith theme: CompanionTheme = .clickyBlue, customThemeStore: CustomThemeStore = themeStoreWithNoSavedThemes) -> CompanionThemeSettings {
@@ -118,7 +126,7 @@ struct HaikyuThemeTests {
     }
 
     @Test func theThemeIsSavedWhenItChangesAndReadBackOnTheNextLaunch() async throws {
-        let suiteName = "HaikyuThemeTests-SavedTheme"
+        let suiteName = fixedTestDefaultsSuiteName("HaikyuThemeTests-SavedTheme")
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }

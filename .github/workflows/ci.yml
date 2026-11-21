@@ -79,39 +79,50 @@ jobs:
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
 
-  # Says whether the pull request changes anything the app build or its tests read, so a bench, worker, or docs change
-  # does not wait in line for a Mac runner.
+  # Says whether a pull request or a push to main changes anything the app build or its tests read, so a bench,
+  # worker, or docs change does not wait in line for a Mac runner.
   changes:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
-      app: ${{ steps.app.outputs.app }}
+      app_job_needed: ${{ steps.app_job_needed.outputs.app_job_needed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A pull request checks out its merge commit, whose first parent is the base it merges into.
+          fetch-depth: 2
       - run: bash tools/app-job-needed.test.sh
-      # A renamed file counts at its old path too, since moving a file out of the app changes the app.
-      - id: app
+      - id: app_job_needed
         env:
-          GH_TOKEN: ${{ github.token }}
-          PULL_REQUEST_FILES: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
+          COMMIT_BEFORE_THE_PUSH: ${{ github.event.before }}
         run: |
-          changed_files="$(gh api --paginate "$PULL_REQUEST_FILES" --jq '.[] | .filename, (.previous_filename // empty)')"
-          echo "app=$(printf '%s\n' "$changed_files" | bash tools/app-job-needed.sh)" >> "$GITHUB_OUTPUT"
+          compared_commit="HEAD^1"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            compared_commit="$COMMIT_BEFORE_THE_PUSH"
+            # A push that rewrote main can name a commit the remote no longer has, and then the app job runs.
+            if ! git fetch --no-tags --depth=1 origin "$compared_commit"; then
+              echo "app_job_needed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          # --no-renames lists a moved file at its old path too, since moving a file out of the app changes the app.
+          app_job_needed="$(git diff --name-only --no-renames "$compared_commit" HEAD | bash tools/app-job-needed.sh)"
+          case "$app_job_needed" in
+            true | false) ;;
+            *)
+              echo "tools/app-job-needed.sh printed '$app_job_needed' instead of true or false." >&2
+              exit 1
+              ;;
+          esac
+          echo "app_job_needed=$app_job_needed" >> "$GITHUB_OUTPUT"
 
   app:
-    # Only pull requests run it. Babysit keeps each pull request current with main before it merges, so a push to main
-    # would test the same code again and hold a Mac runner while other pull requests wait.
     needs: changes
-    if: needs.changes.outputs.app == 'true'
-    # Same-repo PRs run on the self-hosted Mac runners, as a separate macOS user, because GitHub's macOS queue can take over 10 minutes.
+    if: needs.changes.outputs.app_job_needed == 'true'
+    # Pushes and same-repo PRs run on the self-hosted Mac runners, as a separate macOS user, because GitHub's macOS queue can take over 10 minutes.
     # Fork PRs stay on GitHub's runner, and the repo requires approval before an outside contributor's workflow runs, since a fork can edit this line.
-    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'clicky-mac' || 'macos-latest' }}
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'clicky-mac' || 'macos-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
