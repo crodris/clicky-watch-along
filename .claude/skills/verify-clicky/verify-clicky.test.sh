@@ -91,6 +91,13 @@ check "both brain flags pass their launch arguments" "${app_launch_flag_argument
 check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
 parse_app_launch_arguments "pop this out"
 check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
+check "the app calls the Worker on 8787 by default" "$app_launch_worker_port" "8787"
+parse_app_launch_arguments --worker-port 8796 --no-speculation --harness-brain "%turn it left"
+check "--worker-port and --no-speculation pass their launch arguments" "${app_launch_flag_arguments[*]}" "--worker-port 8796 --no-voice-command-speculation --brain-runs-in-the-harness"
+check "--worker-port sets the port app-launch checks" "$app_launch_worker_port" "8796"
+check "the steps follow the port" "$app_launch_rehearsal_steps" "%turn it left"
+port_error="$( (parse_app_launch_arguments --worker-port eighty "x") 2>&1)" || true
+check "--worker-port refuses a value that is not a port" "$port_error" "--worker-port takes a port number, as in: --worker-port 8796"
 # --no-app-secret and --wrong-app-secret pass the app's own --app-secret-mode argument, so the upgrade paths of the harness
 # brain work on the first try without touching the defaults. The default copies the real secret and passes nothing.
 parse_app_launch_arguments "turn it to the left"

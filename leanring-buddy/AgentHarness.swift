@@ -201,8 +201,12 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     /// `voiceToolsOfferedToTheModel`. The line carries no recent actions, since the brain keeps every earlier command in
     /// its own session, and its scene state has no `approvalWaiting`, since the harness names the waiting request's kind of
     /// action itself. `approvalIDSeenAtPress` is the request whose card had shown its whole summary for a second at the
-    /// press, the one fact about approvals only the app knows.
-    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalIDSeenAtPress: String?)
+    /// press, the one fact about approvals only the app knows. `waitsForTheFinalTranscript` is true for a command started on
+    /// the partial transcript, which the harness holds before its first call until `confirmVoiceCommand` arrives, and such a
+    /// command never names an approval.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, tools: [VoiceToolDescriptor], approvalIDSeenAtPress: String?, waitsForTheFinalTranscript: Bool = false)
+    /// The final transcript has the words a command waiting for it started on, so the command goes on.
+    case confirmVoiceCommand(taskID: UUID)
     /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
     /// model again, or stop for a hand-off.
     case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
@@ -243,15 +247,21 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
-        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalIDSeenAtPress):
-            return .object([
+        case .voiceCommand(let taskID, let transcript, let sceneState, let tools, let approvalIDSeenAtPress, let waitsForTheFinalTranscript):
+            var voiceCommandFields: [String: JSONValue] = [
                 "type": .string("voice_command"),
                 "taskID": .string(taskID.uuidString),
                 "transcript": .string(transcript),
                 "sceneState": sceneState,
                 "tools": .array(tools.map(\.workerRequestJSON)),
                 "approvalIDSeenAtPress": approvalIDSeenAtPress.map(JSONValue.string) ?? .null,
-            ])
+            ]
+            if waitsForTheFinalTranscript {
+                voiceCommandFields["waitsForTheFinalTranscript"] = .bool(true)
+            }
+            return .object(voiceCommandFields)
+        case .confirmVoiceCommand(let taskID):
+            return .object(["type": .string("confirm_voice_command"), "taskID": .string(taskID.uuidString)])
         case .voiceToolResult(let taskID, let toolUseID, let outcome):
             return .object([
                 "type": .string("tool_result"),
@@ -735,12 +745,25 @@ final class AgentHarness {
         transcript: String,
         sceneState: JSONValue,
         tools: [VoiceToolDescriptor],
-        approvalIDSeenAtPress: String?
+        approvalIDSeenAtPress: String?,
+        waitsForTheFinalTranscript: Bool = false
     ) throws -> AsyncStream<HarnessTaskEvent> {
         try launchTheHarnessIfItIsNotRunning()
         let commandEvents = taskRouter.register(taskID: taskID)
-        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, tools: tools, approvalIDSeenAtPress: approvalIDSeenAtPress))
+        write(.voiceCommand(
+            taskID: taskID,
+            transcript: transcript,
+            sceneState: sceneState,
+            tools: tools,
+            approvalIDSeenAtPress: approvalIDSeenAtPress,
+            waitsForTheFinalTranscript: waitsForTheFinalTranscript
+        ))
         return commandEvents
+    }
+
+    /// Lets a command started on the partial transcript go on, since the final transcript matched it.
+    func confirmVoiceCommand(taskID: UUID) {
+        write(.confirmVoiceCommand(taskID: taskID))
     }
 
     /// Stops routing a voice command's events, after one last event when there is one, and writes nothing, since the

@@ -168,6 +168,8 @@ func (serving *harness) handle(line []byte) {
 		serving.startTask(message)
 	case voiceCommandMessage:
 		serving.startVoiceCommand(message)
+	case confirmVoiceCommandMessage:
+		serving.confirmVoiceCommand(message)
 	case resetSessionMessage:
 		if !serving.benchMode {
 			fmt.Fprintln(os.Stderr, "harness: dropped reset_session, which only a harness started with CLICKY_BENCH=1 takes")
@@ -236,7 +238,13 @@ func (serving *harness) startVoiceCommand(voiceCommand voiceCommandMessage) {
 		cancelUnlessAHandOffCompletedIt(previousCommand)
 	}
 	commandContext, cancel := context.WithCancel(serving.rootContext)
-	command := &runningTask{cancel: cancel, done: commandContext.Done(), toolResults: make(chan toolResultMessage, 32), isVoiceCommand: true}
+	command := &runningTask{
+		cancel:          cancel,
+		done:            commandContext.Done(),
+		toolResults:     make(chan toolResultMessage, 32),
+		isVoiceCommand:  true,
+		finalTranscript: newFinalTranscriptGate(voiceCommand.WaitsForTheFinalTranscript),
+	}
 	serving.tasks[voiceCommand.TaskID] = command
 	serving.runningVoiceCommandID = voiceCommand.TaskID
 	previousCommandEnded := serving.lastVoiceCommandEnded
@@ -254,6 +262,19 @@ func (serving *harness) startVoiceCommand(voiceCommand voiceCommandMessage) {
 		}
 		serving.brain.runCommand(commandContext, command, voiceCommand)
 	}()
+}
+
+// confirmVoiceCommand lets a command the app started on the partial transcript go on, since the final transcript matched.
+// A command that already ended, such as one whose turn failed while it waited, has nothing to confirm.
+func (serving *harness) confirmVoiceCommand(confirmation confirmVoiceCommandMessage) {
+	serving.tasksMutex.Lock()
+	command := serving.tasks[confirmation.TaskID]
+	serving.tasksMutex.Unlock()
+	if command == nil || command.finalTranscript == nil {
+		fmt.Fprintf(os.Stderr, "harness: dropped confirm_voice_command for %s, which is not running\n", confirmation.TaskID)
+		return
+	}
+	command.finalTranscript.open()
 }
 
 func (serving *harness) removeTask(taskID string) {

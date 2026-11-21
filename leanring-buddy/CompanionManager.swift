@@ -68,6 +68,27 @@ enum RehearsalStepPrefix: Character, Equatable {
     /// "^": press push-to-talk 0.3 seconds after this step's voice_command line goes to the harness, as a learner who
     /// interrupts the command would.
     case pressesPushToTalkDuringTheCommand = "^"
+    /// "%": a partial transcript stands in for the words heard at the release, as a microphone would give, so the voice
+    /// command can start on it before the final transcript ("%partial >> final", or "%words" when both are the same).
+    case hearsAPartialTranscriptFirst = "%"
+}
+
+/// The partial and final transcripts of a "%" step: the words before " >> " are heard at the release and the words after
+/// it are the final transcript, and a step with no " >> " hears the same words both times.
+func rehearsalPartialAndFinalTranscripts(_ transcript: String) -> (partial: String, final: String) {
+    guard let separatorRange = transcript.range(of: " >> ") else { return (transcript, transcript) }
+    return (String(transcript[..<separatorRange.lowerBound]), String(transcript[separatorRange.upperBound...]))
+}
+
+/// The port of the local Worker a Debug build calls: 8787, or the whole number of 1024 to 65535 after `--worker-port`.
+func debugWorkerPort(launchArguments: [String]) -> Int {
+    guard let flagIndex = launchArguments.firstIndex(of: "--worker-port"),
+          launchArguments.indices.contains(flagIndex + 1),
+          let port = Int(launchArguments[flagIndex + 1]),
+          (1024...65535).contains(port) else {
+        return 8787
+    }
+    return port
 }
 
 /// The step's prefix, or nil, and the words spoken without it.
@@ -135,7 +156,9 @@ final class CompanionManager: ObservableObject {
     /// Base URL for the Cloudflare Worker proxy. All API requests route
     /// through this so keys never ship in the app binary.
     #if DEBUG
-    private static let workerBaseURL = "http://127.0.0.1:8787"
+    /// A launch with `--worker-port <port>` uses a local Worker on that port, so a verify run can use its own Worker while
+    /// another checkout's holds 8787.
+    private static let workerBaseURL = "http://127.0.0.1:\(debugWorkerPort(launchArguments: ProcessInfo.processInfo.arguments))"
     #else
     // The upstream placeholder is an unowned host, so a release build must not
     // compile until it has a real https Worker URL for screenshots to go to.
@@ -319,6 +342,13 @@ final class CompanionManager: ObservableObject {
     /// transcript of the same press takes it (`screenReadForTheTranscript`).
     private var voiceCommandScreenRead: VoiceCommandScreenRead?
     private var voiceCommandScreenReadTask: Task<Void, Never>?
+    /// The voice command a press started on its partial transcript once the release's screen read was in, which the final
+    /// transcript of that press confirms or discards (`VoiceCommandSpeculation.swift`). A new press discards it.
+    private var voiceCommandSpeculation: VoiceCommandSpeculationState = .none
+    #if DEBUG
+    /// The partial transcript a rehearsal step stands in for, since a rehearsal runs no microphone (a "%" step).
+    private var rehearsalPartialTranscript: String?
+    #endif
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -935,6 +965,8 @@ final class CompanionManager: ObservableObject {
             pushToTalkPressAcceptance.pressWasAccepted()
             // A screen read from an earlier press is out of date the moment a new press begins.
             forgetTheVoiceCommandScreenRead()
+            // So is a command the last press started on its partial transcript, whose words the learner is now replacing.
+            endTheVoiceCommandSpeculation(because: "a new push-to-talk press")
             // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
             // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
             agentTokenDockController.finishTheServeAtOnce()
@@ -1098,6 +1130,13 @@ final class CompanionManager: ObservableObject {
             let stepWaitsForTheBackgroundAgents = stepPrefix == .waitsForTheBackgroundAgents
             let stepPressesPushToTalkDuringTheCommand = stepPrefix == .pressesPushToTalkDuringTheCommand
             var transcript = transcriptWithoutPrefix
+            if stepPrefix == .hearsAPartialTranscriptFirst {
+                let (partialTranscript, finalTranscript) = rehearsalPartialAndFinalTranscripts(transcriptWithoutPrefix)
+                rehearsalPartialTranscript = partialTranscript
+                transcript = finalTranscript
+            }
+            // Every exit from this step, a "continue" included, stops standing in for the microphone.
+            defer { rehearsalPartialTranscript = nil }
             if stepWaitsForTheBackgroundAgents {
                 // A guide takes about 15 seconds and a task agent about 25, so 3 minutes covers a long task and the Worker's retries.
                 for _ in 0..<720 where !backgroundAgentTasks.isEmpty || studyGuideRefreshesBeingChecked > 0 {
@@ -1244,87 +1283,88 @@ final class CompanionManager: ObservableObject {
         defer {
             if !screenReadIsHandedToTheVoiceCommand { screenReadAtRelease?.pageRead.cancel() }
         }
-        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
-        if videoQuizPhrasesAreMatchedAheadOfTheRouter(
-            themeStudioIsOpen: themeStudioController.isOpen,
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer
-        ), let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
+        let routeContext = currentTranscriptRouteContext()
+        // The read started at this press's release, when there is one. Otherwise it is read once here, and only for a
+        // transcript that gets past the phrase matches and the keyword branches, because each read is a round trip to
+        // Chrome. A quiz answer or a scene still building reads no video.
+        var frontVideoStateReadForThisTranscript: JSONValue??
+        func frontVideoState() -> JSONValue? {
+            if let frontVideoStateReadForThisTranscript { return frontVideoStateReadForThisTranscript }
+            let frontVideoStateNow: JSONValue?
+            switch frontVideoStateSourceForTheTranscript(
+                phaseIsWaitingForAQuizAnswer: routeContext.phaseIsWaitingForAQuizAnswer,
+                sceneIsBuilding: routeContext.sceneIsBuilding,
+                screenReadAtRelease: screenReadAtRelease
+            ) {
+            case .noVideoIsRead:
+                frontVideoStateNow = nil
+            case .fromTheRelease(let frontVideoStateAtRelease):
+                frontVideoStateNow = frontVideoStateAtRelease
+            case .readNow:
+                frontVideoStateNow = videoQuizSession.frontVideoStateForVoiceCommands()
+            }
+            frontVideoStateReadForThisTranscript = .some(frontVideoStateNow)
+            return frontVideoStateNow
+        }
+        let route = transcriptRoute(for: transcript, in: routeContext, videoIsInFront: { frontVideoState() != nil })
+
+        // A command this press started on its partial transcript is kept only when the final transcript would have sent the
+        // same command, and is discarded otherwise, before the final transcript takes its route.
+        var speculationOutcome: VoiceCommandSpeculationOutcome?
+        var confirmedSpeculativeCommand: SpeculativeVoiceCommand?
+        if let speculativeCommand = voiceCommandSpeculation.takeForTheFinalTranscript(ofPress: pressCountOfTheTranscript) {
+            let finalUsesTheSameScreenRead = screenReadAtRelease != nil
+            let commandInputsAreUnchanged = route == .voiceCommandRouter && finalUsesTheSameScreenRead
+                && voiceCommandInputs(frontVideoState: frontVideoState(), pageRead: speculativeCommand.pageRead) == speculativeCommand.inputs
+            switch speculationStep(
+                partialTranscript: speculativeCommand.partialTranscript,
+                finalTranscript: transcript,
+                finalRoute: route,
+                voiceCommandsRunInTheHarness: voiceCommandBackend.runsInTheHarness,
+                finalUsesTheSameScreenRead: finalUsesTheSameScreenRead,
+                commandInputsAreUnchanged: commandInputsAreUnchanged
+            ) {
+            case .confirm:
+                agentHarness.confirmVoiceCommand(taskID: speculativeCommand.command.commandID)
+                confirmedSpeculativeCommand = speculativeCommand
+                speculationOutcome = .kept
+                print("Voice command: the final transcript kept the command started on the partial transcript")
+            case .discard(let reason):
+                discardTheSpeculativeVoiceCommand(speculativeCommand, because: reason)
+                speculationOutcome = .discarded
+            }
+        }
+
+        switch route {
+        case .videoQuizCommand(let videoQuizCommand):
             handleVideoQuizVoiceCommand(videoQuizCommand)
-            return
-        }
-
-        // "Put it back" has its own tested phrase match, which keeps "put it back together" for the router.
-        if asksToPutTheSceneBack(transcript), liveSceneIsUpWithNoQuizQuestion {
+        case .putTheSceneBack:
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
-            return
-        }
-        var sceneIsBuilding = false
-        if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
-        let brainTakesEveryRequest = BrainTakesEveryRequest.isOn()
-
         // "Animate this" and "let me try it" keep their keyword branches ahead of the router, so a demo never depends on
         // the model choosing them, unless the brain flag hands the utterance to the router.
-        switch keywordBranchAheadOfTheRouter(
-            for: transcript,
-            brainTakesEveryRequest: brainTakesEveryRequest,
-            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding,
-            themeStudioIsOpen: themeStudioController.isOpen
-        ) {
-        case .animatePicture:
+        case .keywordBranch(.animatePicture):
             theRequestBecameALookAtTheMedia()
             respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
-            return
-        case .startExperiment:
+        case .keywordBranch(.startExperiment):
             startTheExperimentInTheBackground(transcript: transcript)
-            return
-        case .designATheme(let themeStudioRequest):
+        case .keywordBranch(.designATheme(let themeStudioRequest)):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
-            return
-        case nil:
-            break
-        }
-
-        // The read started at this press's release, when there is one. Otherwise it is read once here and handed to the
-        // router, because each read is a round trip to Chrome. A quiz answer or a scene still building reads no video.
-        let frontVideoState: JSONValue?
-        switch frontVideoStateSourceForTheTranscript(
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding,
-            screenReadAtRelease: screenReadAtRelease
-        ) {
-        case .noVideoIsRead:
-            frontVideoState = nil
-        case .fromTheRelease(let frontVideoStateAtRelease):
-            frontVideoState = frontVideoStateAtRelease
-        case .readNow:
-            frontVideoState = videoQuizSession.frontVideoStateForVoiceCommands()
-        }
-        let routerTakesTheTranscript = voiceCommandRouterTakesTheTranscript(
-            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-            videoIsInFront: frontVideoState != nil,
-            backgroundSceneIsReady: readyBackgroundScene != nil,
-            taskAnswerIsReady: taskAnswerWaitsToBeHeard,
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
-            themeStudioIsOpen: themeStudioController.isOpen,
-            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding,
-            brainTakesEveryRequest: brainTakesEveryRequest
-        )
-        if routerTakesTheTranscript {
+        case .voiceCommandRouter:
             // Only the release of this transcript's own press counts, never an older press's.
             let releaseOfThisPress = lastPushToTalkRelease?.pressCount == pressCountOfTheTranscript ? lastPushToTalkRelease : nil
             screenReadIsHandedToTheVoiceCommand = true
+            let timing = VoiceCommandTimingRecorder(pushToTalkReleasedAt: releaseOfThisPress?.releasedAt, transcriptReadyAt: transcriptReadyAt)
+            timing.speculation = speculationOutcome
             startVoiceCommand(
                 transcript: transcript,
-                frontVideoState: frontVideoState,
+                frontVideoState: frontVideoState(),
                 pageReadStartedAtRelease: screenReadAtRelease?.pageRead,
-                timing: VoiceCommandTimingRecorder(pushToTalkReleasedAt: releaseOfThisPress?.releasedAt, transcriptReadyAt: transcriptReadyAt)
+                confirmedSpeculativeCommand: confirmedSpeculativeCommand,
+                timing: timing
             )
-            return
+        case .keywordPath:
+            respondByTheKeywordPath(transcript: transcript)
         }
-        respondByTheKeywordPath(transcript: transcript)
     }
 
     /// Starts the reads a voice command needs from the screen, at the release of push-to-talk. The front tab read, shared
@@ -1352,7 +1392,7 @@ final class CompanionManager: ObservableObject {
             // The front tab is the one the loop's media read took, when that ran first, and its URL is the study guide check's.
             let frontTab = frontTabRead.frontTab()
             let frontVideoState = frontTab.flatMap { videoQuizSession.frontVideoStateForVoiceCommands(in: $0) }
-            voiceCommandScreenRead = VoiceCommandScreenRead(
+            let screenRead = VoiceCommandScreenRead(
                 pressCount: pressCountOfTheRead,
                 pageIdentityAtRelease: pageIdentityAtRelease,
                 frontVideoState: frontVideoState,
@@ -1360,7 +1400,99 @@ final class CompanionManager: ObservableObject {
                     await self.readThePageForTheVoiceCommand(frontVideoState: frontVideoState, frontVideoURLSource: .releaseRead(frontTab?.url))
                 }
             )
+            voiceCommandScreenRead = screenRead
+            startTheVoiceCommandOnThePartialTranscriptOnceTheScreenIsRead(screenRead)
         }
+    }
+
+    /// Starts the voice command on the words heard so far once the release's page read is in, so the model works while the
+    /// final transcript is still on its way. The harness holds the command before its first call until the final transcript
+    /// confirms the words, so nothing the learner can see or hear happens on a partial transcript. The press's final
+    /// transcript keeps or discards it (`speculationStep`), and a new press discards it.
+    private func startTheVoiceCommandOnThePartialTranscriptOnceTheScreenIsRead(_ screenRead: VoiceCommandScreenRead) {
+        endTheVoiceCommandSpeculation(because: "a newer release read the screen again")
+        let startOnceTheScreenIsRead = Task { @MainActor in
+            let pageRead = await screenRead.pageRead.value
+            // A press, or this press's final transcript, ended the wait first, and the final transcript runs the normal way.
+            guard !Task.isCancelled,
+                  case .waitingForTheScreenRead(let pressCountWaiting, _) = self.voiceCommandSpeculation,
+                  pressCountWaiting == screenRead.pressCount else { return }
+            self.voiceCommandSpeculation = .none
+            let partialTranscript = self.partialTranscriptHeardSoFar()
+            let partialRoute = transcriptRoute(
+                for: partialTranscript,
+                in: self.currentTranscriptRouteContext(),
+                videoIsInFront: { screenRead.frontVideoState != nil }
+            )
+            let inputs = self.voiceCommandInputs(frontVideoState: screenRead.frontVideoState, pageRead: pageRead)
+            if case .doNotStart(let reason) = speculativeStartStep(
+                partialTranscript: partialTranscript,
+                partialRoute: partialRoute,
+                voiceCommandsRunInTheHarness: self.voiceCommandBackend.runsInTheHarness,
+                approvalIDSeenAtPress: inputs.approvalIDWaitingWhenTheCommandStarted,
+                speculationIsOn: VoiceCommandSpeculation.isOn()
+            ) {
+                print("Voice command: did not start on the partial transcript, because \(reason)")
+                return
+            }
+            do {
+                let command = try self.startTheHarnessVoiceCommand(transcript: partialTranscript, inputs: inputs, waitsForTheFinalTranscript: true)
+                self.voiceCommandSpeculation = .awaitingTheFinalTranscript(SpeculativeVoiceCommand(
+                    pressCount: screenRead.pressCount,
+                    partialTranscript: partialTranscript,
+                    pageRead: pageRead,
+                    inputs: inputs,
+                    command: command
+                ))
+                let releaseOfThisPress = self.lastPushToTalkRelease?.pressCount == screenRead.pressCount ? self.lastPushToTalkRelease : nil
+                let millisecondsAfterTheRelease = releaseOfThisPress.map { release in "\(Int(command.sentAt.timeIntervalSince(release.releasedAt) * 1000)) ms" } ?? "-"
+                print("Voice command: started on the partial transcript \(millisecondsAfterTheRelease) after the release, with \(inputs.tools.count) tools")
+            } catch {
+                print("Voice command: could not start on the partial transcript: \(error)")
+            }
+        }
+        voiceCommandSpeculation = .waitingForTheScreenRead(pressCount: screenRead.pressCount, start: startOnceTheScreenIsRead)
+    }
+
+    /// The words heard so far in the current press. A rehearsal step that starts with "%" stands in for them.
+    private func partialTranscriptHeardSoFar() -> String {
+        #if DEBUG
+        if let rehearsalPartialTranscript { return rehearsalPartialTranscript }
+        #endif
+        return buddyDictationManager.partialTranscript
+    }
+
+    /// Ends what the last press started on its partial transcript: a start still waiting for the screen read, or a command
+    /// waiting for the final transcript, which is discarded.
+    private func endTheVoiceCommandSpeculation(because reason: String) {
+        if let speculativeCommand = voiceCommandSpeculation.end() {
+            discardTheSpeculativeVoiceCommand(speculativeCommand, because: reason)
+        }
+    }
+
+    /// Cancels a command started on the partial transcript. None of its calls ran, since the harness held them, so the
+    /// cancel names no running call and the harness rolls the command back with nothing to report to the next one.
+    private func discardTheSpeculativeVoiceCommand(_ speculativeCommand: SpeculativeVoiceCommand, because reason: String) {
+        speculativeCommand.command.lines.commandWasCancelled()
+        agentHarness.endVoiceCommand(taskID: speculativeCommand.command.commandID)
+        print("Voice command: discarded the command started on the partial transcript, because \(reason)")
+    }
+
+    /// What decides a transcript's route, read from the app now.
+    private func currentTranscriptRouteContext() -> TranscriptRouteContext {
+        var sceneIsBuilding = false
+        if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
+        return TranscriptRouteContext(
+            themeStudioIsOpen: themeStudioController.isOpen,
+            phaseIsWaitingForAQuizAnswer: liveScenePhaseIsWaitingForAQuizAnswer,
+            liveSceneIsUpWithNoQuizQuestion: liveSceneIsUpWithNoQuizQuestion,
+            sceneIsBuilding: sceneIsBuilding,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            brainTakesEveryRequest: BrainTakesEveryRequest.isOn(),
+            backgroundSceneIsReady: readyBackgroundScene != nil,
+            taskAnswerIsReady: taskAnswerWaitsToBeHeard,
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil
+        )
     }
 
     /// Which page is on screen right now, for telling a read of the page tools from a read of a page that is gone.
@@ -2726,10 +2858,13 @@ final class CompanionManager: ObservableObject {
     /// A follow-up command while a scene is on screen or a video plays in Chrome's front tab. A fast model picks tools the page
     /// and the app offer, the screen changes, and Clicky says the model's short confirmation after that.
     /// A request that needs a new scene or a screenshot answer hands off to respondToTranscript.
+    /// `confirmedSpeculativeCommand` is the command this transcript's press started on its partial transcript, which the
+    /// final transcript kept, so it runs from where the harness holds it instead of being sent again.
     private func startVoiceCommand(
         transcript: String,
         frontVideoState: JSONValue?,
         pageReadStartedAtRelease: Task<VoiceCommandPageRead, Never>? = nil,
+        confirmedSpeculativeCommand: SpeculativeVoiceCommand? = nil,
         timing: VoiceCommandTimingRecorder
     ) {
         currentResponseTask?.cancel()
@@ -2739,8 +2874,59 @@ final class CompanionManager: ObservableObject {
             // The dictation session's own idle reaches voiceState after this call returns, so the state is set again
             // here, the way respondToTranscript's task does, or the thinking dots vanish for the whole router call.
             self.voiceState = .processing
-            await self.runVoiceCommand(transcript: transcript, frontVideoState: frontVideoState, pageReadStartedAtRelease: pageReadStartedAtRelease, timing: timing)
+            await self.runVoiceCommand(
+                transcript: transcript,
+                frontVideoState: frontVideoState,
+                pageReadStartedAtRelease: pageReadStartedAtRelease,
+                confirmedSpeculativeCommand: confirmedSpeculativeCommand,
+                timing: timing
+            )
         }
+    }
+
+    /// What a voice command sends to the model for this page read and the app's state now. The speculative start and the
+    /// final transcript both build it here, so the final transcript can tell whether the command it would send is the one
+    /// already sent.
+    private func voiceCommandInputs(frontVideoState: JSONValue?, pageRead: VoiceCommandPageRead) -> VoiceCommandInputs {
+        // A quiz answer or a scene still building reads no video, so there is no front video for a guide to belong to.
+        let studyGuideExistsForTheFrontVideo = frontVideoState != nil && pageRead.studyGuideExistsForTheFrontVideo
+        let appToolContext = appVoiceToolContext(
+            pageState: pageRead.pageState,
+            frontVideoState: frontVideoState,
+            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
+        )
+        return VoiceCommandInputs(
+            tools: voiceToolsOfferedToTheModel(pageTools: pageRead.pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills()),
+            pageState: pageRead.pageState,
+            frontVideoState: frontVideoState,
+            // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
+            harnessSceneState: voiceCommandSceneState(pageState: pageRead.pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
+            // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
+            // screen while they spoke or while the model ran, such as after the shown one's task ended.
+            approvalIDWaitingWhenTheCommandStarted: approvalRequestAVoiceAnswerMayReach?.approvalID
+        )
+    }
+
+    /// Sends a voice command to the brain in the harness. A command started on the partial transcript waits there, before its
+    /// first call, for `confirmVoiceCommand`.
+    private func startTheHarnessVoiceCommand(transcript: String, inputs: VoiceCommandInputs, waitsForTheFinalTranscript: Bool) throws -> StartedHarnessVoiceCommand {
+        let commandID = UUID()
+        let standardInputWriter = agentHarness.standardInputWriter
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID) { harnessCommand in
+            standardInputWriter.write(harnessCommand)
+        }
+        let commandEvents = try agentHarness.startVoiceCommand(
+            taskID: commandID,
+            transcript: transcript,
+            sceneState: inputs.harnessSceneState,
+            tools: inputs.tools,
+            approvalIDSeenAtPress: inputs.approvalIDWaitingWhenTheCommandStarted,
+            waitsForTheFinalTranscript: waitsForTheFinalTranscript
+        )
+        #if DEBUG
+        harnessVoiceCommandsSent += 1
+        #endif
+        return StartedHarnessVoiceCommand(commandID: commandID, lines: commandLines, events: commandEvents, sentAt: Date())
     }
 
     /// What decides which app tools the model is offered. The router and the Debug tool server both read it here, so the
@@ -2772,49 +2958,57 @@ final class CompanionManager: ObservableObject {
         transcript: String,
         frontVideoState: JSONValue?,
         pageReadStartedAtRelease: Task<VoiceCommandPageRead, Never>?,
+        confirmedSpeculativeCommand: SpeculativeVoiceCommand?,
         timing: VoiceCommandTimingRecorder
     ) async {
         // Every exit logs the line once: a finished, cancelled, failed, or handed-off command.
         defer { timing.logTheLineOnce() }
         let commandStartedAt = Date()
-        // The read started at the press's release is awaited when it has not finished, and a command with no read of its own
-        // (a quiz scene command, or a transcript whose read was dropped) reads the page now.
-        // A press during the read cancels this command, so it must not send anything to the harness or the Worker.
-        guard let pageRead = await pageReadForTheVoiceCommand(
-            startedAtRelease: pageReadStartedAtRelease,
-            readNow: { await readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
-        ) else { return }
+        let pageRead: VoiceCommandPageRead
+        if let confirmedSpeculativeCommand {
+            pageRead = confirmedSpeculativeCommand.pageRead
+        } else {
+            // The read started at the press's release is awaited when it has not finished, and a command with no read of
+            // its own (a quiz scene command, or a transcript whose read was dropped) reads the page now.
+            // A press during the read cancels this command, so it must not send anything to the harness or the Worker.
+            guard let pageReadForThisCommand = await pageReadForTheVoiceCommand(
+                startedAtRelease: pageReadStartedAtRelease,
+                readNow: { await readThePageForTheVoiceCommand(frontVideoState: frontVideoState) }
+            ) else { return }
+            pageRead = pageReadForThisCommand
+        }
         timing.mark(\.screenStateReadyAt, at: pageRead.finishedAt)
-        let pageTools = pageRead.pageTools
-        let pageState = pageRead.pageState
-        // A quiz answer or a scene still building reads no video, so there is no front video for a guide to belong to.
-        let studyGuideExistsForTheFrontVideo = frontVideoState != nil && pageRead.studyGuideExistsForTheFrontVideo
-        let appToolContext = appVoiceToolContext(
-            pageState: pageState,
-            frontVideoState: frontVideoState,
-            studyGuideExistsForTheFrontVideo: studyGuideExistsForTheFrontVideo
-        )
-        let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
-        let offeredToolNames = Set(tools.map(\.name))
+        // A kept command was built from these same inputs at its start, which the final transcript checked again.
+        let inputs = confirmedSpeculativeCommand?.inputs ?? voiceCommandInputs(frontVideoState: frontVideoState, pageRead: pageRead)
+        let tools = inputs.tools
         print("Voice command: offering \(tools.count) tools, \(frontVideoState == nil ? "no video" : "a video") in front")
-        // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
-        // screen while they spoke or while the model ran, such as after the shown one's task ended.
-        let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
         if voiceCommandBackend.runsInTheHarness {
-            // The harness names the waiting request's kind of action itself, so this scene state has no approvalWaiting.
+            let startedCommand: StartedHarnessVoiceCommand
+            if let confirmedSpeculativeCommand {
+                startedCommand = confirmedSpeculativeCommand.command
+            } else {
+                do {
+                    startedCommand = try startTheHarnessVoiceCommand(transcript: transcript, inputs: inputs, waitsForTheFinalTranscript: false)
+                } catch {
+                    await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
+                    return
+                }
+            }
+            timing.mark(\.commandSentAt, at: startedCommand.sentAt)
             let commandIsResentOnTheOldPath = await runVoiceCommandInTheHarness(
+                startedCommand,
                 transcript: transcript,
-                sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: false),
-                tools: tools,
-                offeredToolNames: offeredToolNames,
-                approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+                offeredToolNames: inputs.offeredToolNames,
+                approvalIDWaitingWhenTheCommandStarted: inputs.approvalIDWaitingWhenTheCommandStarted,
                 commandStartedAt: commandStartedAt,
                 timing: timing
             )
             guard commandIsResentOnTheOldPath else { return }
             print("Brain: the Worker refused the app secret, so this command goes to the Worker router once, and so does every command until Clicky restarts")
         }
-        let sceneState = voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState, namesTheWaitingApproval: true)
+        let offeredToolNames = inputs.offeredToolNames
+        let approvalIDWaitingWhenTheCommandStarted = inputs.approvalIDWaitingWhenTheCommandStarted
+        let sceneState = voiceCommandSceneState(pageState: inputs.pageState, frontVideoState: inputs.frontVideoState, namesTheWaitingApproval: true)
         let userMessageText = voiceCommandUserMessageText(
             transcript: transcript,
             sceneState: sceneState,
@@ -2894,37 +3088,19 @@ final class CompanionManager: ObservableObject {
     /// The voice command with the harness flag on: the brain in the harness runs the model's turns, and each tool call
     /// it sends runs here through `runOneVoiceToolCall`, as on the old path. Returns true only when the Worker refused the
     /// app secret before any tool of the command ran, so the caller sends the same command once on the old path.
+    /// A command kept from the partial transcript arrives here once the harness was told to go on, so its events, which
+    /// waited in the stream, run here like any other command's, and its event deadline starts only now.
     private func runVoiceCommandInTheHarness(
+        _ startedCommand: StartedHarnessVoiceCommand,
         transcript: String,
-        sceneState: JSONValue,
-        tools: [VoiceToolDescriptor],
         offeredToolNames: Set<String>,
         approvalIDWaitingWhenTheCommandStarted: String?,
         commandStartedAt: Date,
         timing: VoiceCommandTimingRecorder
     ) async -> Bool {
-        let commandID = UUID()
-        let standardInputWriter = agentHarness.standardInputWriter
-        let commandLines = HarnessVoiceCommandLines(taskID: commandID) { harnessCommand in
-            standardInputWriter.write(harnessCommand)
-        }
-        let commandEvents: AsyncStream<HarnessTaskEvent>
-        do {
-            commandEvents = try agentHarness.startVoiceCommand(
-                taskID: commandID,
-                transcript: transcript,
-                sceneState: sceneState,
-                tools: tools,
-                approvalIDSeenAtPress: approvalIDWaitingWhenTheCommandStarted
-            )
-        } catch {
-            await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
-            return false
-        }
-        timing.mark(\.commandSentAt)
-        #if DEBUG
-        harnessVoiceCommandsSent += 1
-        #endif
+        let commandID = startedCommand.commandID
+        let commandLines = startedCommand.lines
+        let commandEvents = startedCommand.events
         var aToolOfTheCommandRan = false
         // The audio of the line the current turn speaks if every call changes the screen, fetched while the calls run.
         // Every exit that does not play it cancels it: a cancel, a hand-off, a failure, a gave-up line, or other words.

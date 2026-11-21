@@ -204,6 +204,12 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         isPreparingToRecord || isRecordingFromKeyboardShortcut || isFinalizingTranscript
     }
 
+    /// The words the provider has recognized so far in the current press, before its final transcript, which a voice
+    /// command may start on. Empty outside a dictation session.
+    var partialTranscript: String {
+        latestRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var needsInitialPermissionPrompt: Bool {
         if transcriptionProvider.requiresSpeechRecognitionPermission {
             return AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined

@@ -79,8 +79,8 @@ struct VoiceCommandEarlyLineTests {
         let released = Date(timeIntervalSinceReferenceDate: 1000)
         var timing = VoiceCommandTiming(pushToTalkReleasedAt: released, transcriptReadyAt: released.addingTimeInterval(0.7))
         timing.lineAudio = .theAudioFetchedEarly
-        #expect(timing.logLine.hasSuffix(" line_audio=fetched_early"))
+        #expect(timing.logLine.contains(" line_audio=fetched_early "))
         timing.lineAudio = .aFetchStartedNow
-        #expect(timing.logLine.hasSuffix(" line_audio=fetched_now"))
+        #expect(timing.logLine.contains(" line_audio=fetched_now "))
     }
 }

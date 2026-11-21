@@ -77,12 +77,24 @@ func (outcome voiceToolOutcome) isKnown() bool {
 // pressed push-to-talk, or nil. It is the one fact about approvals only the app knows (the card's scroll state and the
 // desk's clock). The harness decides the rest: it offers answer_approval only while the gate holds that request as
 // waiting, and it names the request's kind of action in the scene state itself, so the app sends no approvalWaiting.
+//
+// WaitsForTheFinalTranscript is true for a command the app started on the partial transcript at push-to-talk release,
+// before the final transcript arrived. The brain runs its first turn at once, but sends no tool_call and keeps nothing in
+// the session until confirm_voice_command says the final transcript matched, and a cancel_task before that leaves no
+// trace (brainloop.go). Such a command never names an approval, since a partial "yes" could answer one.
 type voiceCommandMessage struct {
-	TaskID                string           `json:"taskID"`
-	Transcript            string           `json:"transcript"`
-	SceneState            json.RawMessage  `json:"sceneState"`
-	Tools                 []voiceToolOffer `json:"tools"`
-	ApprovalIDSeenAtPress *string          `json:"approvalIDSeenAtPress"`
+	TaskID                     string           `json:"taskID"`
+	Transcript                 string           `json:"transcript"`
+	SceneState                 json.RawMessage  `json:"sceneState"`
+	Tools                      []voiceToolOffer `json:"tools"`
+	ApprovalIDSeenAtPress      *string          `json:"approvalIDSeenAtPress"`
+	WaitsForTheFinalTranscript bool             `json:"waitsForTheFinalTranscript"`
+}
+
+// confirmVoiceCommandMessage lets a command that waits for the final transcript go on, since the final transcript the app
+// heard has the same words as the partial one the command started on.
+type confirmVoiceCommandMessage struct {
+	TaskID string `json:"taskID"`
 }
 
 // seedApprovalRequestMessage puts a waiting request in the approval gate with no task behind it, so the brain evals have
@@ -141,6 +153,7 @@ func (toolResultMessage) inboundMessage()          {}
 func (cancelTaskMessage) inboundMessage()          {}
 func (approvalResultMessage) inboundMessage()      {}
 func (voiceCommandMessage) inboundMessage()        {}
+func (confirmVoiceCommandMessage) inboundMessage() {}
 func (resetSessionMessage) inboundMessage()        {}
 func (seedSessionMessage) inboundMessage()         {}
 func (seedApprovalRequestMessage) inboundMessage() {}
@@ -184,6 +197,18 @@ func parseInboundMessage(line []byte) (inboundMessage, error) {
 		}
 		if message.TaskID == "" || message.Transcript == "" || len(message.Tools) == 0 {
 			return nil, fmt.Errorf("voice_command needs a taskID, a transcript, and at least one tool")
+		}
+		if message.WaitsForTheFinalTranscript && message.ApprovalIDSeenAtPress != nil {
+			return nil, fmt.Errorf("a voice_command that waits for the final transcript cannot name an approval, since a partial yes could answer it")
+		}
+		return message, nil
+	case "confirm_voice_command":
+		var message confirmVoiceCommandMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil, fmt.Errorf("confirm_voice_command is malformed: %w", err)
+		}
+		if message.TaskID == "" {
+			return nil, fmt.Errorf("confirm_voice_command needs a taskID")
 		}
 		return message, nil
 	case "reset_session":

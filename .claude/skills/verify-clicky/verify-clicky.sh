@@ -22,7 +22,7 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down [port]        Stop the Workers this script started, or only the one on that port.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] "<steps>"
+  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain also passes --brain-takes-every-request, so the router takes every first utterance
                           without writing the flag into the defaults the everyday Clicky shares.
@@ -33,6 +33,10 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
                           with no secret, voice commands use the old Worker router from the start, and with a wrong one,
                           the first command is re-sent on it. They pass the app's own --app-secret-mode none|wrong launch
                           argument and never write or delete the defaults the everyday Clicky shares.
+                          --worker-port makes the Debug app call a Worker this script started on that port instead of 8787,
+                          for when another checkout's Worker holds 8787.
+                          --no-speculation passes --no-voice-command-speculation, so no voice command starts on the partial
+                          transcript, and a run can time the same commands both ways.
                           --every-permission quits the app and fails when it starts without every permission or onboarding,
                           since its permissions panel would cover a recorded take. record-shot.sh passes it.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
@@ -660,8 +664,19 @@ parse_app_launch_arguments() {
   app_launch_flag_arguments=()
   app_launch_needs_every_permission=false
   app_launch_app_secret_mode=copy
+  app_launch_worker_port="$app_worker_port"
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --worker-port)
+        if [[ ! "${2:-}" =~ ^[0-9]{4,5}$ ]]; then
+          echo "--worker-port takes a port number, as in: --worker-port 8796" >&2
+          exit 1
+        fi
+        app_launch_worker_port="$2"
+        app_launch_flag_arguments+=(--worker-port "$2")
+        shift
+        ;;
+      --no-speculation) app_launch_flag_arguments+=(--no-voice-command-speculation) ;;
       --no-app-secret|--wrong-app-secret)
         local requested_mode=none
         if [[ "$1" == "--wrong-app-secret" ]]; then requested_mode=wrong; fi
@@ -695,15 +710,16 @@ command_app_launch() {
     echo "Clicky is already running (pid $(running_clicky_pids | paste -sd, -)). Two instances fight over the event tap and overlay. Ask Chris to quit his first." >&2
     exit 1
   fi
-  if ! worker_was_started_here "$app_worker_port"; then
-    echo "No Worker this script started is listening on 127.0.0.1:$app_worker_port, which the app calls. Run worker-up $app_worker_port when the port is free. When another process holds it, report the app surface as unverified." >&2
+  if ! worker_was_started_here "$app_launch_worker_port"; then
+    echo "No Worker this script started is listening on 127.0.0.1:$app_launch_worker_port, which the app calls. Run worker-up $app_launch_worker_port when the port is free, or worker-up on a free port and pass --worker-port with it. When another process holds it, report the app surface as unverified." >&2
     exit 1
   fi
   local run_dir
   run_dir="$(current_run_dir)"
   move_the_previous_launch_files_aside "$run_dir"
   echo "$rehearsal_steps" >"$run_dir/rehearsal-steps.txt"
-  worker_log_line_count "$app_worker_port" >"$state_root/app-usage-from-line"
+  worker_log_line_count "$app_launch_worker_port" >"$state_root/app-usage-from-line"
+  echo "$app_launch_worker_port" >"$state_root/app-worker-port"
   # The Worker's Notion routes and /v1/messages (the task agents and the voice command brain) need the app's secret, which
   # the app reads from its defaults. It is copied from .dev.vars without ever being printed, so a guide, a task page, or a
   # brain command works on the first launch. --no-app-secret and --wrong-app-secret leave the defaults alone, since the
@@ -742,7 +758,7 @@ command_app_wait() {
   for _ in $(seq 1 "$timeout_seconds"); do
     if grep -q 'Live scene rehearsal: done' "$app_log" 2>/dev/null; then
       grep -E 'rehearsal|Live scene|Video quiz|Landmark|pop-out|Claude streaming request|⚠️|❌' "$app_log" || true
-      report_usage_lines_since "$app_worker_port" "$(cat "$state_root/app-usage-from-line" 2>/dev/null || echo 0)" "$(current_run_dir)/app.usage.log"
+      report_usage_lines_since "$(cat "$state_root/app-worker-port" 2>/dev/null || echo "$app_worker_port")" "$(cat "$state_root/app-usage-from-line" 2>/dev/null || echo 0)" "$(current_run_dir)/app.usage.log"
       return 0
     fi
     if [[ -z "$(recorded_process_id "$state_root/app.pid")" ]]; then
