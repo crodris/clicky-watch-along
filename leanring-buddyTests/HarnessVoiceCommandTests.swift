@@ -213,7 +213,8 @@ struct HarnessVoiceCommandTests {
         let (silentPlanningEvents, silentPlanningContinuation) = AsyncStream<HarnessTaskEvent>.makeStream()
         silentPlanningContinuation.yield(.planningTurnStarted)
         let backstop = Task {
-            try? await Task.sleep(for: .seconds(10))
+            // A minute, like the planning wait above, so a stalled runner cannot run it out before the 0.2 second wait.
+            try? await Task.sleep(for: .seconds(60))
             silentPlanningContinuation.finish()
         }
         let endingWhenThePlanningTurnSendsNothing = await runTheVoiceCommandEvents(
