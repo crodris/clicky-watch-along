@@ -390,6 +390,17 @@ func voiceToolActionLine(call toolCall, outcome voiceToolOutcome, resultText str
 	return fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), resultWord)
 }
 
+// cutOffResultWord is the result word of a call a press cancelled while the app was still running it. The call may have
+// changed the screen, so the next command's interrupted_before tag says so, and the model does not reverse an older move
+// as if the cut-off call had not happened.
+const cutOffResultWord = "cut off, may have run"
+
+// voiceToolCutOffActionLine is the action line of a call a press cancelled before the app answered, in the same format as
+// voiceToolActionLine so appliedChangeOfActionLine reads it back.
+func voiceToolCutOffActionLine(call toolCall) string {
+	return fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), cutOffResultWord)
+}
+
 // failureReasonOf is the error text of a failed tool's result, which the app writes as {"error": "...", "ok": false}.
 func failureReasonOf(resultText string) string {
 	var result struct {

@@ -352,7 +352,41 @@ func TestAnInverseLineInTheInterruptedLinesRemovesTheChangeItReversedInsteadOfBe
 	}
 }
 
+// The real harness records a cut-off call as a change with no inverse, so a seed that carries its line must too.
+func TestASeededCutOffLineIsAChangeWithNoInverseAndNeverAnUndo(t *testing.T) {
+	messages := seededMessagesOfCalls(
+		[3]string{"toolu_1", "zoom", `{"factor":1.3}`},
+		[3]string{"toolu_2", "rotate_model", `{"yawDegrees":-45}`},
+	)
+	// A cut-off line that names the newest change's inverse is not read as the undo, since the cut-off call may not have run.
+	record := appliedChangesOfASeed(messages, []string{`rotate_model {"yawDegrees":45} -> cut off, may have run`})
+	if got, want := seededChangesAsText(record), []string{`rotate_model {"yawDegrees":45}`, `rotate_model {"yawDegrees":-45}`, `zoom {"factor":1.3}`}; !slices.Equal(got, want) {
+		t.Fatalf("the seeded record:\n got %q\nwant %q", got, want)
+	}
+	if !record[0].effectIsUnknown || record[1].effectIsUnknown {
+		t.Errorf("effectIsUnknown flags: %v %v, want true then false", record[0].effectIsUnknown, record[1].effectIsUnknown)
+	}
+	if _, hasAnInverse := record[0].inverse(); hasAnInverse {
+		t.Errorf("a cut-off call has an inverse")
+	}
+
+	session, _ := newTestSession()
+	if err := session.seed(messages, []string{`zoom {"factor":2} -> cut off, may have run`}); err != nil {
+		t.Fatal(err)
+	}
+	if undoIsOfferedTo(session.begin("undo that", json.RawMessage(`{}`))) {
+		t.Errorf("a seeded session offered undo past a cut-off call")
+	}
+}
+
 func TestAnActionLineReadsBackIntoTheCallItDescribes(t *testing.T) {
+	change, callWasCutOff := appliedChangeOfActionLine(`zoom {"factor":2} -> cut off, may have run`)
+	if !callWasCutOff || change.tool != "zoom" || string(change.input) != `{"factor":2}` || !change.effectIsUnknown {
+		t.Errorf("read %s %s unknown=%v (%v)", change.tool, change.input, change.effectIsUnknown, callWasCutOff)
+	}
+	if change, _ := appliedChangeOfActionLine(`zoom {"factor":2} -> ok`); change.effectIsUnknown {
+		t.Errorf("an ok line was read as a cut-off call")
+	}
 	change, callDidNotFail := appliedChangeOfActionLine(`rotate_model {"yawDegrees":90,"pitchDegrees":-5} -> ok`)
 	if !callDidNotFail || change.tool != "rotate_model" || string(change.input) != `{"yawDegrees":90,"pitchDegrees":-5}` {
 		t.Errorf("read %s %s (%v)", change.tool, change.input, callDidNotFail)
@@ -1005,6 +1039,72 @@ func TestACallStillRunningWhenAPressCancelsTheCommandStandsBetweenUndoAndAnOlder
 	requests := worker.requests()
 	if offersUndo(t, requests[len(requests)-1].body) {
 		t.Errorf("undo was offered past a call whose effect is unknown: %v", offeredToolNamesOf(t, requests[len(requests)-1].body))
+	}
+	// The model reads the cut-off call too, so "undo that" with no undo offered does not make it reach past the zoom.
+	if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>zoom {"factor":2} -> cut off, may have run</interrupted_before>`) {
+		t.Errorf("the next command was not told about the cut-off call: %s", got)
+	}
+}
+
+// A cancelled undo with no result may have run its inverse, so the next command reads the inverse's own call as cut off.
+func TestACancelledUndoWithNoResultTellsTheNextCommandItsInverseWasCutOff(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"undo that":    {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "undo that"))
+	driver.expectLine("tool_call")
+	driver.send(cancelTaskLine("command-2"))
+
+	driver.send(undoCommandLine("command-3", "what is this?"))
+	driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-3"`)
+	requests := worker.requests()
+	if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":45} -> cut off, may have run</interrupted_before>`) {
+		t.Errorf("the next command was not told the inverse was cut off: %s", got)
+	}
+}
+
+// A result the app wrote before its cancel_task is the call's line. The cut-off line is for a call with no result only, so
+// a call never has two lines.
+func TestACallWhoseResultWasQueuedBeforeTheCancelGetsOneLineAndNoCutOffLine(t *testing.T) {
+	zoomCall := toolCall{ID: "toolu_zoom", Name: "zoom", Input: json.RawMessage(`{"factor":2,"confirmation":"zoomed"}`)}
+	for attempt := 1; attempt <= 50; attempt++ {
+		session, _ := newTestSession()
+		brain := &brainRunner{session: session}
+		commandContext, cancel := context.WithCancel(context.Background())
+		cancel()
+		command := &runningTask{toolResults: make(chan toolResultMessage, 32)}
+		command.toolResults <- toolResultMessage{ToolUseID: "toolu_zoom", Content: mustMarshal(`{"ok":true}`), Outcome: voiceToolChanged}
+		run := session.begin("zoom in", json.RawMessage(`{}`))
+
+		_, _, err := brain.runToolCalls(commandContext, command, voiceCommandMessage{TaskID: "command-1"}, []toolCall{zoomCall}, map[toolName]bool{"zoom": true}, approvalOffer{}, 0, run)
+
+		if want := []string{`zoom {"factor":2} -> ok`}; !slices.Equal(run.actionLines, want) {
+			t.Fatalf("attempt %d (error %v): the action lines were %q, want %q", attempt, err, run.actionLines, want)
+		}
+	}
+}
+
+// A call the cancel kept from being sent never ran, so it has no line either.
+func TestACallTheCancelKeptFromBeingSentGetsNoActionLine(t *testing.T) {
+	session, _ := newTestSession()
+	brain := &brainRunner{session: session}
+	commandContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	command := &runningTask{toolResults: make(chan toolResultMessage, 32)}
+	run := session.begin("zoom in", json.RawMessage(`{}`))
+	zoomCall := toolCall{ID: "toolu_zoom", Name: "zoom", Input: json.RawMessage(`{"factor":2}`)}
+
+	_, _, _ = brain.runToolCalls(commandContext, command, voiceCommandMessage{TaskID: "command-1"}, []toolCall{zoomCall}, map[toolName]bool{"zoom": true}, approvalOffer{}, 0, run)
+
+	if len(run.actionLines) != 0 {
+		t.Errorf("a call that was never sent got the lines %q", run.actionLines)
 	}
 }
 

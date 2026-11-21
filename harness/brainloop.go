@@ -191,9 +191,10 @@ func theWorkerRefusedTheAppSecret(err error) bool {
 // them too, since a later call that depends on it, such as a pop-out after a seek that found no moment, would act on
 // the wrong screen and the learner would never hear the failure: each later call gets its own "Not run" result and the
 // model is asked again. It records the action line of every call the app ran, and the change of every call that changed
-// the screen. A call a cancel catches while the app is still running it is recorded as a change with no inverse. A call to undo_last_change reaches the app as the inverse of the newest change (brainundo.go), so an undo
-// whose inverse fails, or that cannot be undone, is a failed call like any other. It returns an error only when the
-// command was cancelled.
+// the screen. A call a cancel catches while the app is still running it is recorded as a change with no inverse, and its
+// action line says it was cut off. A call to undo_last_change reaches the app as the inverse of the newest change
+// (brainundo.go), so an undo whose inverse fails, or that cannot be undone, is a failed call like any other. It returns an
+// error only when the command was cancelled.
 func (brain *brainRunner) runToolCalls(
 	commandContext context.Context,
 	command *runningTask,

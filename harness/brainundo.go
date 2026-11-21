@@ -13,11 +13,12 @@ import (
 
 // This file is the brain's undo. A model asked to undo a change has to work out the reverse of an angle, a factor, or a
 // number of seconds, and it often gets that wrong: Haiku passed session-correction-after-interrupt 0 of 5 and
-// session-undo-after-zoom 0 of 5 before this tool (bench/README.md, "Undo"). So the harness remembers each change the app made, with the exact input the app
-// ran, and offers undo_last_change while the newest change has an inverse that follows from its own input. The harness
-// handles the call: it sends the inverse to the app as an ordinary tool_call, so the app shows its usual chip and writes
-// its usual action line, and the outcome of that call is the outcome of the undo. This is the same split as answer_approval
-// (voiceapproval.go): the model chooses to undo, and the harness does the part a model gets wrong.
+// session-undo-after-zoom 0 of 5 before this tool (bench/README.md, "Undo"). So the harness remembers each change the
+// app made, with the exact input the app ran, and offers undo_last_change while the newest change has an inverse that
+// follows from its own input. The harness handles the call: it sends the inverse to the app as an ordinary tool_call, so
+// the app shows its usual chip and writes its usual action line, and the outcome of that call is the outcome of the undo.
+// This is the same split as answer_approval (voiceapproval.go): the model chooses to undo, and the harness does the part
+// a model gets wrong.
 
 const (
 	// undoLastChangeTool is the brain's tool for reversing the newest change. The app never lists it.
@@ -236,9 +237,10 @@ func negated(value float64) float64 {
 }
 
 // inverseOfRotateModel turns the camera back: yaw and pitch are relative, so the opposite of a turn is the same turn
-// backward. The page clamps the camera's absolute pose, not each input (pitch within plus or minus 1.1 radians, and yaw
-// within plus or minus 0.75 radians on a card that shows depth), so a turn that hit a limit moved less than its input
-// says and the inverse turns back too far.
+// backward. The page clamps the camera's absolute pose, not each input. The frame pop-out's limits are pitch within plus
+// or minus 1.1 radians with yaw unlimited, and, on a card that shows depth, pitch within plus or minus 0.45 radians and yaw
+// within plus or minus 0.75 radians. A turn that hit a limit moved less than its input says, and the inverse turns back
+// too far.
 func inverseOfRotateModel(input map[string]any) (inverseCall, bool) {
 	yawDegrees, hasYaw := numberInput(input, "yawDegrees")
 	if !hasYaw {
@@ -316,8 +318,11 @@ func (run *sessionRun) noteChange(change appliedChange) {
 // noteACallWhoseEffectIsUnknown puts a change with no inverse at the front of the record, for a call a press cancelled
 // while the app was still running it. The app may already have applied it (page JavaScript keeps running, and play_video
 // spends about 1.6 seconds on its play check), so "undo that" must not reach past it. For a cancelled undo it also keeps
-// the change the undo reversed from being undone a second time.
+// the change the undo reversed from being undone a second time. It also writes the call's action line, marked as cut off,
+// so the next command's interrupted_before tag names it. The system prompt tells the model to reverse an earlier action
+// itself when asked to undo, and a call the model never hears of would let it reach past the cut-off call.
 func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall) {
+	run.actionLines = append(run.actionLines, voiceToolCutOffActionLine(cancelledCall))
 	run.noteChange(appliedChange{tool: cancelledCall.Name, input: inputWithoutConfirmation(cancelledCall.Input), effectIsUnknown: true})
 }
 
@@ -423,7 +428,9 @@ func appliedChangesOfASeed(messages []anthropic.MessageParam, interruptedActionL
 		if !callDidNotFail {
 			continue
 		}
-		if len(changesOldestFirst) > 0 && changesOldestFirst[len(changesOldestFirst)-1].isReversedBy(change) {
+		// A cut-off line is never read as an undo, since the real harness cannot tell either: it records the call with no
+		// inverse and leaves the change the call may have reversed in the record.
+		if !change.effectIsUnknown && len(changesOldestFirst) > 0 && changesOldestFirst[len(changesOldestFirst)-1].isReversedBy(change) {
 			changesOldestFirst = withoutTheNewest(changesOldestFirst)
 			continue
 		}
@@ -456,8 +463,9 @@ func (change appliedChange) isReversedBy(later appliedChange) bool {
 }
 
 // appliedChangeOfActionLine reads a call back out of its action line, `name {input} -> ok`, which voiceToolActionLine
-// writes. It is false for a line of a failed call and for a line it cannot read. The input is read as one JSON value, since
-// it can hold " -> " inside a string.
+// writes. A line that ends `-> cut off, may have run` (voiceToolCutOffActionLine) reads as a change with an unknown effect.
+// It is false for a line of a failed call and for a line it cannot read. The input is read as one JSON value, since it can
+// hold " -> " inside a string.
 func appliedChangeOfActionLine(actionLine string) (appliedChange, bool) {
 	name, afterName, hasInput := strings.Cut(actionLine, " ")
 	if !hasInput {
@@ -468,8 +476,12 @@ func appliedChangeOfActionLine(actionLine string) (appliedChange, bool) {
 	if decoder.Decode(&input) != nil {
 		return appliedChange{}, false
 	}
-	if strings.TrimSpace(afterName[decoder.InputOffset():]) != "-> ok" {
+	switch strings.TrimSpace(afterName[decoder.InputOffset():]) {
+	case "-> ok":
+		return appliedChange{tool: toolName(name), input: input}, true
+	case "-> " + cutOffResultWord:
+		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: true}, true
+	default:
 		return appliedChange{}, false
 	}
-	return appliedChange{tool: toolName(name), input: input}, true
 }
