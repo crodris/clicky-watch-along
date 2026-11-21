@@ -170,16 +170,16 @@ struct RoomArtGeometryTests {
     @Test func theBareWallSpotIsTheBlankRegionAwayFromTextureAndThePerson() {
         let width = 320, height = 180
         var pixels = [Float](repeating: 200, count: width * height)
-        var personMask = [UInt8](repeating: 0, count: width * height)
+        var roomMask = [Float](repeating: 1, count: width * height)
         for row in 0..<height {
             for column in 0..<width {
                 // The learner on the left, plain like the wall, which only the mask tells apart. The search meets them first.
-                if column < 105 { personMask[row * width + column] = 255 }
+                if column < 105 { roomMask[row * width + column] = 0 }
                 // A bookshelf on the right: stripes.
                 if column >= 215 { pixels[row * width + column] = (column / 3) % 2 == 0 ? 40 : 230 }
             }
         }
-        let spot = bareWallSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), personMask: personMask)
+        let spot = bareWallSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: roomMask)
 
         // The window is 77 pixels wide, so its center keeps 38 from the shelf, and the person's 15 pixel margin plus 38 from
         // the person.

@@ -111,46 +111,60 @@ nonisolated func gaussianBlurredWithFiveTaps(_ image: RoomGrayscaleImage) -> Roo
     return RoomGrayscaleImage(width: width, height: height, pixels: destination)
 }
 
-/// Samples `image` at each (x, y) with bilinear interpolation, and says which samples fell inside the image (1) or off it
-/// (0). The coordinates are pixel centers at whole numbers, y growing down, as OpenCV's warps use.
-nonisolated func bilinearSamples(of image: RoomGrayscaleImage, atX sampleXs: [Float], y sampleYs: [Float]) -> (values: [Float], inside: [Float]) {
-    let sampleCount = sampleXs.count
-    let largestX = Float(image.width - 1), largestY = Float(image.height - 1)
-    // Clamp so every gather stays in the image, then mark the samples the clamp moved as outside.
-    let clampedXs = vDSP.clip(sampleXs, to: 0...largestX)
-    let clampedYs = vDSP.clip(sampleYs, to: 0...largestY)
-    let movedByTheClamp = vDSP.add(vDSP.absolute(vDSP.subtract(sampleXs, clampedXs)), vDSP.absolute(vDSP.subtract(sampleYs, clampedYs)))
-    var inside = [Float](repeating: 0, count: sampleCount)
-    var threshold: Float = 1e-4
-    var halfValue: Float = -0.5
-    // vDSP_vlim gives -0.5 where a sample moved (at or over the threshold) and +0.5 where it did not, so +0.5 makes it 0 or 1.
-    vDSP_vlim(movedByTheClamp, 1, &threshold, &halfValue, &inside, 1, vDSP_Length(sampleCount))
-    inside = vDSP.add(0.5, inside)
+/// Bilinear sampling of an image at a set of points (x, y), worked out once so several images of the same size, such as
+/// a frame and its room mask, are sampled at the same points for the cost of the gathers. The coordinates are pixel
+/// centers at whole numbers, y growing down, as OpenCV's warps use.
+nonisolated struct BilinearSampler {
+    /// 1 where a point fell inside the image and 0 where it fell off it.
+    let inside: [Float]
+    private let topLeftIndexes: [Float]
+    private let rightShares: [Float]
+    private let lowerShares: [Float]
+    private let imageWidth: Int
 
-    // The top-left neighbor stays one pixel inside the far edge, so its right and lower neighbors exist.
-    let leftXs = vDSP.clip(vForce.floor(clampedXs), to: 0...max(0, largestX - 1))
-    let topYs = vDSP.clip(vForce.floor(clampedYs), to: 0...max(0, largestY - 1))
-    let rightShares = vDSP.subtract(clampedXs, leftXs)
-    let lowerShares = vDSP.subtract(clampedYs, topYs)
-    let topLeftIndexes = vDSP.add(vDSP.multiply(Float(image.width), topYs), leftXs)
-    func gathered(offset: Float) -> [Float] {
-        let indexes = vDSP.add(offset, topLeftIndexes)
-        var values = [Float](repeating: 0, count: sampleCount)
-        image.pixels.withUnsafeBufferPointer { pixelsPointer in
-            indexes.withUnsafeBufferPointer { indexesPointer in
-                vDSP_vindex(pixelsPointer.baseAddress!, indexesPointer.baseAddress!, 1, &values, 1, vDSP_Length(sampleCount))
-            }
-        }
-        return values
+    init(atX sampleXs: [Float], y sampleYs: [Float], imageWidth: Int, imageHeight: Int) {
+        let largestX = Float(imageWidth - 1), largestY = Float(imageHeight - 1)
+        // Clamp so every gather stays in the image, then mark the points the clamp moved as outside.
+        let clampedXs = vDSP.clip(sampleXs, to: 0...largestX)
+        let clampedYs = vDSP.clip(sampleYs, to: 0...largestY)
+        let movedByTheClamp = vDSP.add(vDSP.absolute(vDSP.subtract(sampleXs, clampedXs)), vDSP.absolute(vDSP.subtract(sampleYs, clampedYs)))
+        var inside = [Float](repeating: 0, count: sampleXs.count)
+        var threshold: Float = 1e-4
+        var halfValue: Float = -0.5
+        // vDSP_vlim gives -0.5 where a point moved (at or over the threshold) and +0.5 where it did not, so +0.5 makes it 0 or 1.
+        vDSP_vlim(movedByTheClamp, 1, &threshold, &halfValue, &inside, 1, vDSP_Length(sampleXs.count))
+        self.inside = vDSP.add(0.5, inside)
+
+        // The top-left neighbor stays one pixel inside the far edge, so its right and lower neighbors exist.
+        let leftXs = vDSP.clip(vForce.floor(clampedXs), to: 0...max(0, largestX - 1))
+        let topYs = vDSP.clip(vForce.floor(clampedYs), to: 0...max(0, largestY - 1))
+        rightShares = vDSP.subtract(clampedXs, leftXs)
+        lowerShares = vDSP.subtract(clampedYs, topYs)
+        topLeftIndexes = vDSP.add(vDSP.multiply(Float(imageWidth), topYs), leftXs)
+        self.imageWidth = imageWidth
     }
-    let topLeft = gathered(offset: 0)
-    let topRight = gathered(offset: 1)
-    let bottomLeft = gathered(offset: Float(image.width))
-    let bottomRight = gathered(offset: Float(image.width + 1))
-    let top = vDSP.add(topLeft, vDSP.multiply(rightShares, vDSP.subtract(topRight, topLeft)))
-    let bottom = vDSP.add(bottomLeft, vDSP.multiply(rightShares, vDSP.subtract(bottomRight, bottomLeft)))
-    let values = vDSP.add(top, vDSP.multiply(lowerShares, vDSP.subtract(bottom, top)))
-    return (values, inside)
+
+    /// The image's value at each point. `pixels` must be an image of the size the sampler was made for.
+    func sample(_ pixels: [Float]) -> [Float] {
+        let sampleCount = topLeftIndexes.count
+        func gathered(offset: Float) -> [Float] {
+            let indexes = vDSP.add(offset, topLeftIndexes)
+            var values = [Float](repeating: 0, count: sampleCount)
+            pixels.withUnsafeBufferPointer { pixelsPointer in
+                indexes.withUnsafeBufferPointer { indexesPointer in
+                    vDSP_vindex(pixelsPointer.baseAddress!, indexesPointer.baseAddress!, 1, &values, 1, vDSP_Length(sampleCount))
+                }
+            }
+            return values
+        }
+        let topLeft = gathered(offset: 0)
+        let topRight = gathered(offset: 1)
+        let bottomLeft = gathered(offset: Float(imageWidth))
+        let bottomRight = gathered(offset: Float(imageWidth + 1))
+        let top = vDSP.add(topLeft, vDSP.multiply(rightShares, vDSP.subtract(topRight, topLeft)))
+        let bottom = vDSP.add(bottomLeft, vDSP.multiply(rightShares, vDSP.subtract(bottomRight, bottomLeft)))
+        return vDSP.add(top, vDSP.multiply(lowerShares, vDSP.subtract(bottom, top)))
+    }
 }
 
 /// The central-difference gradient (half the difference of the two neighbors, as ecc.cpp's filter), zero on the border.
@@ -230,7 +244,6 @@ nonisolated func alignedWithECC(
     epsilon: Double = RoomTrackingSettings.eccEpsilon
 ) -> ECCAlignment {
     let width = keyframe.blurred.width, height = keyframe.blurred.height
-    let currentRoomMaskImage = RoomGrayscaleImage(width: currentBlurred.width, height: currentBlurred.height, pixels: currentRoomMask)
     var warp = startingWarp
     var correlationCoefficient = 0.0
     var lastCorrelationCoefficient = -Double.infinity
@@ -242,11 +255,11 @@ nonisolated func alignedWithECC(
         // Where each keyframe pixel lands in the current frame.
         let sampleXs = vDSP.add(Float(warp.translationX), vDSP.subtract(vDSP.multiply(cosine, keyframe.gridXs), vDSP.multiply(sine, keyframe.gridYs)))
         let sampleYs = vDSP.add(Float(warp.translationY), vDSP.add(vDSP.multiply(sine, keyframe.gridXs), vDSP.multiply(cosine, keyframe.gridYs)))
-        let (warpedImage, landedInside) = bilinearSamples(of: currentBlurred, atX: sampleXs, y: sampleYs)
-        let (warpedRoomMask, _) = bilinearSamples(of: currentRoomMaskImage, atX: sampleXs, y: sampleYs)
+        let sampler = BilinearSampler(atX: sampleXs, y: sampleYs, imageWidth: currentBlurred.width, imageHeight: currentBlurred.height)
+        let warpedImage = sampler.sample(currentBlurred.pixels)
         // A sample counts when it is in the frame, fully on the room in the current frame, and on the room in the keyframe.
-        let warpedRoomMaskIsWhole = wholeOnly(warpedRoomMask)
-        var validMask = vDSP.multiply(vDSP.multiply(landedInside, warpedRoomMaskIsWhole), keyframe.roomMask)
+        let warpedRoomMaskIsWhole = wholeOnly(sampler.sample(currentRoomMask))
+        var validMask = vDSP.multiply(vDSP.multiply(sampler.inside, warpedRoomMaskIsWhole), keyframe.roomMask)
         // The gradient of the warped image is taken in the keyframe's grid, so its border is not a real gradient.
         clearTheBorder(of: &validMask, width: width, height: height)
         let validPixelCount = Double(vDSP.sum(validMask))
@@ -377,24 +390,36 @@ nonisolated func firstPlaneScaled(of pixelBuffer: CVPixelBuffer, toWidth targetW
     )
 }
 
-/// The person at the track size, 255 on the person and 0 on the room: the segmentation's confidence over 0.3, grown by 4
-/// pixels on each side (a 9 by 9 square), so the person's soft edge stays out of the tracking too.
-nonisolated func personMaskAtTrackSize(segmentationConfidence: [UInt8], width: Int, height: Int) -> [UInt8] {
-    var person = segmentationConfidence.map { $0 >= 77 ? UInt8(255) : 0 }
-    var grown = [UInt8](repeating: 0, count: width * height)
-    person.withUnsafeMutableBufferPointer { personPointer in
-        grown.withUnsafeMutableBufferPointer { grownPointer in
-            var sourceBuffer = vImage_Buffer(data: personPointer.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
-            var destinationBuffer = vImage_Buffer(data: grownPointer.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width)
-            _ = vImageMax_Planar8(&sourceBuffer, &destinationBuffer, nil, 0, 0, 9, 9, vImage_Flags(kvImageEdgeExtend))
-        }
-    }
-    return grown
+/// A camera frame's grayscale at the track size, as floats.
+nonisolated func trackGrayscalePixels(of cameraFrame: CVPixelBuffer, width: Int, height: Int) -> [Float] {
+    vDSP.integerToFloatingPoint(firstPlaneScaled(of: cameraFrame, toWidth: width, height: height), floatingPointType: Float.self)
 }
 
-/// 1 where the room is and 0 on the person, as ECC weighs pixels.
-nonisolated func roomMask(fromPersonMask personMask: [UInt8]) -> [Float] {
-    personMask.map { $0 == 0 ? 1 : 0 }
+/// The room mask at the track size: 1 on the room and 0 on the person, where the person is the segmentation's confidence
+/// over 0.3 (77 of 255), grown by 4 pixels on each side (a 9 by 9 square), so the person's soft edge stays out of the
+/// tracking too. Built from vDSP and vImage calls, since it runs on every frame.
+nonisolated func roomMaskAtTrackSize(segmentationConfidence: [UInt8], width: Int, height: Int) -> [Float] {
+    let confidence = vDSP.integerToFloatingPoint(segmentationConfidence, floatingPointType: Float.self)
+    var person = [Float](repeating: 0, count: width * height)
+    var threshold: Float = 76.5
+    var halfValue: Float = 0.5
+    // vDSP_vlim gives +0.5 at or over the threshold and -0.5 under it, so +0.5 makes the person 1 and the room 0.
+    vDSP_vlim(confidence, 1, &threshold, &halfValue, &person, 1, vDSP_Length(person.count))
+    person = vDSP.add(0.5, person)
+    var grownPerson = [Float](repeating: 0, count: width * height)
+    person.withUnsafeMutableBufferPointer { personPointer in
+        grownPerson.withUnsafeMutableBufferPointer { grownPointer in
+            var sourceBuffer = vImage_Buffer(data: personPointer.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * MemoryLayout<Float>.size)
+            var destinationBuffer = vImage_Buffer(data: grownPointer.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * MemoryLayout<Float>.size)
+            _ = vImageMax_PlanarF(&sourceBuffer, &destinationBuffer, nil, 0, 0, 9, 9, vImage_Flags(kvImageEdgeExtend))
+        }
+    }
+    return vDSP.add(1, vDSP.negative(grownPerson))
+}
+
+/// A room mask with no person in it, for the frames before the segmenter's first mask.
+nonisolated func roomMaskWithNoPerson(width: Int, height: Int) -> [Float] {
+    [Float](repeating: 1, count: width * height)
 }
 
 /// The track size for a camera frame: 320 wide and the frame's shape.

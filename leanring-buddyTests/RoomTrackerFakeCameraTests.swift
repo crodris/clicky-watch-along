@@ -80,7 +80,7 @@ struct RoomTrackerFakeCameraTests {
             let segmentStarted = Date()
             try sequenceHandler.perform([segmentationRequest], on: frameImage)
             let maskBuffer = try #require(segmentationRequest.results?.first?.pixelBuffer)
-            let personMask = personMaskAtTrackSize(
+            let trackRoomMask = roomMaskAtTrackSize(
                 segmentationConfidence: firstPlaneScaled(of: maskBuffer, toWidth: trackWidth, height: trackHeight),
                 width: trackWidth,
                 height: trackHeight
@@ -89,11 +89,11 @@ struct RoomTrackerFakeCameraTests {
 
             let grayscale = grayscaleAtTrackSize(frameImage, width: trackWidth, height: trackHeight)
             guard let tracker else {
-                tracker = RoomTracker(keyframeGrayscale: grayscale, keyframeRoomMask: roomMask(fromPersonMask: personMask))
+                tracker = RoomTracker(keyframeGrayscale: grayscale, keyframeRoomMask: trackRoomMask)
                 continue
             }
             let trackStarted = Date()
-            let trackStep = tracker.track(currentGrayscale: grayscale, currentRoomMask: roomMask(fromPersonMask: personMask))
+            let trackStep = tracker.track(currentGrayscale: grayscale, currentRoomMask: trackRoomMask)
             trackMilliseconds.append(Date().timeIntervalSince(trackStarted) * 1000)
             if trackStep.framesLostInARow > 0 { lostFrameCount += 1 }
 

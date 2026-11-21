@@ -344,8 +344,8 @@ nonisolated struct RoomWallRequest: Equatable, Sendable {
 
 /// The spot of the frame with the least texture, away from the person, in the upper part of the frame where art hangs, and
 /// far enough from the edges for the art to fit, in the image's pixels. `grayscale` is the frame at the track size and
-/// `personMask` is 255 on the person, at the same size.
-nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, personMask: [UInt8]) -> CGPoint {
+/// `roomMask` is 0 on the person and 1 on the room, at the same size.
+nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> CGPoint {
     let width = grayscale.width, height = grayscale.height
     let pixels = grayscale.pixels
     // The Sobel gradient's size at each pixel.
@@ -363,7 +363,7 @@ nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, personMask: [UInt8]
         }
     }
     // A pixel within 15 of the person counts as the most texture there is, so the spot stays off them.
-    let personNearby = grownSquare(personMask, width: width, height: height, reach: 15)
+    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
     for index in texture.indices where personNearby[index] {
         texture[index] = 1_000
     }
@@ -401,18 +401,18 @@ nonisolated func bareWallSpot(grayscale: RoomGrayscaleImage, personMask: [UInt8]
     return bestSpot
 }
 
-/// Whether each pixel is within `reach` pixels (a square) of a nonzero mask pixel, by a row pass and a column pass.
-nonisolated private func grownSquare(_ mask: [UInt8], width: Int, height: Int, reach: Int) -> [Bool] {
+/// Whether each pixel is within `reach` pixels (a square) of a marked pixel, by a row pass and a column pass.
+nonisolated private func grownSquare(_ marked: [Bool], width: Int, height: Int, reach: Int) -> [Bool] {
     var grownAlongRows = [Bool](repeating: false, count: width * height)
     for row in 0..<height {
         var lastMarkedColumn = -Int.max / 2
         for column in 0..<width {
-            if mask[row * width + column] != 0 { lastMarkedColumn = column }
+            if marked[row * width + column] { lastMarkedColumn = column }
             if column - lastMarkedColumn <= reach { grownAlongRows[row * width + column] = true }
         }
         lastMarkedColumn = Int.max / 2
         for column in stride(from: width - 1, through: 0, by: -1) {
-            if mask[row * width + column] != 0 { lastMarkedColumn = column }
+            if marked[row * width + column] { lastMarkedColumn = column }
             if lastMarkedColumn - column <= reach { grownAlongRows[row * width + column] = true }
         }
     }

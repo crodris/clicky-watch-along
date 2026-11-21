@@ -33,9 +33,23 @@ nonisolated struct RoomArtKeyframe: Sendable {
 
 // MARK: - Frame processor
 
+/// One 5 second window of drawn frames while the art showed.
+nonisolated struct RoomArtFrameRateReport: Equatable, Sendable {
+    let framesPerSecond: Double
+    let trackMilliseconds: Double
+    let segmentMilliseconds: Double
+
+    var logLine: String {
+        String(format: "Room art: %.0f fps, track %.1f ms, segment %.1f ms", framesPerSecond, trackMilliseconds, segmentMilliseconds)
+    }
+}
+
 /// Handles every camera frame on `processingQueue`, which owns all of its state.
 nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
     let processingQueue = DispatchQueue(label: "com.crodris.clicky.room-art.frames", qos: .userInteractive)
+    /// Person segmentation takes about 30 ms a frame, as long as tracking and drawing together, so it runs here beside
+    /// them, and each frame is tracked and drawn with the newest mask, one or two frames old.
+    private let segmentationQueue = DispatchQueue(label: "com.crodris.clicky.room-art.segmentation", qos: .userInteractive)
     let metalLayer: CAMetalLayer
 
     private let ciContext: CIContext
@@ -49,13 +63,20 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
     private var onFirstSegmentedFrame: (@Sendable () -> Void)?
     private var latestFrame: CVPixelBuffer?
     private var latestPersonMask: CVPixelBuffer?
+    /// A frame is being segmented, so the next frames skip segmentation until it is done.
+    private var segmentationIsRunning = false
     private var latestTrackGrayscale: RoomGrayscaleImage?
-    private var latestTrackPersonMask: [UInt8]?
+    private var latestTrackRoomMask: [Float]?
     private var tracker: RoomTracker?
     private var keyframeWallLight = RoomArtWallLight.neutral
     private var placedArt: PlacedArt?
     private var smoothedArtCorners: [CGPoint]?
     private var statistics = FrameStatistics()
+    private var lastFrameRateReport: RoomArtFrameRateReport?
+    #if DEBUG
+    /// The last frame as drawn, kept so verification can save what the panel showed.
+    private var lastComposedImage: CIImage?
+    #endif
 
     /// The art as it is drawn on every frame: already lit like the wall and softened like the camera, with its shadow.
     private struct PlacedArt {
@@ -69,6 +90,7 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
         var framesDrawn = 0
         var trackMillisecondsTotal = 0.0
         var segmentMillisecondsTotal = 0.0
+        var framesSegmented = 0
     }
 
     init() {
@@ -97,7 +119,7 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
             latestFrame = nil
             latestPersonMask = nil
             latestTrackGrayscale = nil
-            latestTrackPersonMask = nil
+            latestTrackRoomMask = nil
             tracker = nil
             placedArt = nil
             smoothedArtCorners = nil
@@ -123,29 +145,16 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
             metalLayer.drawableSize = CGSize(width: frameWidth, height: frameHeight)
         }
 
-        let segmentStartedAt = Date()
-        do {
-            try sequenceRequestHandler.perform([segmentationRequest], on: cameraFrame, orientation: .up)
-            if let personMask = segmentationRequest.results?.first?.pixelBuffer {
-                latestPersonMask = personMask
-            }
-        } catch {
-            print("Room art: person segmentation failed: \(error)")
-        }
-        let segmentMilliseconds = Date().timeIntervalSince(segmentStartedAt) * 1000
+        startSegmentingIfIdle(cameraFrame)
 
         // No person until the segmenter has seen a frame, so the room mask is all room before then.
-        let trackPersonMask = latestPersonMask.map { personMask in
-            personMaskAtTrackSize(segmentationConfidence: firstPlaneScaled(of: personMask, toWidth: trackWidth, height: trackHeight), width: trackWidth, height: trackHeight)
-        } ?? [UInt8](repeating: 0, count: trackWidth * trackHeight)
-        let trackGrayscale = RoomGrayscaleImage(
-            width: trackWidth,
-            height: trackHeight,
-            pixels: firstPlaneScaled(of: cameraFrame, toWidth: trackWidth, height: trackHeight).map(Float.init)
-        )
+        let trackRoomMask = latestPersonMask.map { personMask in
+            roomMaskAtTrackSize(segmentationConfidence: firstPlaneScaled(of: personMask, toWidth: trackWidth, height: trackHeight), width: trackWidth, height: trackHeight)
+        } ?? roomMaskWithNoPerson(width: trackWidth, height: trackHeight)
+        let trackGrayscale = RoomGrayscaleImage(width: trackWidth, height: trackHeight, pixels: trackGrayscalePixels(of: cameraFrame, width: trackWidth, height: trackHeight))
         latestFrame = cameraFrame
         latestTrackGrayscale = trackGrayscale
-        latestTrackPersonMask = trackPersonMask
+        latestTrackRoomMask = trackRoomMask
         if latestPersonMask != nil, let onFirstSegmentedFrame {
             self.onFirstSegmentedFrame = nil
             DispatchQueue.main.async { onFirstSegmentedFrame() }
@@ -154,7 +163,7 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
         let trackStartedAt = Date()
         var trackStep: RoomTrackStep?
         if let tracker {
-            trackStep = tracker.track(currentGrayscale: trackGrayscale, currentRoomMask: roomMask(fromPersonMask: trackPersonMask))
+            trackStep = tracker.track(currentGrayscale: trackGrayscale, currentRoomMask: trackRoomMask)
         }
         let trackMilliseconds = Date().timeIntervalSince(trackStartedAt) * 1000
 
@@ -165,49 +174,100 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
             artCorners = smoothedCorners(previous: smoothedArtCorners, current: currentCorners)
             smoothedArtCorners = artCorners
         }
-        draw(cameraFrame: cameraFrame, artCorners: artCorners)
-        noteTheFrame(trackMilliseconds: trackMilliseconds, segmentMilliseconds: segmentMilliseconds)
+        // A frame that found no drawable was not shown, so it does not count toward the frame rate.
+        if draw(cameraFrame: cameraFrame, artCorners: artCorners) {
+            noteTheFrame(trackMilliseconds: trackMilliseconds)
+        }
     }
 
-    private func noteTheFrame(trackMilliseconds: Double, segmentMilliseconds: Double) {
+    /// Segments `cameraFrame` on the segmentation queue unless a frame is already being segmented. The mask lands back on
+    /// the processing queue, where the frames after it use it.
+    private func startSegmentingIfIdle(_ cameraFrame: CVPixelBuffer) {
+        guard !segmentationIsRunning else { return }
+        segmentationIsRunning = true
+        let sessionWhenStarted = sessionNumber
+        // The camera never writes a frame it has handed out, so the segmentation queue may read it while this queue does.
+        nonisolated(unsafe) let frameToSegment = cameraFrame
+        segmentationQueue.async {
+            let segmentStartedAt = Date()
+            var personMask: CVPixelBuffer?
+            do {
+                try self.sequenceRequestHandler.perform([self.segmentationRequest], on: frameToSegment, orientation: .up)
+                personMask = self.segmentationRequest.results?.first?.pixelBuffer
+            } catch {
+                print("Room art: person segmentation failed: \(error)")
+            }
+            let segmentMilliseconds = Date().timeIntervalSince(segmentStartedAt) * 1000
+            self.processingQueue.async {
+                self.segmentationIsRunning = false
+                // A mask from a closed panel's frame never reaches the next one.
+                guard sessionWhenStarted == self.sessionNumber else { return }
+                if let personMask { self.latestPersonMask = personMask }
+                self.statistics.framesSegmented += 1
+                self.statistics.segmentMillisecondsTotal += segmentMilliseconds
+            }
+        }
+    }
+
+    private func noteTheFrame(trackMilliseconds: Double) {
         statistics.framesDrawn += 1
         statistics.trackMillisecondsTotal += trackMilliseconds
-        statistics.segmentMillisecondsTotal += segmentMilliseconds
         let secondsInTheWindow = Date().timeIntervalSince(statistics.windowStartedAt)
         guard secondsInTheWindow >= 5 else { return }
         // Logged only while the art shows, since that is when every stage runs.
         if placedArt != nil {
             let framesDrawn = Double(statistics.framesDrawn)
-            print(String(
-                format: "Room art: %.0f fps, track %.1f ms, segment %.1f ms",
-                framesDrawn / secondsInTheWindow,
-                statistics.trackMillisecondsTotal / framesDrawn,
-                statistics.segmentMillisecondsTotal / framesDrawn
-            ))
+            let frameRateReport = RoomArtFrameRateReport(
+                framesPerSecond: framesDrawn / secondsInTheWindow,
+                trackMilliseconds: statistics.trackMillisecondsTotal / framesDrawn,
+                segmentMilliseconds: statistics.segmentMillisecondsTotal / Double(max(statistics.framesSegmented, 1))
+            )
+            lastFrameRateReport = frameRateReport
+            print(frameRateReport.logLine)
         }
         statistics = FrameStatistics()
     }
 
+    /// The last 5 second window logged while the art showed, or nil before one.
+    func lastLoggedFrameRate() -> RoomArtFrameRateReport? {
+        processingQueue.sync { lastFrameRateReport }
+    }
+
     // MARK: Drawing
 
-    private func draw(cameraFrame: CVPixelBuffer, artCorners: [CGPoint]?) {
+    /// Draws the frame into the layer's next drawable. False when no drawable was free or Core Image refused the frame.
+    private func draw(cameraFrame: CVPixelBuffer, artCorners: [CGPoint]?) -> Bool {
         let frameImage = CIImage(cvPixelBuffer: cameraFrame)
         var composedImage = frameImage
         if let placedArt, let artCorners, let latestPersonMask {
             composedImage = frameWithTheArt(frameImage: frameImage, placedArt: placedArt, artCorners: artCorners, personMask: latestPersonMask)
         }
-        guard let commandQueue, let drawable = metalLayer.nextDrawable(), let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+        composedImage = composedImage.cropped(to: frameImage.extent)
+        #if DEBUG
+        lastComposedImage = composedImage
+        #endif
+        guard let commandQueue, let drawable = metalLayer.nextDrawable(), let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
         let renderDestination = CIRenderDestination(mtlTexture: drawable.texture, commandBuffer: commandBuffer)
         renderDestination.colorSpace = sRGBColorSpace
         do {
-            _ = try ciContext.startTask(toRender: composedImage.cropped(to: frameImage.extent), to: renderDestination)
+            _ = try ciContext.startTask(toRender: composedImage, to: renderDestination)
         } catch {
             print("Room art: could not draw a frame: \(error)")
-            return
+            return false
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        return true
     }
+
+    #if DEBUG
+    /// The last frame as the panel drew it, for verification. Debug builds only.
+    func renderTheLastFrame() -> CGImage? {
+        processingQueue.sync {
+            lastComposedImage.flatMap { ciContext.createCGImage($0, from: $0.extent, format: .RGBA8, colorSpace: sRGBColorSpace) }
+        }
+    }
+    #endif
 
     /// The art and its shadow warped onto `artCorners` (camera pixels, y down), over the frame, with the person drawn back
     /// on top through the segmentation mask, so the learner stays in front of the art.
@@ -270,15 +330,15 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
     }
 
     private func takeAKeyframeOnTheQueue(anchorInCameraPixels: CGPoint?) -> RoomArtKeyframe? {
-        guard let latestFrame, let latestTrackGrayscale, let latestTrackPersonMask else { return nil }
+        guard let latestFrame, let latestTrackGrayscale, let latestTrackRoomMask else { return nil }
         let frameWidth = Double(CVPixelBufferGetWidth(latestFrame)), frameHeight = Double(CVPixelBufferGetHeight(latestFrame))
         let cameraPixelsPerTrackPixel = frameWidth / Double(latestTrackGrayscale.width)
         let anchor = anchorInCameraPixels ?? {
-            let trackSpot = bareWallSpot(grayscale: latestTrackGrayscale, personMask: latestTrackPersonMask)
+            let trackSpot = bareWallSpot(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask)
             return CGPoint(x: trackSpot.x * cameraPixelsPerTrackPixel, y: trackSpot.y * cameraPixelsPerTrackPixel)
         }()
 
-        tracker = RoomTracker(keyframeGrayscale: latestTrackGrayscale, keyframeRoomMask: roomMask(fromPersonMask: latestTrackPersonMask))
+        tracker = RoomTracker(keyframeGrayscale: latestTrackGrayscale, keyframeRoomMask: latestTrackRoomMask)
         placedArt = nil
         smoothedArtCorners = nil
 
