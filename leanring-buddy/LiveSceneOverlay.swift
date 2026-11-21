@@ -266,6 +266,8 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
     /// An uncaught error or rejection in the page, a failed page load, or a lost web content process.
     /// A page that fails any of these mid-tour never posts tourFinished.
     var onPageError: ((String) -> Void)?
+    /// The shown theme's accent and the ink on it, read as each page starts, for its labels, quiz label, and experiment panel.
+    var accentColorsForTheNextPage: () -> LiveSceneAccentColors = { .clickyBlue }
 
     private static let pageErrorForwardingScript = """
     (() => {
@@ -688,6 +690,14 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
         ))
+        // The scene stylesheet goes in before the page's own markup, so every page, bundled or generated, shares its labels' look.
+        if let sceneStyleSheet = Self.sceneStyleSheetFromTheBundle {
+            webViewConfiguration.userContentController.addUserScript(WKUserScript(
+                source: sceneStyleUserScriptSource(styleSheet: sceneStyleSheet, accentColors: accentColorsForTheNextPage()),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            ))
+        }
         // The voice tools run in the page's own world, because they call the page's window.liveScene.
         // A generated page could overwrite them, so what they return is treated as untrusted data.
         if let sceneToolsScript = Self.sceneToolsScriptFromTheBundle {
@@ -722,6 +732,16 @@ final class LiveSceneOverlay: NSObject, WKNavigationDelegate, WKScriptMessageHan
         pageHasFinishedLoading = false
         onPageError?("page failed to load: \(error.localizedDescription)")
     }
+
+    private static let sceneStyleSheetFromTheBundle: String? = {
+        let styleSheetURL = Bundle.main.url(forResource: "scene-style", withExtension: "css", subdirectory: "LiveSceneAssets")
+            ?? Bundle.main.url(forResource: "scene-style", withExtension: "css")
+        guard let styleSheetURL, let sceneStyleSheet = try? String(contentsOf: styleSheetURL, encoding: .utf8) else {
+            print("Live scene: scene-style.css is not in the app bundle, so scene labels keep each page's own look")
+            return nil
+        }
+        return sceneStyleSheet
+    }()
 
     // MARK: Voice tools
 
@@ -840,4 +860,34 @@ func screenUnderTheMouseCursor() -> NSScreen? {
         return screenContainingTheMouse
     }
     return NSScreen.screens.first
+}
+
+/// The two theme colors a live scene page draws with: the accent, and the ink for text on an accent fill.
+/// Both come from a parsed theme, which allows only #RRGGBB.
+struct LiveSceneAccentColors: Equatable {
+    let accentHex: String
+    let inkOnAccentHex: String
+
+    /// Mirrors the stylesheet's own defaults, for a page that starts before CompanionManager sets the theme.
+    static let clickyBlue = LiveSceneAccentColors(accentHex: "#3380FF", inkOnAccentHex: "#FFFFFF")
+}
+
+/// The user script that adds scene-style.css to a page as it starts, and sets the accent variables it reads.
+/// WebKit runs a document start script once the root element exists, so the style lands ahead of the page's own head.
+/// The page text is JSON encoded, so no character in the stylesheet or a color can end the script's strings.
+func sceneStyleUserScriptSource(styleSheet: String, accentColors: LiveSceneAccentColors) -> String {
+    let encodedPieces = [styleSheet, accentColors.accentHex, accentColors.inkOnAccentHex].map { piece in
+        (try? JSONEncoder().encode(piece)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+    return """
+    (() => {
+      const root = document.documentElement;
+      root.style.setProperty("--clicky-accent", \(encodedPieces[1]));
+      root.style.setProperty("--clicky-accent-ink", \(encodedPieces[2]));
+      const style = document.createElement("style");
+      style.id = "clicky-scene-style";
+      style.textContent = \(encodedPieces[0]);
+      root.prepend(style);
+    })();
+    """
 }

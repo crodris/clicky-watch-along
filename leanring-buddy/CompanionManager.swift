@@ -332,6 +332,8 @@ final class CompanionManager: ObservableObject {
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
+    /// The Card that sums up a quiz when it ends.
+    private let videoQuizSummaryPanelController = VideoQuizSummaryPanelController()
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
@@ -459,6 +461,13 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
+        videoQuizSession.onQuizEnded = { [weak self] summary in
+            self?.showTheVideoQuizSummary(summary)
+        }
+        LiveSceneOverlay.shared.accentColorsForTheNextPage = { [weak self] in
+            guard let shownTheme = self?.themeSettings.shownTheme else { return .clickyBlue }
+            return LiveSceneAccentColors(accentHex: shownTheme.cursorColorHex, inkOnAccentHex: shownTheme.cursorContrastColorHex)
         }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
@@ -2295,7 +2304,7 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
-    /// The first wrong answer keeps the model's sentence, which does not give the answer away.
+    /// The first wrong answer keeps the model's sentence, which does not give the answer away, and offers a hint.
     /// A second wrong answer uses the closing line, so the learner hears what the part does.
     private func applyJudgedLiveSceneAnswer(
         grade: LiveSceneQuizGrade,
@@ -2326,7 +2335,7 @@ final class CompanionManager: ObservableObject {
         case .wrong:
             if wrongAnswerCount == 0 {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-                return judgeSpokenReply
+                return firstWrongAnswerSpokenLine(judgeSpokenReply: judgeSpokenReply)
             }
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
@@ -2423,6 +2432,7 @@ final class CompanionManager: ObservableObject {
         let spokenLine: String
         switch videoQuizCommand {
         case .start:
+            videoQuizSummaryPanelController.close(animated: false)
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
@@ -2588,6 +2598,11 @@ final class CompanionManager: ObservableObject {
         if themeStudioController.closeOnEscape() {
             return
         }
+        // With the quiz summary open, Escape closes it.
+        if videoQuizSummaryPanelController.isShowing {
+            videoQuizSummaryPanelController.close(animated: true)
+            return
+        }
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
             clearTheLiveSceneAndReleaseTheBuddy()
@@ -2635,6 +2650,46 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Escape: stopped the reply")
+    }
+
+    /// Shows the Card that sums up a quiz that just ended, out of the quiz video when its tab is in front.
+    private func showTheVideoQuizSummary(_ summary: VideoQuizSummary) {
+        let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
+        let videoRect = videoQuizSession.quizVideoIsTheTabInFront()
+            ? ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
+            : nil
+        videoQuizSummaryPanelController.show(
+            summary: summary,
+            videoRect: videoRect,
+            accentColor: themeSettings.shownTheme.cursorColor,
+            goBackToTheMissedQuestion: { [weak self] missedQuestion in
+                self?.goBackToTheMissedQuizQuestion(missedQuestion)
+            }
+        )
+    }
+
+    /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label
+    /// named and the narration a requested pop-out has. Clearing it resumes the video.
+    private func goBackToTheMissedQuizQuestion(_ missedQuestion: VideoQuizMissedQuestion) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // The video is about to move back to the question, so a scene on screen goes without its "back to the video".
+        clearFinishedLiveScene(resumesTheVideo: false)
+        guard let framePopout = videoQuizSession.goBackToTheMissedQuestion(missedQuestion),
+              let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
+            return
+        }
+        liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .framePopout(framePopout)
+        voiceState = .idle
+        currentResponseTask = Task {
+            await self.narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
     }
 
     private func skipTheVideoQuizQuestion() {

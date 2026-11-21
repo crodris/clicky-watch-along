@@ -3,35 +3,18 @@
 <head>
 <meta charset="utf-8">
 <style>
-:root {
-  /* Mirrors the cursor's color, DS.Colors.overlayCursorBlue unless a team theme is on. The page data sets both at startup. */
-  --clicky-blue: #3380ff;
-  /* The letters on that color, white unless a team theme is on. */
-  --clicky-blue-text: #ffffff;
-  /* Mirrors DS.Colors.success. */
-  --clicky-success-green: #34d399;
-}
+/* Labels, the quiz label, and the ring burst take their look from scene-style.css, which the overlay adds to every page.
+   The quiz label's colors come from the page data too, so the page also renders right in a browser outside the app. */
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font-family: -apple-system, sans-serif; }
 canvas { display: block; position: absolute; inset: 0; }
 #backdrop { position: absolute; inset: 0; background: rgb(0, 0, 0); opacity: 0; }
 #frameBackground { position: absolute; }
 svg#leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.scene-label { position: absolute; left: 0; top: 0; padding: 5px 10px; border-radius: 8px; background: rgba(250, 246, 240, 0.96); color: #222; font-size: 14px; font-weight: 600; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); pointer-events: none; transition: background-color 0.3s, color 0.3s, opacity 0.3s; }
-.scene-label.focused { background: #ffe066; }
-.scene-label.quiz-answer { z-index: 2; }
-/* The "?" waiting to be named is larger and Clicky blue. The class comes off when the name shows. */
-.scene-label.quiz-answer.unanswered { background: var(--clicky-blue); color: var(--clicky-blue-text); font-size: 22px; padding: 7px 16px; border-radius: 11px; }
-.scene-label.quiz-answer.answered-correctly { background: var(--clicky-success-green); color: #04291b; }
-/* translate is its own property, so the shake does not fight the transform that places the label. */
-.scene-label.shaking { animation: label-shake 0.45s ease-in-out 1; }
-@keyframes label-shake { 0%, 100% { translate: 0 0; } 20% { translate: -9px 0; } 40% { translate: 8px 0; } 60% { translate: -6px 0; } 80% { translate: 4px 0; } }
-.answer-burst { position: absolute; width: 44px; height: 44px; margin: -22px 0 0 -22px; box-sizing: border-box; border: 3px solid var(--clicky-success-green); border-radius: 50%; pointer-events: none; opacity: 0; animation: answer-burst 0.7s ease-out 1 forwards; }
-@keyframes answer-burst { from { transform: scale(0.2); opacity: 0.95; } to { transform: scale(2.6); opacity: 0; } }
+.scene-label { position: absolute; left: 0; top: 0; pointer-events: none; }
 /* The return fades labels by hand each frame, so the label's own fade must not lag behind it. */
 body.returning .scene-label { transition: none; }
 /* Labels catch the mouse only once a pop-out with no quiz has finished its tour, so before that every press turns the model. */
-body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -webkit-user-select: none; user-select: none; transition: background-color 0.3s, opacity 0.3s, box-shadow 0.15s; }
-body.labels-take-clicks .scene-label:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(255, 224, 102, 0.9); }
+body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -webkit-user-select: none; user-select: none; }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
 </head>
@@ -43,8 +26,8 @@ body.labels-take-clicks .scene-label:hover { box-shadow: 0 2px 8px rgba(0, 0, 0,
 <script type="module">
 const popout = window.__framePopout;
 // Both come from Swift as hex strings it built itself, so the cursor and the quiz label always share a color.
-if (popout.quizLabelColor) document.documentElement.style.setProperty('--clicky-blue', popout.quizLabelColor);
-if (popout.quizLabelTextColor) document.documentElement.style.setProperty('--clicky-blue-text', popout.quizLabelTextColor);
+if (popout.quizLabelColor) document.documentElement.style.setProperty('--clicky-accent', popout.quizLabelColor);
+if (popout.quizLabelTextColor) document.documentElement.style.setProperty('--clicky-accent-ink', popout.quizLabelTextColor);
 const labelEntries = [];
 let focusedEntry = null;
 let tourDone = false;
@@ -597,13 +580,23 @@ for (const part of popout.parts) {
   element.textContent = part.isQuizAnswer ? "?" : part.label;
   if (part.isQuizAnswer) element.classList.add("quiz-answer", "unanswered");
   element.style.opacity = "0";
+  // Labels pop in one after another, 120 ms apart, the first time they show.
+  element.style.setProperty("--clicky-label-order", String(labelEntries.length));
+  element.addEventListener("animationend", (event) => { if (event.animationName === "clicky-label-pop") element.classList.remove("popping-in"); });
   document.body.appendChild(element);
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
   line.setAttribute("stroke", "rgba(255, 255, 255, 0.85)");
   line.setAttribute("stroke-width", "1.5");
   leaders.appendChild(line);
+  // An accent dot marks where the leader meets its part.
+  const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  dot.setAttribute("r", "3.5");
+  dot.setAttribute("fill", "var(--clicky-accent)");
+  dot.setAttribute("stroke", "#ffffff");
+  dot.setAttribute("stroke-width", "1.5");
+  leaders.appendChild(dot);
   const boxX = Math.min(boxW - 1, Math.max(0, Math.round(part.x - x0))), boxY = Math.min(boxH - 1, Math.max(0, Math.round(part.y - y0)));
-  labelEntries.push({ part, element, line, surface: thicknessInFramePixels(distance[boxY * boxW + boxX]) * frameToWorld });
+  labelEntries.push({ part, element, line, dot, surface: thicknessInFramePixels(distance[boxY * boxW + boxX]) * frameToWorld });
 }
 const partPoint = (entry) => framePointToWorld(entry.part.x, entry.part.y, (maximumLift + entry.surface) * liftNow);
 
@@ -719,6 +712,7 @@ addEventListener("pointermove", (event) => {
 });
 
 let lastFrameTime;
+let labelsHavePoppedIn = false;
 
 const finishTour = () => {
   draggedYaw = yaw; draggedPitch = pitch;
@@ -786,6 +780,10 @@ const render = (now) => {
 
   const labelFadeInAfterAnEarlyEnd = tourEndedEarlyAt === null ? 0 : (now - tourEndedEarlyAt) / 600;
   const labelOpacity = Math.min(1, Math.max(0, (seconds - 4) / 0.6, labelFadeInAfterAnEarlyEnd));
+  if (labelOpacity > 0 && !labelsHavePoppedIn) {
+    labelsHavePoppedIn = true;
+    for (const entry of labelEntries) entry.element.classList.add("popping-in");
+  }
   const centerOnPage = subjectCenter().project(camera);
   const centerX = (centerOnPage.x + 1) / 2 * pageWidth, centerY = (1 - centerOnPage.y) / 2 * pageHeight;
   const reach = Math.min(pageWidth, pageHeight) * 0.14;
@@ -860,7 +858,9 @@ const render = (now) => {
     // Offsets held still during a drag, and the glide between layouts, can carry a label past the edge, so the final position is clamped too.
     const labelX = keepLabelXInViewport(pointX + entry.offsetX, halfWidth);
     const labelY = keepLabelYInViewport(pointY + entry.offsetY, halfHeight);
-    entry.anchorX = pointX; entry.anchorY = pointY;
+    // The leader's part end is clamped the same way, so a window that shrinks after the scene loaded never sends a line off screen.
+    const anchorX = keepLabelXInViewport(pointX, 0), anchorY = keepLabelYInViewport(pointY, 0);
+    entry.anchorX = anchorX; entry.anchorY = anchorY;
     // A transform keeps the label at sub-pixel positions like its SVG line. Left and top snap to
     // whole pixels in WebKit, which made labels shimmer against their lines.
     entry.element.style.transform = `translate(${labelX}px, ${labelY}px) translate(-50%, -50%)`;
@@ -868,9 +868,11 @@ const render = (now) => {
     const shownOpacity = returnFrom ? entry.opacityAtReturn * labelFade : labelOpacity;
     if (returnFrom) entry.element.style.opacity = String(shownOpacity);
     else if (!entry.element.classList.contains("focused") && entry.element.style.opacity !== "0.35") entry.element.style.opacity = String(labelOpacity);
-    entry.line.setAttribute("x1", pointX); entry.line.setAttribute("y1", pointY);
+    entry.line.setAttribute("x1", anchorX); entry.line.setAttribute("y1", anchorY);
     entry.line.setAttribute("x2", labelX); entry.line.setAttribute("y2", labelY);
     entry.line.setAttribute("opacity", shownOpacity);
+    entry.dot.setAttribute("cx", anchorX); entry.dot.setAttribute("cy", anchorY);
+    entry.dot.setAttribute("opacity", shownOpacity);
   }
   drawFlows(now);
   renderer.render(scene, camera);

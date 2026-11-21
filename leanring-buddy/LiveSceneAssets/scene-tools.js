@@ -223,9 +223,9 @@
     insideIsOpen = open;
   };
 
-  // The panel is styled like the scene labels, and sits on the document root so the rise animation, which moves
+  // The panel is a Card styled by scene-style.css, and sits on the document root so the rise animation, which moves
   // the body, never carries it. It appears when the tour ends, which is when the overlay starts taking the mouse.
-  const panel = { element: null, controlRows: [], runButton: null, readoutsElement: null, challengeOrQuestionElement: null, pastRunsElement: null };
+  const panel = { element: null, controlRows: [], runButton: null, stageNameElement: null, stageTextElement: null, stageOutcomeElement: null, readoutsElement: null, readoutValueElements: [], pastRunsElement: null };
   const decimalsOf = (step) => String(step).split(".")[1]?.length ?? 0;
   const valueText = (control) => `${control.value.toFixed(decimalsOf(control.step))}${control.unit ? " " + control.unit : ""}`;
 
@@ -256,6 +256,44 @@
     });
   };
 
+  // What the stage line says for each stage of the lesson. The challenge's own words come from the page.
+  const stageLineParts = () => {
+    if (lessonStage === "guess") {
+      return { name: "Guess first:", text: predictionQuestion !== "" ? predictionQuestion : "say what you think will happen, then try it." };
+    }
+    const challenge = challengeState();
+    if (challenge) {
+      const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
+      if (challenge.hit) return { name: "Challenge:", text: `you did it in ${tries}.` };
+      return { name: "Challenge:", text: `${challenge.prompt} (${tries} so far)` };
+    }
+    return { name: "Try it:", text: "change a setting and press Run. Each run adds a row." };
+  };
+  // A challenge try's outcome, from the challenge report: how far from the target, and which way a miss went.
+  let lastChallengeOutcome = null;
+  const challengeOutcomeText = (outcome) => {
+    const distance = `${Math.abs(outcome.difference)}${outcome.unit ? " " + outcome.unit : ""}`;
+    if (outcome.status === "hit") return { text: `Hit, ${distance} from the target.`, isHit: true };
+    return { text: `Missed by ${distance}, ${outcome.difference > 0 ? "over" : "under"} the target.`, isHit: false };
+  };
+  // When a run lands, its readouts count up from the run before's over 600 ms. Reduce Motion shows them at once.
+  const readoutCountUpSeconds = 0.6;
+  let readoutValuesShown = new Map();
+  const decimalsOfValue = (value) => String(value).split(".")[1]?.length ?? 0;
+  const readoutText = (value, decimals, unit) => `${value.toFixed(decimals)} ${unit}`.trim();
+  const countTheReadoutsUp = (readouts) => {
+    const startValues = readouts.map((readout) => readoutValuesShown.get(readout.label) ?? 0);
+    readoutValuesShown = new Map(readouts.map((readout) => [readout.label, readout.value]));
+    tween(readoutCountUpSeconds, (progress) => {
+      readouts.forEach((readout, index) => {
+        const valueElement = panel.readoutValueElements[index];
+        if (!valueElement || runIsGoing) return;
+        const shownValue = progress >= 1 ? readout.value : startValues[index] + (readout.value - startValues[index]) * progress;
+        valueElement.textContent = readoutText(shownValue, decimalsOfValue(readout.value), readout.unit);
+      });
+    });
+  };
+
   const refreshPanel = () => {
     if (!panel.element) return;
     simulationControls().map(controlSummary).forEach((control, index) => {
@@ -267,15 +305,14 @@
     panel.runButton.disabled = runIsGoing;
     // Clicking the locked button skips the guess, so a voice mix-up never leaves the learner stuck.
     panel.runButton.textContent = lessonStage === "guess" ? "Say your guess" : runIsGoing ? "Running" : "Run";
-    panel.runButton.style.background = lessonStage === "guess" ? "#8a94a3" : "#3380ff";
-    const challenge = challengeState();
-    const questionIsWaiting = lessonStage === "guess" && predictionQuestion !== "";
-    panel.challengeOrQuestionElement.style.display = challenge || questionIsWaiting ? "block" : "none";
-    if (questionIsWaiting) panel.challengeOrQuestionElement.textContent = predictionQuestion;
-    if (challenge) {
-      const tries = challenge.attempts === 1 ? "1 try" : `${challenge.attempts} tries`;
-      panel.challengeOrQuestionElement.textContent = challenge.hit ? `You did it in ${tries}` : `Challenge: ${challenge.prompt} (${tries} so far)`;
-    }
+    panel.runButton.className = lessonStage === "guess" ? "clicky-run-button locked" : "clicky-run-button";
+    const stageLine = stageLineParts();
+    panel.stageNameElement.textContent = stageLine.name;
+    panel.stageTextElement.textContent = ` ${stageLine.text}`;
+    // Only a run that started in the challenge sets an outcome, so one shows only during the challenge and after its hit.
+    const outcome = lastChallengeOutcome ? challengeOutcomeText(lastChallengeOutcome) : null;
+    panel.stageOutcomeElement.textContent = outcome ? ` ${outcome.text}` : "";
+    panel.stageOutcomeElement.className = outcome?.isHit ? "clicky-stage-outcome-hit" : "clicky-stage-outcome-miss";
     // One row per trial, oldest first like a lab notebook: the trial number, each variable, and one measurement.
     panel.pastRunsElement.style.display = pastRuns.length > 1 ? "grid" : "none";
     if (pastRuns.length > 1) {
@@ -291,25 +328,29 @@
       panel.pastRunsElement.replaceChildren(...rows.flatMap((row, rowIndex) => row.map((cellText) => {
         const cell = document.createElement("span");
         cell.textContent = cellText;
-        cell.style.cssText = `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${rowIndex === 0 ? "opacity:0.6;" : ""}`;
+        cell.className = rowIndex === 0 ? "clicky-trial-cell clicky-trial-header" : "clicky-trial-cell";
         return cell;
       })));
     }
+    // The readouts always describe the last finished run, so they never claim a result that has not happened.
     const readouts = currentReadouts();
+    panel.readoutValueElements = [];
     panel.readoutsElement.replaceChildren(...readouts.map((readout) => {
-      const line = document.createElement("div");
-      line.style.cssText = "display:flex;gap:6px;white-space:nowrap;";
-      const labelElement = document.createElement("span");
+      const cell = document.createElement("div");
+      cell.className = "clicky-readout";
+      const labelElement = document.createElement("div");
+      labelElement.className = "clicky-readout-label";
       labelElement.textContent = readout.label;
-      labelElement.style.opacity = "0.7";
-      const valueElement = document.createElement("span");
+      const valueElement = document.createElement("div");
+      valueElement.className = "clicky-readout-value";
       // The values are the run before's until this run ends, so they wait while it plays.
-      valueElement.textContent = runIsGoing ? "…" : `${readout.value} ${readout.unit}`.trim();
-      valueElement.style.fontWeight = "700";
-      line.append(labelElement, valueElement);
-      return line;
+      const shownValue = readoutValuesShown.get(readout.label) ?? readout.value;
+      valueElement.textContent = runIsGoing ? "…" : readoutText(shownValue, decimalsOfValue(readout.value), readout.unit);
+      panel.readoutValueElements.push(valueElement);
+      cell.append(labelElement, valueElement);
+      return cell;
     }));
-    panel.readoutsElement.style.display = readouts.length > 0 ? "flex" : "none";
+    panel.readoutsElement.style.display = readouts.length > 0 ? "grid" : "none";
     keepSceneAbovePanel();
   };
 
@@ -317,24 +358,33 @@
     if (panel.element || !document.body || !hasSimulation()) return;
     const element = document.createElement("div");
     element.id = "clicky-simulation-panel";
-    element.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10;box-sizing:border-box;width:min(560px,calc(100vw - 32px));display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px;padding:10px 14px;border-radius:12px;background:#faf6f0;color:#222;font:600 13px -apple-system,system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,0.3);-webkit-user-select:none;user-select:none;";
-    const style = document.createElement("style");
-    style.textContent = "#clicky-simulation-panel input[type=range]{width:100%;margin:4px 0 0;accent-color:#3380ff;cursor:pointer}#clicky-simulation-panel button{cursor:pointer}#clicky-simulation-panel button:hover:not(:disabled){filter:brightness(1.1)}#clicky-simulation-panel button:disabled{cursor:default;opacity:0.7}";
-    element.append(style);
+    // Where the panel sits is set here, and how it looks comes from scene-style.css, which the overlay adds to every page.
+    element.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10;box-sizing:border-box;width:min(580px,calc(100vw - 32px));";
     // A press or wheel on the panel is the panel's. It must not turn or zoom the model behind it.
     for (const eventName of ["pointerdown", "mousedown", "touchstart", "wheel"]) {
       element.addEventListener(eventName, (event) => event.stopPropagation());
     }
+    const stageLineElement = document.createElement("div");
+    stageLineElement.className = "clicky-stage-line";
+    panel.stageNameElement = document.createElement("span");
+    panel.stageNameElement.className = "clicky-stage-name";
+    panel.stageTextElement = document.createElement("span");
+    panel.stageOutcomeElement = document.createElement("span");
+    stageLineElement.append(panel.stageNameElement, panel.stageTextElement, panel.stageOutcomeElement);
+    const controlsRowElement = document.createElement("div");
+    controlsRowElement.className = "clicky-controls-row";
     panel.controlRows = simulationControls().map((pageControl) => {
       // The panel shows the cut text, and the slider hands the page its control's real name.
       const control = controlSummary(pageControl);
       const row = document.createElement("div");
-      row.style.cssText = "flex:1 1 140px;min-width:0;";
+      row.className = "clicky-control";
       const heading = document.createElement("div");
-      heading.style.cssText = "display:flex;justify-content:space-between;gap:8px;white-space:nowrap;";
+      heading.className = "clicky-control-heading";
       const labelElement = document.createElement("span");
+      labelElement.className = "clicky-control-label";
       labelElement.textContent = control.label;
       const valueElement = document.createElement("span");
+      valueElement.className = "clicky-control-value";
       heading.append(labelElement, valueElement);
       const slider = document.createElement("input");
       slider.type = "range";
@@ -349,11 +399,11 @@
         refreshPanel();
       });
       row.append(heading, slider);
-      element.append(row);
+      controlsRowElement.append(row);
       return { slider, valueElement };
     });
     panel.runButton = document.createElement("button");
-    panel.runButton.style.cssText = "flex:0 0 auto;min-width:84px;padding:7px 18px;border:0;border-radius:8px;background:#3380ff;color:#fff;font:700 14px -apple-system,system-ui,sans-serif;";
+    panel.runButton.className = "clicky-run-button";
     panel.runButton.addEventListener("click", () => {
       liveScene().endTour?.();
       if (leaveTheGuessStage()) {
@@ -362,13 +412,14 @@
       }
       startRun();
     });
-    panel.challengeOrQuestionElement = document.createElement("div");
-    panel.challengeOrQuestionElement.style.cssText = "display:none;flex-basis:100%;order:-1;color:#1f5fcc;font-weight:700;";
+    controlsRowElement.append(panel.runButton);
     panel.readoutsElement = document.createElement("div");
-    panel.readoutsElement.style.cssText = "display:none;flex-basis:100%;flex-wrap:wrap;gap:4px 18px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.15);font-weight:600;";
+    panel.readoutsElement.className = "clicky-readouts";
+    panel.readoutsElement.style.display = "none";
     panel.pastRunsElement = document.createElement("div");
-    panel.pastRunsElement.style.cssText = "display:none;flex-basis:100%;gap:2px 14px;font-weight:500;font-variant-numeric:tabular-nums;";
-    element.append(panel.challengeOrQuestionElement, panel.runButton, panel.readoutsElement, panel.pastRunsElement);
+    panel.pastRunsElement.className = "clicky-trials";
+    panel.pastRunsElement.style.display = "none";
+    element.append(stageLineElement, controlsRowElement, panel.readoutsElement, panel.pastRunsElement);
     document.documentElement.append(element);
     panel.element = element;
     // The page's own resize handler resets the camera's aspect, so the lift is applied again after it with the new size.
@@ -422,8 +473,18 @@
       pastRuns.unshift({ trial: trialsRun, controls: controlsAtTheStart, readouts });
       pastRuns.splice(mostPastRuns);
       const report = { readouts, pastRuns, challenge: null };
-      if (runStartedInTheChallenge && lessonStage === "challenge") report.challenge = scoreTheChallengeRun(readouts);
-      refreshPanel();
+      if (runStartedInTheChallenge && lessonStage === "challenge") {
+        report.challenge = scoreTheChallengeRun(readouts);
+        lastChallengeOutcome = report.challenge;
+      }
+      if (reducedMotion()) {
+        readoutValuesShown = new Map(readouts.map((readout) => [readout.label, readout.value]));
+        refreshPanel();
+      } else {
+        // The panel first shows the run before's values, which then count up to this run's.
+        refreshPanel();
+        countTheReadoutsUp(readouts);
+      }
       window.webkit?.messageHandlers?.liveSceneEvent?.postMessage("runFinished:" + JSON.stringify(report));
     });
   };
