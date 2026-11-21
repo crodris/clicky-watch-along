@@ -130,9 +130,12 @@ jobs:
           persist-credentials: false
       # The app's Build Agent Harness phase runs tools/build-agent-harness.sh, which needs Go. It looks on PATH first, so this
       # one is used on both runners, and the Mac runner needs no Go of its own.
+      # The Mac runners keep Go's build and module caches in the runner user's home between jobs, so the Actions cache is off
+      # there: restoring its 471 MB archive took up to a minute, and saving it took 2 to 9 minutes a job and then failed.
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: harness/go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
           cache-dependency-path: harness/go.sum
       # Match the Xcode used for local builds, so a newer runner default cannot break the build unnoticed.
       - if: runner.environment == 'github-hosted'
