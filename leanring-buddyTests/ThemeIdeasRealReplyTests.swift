@@ -33,7 +33,7 @@ struct ThemeIdeasRealReplyTests {
         }
         #expect(flameShapes.count == 2)
         #expect(flameShapes[1].strokeHex == nil)
-        #expect(reply.ideas[1].agentColorHexes.count == 5)
+        #expect(reply.ideas[1].agentColorsInOrder.count == 5)
     }
 
     @Test func theReplyToUseThisWholeImageAsMyCursorParsesPictureCursorsAndAShapeIdea() throws {
@@ -55,7 +55,7 @@ struct ThemeIdeasRealReplyTests {
         for (replyText, pictureWasSent) in [(replyFromWords, false), (replyFromAPicture, true)] {
             let reply = try ThemeIdeasReply(responseData: Data(replyText.utf8), pictureWasSent: pictureWasSent)
             for idea in reply.ideas {
-                #expect(try CustomTheme.parse(idea: idea.ideaJSON, id: idea.id, pictureIsAvailable: pictureWasSent) == idea)
+                #expect(try ClickyTheme.parse(themeJSON: idea.themeJSON, id: idea.id, pictureIsAvailable: pictureWasSent) == idea)
             }
         }
     }

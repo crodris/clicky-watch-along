@@ -44,9 +44,9 @@ Preconditions:
 
 - **Route.** Save `{"request":"something cozy for night"}` as `$RUN/words.json`, then run `$V post /theme-ideas "$RUN/words.json"`.
   The result is HTTP 200 with a `title`, a `spokenLine`, and 3 `ideas`.
-  Each idea has an `accent` that reads on `#101211`, 3 to 6 `agentColors` with no red or green, a `cursor` with `kind` `shapes` (1 to 6 shapes) or `picture`, a `motion`, three `sounds`, and `usesPicture`.
+  Each idea is a version 2 theme.json (`version` 2) with an `accent` that reads on `#101211`, a `cursor` with `kind` `shapes` (1 to 6 shapes) or `picture`, a `motion`, `agents` with a `ring` of `perAgent` (3 to 6 `colors` with no red or green) or `accent` (empty `colors`) and `faces.kind` `triangle` or `picture`, and three `sounds`.
   There is one `[/theme-ideas]` usage line, `claude-sonnet-5-5`, with 0 `thinking_tokens`.
-  A body whose `picture` is a fresh screenshot of a page image, built in `$RUN` the way the frame pop-out recipe builds its body, returns ideas where at least one has `usesPicture` true.
+  A body whose `picture` is a fresh screenshot of a page image, built in `$RUN` the way the frame pop-out recipe builds its body, returns ideas where at least one has a `picture` cursor or `agents.faces.kind` `picture`.
 - **Open and preview.** Post `tools/call` for `design_theme` with `{"request":"something cozy for night"}`.
   The result is `{"ok":true}`, and the card shows "Designing your theme" with three placeholders under the mouse. Run `$V shot studio-designing` within 2 seconds.
   About 10 seconds later the card shows three named tiles with the first outlined in its accent, the tags, and "Say one, two, or three · or what to change · say save it", and the real cursor has the first idea's shape and color.

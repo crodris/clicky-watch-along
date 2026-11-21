@@ -6,6 +6,7 @@
 //  the picture face, the ring and chip that follow, and the saved theme (not the studio's preview) deciding it all.
 //
 
+import Foundation
 import SwiftUI
 import Testing
 @testable import Clicky
@@ -16,9 +17,10 @@ struct CustomThemeAgentTests {
         .custom(ThemeRGBColor(hex: hex)!)
     }
 
-    private func customTheme(usesPicture: Bool = false) throws -> CustomTheme {
+    private func customTheme(usesPicture: Bool = false) throws -> ClickyTheme {
         let idea = usesPicture ? goodPictureCursorThemeIdea : goodThemeIdea
-        return try CustomTheme.parse(idea: idea, id: "moonlit-3f9a", pictureIsAvailable: usesPicture)
+        // A saved theme's origin, since only a saved theme has a picture.jpg to give its agents as a face.
+        return try ClickyTheme.parse(themeJSON: idea, id: "moonlit-3f9a", origin: .saved(folderURL: URL(fileURLWithPath: "/tmp/moonlit-3f9a")), pictureIsAvailable: usesPicture)
     }
 
     @Test func aNewAgentTakesTheFirstThemeColorNoOneHasAndThenCyclesThroughThem() {
@@ -41,12 +43,12 @@ struct CustomThemeAgentTests {
     }
 
     @Test func agentsStartedUnderACustomThemeGetItsColorsAndNoPlayer() throws {
-        let store = makeBackgroundAgentStore(theme: .custom(try customTheme()))
+        let store = makeBackgroundAgentStore(theme: try customTheme())
         let firstAgentID = store.start(kind: .task)
         let secondAgentID = store.start(kind: .studyGuide)
         #expect(store.agents.first { $0.id == firstAgentID }?.tokenColor == themeColor("#7DD3FC"))
         #expect(store.agents.first { $0.id == secondAgentID }?.tokenColor == themeColor("#C4B5FD"))
-        #expect(store.agents.allSatisfy { $0.player == nil })
+        #expect(store.agents.allSatisfy { $0.rosterFace == nil })
         #expect(store.face(for: firstAgentID) == .triangle)
         // A later agent never recolors an agent that already has its color.
         store.start(kind: .task)
@@ -54,7 +56,7 @@ struct CustomThemeAgentTests {
     }
 
     @Test func aThemeThatUsesThePictureGivesItsAgentsThePictureFace() throws {
-        let store = makeBackgroundAgentStore(theme: .custom(try customTheme(usesPicture: true)))
+        let store = makeBackgroundAgentStore(theme: try customTheme(usesPicture: true))
         let agentID = store.start(kind: .task)
         #expect(store.face(for: agentID) == .themePicture(themeID: "moonlit-3f9a"))
     }
@@ -62,9 +64,10 @@ struct CustomThemeAgentTests {
     @Test func aFacelessAgentIsATriangleAndAPlayerAgentKeepsItsPlayer() throws {
         let clickyBlueStore = makeBackgroundAgentStore()
         #expect(clickyBlueStore.face(for: clickyBlueStore.start(kind: .task)) == .triangle)
-        let schoolStore = makeBackgroundAgentStore(theme: .school(.karasuno))
-        let player = try #require(HaikyuSchool.karasuno.roster.first)
-        #expect(schoolStore.face(for: schoolStore.start(kind: .task)) == .player(player))
+        let karasuno = bundledTheme("school-karasuno")
+        let schoolStore = makeBackgroundAgentStore(theme: karasuno)
+        let player = try #require(rosterPlayers(of: karasuno).first)
+        #expect(schoolStore.face(for: schoolStore.start(kind: .task)) == .rosterFace(AgentRosterFace(player: player, of: karasuno)))
     }
 
     @Test func theStudiosPreviewNeverColorsAnAgent() throws {
@@ -77,7 +80,7 @@ struct CustomThemeAgentTests {
     }
 
     @Test func theRingAndTheChipFollowTheAgentsThemeColor() throws {
-        let store = makeBackgroundAgentStore(theme: .custom(try customTheme()))
+        let store = makeBackgroundAgentStore(theme: try customTheme())
         let agentID = store.start(kind: .task)
         let agent = try #require(store.agents.first { $0.id == agentID })
         #expect(agentTokenRingColorChoice(for: agent) == .assigned(themeColor("#7DD3FC")))

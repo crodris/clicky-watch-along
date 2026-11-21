@@ -111,7 +111,7 @@ struct ThemeStudioControllerTests {
             return
         }
         #expect(ideas.ideas.map(\.name) == ["Ember", "Moonlit", "Forest"])
-        #expect(harness.themeSettings.shownTheme == .custom(ideas.ideas[0]))
+        #expect(harness.themeSettings.shownTheme == ideas.ideas[0])
         #expect(harness.spokenLines == ["Here are three. Say one, two, or three."])
         #expect(harness.requestsSentToTheWorker.map(\.request) == ["something cozy for night"])
         #expect(harness.requestsSentToTheWorker[0].currentIdeas.isEmpty)
@@ -146,7 +146,7 @@ struct ThemeStudioControllerTests {
         guard case .showingIdeas(let backIdeas) = harness.studio.state else { Issue.record("no ideas after the failure"); return }
         #expect(backIdeas.ideas == firstIdeas.ideas)
         #expect(backIdeas.highlightedIdeaIndex == 1)
-        #expect(harness.themeSettings.shownTheme == .custom(firstIdeas.ideas[1]))
+        #expect(harness.themeSettings.shownTheme == firstIdeas.ideas[1])
         #expect(harness.spokenLines == [ThemeStudioController.couldNotDesignLine])
         #expect(harness.presenter.showCount == 1)
         #expect(harness.presenter.hideCount == 0)
@@ -167,7 +167,7 @@ struct ThemeStudioControllerTests {
         #expect(ideas.ideas.map(\.name) == ["Moonlit star", "Two", "Three"])
         // The new ideas start with the first highlighted.
         #expect(ideas.highlightedIdeaIndex == 0)
-        #expect(harness.themeSettings.shownTheme == .custom(ideas.ideas[0]))
+        #expect(harness.themeSettings.shownTheme == ideas.ideas[0])
     }
 
     @Test func pickingAnIdeaPutsItOnTheCursorAndANumberWithNoIdeaDoesNothing() async throws {
@@ -178,10 +178,10 @@ struct ThemeStudioControllerTests {
         guard case .showingIdeas(let ideas) = harness.studio.state else { Issue.record("no ideas"); return }
 
         #expect(harness.studio.pickIdea(number: 3))
-        #expect(harness.themeSettings.shownTheme == .custom(ideas.ideas[2]))
+        #expect(harness.themeSettings.shownTheme == ideas.ideas[2])
         #expect(!harness.studio.pickIdea(number: 4))
         #expect(!harness.studio.pickIdea(number: 0))
-        #expect(harness.themeSettings.shownTheme == .custom(ideas.ideas[2]))
+        #expect(harness.themeSettings.shownTheme == ideas.ideas[2])
     }
 
     @Test func nothingCanBePickedOrSavedWhileTheFirstIdeasAreStillComing() async throws {
@@ -215,7 +215,8 @@ struct ThemeStudioControllerTests {
             #expect(harness.stopSpeakingCount == 1)
             #expect(harness.presenter.hideCount == 1)
             #expect(harness.themeSettings.previewTheme == nil)
-            guard case .custom(let savedTheme) = harness.themeSettings.theme else { Issue.record("not a custom theme"); return }
+            let savedTheme = harness.themeSettings.theme
+            guard case .saved = savedTheme.origin else { Issue.record("not a saved theme"); return }
             #expect(savedTheme.name == "Moonlit")
             #expect(harness.playedSounds == [savedTheme.sounds.done])
             #expect(savedTheme.id.hasPrefix("moonlit-"))
@@ -235,10 +236,11 @@ struct ThemeStudioControllerTests {
             // The preview shows the picture before anything is saved.
             #expect(harness.themeSettings.shownThemePicture != nil)
 
-            guard case .saved = harness.studio.saveTheHighlightedIdea(), case .custom(let savedTheme) = harness.themeSettings.theme else {
+            guard case .saved = harness.studio.saveTheHighlightedIdea(), case .saved = harness.themeSettings.theme.origin else {
                 Issue.record("not saved")
                 return
             }
+            let savedTheme = harness.themeSettings.theme
             let savedPictureData = try Data(contentsOf: store.pictureURL(forThemeID: savedTheme.id))
             #expect(savedPictureData == picture.jpegData)
             #expect(savedTheme.usesPicture)
@@ -285,15 +287,15 @@ struct ThemeStudioControllerTests {
     }
 
     @Test func closingKeepsTheOldThemeAndEndsThePreview() async throws {
-        let harness = StudioHarness(themeSettings: makeThemeSettings(startingWith: .school(.nekoma)))
+        let harness = StudioHarness(themeSettings: makeThemeSettings(startingWith: bundledTheme("school-nekoma")))
         harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
         harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
         await harness.studio.waitForTheDesign()
 
         harness.studio.close()
         #expect(harness.studio.state == .closed)
-        #expect(harness.themeSettings.theme == .school(.nekoma))
-        #expect(harness.themeSettings.shownTheme == .school(.nekoma))
+        #expect(harness.themeSettings.theme == bundledTheme("school-nekoma"))
+        #expect(harness.themeSettings.shownTheme == bundledTheme("school-nekoma"))
         #expect(harness.presenter.hideCount == 1)
     }
 

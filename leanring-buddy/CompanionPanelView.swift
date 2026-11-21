@@ -747,9 +747,10 @@ private struct ReportProblemButton: View {
 
 // MARK: - Team Theme Picker
 
-/// The "Team theme" section: Clicky blue, the ten Haikyu!! schools, and Random in two columns, then the learner's saved custom
-/// themes as full-width rows that can be renamed or deleted (`SavedThemeRow`).
-/// Picking one recolors the cursor now, and gives each agent that starts afterward a player of that team.
+/// The "Team theme" section: the Shuffle switch, the bundled themes in two columns, then the learner's saved custom themes as
+/// full-width rows that can be renamed or deleted (`SavedThemeRow`). Every name and color comes from the theme's file.
+/// Picking one recolors the cursor now, and gives each agent that starts afterward that theme's look, such as a player of
+/// its roster.
 private struct TeamThemePickerView: View {
     @ObservedObject var themeSettings: CompanionThemeSettings
 
@@ -760,12 +761,28 @@ private struct TeamThemePickerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Team theme")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
+            HStack {
+                Text("Team theme")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+
+                Spacer()
+
+                // Shuffle gives each new agent the look of a theme picked at random, and keeps the cursor of the one picked here.
+                Text("Shuffle agents")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DS.Colors.textTertiary)
+                Toggle("", isOn: $themeSettings.shufflesAgentThemes)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .tint(DS.Colors.accent)
+                    .scaleEffect(0.8)
+                    .pointerCursor()
+                    .accessibilityLabel("Shuffle agents across themes")
+            }
 
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(CompanionTheme.allChoices, id: \.rawValue) { theme in
+                ForEach(themeSettings.bundledThemes, id: \.id) { theme in
                     TeamThemeOptionButton(
                         theme: theme,
                         isSelected: themeSettings.theme == theme,
@@ -780,8 +797,8 @@ private struct TeamThemePickerView: View {
                     ForEach(themeSettings.savedCustomThemes, id: \.id) { customTheme in
                         SavedThemeRow(
                             customTheme: customTheme,
-                            isSelected: themeSettings.theme == .custom(customTheme),
-                            select: { themeSettings.theme = .custom(customTheme) },
+                            isSelected: themeSettings.theme == customTheme,
+                            select: { themeSettings.theme = customTheme },
                             rename: { typedName in try themeSettings.renameSavedTheme(themeID: customTheme.id, to: typedName) },
                             delete: { try themeSettings.deleteSavedTheme(themeID: customTheme.id) }
                         )
@@ -794,13 +811,13 @@ private struct TeamThemePickerView: View {
 }
 
 private struct TeamThemeOptionButton: View {
-    let theme: CompanionTheme
+    let theme: ClickyTheme
     let isSelected: Bool
     let select: () -> Void
 
     @State private var isHovered = false
 
-    /// The selected button's border: the theme's own color, which for Random is Clicky blue.
+    /// The selected button's border: the theme's own color.
     private var selectionColor: Color {
         theme.cursorColor
     }
@@ -810,7 +827,7 @@ private struct TeamThemeOptionButton: View {
             HStack(spacing: 8) {
                 TeamThemeSwatch(theme: theme)
                     .frame(width: 18, height: 18)
-                Text(theme.displayName)
+                Text(theme.name)
                     .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                     .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                     .lineLimit(1)
@@ -834,38 +851,14 @@ private struct TeamThemeOptionButton: View {
     }
 }
 
-/// A small round swatch: solid blue for Clicky blue, the team's two colors for a school, and four teams' colors for Random.
-/// A saved theme's row draws it too.
+/// A small round swatch of a theme's two colors, its accent and its contrast. A saved theme's row draws it too.
 struct TeamThemeSwatch: View {
-    let theme: CompanionTheme
+    let theme: ClickyTheme
 
     var body: some View {
-        Group {
-            switch theme {
-            case .clickyBlue:
-                DS.Colors.overlayCursorBlue
-            case .school(let school):
-                HStack(spacing: 0) {
-                    school.accentColor
-                    school.contrastColor
-                }
-            case .custom(let customTheme):
-                HStack(spacing: 0) {
-                    Color(hex: customTheme.accentHex)
-                    Color(hex: customTheme.contrastHex)
-                }
-            case .random:
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        HaikyuSchool.karasuno.accentColor
-                        HaikyuSchool.nekoma.accentColor
-                    }
-                    HStack(spacing: 0) {
-                        HaikyuSchool.aobaJohsai.accentColor
-                        HaikyuSchool.fukurodani.accentColor
-                    }
-                }
-            }
+        HStack(spacing: 0) {
+            Color(hex: theme.accentHex)
+            Color(hex: theme.contrastHex)
         }
         .clipShape(Circle())
         .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5))

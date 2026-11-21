@@ -1,0 +1,104 @@
+{
+  "version": 2,
+  "id": "school-inarizaki",
+  "name": "Inarizaki",
+  "accent": "#F4F4F5",
+  "contrast": "#111111",
+  "cursor": {
+    "kind": "shapes",
+    "shapes": [
+      {
+        "d": "M12 0.7 C18.24 0.7 23.3 5.76 23.3 12 C23.3 18.24 18.24 23.3 12 23.3 C5.76 23.3 0.7 18.24 0.7 12 C0.7 5.76 5.76 0.7 12 0.7 Z",
+        "fill": null,
+        "stroke": "#B8B8B8",
+        "strokeWidth": 0.9
+      },
+      {
+        "d": "M12 2 C17.52 2 22 6.48 22 12 C22 17.52 17.52 22 12 22 C6.48 22 2 17.52 2 12 C2 6.48 6.48 2 12 2 Z",
+        "fill": "#1A1A1A",
+        "stroke": null,
+        "strokeWidth": 0
+      },
+      {
+        "d": "M11.1 7.1 C15.1 7.07 18.97 8.49 22 11.1 M12 12 C9.92 14.8 6.77 16.61 3.3 17 M16.8 13.6 C14.81 17.11 11.61 19.78 7.8 21.1 M20.7 17 C18.6 14.22 15.46 12.41 12 12 M12 12 C10.7 8.79 10.7 5.21 12 2 M6.3 3.8 C5.52 7.74 6.19 11.82 8.2 15.3",
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1.1
+      },
+      {
+        "d": "M12 2 C17.52 2 22 6.48 22 12 C22 17.52 17.52 22 12 22 C6.48 22 2 17.52 2 12 C2 6.48 6.48 2 12 2 Z",
+        "fill": null,
+        "stroke": "#FFFFFF",
+        "strokeWidth": 1.6
+      }
+    ]
+  },
+  "motion": {
+    "turnsTowardMovement": true,
+    "trailStreaks": 3,
+    "whileThinking": "none",
+    "whileListening": "none"
+  },
+  "agents": {
+    "ring": "accent",
+    "faces": {
+      "kind": "roster",
+      "order": "firstUnused",
+      "players": [
+        {
+          "name": "Atsumu",
+          "fullName": "Atsumu Miya",
+          "number": 7,
+          "portrait": "haikyu-atsumu-miya.jpg"
+        },
+        {
+          "name": "Osamu",
+          "fullName": "Osamu Miya",
+          "number": 11,
+          "portrait": "haikyu-osamu-miya.jpg"
+        },
+        {
+          "name": "Suna",
+          "fullName": "Rintarō Suna",
+          "number": 10,
+          "portrait": "haikyu-rintaro-suna.jpg"
+        },
+        {
+          "name": "Kita",
+          "fullName": "Shinsuke Kita",
+          "number": 1,
+          "portrait": "haikyu-shinsuke-kita.jpg"
+        },
+        {
+          "name": "Aran",
+          "fullName": "Aran Ojiro",
+          "number": 4,
+          "portrait": "haikyu-aran-ojiro.jpg"
+        },
+        {
+          "name": "Ginjima",
+          "fullName": "Hitoshi Ginjima",
+          "number": 5,
+          "portrait": "haikyu-hitoshi-ginjima.jpg"
+        },
+        {
+          "name": "Omimi",
+          "fullName": "Ren Ōmimi",
+          "number": 2,
+          "portrait": "haikyu-ren-omimi.jpg"
+        },
+        {
+          "name": "Akagi",
+          "fullName": "Michinari Akagi",
+          "number": 15,
+          "portrait": "haikyu-michinari-akagi.jpg"
+        }
+      ]
+    }
+  },
+  "sounds": {
+    "done": "Tink",
+    "correct": "Glass",
+    "needsYourOK": "Pop"
+  }
+}
