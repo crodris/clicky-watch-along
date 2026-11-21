@@ -46,9 +46,14 @@ Preconditions:
   Run `$V shot voice-turned` after the last step and check the model turned and the chip is gone.
 - **Video tools in the app.** With a video playing in Chrome's front tab, on YouTube and again on another site such as a Wikimedia Commons video file, run `$V app-launch "go back ten seconds|pause it"`.
   The log shows `seek_relative(seconds: -10)` and `pause_video()`, and the video's time went back about 10 seconds.
-- **Video tools through the endpoint.** With a YouTube video playing in Chrome's front tab, post `tools/call` for `pause_video`, `seek_relative` with `{"seconds":30}`, `set_speed` with `{"rate":1.5}`, `play_video`, and `find_moment` with `{"query":"crater"}` on the volcano video `https://www.youtube.com/watch?v=p1eE93vybrc`.
-  Each result is `{"ok":true,...}`, the video's own state (read with `execute active tab of front window javascript`) matches, and `find_moment` returns caption lines with their seconds, such as 91.3 for the crater.
-  These calls go through the 2 second Chrome timeout, and all five passed on 2026-11-16.
+- **Video tools through the endpoint.** With a YouTube video playing in Chrome's front tab, post `tools/call` for `pause_video`, `seek_relative` with `{"seconds":30}`, `set_speed` with `{"rate":1.5}`, `play_video`, `find_moment` with `{"query":"crater"}`, and `seek_to_moment` with `{"query":"crater"}` on the volcano video `https://www.youtube.com/watch?v=p1eE93vybrc`.
+  Each result is `{"ok":true,...}`, the video's own state (read with `execute active tab of front window javascript`) matches, `find_moment` returns caption lines with their seconds, such as 91.3 for the crater, and `seek_to_moment` moves the video to the best line and returns `movedTo` with that line's seconds and caption text.
+  These calls go through the 2 second Chrome timeout.
+  The first five passed on 2026-11-16, and `seek_to_moment` passed on 2026-11-21: the debug endpoint moved the volcano video to 91.3 s with the caption "the visible opening is called crater".
+  On the harness brain, "go back to where she explains the crater" called `seek_to_moment`, and "the magma chamber" took 306 ms with the captions cached.
+- **One-reply seek and pop-out.** On the volcano video, run `$V app-launch --brain --harness-brain "go back to where she explains the crater and pop it out"`.
+  The app log shows one `Brain: turn 1 ... calls seek_to_moment,pop_out` line, the video moved to the crater line, and the pop-out lifted that frame.
+  A query no caption says, such as "go back to where she explains the gills and pop it out", fails the seek and sends the failure back to the model, and no pop-out starts.
 - **Debug MCP endpoint.** While the Debug app runs, post `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` to `http://127.0.0.1:8790/mcp` with `content-type: application/json`.
   The result lists the page tools of the scene on screen and the app tools that can work now, without `answer_with_screen`, `build_new_scene`, and `build_simulation`.
   Then post `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rotate_model","arguments":{"yawDegrees":-45}}}`.

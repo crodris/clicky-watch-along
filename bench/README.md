@@ -78,7 +78,7 @@ The router runs in two places: the Worker's `POST /voice-command` (the old path)
 It sends each case's words, screen state, and offered tools to the backend you pick and scores the tool calls of the first turn.
 Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts`, and the harness's own prompt in `harness/brain.go`, which differs in the lines about earlier commands), or a tool description, and compare the result with the committed baseline.
 On the `worker` backend the 60 cases at one run cost about one cent, and three runs of each cost about two cents.
-The 8 planning cases (see "Planning cases" below) run only on the `harness` backend.
+The 10 planning cases (see "Planning cases" below) run only on the `harness` backend.
 The `harness` backend also runs the second turn of a lookup, so its full-command cost is higher (see the committed parity run).
 
 ```bash
@@ -109,6 +109,8 @@ A lookup, `find_moment`, gets `lookedUp`, so the brain takes a second turn, as i
 Every other tool gets `changed`.
 A case may script a tool's answer with `toolResults`, a map from a tool name to `{ outcome, result?, error? }`.
 `video-find-moment` scripts two caption lines for `find_moment`, and a lookup with no script gets an empty result.
+`seek_to_moment` is an action in the app (it finds the best line and seeks in one call), so it gets `changed` and needs no script.
+The stand-in cannot test which line the app's scorer picks, so `SeekToMomentTests` pins that on real caption lines.
 
 Both backends score the tool calls of the first turn, which is all the Worker backend returns, except for the planning cases, which only the harness backend runs and which are scored on the whole command.
 The Worker backend scores every `tool_use` block of the reply.
@@ -179,7 +181,9 @@ The stateless mode passes fewer commands, since "undo the first turn" needs the 
 
 ### Planning cases
 
-A planning case is a request whose steps depend on each other, such as "go back to where he explains the swim bladder and pop it out" (find a moment, seek to the time it returns, then pop out).
+A planning case is a request whose steps depend on each other, such as "go back to where he explains the swim bladder and pop it out" (`seek_to_moment` finds the line and seeks in one call, then `pop_out` comes last in the same reply).
+`planning-find-last-mention` is the case where a lookup feeds a seek, since "the last time he mentions the liver" needs `find_moment` and then a `seek_to_time` to a time the model reads from the lookup.
+`planning-seek-fails-then-pop-out` scripts `seek_to_moment` as failed and sets `mustNotReachTheApp: ["pop_out"]`, which fails the case when the harness still sends the pop-out to the app after the failed seek.
 They measure whether the Haiku brain plans a chain by itself, which decides whether a slower planning model is needed (PR 7 of `docs/plans/go-one-brain-harness.md`).
 A case marks itself with `scoreWholeCommand: true`, and the harness backend scores it differently from every other case:
 
@@ -187,7 +191,7 @@ A case marks itself with `scoreWholeCommand: true`, and the harness backend scor
   Each accepted answer in `accept` is an ordered sequence, not an unordered set, so a seek that comes after a hand-off fails.
   A sequence that may come in several orders is listed once per order.
 - A sequence may be written `{ "calls": [...], "input": { ... } }` to carry input of its own, which replaces the case's `input` for that tool.
-  `planning-find-then-back-up` uses it, since two seeks (305, then back 10) and one seek to 295 are both right and need different inputs.
+  `planning-find-then-back-up` uses it to hold the relative seek to -10 after `seek_to_moment`.
 - A seek's time must come from the case's scripted `find_moment` result, so each case scripts every lookup in `toolResults` and `validateBrainEvals` refuses a sequence that calls `find_moment` with no script.
   The harness answers every other tool with `changed` or `handedOff`, as for any case.
 - The sample keeps the full command's time and cost, and the run prints a table with each case's pass count, `fullP50` (the `voice_command` line to `voice_command_finished`), and `meanFullUsd` (every turn's cost) next to the first-turn columns of the other tables.
@@ -231,8 +235,16 @@ A command's cost includes the cache write of whichever call came first in its ru
 | --- | --- | --- | --- |
 | A simple one-call command (`video-seek-back`) | 1 | 733 ms | $0.000117 |
 | A lookup (`video-find-moment`) | 2 | 1413 ms | $0.000237 |
-| A lookup, a seek, and a hand-off (`planning-find-seek-pop-out`) | 2 | 1790 ms | $0.000514 |
+| A lookup, a seek, and a hand-off (`planning-find-seek-pop-out`), measured before `seek_to_moment` | 2 | 1790 ms | $0.000514 |
+| A seek and a hand-off in one reply (`planning-find-seek-pop-out`), after `seek_to_moment` | 1 | 798 ms | $0.000150 |
+| A lookup that feeds a seek (`planning-find-last-mention`), after `seek_to_moment` | 2 | 1484 ms | $0.000279 |
 | Three independent actions (`planning-pause-slow-rewind`) | 1 | 999 ms | $0.000178 |
+
+The two rows marked "after" come from `results/seek-to-moment-brain-evals-a1b20c9711fa.json`, and the rows above them from the earlier files.
+The `seek_to_moment` change is measured in `results/seek-before-brain-evals-a1b20c9711fa.json` (before), `results/seek-after5-brain-evals-a1b20c9711fa.json` (5 runs of the cases it changes), and `results/seek-to-moment-brain-evals-a1b20c9711fa.json` (the full parity run).
+The review fixes are measured in `results/seek-fixes-brain-evals-30873937aaa4.json` (the planning cases, 3 runs, 18 of 18 on the six cases that carry `seek_to_moment`, `find_moment`, or the failed seek), `results/seek-fixes-parity-brain-evals-30873937aaa4.json` (the full parity run, which failed the gate at 181 of 183 on `theme-refine-sound` and `theme-refine-use-picture`), and `results/seek-fixes-theme-check-brain-evals-30873937aaa4.json` (those two cases, 5 runs).
+`theme-refine-sound` fails 1 to 2 of 5 harness runs on the commit before the fixes too, while the Worker backend passes it, so it is not caused by them.
+The first wording of the `seek_to_moment` description after the fixes ("not a particular mention") sent "the last time he mentions the liver" to `seek_to_moment` first and failed `planning-find-last-mention` 0 of 3, so the description says it cannot pick the first, the last, or another particular mention.
 
 ### What each score means
 

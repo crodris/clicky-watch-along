@@ -41,6 +41,8 @@ const (
 
 	handedOffResultText = "Handed off: the app took this request over and answers it itself."
 	notRunResultText    = "Not run: the request was handed off"
+	// notRunAfterAFailureResultText answers each call that follows a failed call in the same reply.
+	notRunAfterAFailureResultText = "Not run: an earlier call in this reply failed"
 )
 
 // sessionCommand is one command the session keeps. Its messages are the user message with the learner's words, then

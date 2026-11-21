@@ -1,0 +1,1194 @@
+{
+  "label": "seek-fixes",
+  "benchKind": "brain-evals",
+  "commitSHA": "30873937aaa4",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-21T17:05:29.191Z",
+  "runCount": 3,
+  "port": 8798,
+  "backend": "harness",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 6,
+        "passed": 6,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 711,
+        "p95Ms": 768,
+        "totalCostUSD": 0.00141,
+        "meanCostUSD": 0.000235,
+        "fullCommandP50Ms": 768,
+        "meanFullCommandCostUSD": 0.000292
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 6,
+          "passed": 6,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 711,
+          "p95Ms": 768,
+          "totalCostUSD": 0.00141,
+          "meanCostUSD": 0.000235,
+          "fullCommandP50Ms": 768,
+          "meanFullCommandCostUSD": 0.000292
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    }
+  },
+  "planningSummary": {
+    "runs": 18,
+    "passed": 18,
+    "passRate": 1,
+    "wrongTool": 0,
+    "wrongInput": 0,
+    "missedTool": 0,
+    "spuriousTool": 0,
+    "errors": 0,
+    "p50Ms": 856,
+    "p95Ms": 942,
+    "totalCostUSD": 0.00267,
+    "meanCostUSD": 0.000149,
+    "fullCommandP50Ms": 942,
+    "meanFullCommandCostUSD": 0.000224
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "video-seek-to-moment",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 752.112791,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 6058,
+          "cacheReadTokens": 0,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.0008203500000000001,
+      "fullCommandCostUSD": 0.0008203500000000001,
+      "totalMs": 751.935708,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "going back to the swim bladder"
+    },
+    {
+      "backend": "harness",
+      "caseId": "video-seek-to-moment",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 741.442333,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00012368,
+      "fullCommandCostUSD": 0.00012368,
+      "totalMs": 741.2651249999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "going back to the swim bladder"
+    },
+    {
+      "backend": "harness",
+      "caseId": "video-seek-to-moment",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 767.7597499999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.00012368,
+      "fullCommandCostUSD": 0.00012368,
+      "totalMs": 767.5731659999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "going back to the swim bladder"
+    },
+    {
+      "backend": "harness",
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1205.7497079999998,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 204,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 52
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 346,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 30
+        }
+      ],
+      "costUSD": 0.00010698000000000001,
+      "fullCommandCostUSD": 0.00021716000000000001,
+      "totalMs": 703.7560830000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "The swim bladder is first mentioned at about 1:38, and again at about 2:11."
+    },
+    {
+      "backend": "harness",
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1092.296042,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 204,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 52
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 346,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 30
+        }
+      ],
+      "costUSD": 0.00010698000000000001,
+      "fullCommandCostUSD": 0.00021716000000000001,
+      "totalMs": 619.9736670000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "The swim bladder is first mentioned at about 1:38, and again at about 2:11."
+    },
+    {
+      "backend": "harness",
+      "caseId": "video-find-moment",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1311.0752499999999,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 204,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 89
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 383,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 54
+        }
+      ],
+      "costUSD": 0.00012548,
+      "fullCommandCostUSD": 0.00025136,
+      "totalMs": 711.0021669999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        }
+      ],
+      "spokenText": "The swim bladder first comes up at about 1:38, where he says sharks do not have one. He mentions it again at about 2:11, about bony fish using it to hover."
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 872.8907500000005,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 142
+        }
+      ],
+      "costUSD": 0.00015168,
+      "fullCommandCostUSD": 0.00015168,
+      "totalMs": 872.6041660000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 814.4695420000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 138
+        }
+      ],
+      "costUSD": 0.00014968000000000002,
+      "fullCommandCostUSD": 0.00014968000000000002,
+      "totalMs": 814.2074590000002,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 791.5967500000006,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 142
+        }
+      ],
+      "costUSD": 0.00015168,
+      "fullCommandCostUSD": 0.00015168,
+      "totalMs": 791.4320829999997,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 909.6910829999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.00016178,
+      "fullCommandCostUSD": 0.00016178,
+      "totalMs": 909.4956249999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10
+          }
+        }
+      ],
+      "spokenText": "jumping to the liver backed up ten seconds",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 914.3291250000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 163
+        }
+      ],
+      "costUSD": 0.00016228,
+      "fullCommandCostUSD": 0.00016228,
+      "totalMs": 914.0949170000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10
+          }
+        }
+      ],
+      "spokenText": "jumping to the liver part backing up ten seconds",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 920.5133339999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 163
+        }
+      ],
+      "costUSD": 0.00016228,
+      "fullCommandCostUSD": 0.00016228,
+      "totalMs": 920.2416249999987,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -10
+          }
+        }
+      ],
+      "spokenText": "jumping to the liver part backing up ten seconds",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 942.1299579999995,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 164
+        }
+      ],
+      "costUSD": 0.00016318000000000002,
+      "fullCommandCostUSD": 0.00016318000000000002,
+      "totalMs": 941.9600409999985,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        }
+      ],
+      "spokenText": "going to the cartilage part half speed now",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 892.6332910000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 163
+        }
+      ],
+      "costUSD": 0.00016268,
+      "fullCommandCostUSD": 0.00016268,
+      "totalMs": 892.1633750000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        }
+      ],
+      "spokenText": "going to the cartilage part half speed",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 906.895958000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 164
+        }
+      ],
+      "costUSD": 0.00016318000000000002,
+      "fullCommandCostUSD": 0.00016318000000000002,
+      "totalMs": 906.723750000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        }
+      ],
+      "spokenText": "going to the cartilage part half speed now",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1530.3496250000007,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 108
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 418,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 101
+        }
+      ],
+      "costUSD": 0.00013418000000000002,
+      "fullCommandCostUSD": 0.00028706,
+      "totalMs": 818.3531249999996,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "jumping to the last liver mention",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1490.7351660000004,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 97
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 407,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 107
+        }
+      ],
+      "costUSD": 0.00012868,
+      "fullCommandCostUSD": 0.00028346,
+      "totalMs": 706.0910829999975,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "jumping to the last liver mention",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1489.5516659999994,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 96
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 406,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 100
+        }
+      ],
+      "costUSD": 0.00012818,
+      "fullCommandCostUSD": 0.00027936,
+      "totalMs": 759.586374999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "jumping to the last liver mention",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-second-mention",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1668.9100419999995,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 195,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 104
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 413,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 122
+        }
+      ],
+      "costUSD": 0.00013208,
+      "fullCommandCostUSD": 0.00029496,
+      "totalMs": 856.1784169999992,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 402
+          }
+        }
+      ],
+      "spokenText": "jumping to the second liver mention",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-second-mention",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1817.2562089999992,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 195,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 118
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 427,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 130
+        }
+      ],
+      "costUSD": 0.00013907999999999998,
+      "fullCommandCostUSD": 0.00030736,
+      "totalMs": 849.4373750000013,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 402
+          }
+        }
+      ],
+      "spokenText": "going to the second liver mention",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-second-mention",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1665.4448330000014,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 195,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 120
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 429,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 133
+        }
+      ],
+      "costUSD": 0.00014007999999999997,
+      "fullCommandCostUSD": 0.00031006,
+      "totalMs": 857.6424169999991,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 402
+          }
+        }
+      ],
+      "spokenText": "Going to the second liver mention.",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-seek-fails-then-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1535.0920829999995,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 198,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 135
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 444,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 59
+        }
+      ],
+      "costUSD": 0.00014788,
+      "fullCommandCostUSD": 0.00028236000000000005,
+      "totalMs": 829.252292000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "explains the gills"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "Sorry, I couldn't find the gills in the captions, so I haven't moved the video or popped anything out. Could you tell me another word or phrase he uses when he talks about them?",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-seek-fails-then-pop-out",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1613.3637500000004,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 198,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 135
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 444,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 49
+        }
+      ],
+      "costUSD": 0.00014788,
+      "fullCommandCostUSD": 0.00027736000000000004,
+      "totalMs": 892.6055830000005,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "explains the gills"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "Sorry, I couldn't find a spot where gills are mentioned in the captions. Want me to try different words, like \"breathing\" or \"water over\"?",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-seek-fails-then-pop-out",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1518.9111249999987,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 198,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 135
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 444,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 6058,
+          "outputTokens": 61
+        }
+      ],
+      "costUSD": 0.00014788,
+      "fullCommandCostUSD": 0.00028336,
+      "totalMs": 799.2044999999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_to_moment",
+          "input": {
+            "query": "explains the gills"
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {},
+          "inputIsUnknown": true
+        }
+      ],
+      "spokenText": "Sorry, I couldn't find the gills in the captions, so I haven't moved the video or popped anything out yet. Could you tell me another word or phrase he uses when he talks about them?",
+      "suite": "planning"
+    }
+  ]
+}

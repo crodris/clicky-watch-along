@@ -258,6 +258,7 @@ enum VideoQuizFailure: Error {
     case captionSearchNeedsYouTube
     case planFailed(String)
     case lostTheYouTubeTab
+    case theVideoChangedWhileReadingItsCaptions
 
     /// What Clicky says out loud, in plain words.
     var spokenLine: String {
@@ -288,6 +289,8 @@ enum VideoQuizFailure: Error {
             return "I couldn't pick quiz spots for this video."
         case .lostTheYouTubeTab:
             return "I lost the YouTube tab, so I stopped the quiz."
+        case .theVideoChangedWhileReadingItsCaptions:
+            return "The video in front changed while I was reading its captions, so I didn't move it."
         }
     }
 }
@@ -883,6 +886,29 @@ final class VideoQuizSession {
         return videoCaptionMomentsMatching(query: query, captionLines: captionLines)
     }
 
+    /// Moves the video in front to the caption line that best matches the query, and returns that line with the video's
+    /// state, or nil as the line when no caption line matches. Reading the captions can take seconds, since yt-dlp may
+    /// have to download them, so the learner may have switched tabs or videos by then. The seek runs only when the
+    /// front tab is still the tab and the page whose captions were read, and fails otherwise instead of moving video B
+    /// to video A's time.
+    func seekToTheCaptionMoment(matching query: String) async throws -> (captionMoment: VideoCaptionMoment, videoState: JSONValue)? {
+        let tabWhoseCaptionsAreRead = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        let captionLines = try await captionLines(ofTheVideoIn: tabWhoseCaptionsAreRead)
+        guard let bestCaptionMoment = videoCaptionMomentsMatching(query: query, captionLines: captionLines).first else { return nil }
+        let tabInFrontNow = try ChromeVideoTab.frontTabOfTheFrontWindow()
+        guard tabInFrontNow.isTheSamePage(as: tabWhoseCaptionsAreRead) else {
+            throw VideoQuizFailure.theVideoChangedWhileReadingItsCaptions
+        }
+        // Seek the tab that was checked, since reading the front tab again could find another one switched to meanwhile.
+        let videoState = try Self.runLearnerVideoCommand(
+            .seekTo(seconds: bestCaptionMoment.seconds),
+            in: tabInFrontNow,
+            title: tabInFrontNow.title,
+            pageIsOnYouTube: urlIsOnYouTube(urlText: tabInFrontNow.url)
+        )
+        return (bestCaptionMoment, videoState)
+    }
+
     /// The URL of the active tab of Chrome's front window, or nil when Chrome has none to read.
     func frontTabURLOfTheFrontWindow() -> String? {
         try? ChromeVideoTab.frontTabOfTheFrontWindow().url
@@ -1098,6 +1124,12 @@ struct ChromeVideoTab {
     /// The url and title change when the learner moves to another video inside the same tab, so only the ids identify it.
     func isTheSameTab(as otherVideoTab: ChromeVideoTab) -> Bool {
         windowId == otherVideoTab.windowId && tabId == otherVideoTab.tabId
+    }
+
+    /// The same tab showing the same page. A tab that moved to another video keeps its ids but changes its url, so a
+    /// caption search that took a while checks both before it seeks.
+    func isTheSamePage(as otherVideoTab: ChromeVideoTab) -> Bool {
+        isTheSameTab(as: otherVideoTab) && url == otherVideoTab.url
     }
 
     /// The active tab of Chrome's front window, on any site. The voice tools check for a video with JavaScript.

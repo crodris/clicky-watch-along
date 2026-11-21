@@ -188,6 +188,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case seekToTime = "seek_to_time"
     case setSpeed = "set_speed"
     case findMoment = "find_moment"
+    case seekToMoment = "seek_to_moment"
     case endQuiz = "end_quiz"
     case makeStudyGuide = "make_study_guide"
     case reviseStudyGuide = "revise_study_guide"
@@ -261,7 +262,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.sceneIsOnScreen && context.sceneHasLabels && !context.quizQuestionIsOpen
             case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed:
                 return context.videoIsInFront
-            case .findMoment:
+            case .findMoment, .seekToMoment:
                 return context.videoIsInFront && context.videoIsOnYouTube
             case .endQuiz:
                 return context.videoQuizIsRunning
@@ -367,7 +368,9 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .setSpeed:
             return "Set how fast the video in Chrome's front tab plays. 1 is normal speed."
         case .findMoment:
-            return "Search the video's captions for where something is said. Returns up to 3 moments, best match first, with their times, so you can call seek_to_time next."
+            return "Search the video's captions for where something is said, without moving the video. Returns up to 3 moments, best match first, with their times. Use it when the learner asks when or where something is said, wants a particular mention such as the last or the second one, or says seek_to_moment landed in the wrong place. Then call seek_to_time with the time you pick. To go straight to the best match, use seek_to_moment."
+        case .seekToMoment:
+            return "Move the video in Chrome's front tab to the caption line that best matches query, in one step. It picks the caption line that best matches those words, and cannot pick the first, the last, or another particular mention. Use it when the learner says go to, go back to, or jump to where something is said or explained, such as \"go back to where he explains the gills\". Put the words they would hear in query. Call every other tool they asked for in the same reply, because this tool needs no result before the next one and tools in one reply run in the order you call them. \"Go to where he explains the gills and back up ten seconds\" is seek_to_moment and then seek_relative with -10, and \"jump to the part about the teeth and pop it out\" is seek_to_moment and then pop_out. When they want the first, last, or another particular mention, or only ask when something is said, use find_moment, and then seek_to_time if they want to go there."
         case .endQuiz:
             return "Stop the video quiz."
         case .makeStudyGuide:
@@ -426,7 +429,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema(["seconds": numberProperty("Seconds from the start of the video.")], required: ["seconds"])
         case .setSpeed:
             return objectSchema(["rate": numberProperty("From 0.25 to 2.")], required: ["rate"])
-        case .findMoment:
+        case .findMoment, .seekToMoment:
             return objectSchema(["query": .object(["type": .string("string"), "description": .string("A few words that would be said at that moment.")])], required: ["query"])
         case .makeStudyGuide:
             return objectSchema(["focus": .object(["type": .string("string"), "description": .string("An extra wish for the guide, such as only the part about the engine. Leave it out when they made none.")])], required: [])
@@ -555,6 +558,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return rate == 1 ? "Normal speed" : "Playing at \(rateText)x"
         case "find_moment":
             return textInput("query").map { query in "Finding \u{201C}\(query)\u{201D}" } ?? "Searching the captions"
+        case "seek_to_moment":
+            return textInput("query").map { query in "Jumping to \u{201C}\(query)\u{201D}" }
         case "end_quiz":
             return "Ending the quiz"
         case "make_study_guide":
@@ -758,6 +763,54 @@ nonisolated func voiceCommandNextStep(toolCalls: [VoiceToolCall], outcomes: [Voi
     }
     let confirmations = toolCalls.map(\.confirmation).filter { !$0.isEmpty }
     return .speak(String(confirmations.joined(separator: " ").prefix(longestSpokenVoiceCommandLine)))
+}
+
+/// The result of a call that did not run because an earlier call in its reply failed. The words match the harness's
+/// `notRunAfterAFailureResultText` in harness/brainsession.go.
+nonisolated let notRunAfterAFailureResultText = "Not run: an earlier call in this reply failed"
+
+/// A failed call stops the calls after it in the same reply, since a later call that depends on it, such as a pop-out
+/// after a seek that found no moment, would act on the wrong screen and the hand-off would end the command with the
+/// learner never hearing the failure. Each skipped call still gets a tool_result, since the API refuses a tool_use with
+/// none, and the model is asked again with them. These are the blocks for the calls after the failed one.
+nonisolated func notRunAfterAFailureToolResultBlocks(toolCalls: [VoiceToolCall], failedCallIndex: Int) -> [JSONValue] {
+    toolCalls.dropFirst(failedCallIndex + 1).map { skippedCall in
+        .object([
+            "type": .string("tool_result"),
+            "tool_use_id": .string(skippedCall.id),
+            "content": .string(notRunAfterAFailureResultText),
+            "is_error": .bool(false),
+        ])
+    }
+}
+
+/// Runs one reply's calls in order on the old path and collects each call's outcome and tool_result block. A hand-off
+/// stops the loop and adds no block, since the command ends. A failed call stops it too and gives each later call the
+/// `Not run` block, since the model is asked again. `runOne` returns nil when a push-to-talk press cancelled the
+/// command during the call, which ends the loop with nil.
+func runVoiceToolCallsInOrder(
+    _ toolCalls: [VoiceToolCall],
+    runOne: (VoiceToolCall) async -> VoiceToolOutcome?
+) async -> (outcomes: [VoiceToolOutcome], toolResultBlocks: [JSONValue])? {
+    var outcomes: [VoiceToolOutcome] = []
+    var toolResultBlocks: [JSONValue] = []
+    for (toolCallIndex, toolCall) in toolCalls.enumerated() {
+        guard !Task.isCancelled else { return nil }
+        guard let outcome = await runOne(toolCall) else { return nil }
+        outcomes.append(outcome)
+        if outcome == .handedOff { break }
+        toolResultBlocks.append(.object([
+            "type": .string("tool_result"),
+            "tool_use_id": .string(toolCall.id),
+            "content": .string(outcome.toolResultText),
+            "is_error": .bool(outcome.isFailure),
+        ]))
+        if outcome.isFailure {
+            toolResultBlocks += notRunAfterAFailureToolResultBlocks(toolCalls: toolCalls, failedCallIndex: toolCallIndex)
+            break
+        }
+    }
+    return (outcomes, toolResultBlocks)
 }
 
 /// What Clicky says when the router's turns run out with the model still waiting on a lookup or a failure, so the learner
@@ -1019,37 +1072,71 @@ nonisolated struct VideoCaptionMoment: Equatable, Sendable {
     let text: String
 }
 
+/// How far on each side of a caption line the tie-break counts the query's words said by other lines.
+nonisolated let secondsAroundALineThatBreakATie: Double = 30
+
 /// The caption lines that say the query's words, best first. A line counts only when it says one of them
 /// itself, so a seek lands where it is said, and the line after it adds weight because captions split sentences.
 /// Short and common words do not count.
+/// Words from how the learner framed the request, such as "explains" in "where she explains the crater", never make a
+/// line count on their own while the query has a topic word, so a teaser that says "explains" cannot win. They only
+/// break a tie, so "the long jump" prefers a line that says "long jump" to one that says only "long". When the query
+/// has nothing but framing words, as in "the jump", they are the topic.
+/// Lines that score the same are ordered by how often the captions within `secondsAroundALineThatBreakATie` of the line
+/// say the topic words, since an explanation repeats its terms across nearby lines and an intro teaser does not, so a
+/// teaser that also says the framing word still loses to the explanation. Then the framing words they say decide, and
+/// only when those tie too does the earliest line come first.
 nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [VideoQuizTranscriptLine], limit: Int = 3) -> [VideoCaptionMoment] {
     let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says"]
+    let framingWordsOfTheRequest: Set<String> = ["explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"]
     func words(in text: String) -> Set<String> {
         Set(text.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count > 2 && !wordsThatSayNothing.contains($0) })
     }
-    let queryWords = words(in: query)
-    guard !queryWords.isEmpty else { return [] }
+    let allQueryWords = words(in: query)
+    let topicWordsBesideTheFraming = allQueryWords.subtracting(framingWordsOfTheRequest)
+    let topicWords = topicWordsBesideTheFraming.isEmpty ? allQueryWords : topicWordsBesideTheFraming
+    let framingWordsBesideTheTopic = topicWordsBesideTheFraming.isEmpty ? [] : allQueryWords.intersection(framingWordsOfTheRequest)
+    guard !topicWords.isEmpty else { return [] }
     struct ScoredMoment {
         let score: Int
+        let framingWordsSaid: Int
+        let topicWordsSaidNearby: Int
         let moment: VideoCaptionMoment
     }
+    let wordsPerLine = captionLines.map { captionLine in words(in: captionLine.text) }
+    let topicWordMatchesPerLine = wordsPerLine.map { lineWords in topicWords.intersection(lineWords).count }
+    let framingWordMatchesPerLine = wordsPerLine.map { lineWords in framingWordsBesideTheTopic.intersection(lineWords).count }
     var scoredMoments: [ScoredMoment] = []
     for lineIndex in captionLines.indices {
-        let lineMatches = queryWords.intersection(words(in: captionLines[lineIndex].text)).count
+        let lineMatches = topicWordMatchesPerLine[lineIndex]
         guard lineMatches > 0 else { continue }
-        let nextLineText = lineIndex + 1 < captionLines.count ? captionLines[lineIndex + 1].text : ""
-        let nextLineMatches = queryWords.intersection(words(in: nextLineText)).count
+        let nextLineIndex = lineIndex + 1
+        let nextLineText = nextLineIndex < captionLines.count ? captionLines[nextLineIndex].text : ""
+        let nextLineMatches = nextLineIndex < captionLines.count ? topicWordMatchesPerLine[nextLineIndex] : 0
+        let framingWordsSaid = framingWordMatchesPerLine[lineIndex] + (nextLineIndex < captionLines.count ? framingWordMatchesPerLine[nextLineIndex] : 0)
         let momentText = nextLineText.isEmpty ? captionLines[lineIndex].text : "\(captionLines[lineIndex].text) \(nextLineText)"
+        // The line and the one after it already count in the score, so the tie-break reads only the lines around them.
+        let lineSeconds = captionLines[lineIndex].seconds
+        let topicWordsSaidNearby = captionLines.indices
+            .filter { otherLineIndex in
+                otherLineIndex != lineIndex && otherLineIndex != nextLineIndex
+                    && abs(captionLines[otherLineIndex].seconds - lineSeconds) <= secondsAroundALineThatBreakATie
+            }
+            .reduce(0) { total, otherLineIndex in total + topicWordMatchesPerLine[otherLineIndex] }
         scoredMoments.append(ScoredMoment(
             score: lineMatches * 2 + nextLineMatches,
-            moment: VideoCaptionMoment(seconds: captionLines[lineIndex].seconds, text: momentText)
+            framingWordsSaid: framingWordsSaid,
+            topicWordsSaidNearby: topicWordsSaidNearby,
+            moment: VideoCaptionMoment(seconds: lineSeconds, text: momentText)
         ))
     }
     return scoredMoments
         .sorted { first, second in
             if first.score != second.score { return first.score > second.score }
+            if first.topicWordsSaidNearby != second.topicWordsSaidNearby { return first.topicWordsSaidNearby > second.topicWordsSaidNearby }
+            if first.framingWordsSaid != second.framingWordsSaid { return first.framingWordsSaid > second.framingWordsSaid }
             return first.moment.seconds < second.moment.seconds
         }
         .prefix(limit)

@@ -136,7 +136,7 @@
     },
     {
       "name": "find_moment",
-      "description": "Search the video's captions for where something is said. Returns up to 3 moments, best match first, with their times, so you can call seek_to_time next.",
+      "description": "Search the video's captions for where something is said, without moving the video. Returns up to 3 moments, best match first, with their times. Use it when the learner asks when or where something is said, wants a particular mention such as the last or the second one, or says seek_to_moment landed in the wrong place. Then call seek_to_time with the time you pick. To go straight to the best match, use seek_to_moment.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -150,6 +150,23 @@
         ]
       },
       "readOnly": true
+    },
+    {
+      "name": "seek_to_moment",
+      "description": "Move the video in Chrome's front tab to the caption line that best matches query, in one step. It picks the caption line that best matches those words, and cannot pick the first, the last, or another particular mention. Use it when the learner says go to, go back to, or jump to where something is said or explained, such as \"go back to where he explains the gills\". Put the words they would hear in query. Call every other tool they asked for in the same reply, because this tool needs no result before the next one and tools in one reply run in the order you call them. \"Go to where he explains the gills and back up ten seconds\" is seek_to_moment and then seek_relative with -10, and \"jump to the part about the teeth and pop it out\" is seek_to_moment and then pop_out. When they want the first, last, or another particular mention, or only ask when something is said, use find_moment, and then seek_to_time if they want to go there.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "A few words that would be said at that moment."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "readOnly": false
     },
     {
       "name": "make_study_guide",
