@@ -26,6 +26,11 @@ type runningTask struct {
 	toolResults chan toolResultMessage
 	// mcpImages is what is left of the bytes of MCP result images the task may keep in its history.
 	mcpImages *imageByteBudget
+	// isVoiceCommand is true for a brain command (brainloop.go), which is routed like a task.
+	isVoiceCommand bool
+	// handOffCompletedIt is set, under the harness's tasksMutex, when the app's handedOff result for this command
+	// arrives. A cancel_task read after it changes nothing, since a slow path already owns the reply.
+	handOffCompletedIt bool
 }
 
 // taskRunner runs task agents. It holds no per-task state, so any number of tasks can run on one runner.

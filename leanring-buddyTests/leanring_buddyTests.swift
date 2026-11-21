@@ -1237,6 +1237,24 @@ struct leanring_buddyTests {
         #endif
     }
 
+    @Test func theHarnessFlagReadsTheSavedSettingAndOnlyADebugBuildReadsTheLaunchArgument() async throws {
+        let defaultsSuiteName = "BrainRunsInTheHarnessTests-" + UUID().uuidString
+        let isolatedDefaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer { isolatedDefaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        #expect(!BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: []))
+        isolatedDefaults.set(true, forKey: BrainRunsInTheHarness.defaultsKey)
+        #expect(BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: []))
+        isolatedDefaults.set(false, forKey: BrainRunsInTheHarness.defaultsKey)
+        // The other flag never turns this one on.
+        #expect(!BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: ["Clicky", "--brain-takes-every-request"]))
+        #if DEBUG
+        #expect(BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: ["Clicky", "--brain-runs-in-the-harness"]))
+        #else
+        #expect(!BrainRunsInTheHarness.isOn(defaults: isolatedDefaults, launchArguments: ["Clicky", "--brain-runs-in-the-harness"]))
+        #endif
+    }
+
     @Test func everyRequestToolIsOfferedWithNothingOnScreenAndNoVideoInFront() async throws {
         let nothingOnScreen = AppVoiceTool.Context(sceneIsOnScreen: false, sceneHasLabels: false, videoIsInFront: false, videoIsOnYouTube: false, videoQuizIsRunning: false, quizQuestionIsOpen: false)
         let offeredTools = AppVoiceTool.available(in: nothingOnScreen)
@@ -1546,6 +1564,17 @@ struct leanring_buddyTests {
         #expect(rehearsalStepWait("+ten build it").step == "+ten build it")
         #expect(rehearsalStepWait("+inf build it").waitSeconds == 0)
         #expect(rehearsalStepWait("+99999999999 build it").step == "+99999999999 build it")
+    }
+
+    @Test func aRehearsalStepPrefixIsReadAndTakenOffTheWords() async throws {
+        #expect(rehearsalStepPrefix("~build me a 3D model") == (.nextStepInterruptsThisOne, "build me a 3D model"))
+        #expect(rehearsalStepPrefix("?is it the {answer}") == (.waitsForAQuestion, "is it the {answer}"))
+        #expect(rehearsalStepPrefix("&what did you find") == (.waitsForTheBackgroundAgents, "what did you find"))
+        // "^" presses push-to-talk during the step's voice command on the harness.
+        #expect(rehearsalStepPrefix("^skip to where they talk about the engine") == (.pressesPushToTalkDuringTheCommand, "skip to where they talk about the engine"))
+        #expect(rehearsalStepPrefix("turn it left") == (nil, "turn it left"))
+        // A wait comes first, then the prefix.
+        #expect(rehearsalStepPrefix(rehearsalStepWait("+2 ^pause it").step) == (.pressesPushToTalkDuringTheCommand, "pause it"))
     }
 
     @Test func aDebugCaptionsFileAppliesOnlyToTheVideoItIsNamedFor() async throws {

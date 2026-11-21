@@ -1,8 +1,9 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
-# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, move_the_previous_launch_files_aside, which keeps
-# an earlier launch's log lines away from app-wait, and the scroll command's usage line and refusal of a value that is
-# not a whole number of at most 6 digits.
+# running_clicky_pids, which `app-launch` uses to refuse a second Clicky, parse_app_launch_arguments, which reads
+# `app-launch`'s flags, command_worker_down, which stops one Worker when given its port,
+# move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait, and the scroll
+# command's usage line and refusal of a value that is not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -25,6 +26,16 @@ check() {
     exit 1
   }
 }
+
+state_root="$test_directory/state"
+mkdir -p "$state_root"
+# Two Worker records whose processes are gone, so worker-down only removes the records.
+echo 999999 >"$state_root/worker-8787.pid"
+echo 999999 >"$state_root/worker-8788.pid"
+command_worker_down 8787 >/dev/null 2>&1
+check "worker-down with a port leaves the other Worker's record" "$(ls "$state_root" | tr '\n' ' ')" "worker-8788.pid "
+command_worker_down >/dev/null 2>&1
+check "worker-down with no port removes every Worker's record" "$(ls "$state_root" | tr '\n' ' ')" ""
 
 check "an app newer than every source is current" "$(first_source_newer_than "$dylib_path" "$test_directory/sources")" ""
 touch -t 202601030000 "$test_directory/sources/frame-popout.html"
@@ -52,6 +63,12 @@ fake_process_ids="$fake_process_ids $fake_app_id"
 sleep 0.5
 # A real Clicky on this Mac is listed too, so the check looks for the fake app's id among the ids.
 check "a process started from the app's binary is a running Clicky" "$(running_clicky_pids | grep -cx "$fake_app_id" || true)" "1"
+# app-launch's flags become the app's launch arguments in either order, and the steps follow them.
+parse_app_launch_arguments --harness-brain --brain "turn it to the left|^pause it"
+check "both brain flags pass their launch arguments" "${app_launch_flag_arguments[*]}" "--brain-runs-in-the-harness --brain-takes-every-request"
+check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
+parse_app_launch_arguments "pop this out"
+check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
 # The usage text is how a driver learns the scroll primitive, and a bad value must stop before any event is posted.
 check "usage lists the scroll command" "$(usage | grep -c 'scroll <points>')" "1"
 # The function exits on a bad value, which ends only the command substitution, so its failure status is tolerated outside it.
@@ -101,4 +118,4 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, app log rotation, and scroll usage and argument checks"
+echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, and scroll usage and argument checks"

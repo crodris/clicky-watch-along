@@ -255,6 +255,8 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/harness/approval.go",
+				"$(SRCROOT)/harness/brain.go",
+				"$(SRCROOT)/harness/brainloop.go",
 				"$(SRCROOT)/harness/go.mod",
 				"$(SRCROOT)/harness/go.sum",
 				"$(SRCROOT)/harness/loop.go",

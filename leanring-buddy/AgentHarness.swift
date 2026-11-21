@@ -3,29 +3,45 @@
 //  leanring-buddy
 //
 //  The task agent's loop runs in a Go helper process, harness/ in the repo, bundled at Contents/Helpers/
-//  clicky-agent-harness. The app and the harness talk in JSON lines on the harness's stdin and stdout. The harness
-//  runs Claude through the Worker's /v1/messages passthrough and asks the app only for the tools that touch the Mac
-//  or Notion. harness/protocol.go is the other half of the messages in this file.
+//  clicky-agent-harness. With the brainRunsInTheHarness flag on, the voice command brain (harness/brain.go) runs there
+//  too. The app and the harness talk in JSON lines on the harness's stdin and stdout. The harness runs Claude through
+//  the Worker's /v1/messages passthrough. It asks the app for the task agent's tools that touch the Mac or Notion, and
+//  for a voice command's scene, video, and agent tools. harness/protocol.go is the other half of the messages in this
+//  file.
 //
 
 import Combine
 import Foundation
+import os
 
 // MARK: - Messages from the harness
 
-/// One tool call of a task agent's turn. The name stays text, so a name this app does not know still reaches the task
-/// loop, which answers it with an error instead of leaving the agent waiting.
+/// One tool call of a task agent's turn, or of a voice command's. The name stays text, so a name this app does not know
+/// still reaches the task loop, which answers it with an error instead of leaving the agent waiting.
 nonisolated struct HarnessToolCall: Equatable, Sendable {
     let toolUseID: String
     let toolName: String
     let input: [String: JSONValue]
+    /// The turn of a voice command the call came from, counted from 0, since only the first may answer an approval.
+    /// Nil for a task's call.
+    let turnIndex: Int?
+
+    init(toolUseID: String, toolName: String, input: [String: JSONValue], turnIndex: Int? = nil) {
+        self.toolUseID = toolUseID
+        self.toolName = toolName
+        self.input = input
+        self.turnIndex = turnIndex
+    }
 }
 
-/// What the app hears from the harness for one task. The stream of events ends after finished or failed.
+/// What the app hears from the harness for one task or voice command. The stream of events ends after finished,
+/// failed, or voiceCommandFinished.
 nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case toolCall(HarnessToolCall)
     case finished(spokenSummary: String)
     case failed(reason: String)
+    /// A voice command ended. spokenLine may be empty, and gaveUp says its last turn still needed the model.
+    case voiceCommandFinished(spokenLine: String, gaveUp: Bool)
 }
 
 /// What a tool may do, which decides whether the harness asks before running it. harness/approval.go is the other half.
@@ -72,6 +88,7 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case toolCall(taskID: UUID, HarnessToolCall)
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
+    case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
     case log(message: String)
 
     enum ParseError: Error, Equatable {
@@ -116,12 +133,22 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
             }
             self = .toolCall(
                 taskID: try requiredTaskID(),
-                HarnessToolCall(toolUseID: try requiredText("toolUseID"), toolName: try requiredText("name"), input: input)
+                HarnessToolCall(
+                    toolUseID: try requiredText("toolUseID"),
+                    toolName: try requiredText("name"),
+                    input: input,
+                    turnIndex: messageJSON["turnIndex"]?.numberValue.flatMap { turnIndex in Int(exactly: turnIndex) }
+                )
             )
         case "task_finished":
             self = .taskFinished(taskID: try requiredTaskID(), spokenSummary: try requiredText("spokenSummary"))
         case "task_failed":
             self = .taskFailed(taskID: try requiredTaskID(), reason: try requiredText("reason"))
+        case "voice_command_finished":
+            guard let gaveUp = messageJSON["gaveUp"]?.boolValue else {
+                throw ParseError.missingField(messageType: messageType, fieldName: "gaveUp")
+            }
+            self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
         case "log":
             self = .log(message: try requiredText("message"))
         default:
@@ -143,6 +170,12 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     case cancelTask(taskID: UUID)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
+    /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, `recentActions` the
+    /// `voiceToolActionLine` strings, and `tools` the list after `voiceToolsOfferedToTheModel`.
+    case voiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, recentActions: [String], tools: [VoiceToolDescriptor])
+    /// A voice command's tool_result, which carries what the tool did, so the brain knows whether to speak, ask the
+    /// model again, or stop for a hand-off.
+    case voiceToolResult(taskID: UUID, toolUseID: String, outcome: VoiceToolOutcome)
 
     var json: JSONValue {
         switch self {
@@ -176,12 +209,42 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 "approved": .bool(approved),
                 "scope": .string(scope.rawValue),
             ])
+        case .voiceCommand(let taskID, let transcript, let sceneState, let recentActions, let tools):
+            return .object([
+                "type": .string("voice_command"),
+                "taskID": .string(taskID.uuidString),
+                "transcript": .string(transcript),
+                "sceneState": sceneState,
+                "recentActions": .array(recentActions.map(JSONValue.string)),
+                "tools": .array(tools.map(\.workerRequestJSON)),
+            ])
+        case .voiceToolResult(let taskID, let toolUseID, let outcome):
+            return .object([
+                "type": .string("tool_result"),
+                "taskID": .string(taskID.uuidString),
+                "toolUseID": .string(toolUseID),
+                "content": .string(outcome.toolResultText),
+                "isError": .bool(outcome.isFailure),
+                "outcome": .string(outcome.harnessWireName),
+            ])
         }
     }
 
     /// One line, since JSON text escapes every newline inside a string.
     var line: Data {
         Data((json.compactJSONText + "\n").utf8)
+    }
+}
+
+extension VoiceToolOutcome {
+    /// The name harness/protocol.go's voiceToolOutcome reads.
+    nonisolated var harnessWireName: String {
+        switch self {
+        case .changed: return "changed"
+        case .lookedUp: return "lookedUp"
+        case .failed: return "failed"
+        case .handedOff: return "handedOff"
+        }
     }
 }
 
@@ -221,6 +284,8 @@ final class HarnessTaskRouter {
             end(taskID: taskID, lastEvent: .finished(spokenSummary: spokenSummary))
         case .taskFailed(let taskID, let reason):
             end(taskID: taskID, lastEvent: .failed(reason: reason))
+        case .voiceCommandFinished(let taskID, let spokenLine, let gaveUp):
+            end(taskID: taskID, lastEvent: .voiceCommandFinished(spokenLine: spokenLine, gaveUp: gaveUp))
         }
     }
 
@@ -436,6 +501,35 @@ nonisolated func agentHarnessEnvironment(
 /// None of these is a credential. The harness copies them to a stdio MCP server, never the Worker's secret.
 nonisolated let harnessInheritedVariableNames = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "SHELL"]
 
+/// Writes the app's lines to the harness's stdin on one serial queue, so lines never interleave and a large tool
+/// result, such as a screenshot, never blocks the main thread on a full pipe. It is not on the main actor, because a
+/// voice command's cancel handler runs wherever the cancel happens and writes its line here too
+/// (`HarnessVoiceCommandLines`).
+nonisolated final class HarnessStandardInputWriter: Sendable {
+    /// The stdin of the harness that runs now, or nil while none does.
+    private let standardInputHandle = OSAllocatedUnfairLock<FileHandle?>(initialState: nil)
+    private let writeQueue = DispatchQueue(label: "com.crodris.clicky-watch-along.agent-harness-stdin")
+
+    func attach(_ handle: FileHandle?) {
+        standardInputHandle.withLock { attachedHandle in attachedHandle = handle }
+    }
+
+    func write(_ command: HarnessCommand) {
+        guard let handle = standardInputHandle.withLock({ attachedHandle in attachedHandle }) else {
+            print("Agent harness: dropped a \(command.json["type"]?.stringValue ?? "message") because the harness is not running")
+            return
+        }
+        let commandLine = command.line
+        writeQueue.async {
+            do {
+                try handle.write(contentsOf: commandLine)
+            } catch {
+                print("Agent harness: could not write to the harness: \(error)")
+            }
+        }
+    }
+}
+
 enum AgentHarnessError: Error, Equatable {
     case helperIsMissing(path: String)
     case helperCouldNotStart(String)
@@ -459,11 +553,9 @@ final class AgentHarness {
     }()
 
     private var runningProcess: Process?
-    private var standardInputHandle: FileHandle?
     private var standardOutputReaderTask: Task<Void, Never>?
-    /// Every write goes through this one queue, so lines never interleave and a large tool result, such as a screenshot,
-    /// never blocks the main thread on a full pipe.
-    private let standardInputWriteQueue = DispatchQueue(label: "com.crodris.clicky-watch-along.agent-harness-stdin")
+    /// Every write goes through this one writer and its one queue, from the main actor or a voice command's cancel handler.
+    let standardInputWriter = HarnessStandardInputWriter()
 
     /// `helperURL` is where Xcode's "Build Agent Harness" phase puts the binary, unless a test points at another build.
     init(
@@ -503,6 +595,31 @@ final class AgentHarness {
     func cancelTask(taskID: UUID) {
         taskRouter.end(taskID: taskID)
         write(.cancelTask(taskID: taskID))
+    }
+
+    /// Starts a voice command on the brain. The stream ends after voice_command_finished or task_failed, when the harness
+    /// stops, or when `endVoiceCommand` ends it. The command's tool results and its cancel go out through
+    /// `HarnessVoiceCommandLines`, never through `sendToolResult` or `cancelTask`.
+    func startVoiceCommand(taskID: UUID, transcript: String, sceneState: JSONValue, recentActions: [String], tools: [VoiceToolDescriptor]) throws -> AsyncStream<HarnessTaskEvent> {
+        try launchTheHarnessIfItIsNotRunning()
+        let commandEvents = taskRouter.register(taskID: taskID)
+        write(.voiceCommand(taskID: taskID, transcript: transcript, sceneState: sceneState, recentActions: recentActions, tools: tools))
+        return commandEvents
+    }
+
+    /// Stops routing a voice command's events, after one last event when there is one, and writes nothing, since the
+    /// command's own lines say whether the harness is told to cancel it.
+    func endVoiceCommand(taskID: UUID, lastEvent: HarnessTaskEvent? = nil) {
+        taskRouter.end(taskID: taskID, lastEvent: lastEvent)
+    }
+
+    /// Launches the harness now, at app start, so the first voice command on the brain does not wait for the process.
+    func prewarm() {
+        do {
+            try launchTheHarnessIfItIsNotRunning()
+        } catch {
+            print("Agent harness: could not start it ahead of the first voice command: \(error)")
+        }
     }
 
     private func launchTheHarnessIfItIsNotRunning() throws {
@@ -553,7 +670,7 @@ final class AgentHarness {
         }
 
         runningProcess = process
-        standardInputHandle = standardInputPipe.fileHandleForWriting
+        standardInputWriter.attach(standardInputPipe.fileHandleForWriting)
         let standardOutputHandle = standardOutputPipe.fileHandleForReading
         standardOutputReaderTask = Task { [weak self] in
             do {
@@ -591,7 +708,7 @@ final class AgentHarness {
     /// Every task the harness had is lost with it, so each one fails and the next task launches a fresh harness.
     private func forgetTheHarnessThatExited(_ exitedProcess: Process) {
         runningProcess = nil
-        standardInputHandle = nil
+        standardInputWriter.attach(nil)
         standardOutputReaderTask?.cancel()
         standardOutputReaderTask = nil
         approvalDesk.dropAllRequests()
@@ -599,17 +716,6 @@ final class AgentHarness {
     }
 
     private func write(_ command: HarnessCommand) {
-        guard let standardInputHandle else {
-            print("Agent harness: dropped a \(command.json["type"]?.stringValue ?? "message") because the harness is not running")
-            return
-        }
-        let commandLine = command.line
-        standardInputWriteQueue.async {
-            do {
-                try standardInputHandle.write(contentsOf: commandLine)
-            } catch {
-                print("Agent harness: could not write to the harness: \(error)")
-            }
-        }
+        standardInputWriter.write(command)
     }
 }

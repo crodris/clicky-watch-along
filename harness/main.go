@@ -1,6 +1,8 @@
-// Command clicky-agent-harness runs Clicky's task agent. The Clicky app starts it as a helper process and talks to it
-// in JSON lines on stdin and stdout (see protocol.go). The harness runs Claude's tool loop through the Worker's
-// /v1/messages passthrough, and the app answers only the tools that touch the Mac or Notion.
+// Command clicky-agent-harness runs Clicky's task agent and, behind the app's brainRunsInTheHarness flag, its voice
+// command brain (brain.go, brainloop.go). The Clicky app starts it as a helper process and talks to it in JSON lines on
+// stdin and stdout (see protocol.go). The harness runs Claude's tool loop through the Worker's /v1/messages
+// passthrough. The app answers the task agent's tools that touch the Mac or Notion, and a voice command's scene, video,
+// and agent tools.
 package main
 
 import (
@@ -74,14 +76,18 @@ func main() {
 	}
 }
 
-// harness is the task registry. Each task runs in its own goroutine, and the app's messages are routed to it by task ID.
+// harness is the task registry. Each task and each voice command runs in its own goroutine, and the app's messages are
+// routed to it by task ID.
 type harness struct {
 	rootContext context.Context
 	runner      *taskRunner
+	brain       *brainRunner
 
 	tasksMutex sync.Mutex
 	tasks      map[string]*runningTask
-	taskGroup  sync.WaitGroup
+	// runningVoiceCommandID is the voice command still running, which a new one cancels, so two never interleave.
+	runningVoiceCommandID string
+	taskGroup             sync.WaitGroup
 }
 
 // run serves the protocol until input ends, then stops every task and returns. It writes nothing but protocol lines to
@@ -107,6 +113,7 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 	serving := &harness{
 		rootContext: rootContext,
 		runner:      &taskRunner{client: client, writer: writer, skillsDirectories: harnessConfiguration.skillsDirectories, mcp: servers, approvals: newApprovalGate()},
+		brain:       &brainRunner{client: client, writer: writer},
 		tasks:       map[string]*runningTask{},
 	}
 
@@ -134,11 +141,18 @@ func (serving *harness) handle(line []byte) {
 	message, err := parseInboundMessage(line)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "harness: dropped a line from the app: %v\n", err)
+		// The app waits on a voice command's events, so a command dropped here would hold the router failure fallback
+		// for the app's whole wait. task_failed for its ID starts the fallback at once, as the old path's 400 did.
+		if commandID := voiceCommandIDOfARefusedLine(line); commandID != "" {
+			serving.brain.writer.send(newTaskFailedMessage(commandID, err.Error()))
+		}
 		return
 	}
 	switch message := message.(type) {
 	case startTaskMessage:
 		serving.startTask(message)
+	case voiceCommandMessage:
+		serving.startVoiceCommand(message)
 	case toolResultMessage:
 		serving.deliverToolResult(message)
 	case cancelTaskMessage:
@@ -170,6 +184,32 @@ func (serving *harness) startTask(start startTaskMessage) {
 	}()
 }
 
+// startVoiceCommand runs a command in its own goroutine, like a task, so a slow task never holds it up. It never waits
+// on the MCP servers, which only tasks use. A command still running is cancelled first.
+func (serving *harness) startVoiceCommand(voiceCommand voiceCommandMessage) {
+	serving.tasksMutex.Lock()
+	if _, taskExists := serving.tasks[voiceCommand.TaskID]; taskExists {
+		serving.tasksMutex.Unlock()
+		fmt.Fprintf(os.Stderr, "harness: ignored voice_command for %s, which is already running\n", voiceCommand.TaskID)
+		return
+	}
+	if previousCommand := serving.tasks[serving.runningVoiceCommandID]; previousCommand != nil {
+		cancelUnlessAHandOffCompletedIt(previousCommand)
+	}
+	commandContext, cancel := context.WithCancel(serving.rootContext)
+	command := &runningTask{cancel: cancel, done: commandContext.Done(), toolResults: make(chan toolResultMessage, 32), isVoiceCommand: true}
+	serving.tasks[voiceCommand.TaskID] = command
+	serving.runningVoiceCommandID = voiceCommand.TaskID
+	serving.tasksMutex.Unlock()
+
+	serving.taskGroup.Add(1)
+	go func() {
+		defer serving.taskGroup.Done()
+		defer serving.removeTask(voiceCommand.TaskID)
+		serving.brain.runCommand(commandContext, command, voiceCommand)
+	}()
+}
+
 func (serving *harness) removeTask(taskID string) {
 	serving.tasksMutex.Lock()
 	defer serving.tasksMutex.Unlock()
@@ -177,16 +217,20 @@ func (serving *harness) removeTask(taskID string) {
 		task.cancel()
 		delete(serving.tasks, taskID)
 	}
-}
-
-func (serving *harness) task(taskID string) *runningTask {
-	serving.tasksMutex.Lock()
-	defer serving.tasksMutex.Unlock()
-	return serving.tasks[taskID]
+	if serving.runningVoiceCommandID == taskID {
+		serving.runningVoiceCommandID = ""
+	}
 }
 
 func (serving *harness) deliverToolResult(result toolResultMessage) {
-	task := serving.task(result.TaskID)
+	serving.tasksMutex.Lock()
+	task := serving.tasks[result.TaskID]
+	// A hand-off completes the command here, under the mutex, before the stdin loop reads its next line, so a
+	// cancel_task the app wrote right after this result always sees it.
+	if task != nil && task.isVoiceCommand && result.Outcome == voiceToolHandedOff {
+		task.handOffCompletedIt = true
+	}
+	serving.tasksMutex.Unlock()
 	if task == nil {
 		fmt.Fprintf(os.Stderr, "harness: dropped a tool result for %s, which is not running\n", result.TaskID)
 		return
@@ -198,9 +242,21 @@ func (serving *harness) deliverToolResult(result toolResultMessage) {
 }
 
 func (serving *harness) cancelTask(taskID string) {
-	if task := serving.task(taskID); task != nil {
-		task.cancel()
+	serving.tasksMutex.Lock()
+	defer serving.tasksMutex.Unlock()
+	if task := serving.tasks[taskID]; task != nil {
+		cancelUnlessAHandOffCompletedIt(task)
 	}
+}
+
+// cancelUnlessAHandOffCompletedIt cancels a task or command, except a command a hand-off completed. The caller holds
+// the harness's tasksMutex. Without this, the command's wait between its cancelled context and its result channel
+// would pick one at random when both are ready, and a hand-off could end as a cancel.
+func cancelUnlessAHandOffCompletedIt(task *runningTask) {
+	if task.handOffCompletedIt {
+		return
+	}
+	task.cancel()
 }
 
 func (serving *harness) cancelEveryTask() {

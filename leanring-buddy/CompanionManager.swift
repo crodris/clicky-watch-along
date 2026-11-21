@@ -56,6 +56,27 @@ func rehearsalStepWait(_ untrimmedRehearsalStep: String) -> (waitSeconds: Double
     }
     return (waitSeconds, String(rehearsalStep[rehearsalStep.index(after: spaceIndex)...]))
 }
+
+/// What a rehearsal step's first character asks for, read after any "+N " wait.
+enum RehearsalStepPrefix: Character, Equatable {
+    /// "~": the next step follows 6 seconds later, while this one is still going.
+    case nextStepInterruptsThisOne = "~"
+    /// "?": wait for a video quiz question to be asked, then answer it.
+    case waitsForAQuestion = "?"
+    /// "&": wait for every background agent and what their endings set off.
+    case waitsForTheBackgroundAgents = "&"
+    /// "^": press push-to-talk 0.3 seconds after this step's voice_command line goes to the harness, as a learner who
+    /// interrupts the command would.
+    case pressesPushToTalkDuringTheCommand = "^"
+}
+
+/// The step's prefix, or nil, and the words spoken without it.
+func rehearsalStepPrefix(_ rehearsalStep: String) -> (prefix: RehearsalStepPrefix?, transcript: String) {
+    guard let firstCharacter = rehearsalStep.first, let prefix = RehearsalStepPrefix(rawValue: firstCharacter) else {
+        return (nil, rehearsalStep)
+    }
+    return (prefix, String(rehearsalStep.dropFirst()))
+}
 #endif
 
 @MainActor
@@ -252,6 +273,10 @@ final class CompanionManager: ObservableObject {
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
+    #if DEBUG
+    /// How many voice_command lines went to the harness, which a rehearsal "^" step waits on before it presses.
+    private var harnessVoiceCommandsSent = 0
+    #endif
 
     #if DEBUG
     private lazy var voiceToolDebugServer = VoiceToolDebugServer(
@@ -412,6 +437,10 @@ final class CompanionManager: ObservableObject {
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
         agentTokenDockController.start()
+        // The brain runs in the harness process, so the first voice command must not pay its launch.
+        if BrainRunsInTheHarness.isOn() {
+            agentHarness.prewarm()
+        }
         #if DEBUG
         // Off unless asked for, since any process on this Mac can reach a loopback port.
         if CommandLine.arguments.contains("--voice-tool-debug-server") {
@@ -988,6 +1017,8 @@ final class CompanionManager: ObservableObject {
     /// or an experiment rising and its narration or guess question, so a demo can open the guide it just asked for,
     /// put back the model it just built, or answer the experiment's question.
     /// A transcript that starts with "+N " first waits N seconds, before any other prefix is read.
+    /// A transcript that starts with "^" presses push-to-talk through the real press handler 0.3 seconds after its
+    /// voice_command line goes to the harness, and releases it 0.2 seconds later, so it needs the harness flag on.
     func runLiveSceneRehearsal(transcripts: [String]) async {
         try? await Task.sleep(nanoseconds: 3_000_000_000)
         for rehearsalStepWithWait in transcripts {
@@ -995,13 +1026,13 @@ final class CompanionManager: ObservableObject {
             if waitSeconds > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(waitSeconds * 1_000_000_000))
             }
-            let nextStepInterruptsThisOne = rehearsalStep.hasPrefix("~")
+            let (stepPrefix, transcriptWithoutPrefix) = rehearsalStepPrefix(rehearsalStep)
+            let nextStepInterruptsThisOne = stepPrefix == .nextStepInterruptsThisOne
             // "?" waits up to 4 minutes for a video quiz question, since a pause comes whenever the video reaches it.
-            let stepWaitsForAQuestion = rehearsalStep.hasPrefix("?")
-            let stepWaitsForTheBackgroundAgents = rehearsalStep.hasPrefix("&")
-            var transcript = nextStepInterruptsThisOne || stepWaitsForAQuestion || stepWaitsForTheBackgroundAgents
-                ? String(rehearsalStep.dropFirst())
-                : rehearsalStep
+            let stepWaitsForAQuestion = stepPrefix == .waitsForAQuestion
+            let stepWaitsForTheBackgroundAgents = stepPrefix == .waitsForTheBackgroundAgents
+            let stepPressesPushToTalkDuringTheCommand = stepPrefix == .pressesPushToTalkDuringTheCommand
+            var transcript = transcriptWithoutPrefix
             if stepWaitsForTheBackgroundAgents {
                 // A guide takes about 15 seconds and a task agent about 25, so 3 minutes covers a long task and the Worker's retries.
                 for _ in 0..<720 where !backgroundAgentTasks.isEmpty || studyGuideRefreshesBeingChecked > 0 {
@@ -1039,7 +1070,11 @@ final class CompanionManager: ObservableObject {
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
+            let harnessVoiceCommandsSentBeforeThisStep = harnessVoiceCommandsSent
             sendTranscriptToClaudeWithScreenshot(transcript: transcript)
+            if stepPressesPushToTalkDuringTheCommand {
+                await pressPushToTalkOnceTheVoiceCommandGoesOut(afterCount: harnessVoiceCommandsSentBeforeThisStep)
+            }
             if nextStepInterruptsThisOne {
                 try? await Task.sleep(nanoseconds: 6_000_000_000)
                 continue
@@ -1063,6 +1098,25 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         print("Live scene rehearsal: done, phase \(liveScenePhase)")
+    }
+
+    /// A "^" step's press. runVoiceCommand reads the page before its first request, so the press is timed from the
+    /// voice_command line, not from when the step went out. It runs the handler a real press runs, so it cancels the
+    /// command and stops Clicky's audio the same way, and the release closes the dictation session the press opened.
+    private func pressPushToTalkOnceTheVoiceCommandGoesOut(afterCount harnessVoiceCommandsSentBeforeThisStep: Int) async {
+        // The page reads and the study guide check take a few seconds at most.
+        for _ in 0..<500 where harnessVoiceCommandsSent == harnessVoiceCommandsSentBeforeThisStep {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard harnessVoiceCommandsSent > harnessVoiceCommandsSentBeforeThisStep else {
+            print("Live scene rehearsal: no voice_command went to the harness within 10 seconds, so the ^ step pressed nothing. Is the harness flag on?")
+            return
+        }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        print("Live scene rehearsal: pressing push-to-talk during the voice command")
+        handleShortcutTransition(.pressed)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        handleShortcutTransition(.released)
     }
 
     private func waitForTheTourAndSpeechToEnd() async {
@@ -2521,15 +2575,27 @@ final class CompanionManager: ObservableObject {
         )
         let tools = voiceToolsOfferedToTheModel(pageTools: pageTools, appTools: AppVoiceTool.available(in: appToolContext), skills: TaskAgentSkillCatalog.currentSkills())
         let offeredToolNames = Set(tools.map(\.name))
-        let userMessageText = voiceCommandUserMessageText(
-            transcript: transcript,
-            sceneState: voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState),
-            recentActionLines: recentVoiceToolActionLines
-        )
-        var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
+        let sceneState = voiceCommandSceneState(pageState: pageState, frontVideoState: frontVideoState)
         // A "yes" answers the request the learner could see when they pressed push-to-talk, never one that came on
         // screen while they spoke or while the model ran, such as after the shown one's task ended.
         let approvalIDWaitingWhenTheCommandStarted = approvalRequestAVoiceAnswerMayReach?.approvalID
+        if BrainRunsInTheHarness.isOn() {
+            await runVoiceCommandInTheHarness(
+                transcript: transcript,
+                sceneState: sceneState,
+                tools: tools,
+                offeredToolNames: offeredToolNames,
+                approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+                commandStartedAt: commandStartedAt
+            )
+            return
+        }
+        let userMessageText = voiceCommandUserMessageText(
+            transcript: transcript,
+            sceneState: sceneState,
+            recentActionLines: recentVoiceToolActionLines
+        )
+        var messages: [JSONValue] = [.object(["role": .string("user"), "content": .string(userMessageText)])]
 
         // A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
         // When the third turn still needs the model, Clicky says the apology instead of going quiet.
@@ -2545,31 +2611,7 @@ final class CompanionManager: ObservableObject {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                // During a quiz question the keyword path is the judge, which sent this command here,
-                // so handing it back would loop between the two on every failure.
-                if liveScenePhaseIsWaitingForAQuizAnswer {
-                    print("Voice command: the router failed during a quiz question: \(error)")
-                    await speakLiveSceneLine(voiceCommandGaveUpLine)
-                    break
-                }
-                print("Voice command: the router failed, so its fallback takes it: \(error)")
-                switch routerFailureFallback(
-                    for: transcript,
-                    sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
-                    themeStudioIsOpen: themeStudioController.isOpen
-                ) {
-                case .giveUp:
-                    await speakLiveSceneLine(voiceCommandGaveUpLine)
-                    guard !Task.isCancelled else { return }
-                    voiceState = .idle
-                    scheduleTransientHideIfNeeded()
-                case .startExperiment:
-                    startTheExperimentInTheBackground(transcript: transcript)
-                case .designATheme(let themeStudioRequest):
-                    startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
-                case .keywordPath:
-                    respondByTheKeywordPath(transcript: transcript)
-                }
+                await runTheRouterFailureFallback(transcript: transcript, failureDescription: String(describing: error))
                 return
             }
             guard !Task.isCancelled else { return }
@@ -2580,26 +2622,16 @@ final class CompanionManager: ObservableObject {
             for toolCall in reply.toolCalls {
                 // A push-to-talk press cancels this command, so its remaining calls must not run.
                 guard !Task.isCancelled else { return }
-                showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
-                let toolStartedAt = Date()
-                let outcome = await runVoiceTool(
+                guard let outcome = await runOneVoiceToolCall(
                     toolCall,
                     offeredToolNames: offeredToolNames,
                     transcript: transcript,
                     // Only the model's first reply to the learner's words may answer a request. A later turn has read
                     // tool results, which can hold text a page or a server wrote.
-                    approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil
-                )
-                // A push-to-talk press during a slow call, like play_video's check, ends the command here, so its outcome is
-                // never shown or recorded. A hand-off cancels this task itself when it starts the new path, and runs with
-                // no await, so it goes on to show its chip and record its action.
-                if Task.isCancelled && outcome != .handedOff { return }
-                showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
-                print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
-                logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
+                    approvalIDTheLearnerIsAnswering: turnIndex == 0 ? approvalIDWaitingWhenTheCommandStarted : nil,
+                    commandStartedAt: commandStartedAt
+                ) else { return }
                 outcomes.append(outcome)
-                recentVoiceToolActionLines.append(voiceToolActionLine(toolCall: toolCall, outcome: outcome))
-                recentVoiceToolActionLines = Array(recentVoiceToolActionLines.suffix(5))
                 if outcome == .handedOff { break }
                 toolResultBlocks.append(.object([
                     "type": .string("tool_result"),
@@ -2641,13 +2673,169 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
+    /// The voice command with the harness flag on: the brain in the harness runs the model's turns, and each tool call
+    /// it sends runs here through `runOneVoiceToolCall`, as on the old path.
+    private func runVoiceCommandInTheHarness(
+        transcript: String,
+        sceneState: JSONValue,
+        tools: [VoiceToolDescriptor],
+        offeredToolNames: Set<String>,
+        approvalIDWaitingWhenTheCommandStarted: String?,
+        commandStartedAt: Date
+    ) async {
+        let commandID = UUID()
+        let standardInputWriter = agentHarness.standardInputWriter
+        let commandLines = HarnessVoiceCommandLines(taskID: commandID) { harnessCommand in
+            standardInputWriter.write(harnessCommand)
+        }
+        let commandEvents: AsyncStream<HarnessTaskEvent>
+        do {
+            commandEvents = try agentHarness.startVoiceCommand(
+                taskID: commandID,
+                transcript: transcript,
+                sceneState: sceneState,
+                recentActions: recentVoiceToolActionLines,
+                tools: tools
+            )
+        } catch {
+            await runTheRouterFailureFallback(transcript: transcript, failureDescription: "the agent harness could not start: \(error)")
+            return
+        }
+        #if DEBUG
+        harnessVoiceCommandsSent += 1
+        #endif
+        let commandEnding = await runTheVoiceCommandEvents(
+            commandEvents,
+            lines: commandLines,
+            approvalIDWaitingWhenTheCommandStarted: approvalIDWaitingWhenTheCommandStarted,
+            whenNoEventArrivesInTime: { [weak self] in
+                commandLines.commandWasCancelled()
+                self?.agentHarness.endVoiceCommand(
+                    taskID: commandID,
+                    lastEvent: .failed(reason: "the agent harness sent nothing for \(Int(secondsToWaitForTheNextHarnessVoiceCommandEvent)) seconds")
+                )
+            },
+            runTool: { toolCall, approvalIDTheLearnerIsAnswering in
+                // The old path logs each model reply under the debug switch, and here the harness holds the reply, so
+                // the call it sends is what the switch can show.
+                self.logVoiceCommandJSONIfEnabled("tool call from the harness", [.object([
+                    "id": .string(toolCall.id),
+                    "name": .string(toolCall.name),
+                    "input": .object(toolCall.input),
+                ])])
+                // A command the harness ended, or the press cancelled, leaves its outcome unshown and unrecorded.
+                return await self.runOneVoiceToolCall(
+                    toolCall,
+                    offeredToolNames: offeredToolNames,
+                    transcript: transcript,
+                    approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+                    commandStartedAt: commandStartedAt,
+                    handOffMark: commandLines
+                ) ?? .failed(error: "The command was cancelled", state: nil)
+            }
+        )
+        // A cancelled command's stream may still be routed, and a late tool call for it must find nothing.
+        agentHarness.endVoiceCommand(taskID: commandID)
+
+        switch commandEnding {
+        case .cancelled:
+            return
+        case .failed(let reason):
+            guard !Task.isCancelled else { return }
+            await runTheRouterFailureFallback(transcript: transcript, failureDescription: reason)
+        case .finished(let spokenLine, let gaveUp):
+            guard !Task.isCancelled else { return }
+            // The harness sends the line whole, and this is the one cut, since only Swift counts characters as the
+            // speech does, by grapheme cluster.
+            let lineToSpeak = String(spokenLine.prefix(longestSpokenVoiceCommandLine))
+            if !lineToSpeak.isEmpty {
+                // An agent the command started serves its token from the cursor first, and the line plays after it lands.
+                await agentTokenDockController.waitForTheServeToLand()
+                guard !Task.isCancelled else { return }
+                await speakLiveSceneLine(lineToSpeak)
+            }
+            guard !Task.isCancelled else { return }
+            if gaveUp {
+                await speakLiveSceneLine(voiceCommandGaveUpLine)
+            }
+            guard !Task.isCancelled else { return }
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Runs one of the model's tool calls with its chips, its log line, and its recent action line, the same on both
+    /// paths. Nil when a push-to-talk press cancelled the command during the call, since its outcome is then never shown
+    /// or recorded. A hand-off cancels this task itself when it starts the new path, and runs with no await, so it goes
+    /// on to show its chip and record its action. `handOffMark` is the harness command's, which each hand-off sets.
+    private func runOneVoiceToolCall(
+        _ toolCall: VoiceToolCall,
+        offeredToolNames: Set<String>,
+        transcript: String,
+        approvalIDTheLearnerIsAnswering: String?,
+        commandStartedAt: Date,
+        handOffMark: HarnessVoiceCommandLines? = nil
+    ) async -> VoiceToolOutcome? {
+        showTheVoiceToolCallChip(for: toolCall, at: .beforeTheCall, offeredToolNames: offeredToolNames)
+        let toolStartedAt = Date()
+        let outcome = await runVoiceTool(
+            toolCall,
+            offeredToolNames: offeredToolNames,
+            transcript: transcript,
+            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            handOffMark: handOffMark
+        )
+        // A push-to-talk press during a slow call, like play_video's check, ends the command here.
+        if Task.isCancelled && outcome != .handedOff { return nil }
+        showTheVoiceToolCallChip(for: toolCall, at: .afterTheCall(outcome), offeredToolNames: offeredToolNames)
+        print("Voice command: \(toolCall.chipText) ran in \(Int(Date().timeIntervalSince(toolStartedAt) * 1000)) ms, \(Int(Date().timeIntervalSince(commandStartedAt) * 1000)) ms after the command, \(outcome.isFailure ? "failed" : "ok")")
+        logVoiceCommandJSONIfEnabled("result of \(toolCall.name)", [.string(outcome.toolResultText)])
+        recentVoiceToolActionLines.append(voiceToolActionLine(toolCall: toolCall, outcome: outcome))
+        recentVoiceToolActionLines = Array(recentVoiceToolActionLines.suffix(5))
+        return outcome
+    }
+
+    /// What a failed router does, on either path: the keyword path, the experiment for "let me try it" with no scene,
+    /// or a short line during a quiz question.
+    private func runTheRouterFailureFallback(transcript: String, failureDescription: String) async {
+        // During a quiz question the keyword path is the judge, which sent this command here,
+        // so handing it back would loop between the two on every failure.
+        if liveScenePhaseIsWaitingForAQuizAnswer {
+            print("Voice command: the router failed during a quiz question: \(failureDescription)")
+            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            guard !Task.isCancelled else { return }
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
+            return
+        }
+        print("Voice command: the router failed, so its fallback takes it: \(failureDescription)")
+        switch routerFailureFallback(
+            for: transcript,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            themeStudioIsOpen: themeStudioController.isOpen
+        ) {
+        case .giveUp:
+            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            guard !Task.isCancelled else { return }
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
+        case .startExperiment:
+            startTheExperimentInTheBackground(transcript: transcript)
+        case .designATheme(let themeStudioRequest):
+            startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
+        case .keywordPath:
+            respondByTheKeywordPath(transcript: transcript)
+        }
+    }
+
     /// Runs only a tool this turn offered, so a model, a page, or a debug caller cannot reach one the
     /// current state left out, such as a hand-off during a quiz question.
     private func runVoiceTool(
         _ toolCall: VoiceToolCall,
         offeredToolNames: Set<String>,
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String? = nil
+        approvalIDTheLearnerIsAnswering: String? = nil,
+        handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         guard offeredToolNames.contains(toolCall.name) else {
             return .failed(error: "\(toolCall.name) is not available right now", state: nil)
@@ -2659,59 +2847,77 @@ final class CompanionManager: ObservableObject {
             appVoiceTool,
             input: toolCall.inputWithoutConfirmation,
             transcript: transcript,
-            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering,
+            handOffMark: handOffMark
         )
     }
 
+    /// Runs one app tool. Every hand-off goes through `voiceToolOutcome(of:handOffMark:)`, which sets the harness
+    /// command's mark before the new path starts (see `HarnessVoiceCommandLines`). The old path and the debug server
+    /// pass no mark.
     private func runAppVoiceTool(
         _ appVoiceTool: AppVoiceTool,
         input: [String: JSONValue],
         transcript: String,
-        approvalIDTheLearnerIsAnswering: String?
+        approvalIDTheLearnerIsAnswering: String?,
+        handOffMark: HarnessVoiceCommandLines? = nil
     ) async -> VoiceToolOutcome {
         if appVoiceTool.handsOffToALookAtTheMedia {
             theRequestBecameALookAtTheMedia()
         }
+        let toolStep = await appVoiceToolStep(
+            appVoiceTool,
+            input: input,
+            transcript: transcript,
+            approvalIDTheLearnerIsAnswering: approvalIDTheLearnerIsAnswering
+        )
+        return voiceToolOutcome(of: toolStep, handOffMark: handOffMark)
+    }
+
+    /// What one app tool does. A hand-off returns its new path as `.handOff` and never starts it here, and every other
+    /// branch returns its outcome.
+    private func appVoiceToolStep(
+        _ appVoiceTool: AppVoiceTool,
+        input: [String: JSONValue],
+        transcript: String,
+        approvalIDTheLearnerIsAnswering: String?
+    ) async -> AppVoiceToolStep {
         switch appVoiceTool {
         case .answerWithScreen:
-            respondToTranscript(transcript: transcript, requestedSceneKind: nil)
-            return .handedOff
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: nil) }
         case .buildNewScene:
-            respondToTranscript(transcript: transcript, requestedSceneKind: input["asQuiz"]?.boolValue == true ? .quiz : .explore)
-            return .handedOff
+            let requestedSceneKind: LiveSceneKind = input["asQuiz"]?.boolValue == true ? .quiz : .explore
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: requestedSceneKind) }
         case .buildSimulation:
             switch currentExperimentRequestStep {
             case .showTheReadyExperiment:
-                startShowingTheReadyBackgroundScene()
-                return .handedOff
+                return .handOff { self.startShowingTheReadyBackgroundScene() }
             case .sayItIsStillBuilding:
-                return .failed(error: "The experiment is still building, so wait for it", state: nil)
+                return .outcome(.failed(error: "The experiment is still building, so wait for it", state: nil))
             case .startBuilding:
-                return startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
+                return .outcome(startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment))
             }
         case .popOut:
-            respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout)
-            return .handedOff
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .framePopout) }
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
-            respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout)
-            return .handedOff
+            return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout) }
         case .closeScene:
-            closeTheSceneByVoice()
-            return .handedOff
+            return .handOff { self.closeTheSceneByVoice() }
         case .explainPart:
             let requestedLabel = input["label"]?.stringValue ?? ""
-            if partLabelToExplain(untrustedTappedLabel: requestedLabel, pageOnScreen: liveScenePageOnScreen, liveScenePhase: liveScenePhase) != nil {
-                explainTheTappedPart(untrustedTappedLabel: requestedLabel)
-            } else {
-                respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
+            return .handOff {
+                if partLabelToExplain(untrustedTappedLabel: requestedLabel, pageOnScreen: self.liveScenePageOnScreen, liveScenePhase: self.liveScenePhase) != nil {
+                    self.explainTheTappedPart(untrustedTappedLabel: requestedLabel)
+                } else {
+                    self.respondToTranscript(transcript: "what does the \(requestedLabel) do?", requestedSceneKind: nil)
+                }
             }
-            return .handedOff
         case .pauseVideo:
-            return runLearnerVideoCommand(.pause)
+            return .outcome(runLearnerVideoCommand(.pause))
         case .playVideo:
             let playOutcome = runLearnerVideoCommand(.play)
-            guard case .changed = playOutcome else { return playOutcome }
+            guard case .changed = playOutcome else { return .outcome(playOutcome) }
             // play() only asks. Chrome may refuse it, and a video that loads its data only now needs a moment,
             // so the state is read a few times over about 1.6 seconds before a play counts as failed.
             var videoStateAfterPlay: JSONValue?
@@ -2720,103 +2926,99 @@ final class CompanionManager: ObservableObject {
                 videoStateAfterPlay = videoQuizSession.frontVideoStateForVoiceCommands()
                 if videoStateAfterPlay?["playing"]?.boolValue == true { break }
             }
-            return learnerVideoPlayOutcome(videoStateAfterPlay: videoStateAfterPlay)
+            return .outcome(learnerVideoPlayOutcome(videoStateAfterPlay: videoStateAfterPlay))
         case .seekRelative:
-            guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
-            return runLearnerVideoCommand(.seekBy(seconds: seconds))
+            guard let seconds = input["seconds"]?.numberValue else { return .outcome(.failed(error: "seconds must be a number", state: nil)) }
+            return .outcome(runLearnerVideoCommand(.seekBy(seconds: seconds)))
         case .seekToTime:
-            guard let seconds = input["seconds"]?.numberValue else { return .failed(error: "seconds must be a number", state: nil) }
-            return runLearnerVideoCommand(.seekTo(seconds: seconds))
+            guard let seconds = input["seconds"]?.numberValue else { return .outcome(.failed(error: "seconds must be a number", state: nil)) }
+            return .outcome(runLearnerVideoCommand(.seekTo(seconds: seconds)))
         case .setSpeed:
-            guard let playbackRate = input["rate"]?.numberValue else { return .failed(error: "rate must be a number", state: nil) }
-            return runLearnerVideoCommand(.setPlaybackRate(playbackRate))
+            guard let playbackRate = input["rate"]?.numberValue else { return .outcome(.failed(error: "rate must be a number", state: nil)) }
+            return .outcome(runLearnerVideoCommand(.setPlaybackRate(playbackRate)))
         case .findMoment:
             do {
                 let captionMoments = try await videoQuizSession.captionMomentsInTheFrontVideo(matching: input["query"]?.stringValue ?? "")
-                return .lookedUp(result: .array(captionMoments.map { captionMoment in
+                return .outcome(.lookedUp(result: .array(captionMoments.map { captionMoment in
                     .object(["seconds": .number(captionMoment.seconds), "captions": .string(captionMoment.text)])
-                }))
+                })))
             } catch {
-                return .failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil)
+                return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "Could not read this video's captions", state: nil))
             }
         case .endQuiz:
-            handleVideoQuizVoiceCommand(.stop)
-            return .handedOff
+            return .handOff { self.handleVideoQuizVoiceCommand(.stop) }
         case .makeStudyGuide:
-            return startWritingTheStudyGuide(.write(focus: studyGuideWish(fromModelText: input["focus"]?.stringValue)))
+            return .outcome(startWritingTheStudyGuide(.write(focus: studyGuideWish(fromModelText: input["focus"]?.stringValue))))
         case .reviseStudyGuide:
             guard let instruction = studyGuideWish(fromModelText: input["instruction"]?.stringValue) else {
-                return .failed(error: "instruction must say what to change", state: nil)
+                return .outcome(.failed(error: "instruction must say what to change", state: nil))
             }
-            return startWritingTheStudyGuide(.revise(instruction: instruction))
+            return .outcome(startWritingTheStudyGuide(.revise(instruction: instruction)))
         case .openStudyGuide:
             guard let frontVideoURL = videoQuizSession.frontTabURLOfTheFrontWindow() else {
-                return .failed(error: "No study guide has been written for this video yet", state: nil)
+                return .outcome(.failed(error: "No study guide has been written for this video yet", state: nil))
             }
             // Checked again here, since the learner may have trashed the page since the tools were offered.
             guard let studyGuideRecord = await savedStudyGuideStillInNotion(forVideoURL: frontVideoURL, checkEvenIfCheckedBefore: true) else {
-                return .failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil)
+                return .outcome(.failed(error: "This video's study guide was deleted in Notion, so there is nothing to open. Tell the learner, and that asking for a study guide again will write a new one.", state: nil))
             }
             let pageURL = studyGuideRecord.pageURL
             if let chromeTabID = notionPageChromeTabIDsByPageURL[pageURL], videoQuizSession.bringChromeTabForward(tabID: chromeTabID) {
-                return .changed(state: nil)
+                return .outcome(.changed(state: nil))
             }
             // NSWorkspace opens any URL scheme, and a guide saved by an older build was never checked.
             guard pageURLIsOnNotion(pageURL), NSWorkspace.shared.open(pageURL) else {
-                return .failed(error: "The study guide page would not open", state: nil)
+                return .outcome(.failed(error: "The study guide page would not open", state: nil))
             }
-            return .changed(state: nil)
+            return .outcome(.changed(state: nil))
         case .buildModelInTheBackground:
             guard let whatToBuild = input["whatToBuild"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !whatToBuild.isEmpty else {
-                return .failed(error: "whatToBuild must say what to build", state: nil)
+                return .outcome(.failed(error: "whatToBuild must say what to build", state: nil))
             }
-            return startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: .threeDModel)
+            return .outcome(startBuildingASceneInTheBackground(whatToBuild: whatToBuild, agentKind: .threeDModel))
         case .showReadyModel:
-            startShowingTheReadyBackgroundScene()
-            return .handedOff
+            return .handOff { self.startShowingTheReadyBackgroundScene() }
         case .startBackgroundTask:
             guard let goal = input["goal"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty else {
-                return .failed(error: "goal must say what the task is", state: nil)
+                return .outcome(.failed(error: "goal must say what the task is", state: nil))
             }
             // The catalog is read again, so a skill file removed since the router built its tools is dropped here.
             let skillChoice = TaskAgentSkillCatalog.skillNameToRun(requestedName: input["skill"]?.stringValue, catalog: TaskAgentSkillCatalog.currentSkills())
             if skillChoice.skillWasDropped {
                 print("Task agent: the skill \(input["skill"]?.stringValue ?? "") is not in the catalog, so the task runs with no skill")
             }
-            return startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name)
+            return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name))
         case .hearTaskAnswer:
-            startSpeakingTheTaskAnswer()
-            return .handedOff
+            return .handOff { self.startSpeakingTheTaskAnswer() }
         case .recordGuess:
-            return await recordTheSimulationGuess(input["guess"]?.stringValue ?? "")
+            return .outcome(await recordTheSimulationGuess(input["guess"]?.stringValue ?? ""))
         case .answerApproval:
-            return answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript)
+            return .outcome(answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript))
         case .designTheme:
             let themeRequest = (input["request"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !themeRequest.isEmpty else { return .failed(error: "request must say what the learner wants", state: nil) }
-            startDesigningATheme(
-                request: themeRequest,
-                basedOnIdea: input["basedOnIdea"]?.numberValue.flatMap { Int(exactly: $0) },
-                pictureChoice: ThemeStudioPictureChoice(fromPictureInput: input["fromPicture"]?.boolValue)
-            )
-            return .handedOff
+            guard !themeRequest.isEmpty else { return .outcome(.failed(error: "request must say what the learner wants", state: nil)) }
+            let basedOnIdea = input["basedOnIdea"]?.numberValue.flatMap { Int(exactly: $0) }
+            let pictureChoice = ThemeStudioPictureChoice(fromPictureInput: input["fromPicture"]?.boolValue)
+            return .handOff {
+                self.startDesigningATheme(request: themeRequest, basedOnIdea: basedOnIdea, pictureChoice: pictureChoice)
+            }
         case .pickThemeIdea:
             guard let ideaNumber = input["number"]?.numberValue.flatMap({ Int(exactly: $0) }), themeStudioController.pickIdea(number: ideaNumber) else {
-                return .failed(error: "number must be the number of an idea on the card, from 1 to 3", state: nil)
+                return .outcome(.failed(error: "number must be the number of an idea on the card, from 1 to 3", state: nil))
             }
-            return .changed(state: .object(["themeStudio": voiceCommandThemeStudioState(themeStudioController.state) ?? .null]))
+            return .outcome(.changed(state: .object(["themeStudio": voiceCommandThemeStudioState(themeStudioController.state) ?? .null])))
         case .saveTheme:
             switch themeStudioController.saveTheHighlightedIdea() {
             case .saved(let themeName):
-                return .changed(state: .object(["themeSaved": .string(themeName)]))
+                return .outcome(.changed(state: .object(["themeSaved": .string(themeName)])))
             case .nothingToSave:
-                return .failed(error: "no idea is on the card to save", state: nil)
+                return .outcome(.failed(error: "no idea is on the card to save", state: nil))
             case .failed:
-                return .failed(error: "the theme could not be saved", state: nil)
+                return .outcome(.failed(error: "the theme could not be saved", state: nil))
             }
         case .closeThemeStudio:
             themeStudioController.close()
-            return .changed(state: nil)
+            return .outcome(.changed(state: nil))
         }
     }
 
@@ -2954,6 +3156,9 @@ final class CompanionManager: ObservableObject {
                     return
                 case .failed(let reason):
                     throw TaskAgentError.harnessReportedFailure(reason: reason)
+                case .voiceCommandFinished:
+                    // Only a voice command ends this way, so a task never hears it.
+                    throw TaskAgentError.harnessEndedWithNoResult
                 }
             }
             // The stream also ends when this task is cancelled, which is not a failure.

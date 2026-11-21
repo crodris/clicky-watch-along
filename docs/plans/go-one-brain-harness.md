@@ -260,7 +260,7 @@ Harness to app:
   A voice command's `tool_call` also carries `turnIndex`, counted from 0, which task calls leave out.
   Swift needs it for the first-reply approval rule: today it passes the approval ID to `runVoiceTool` only when `turnIndex == 0` (`CompanionManager.swift:2542`), and without the field a yes from turn 2 or 3 would reach the desk.
   Swift keeps the approval ID it read at the press (`approvalIDWaitingWhenTheCommandStarted`) for the whole command, as today.
-- `voice_command_finished` (new): `taskID`, `spokenLine` (the joined confirmations, cut to 300 characters, or empty), and `gaveUp` (true when the third turn still needed the model, so Swift says `voiceCommandGaveUpLine`).
+- `voice_command_finished` (new): `taskID`, `spokenLine` (the joined confirmations, or empty, sent whole, since Swift cuts it to 300 characters by grapheme cluster), and `gaveUp` (true when the third turn still needed the model, so Swift says `voiceCommandGaveUpLine`).
 - `task_failed` (unchanged): the Worker or Anthropic failed, which sends Swift down the router failure fallback.
 - `log` (unchanged): one `Brain: turn N on <model> stopped for <reason>, tokens in N, cache read N, cache write N, out N, N ms` line per turn, since the Worker logs no usage for `/v1/messages`.
 
