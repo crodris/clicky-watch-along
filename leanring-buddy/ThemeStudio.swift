@@ -191,7 +191,7 @@ nonisolated enum ThemeStudioRequest: Equatable, Sendable {
 /// asks for a theme of their own or Clicky's. That takes two things, and a theme the learner is only reading about has
 /// neither:
 /// - a request word within the four words before "theme": a design word (change, make, design, create, customize,
-///   customise, redo, switch) or an asking word (give, want, need, get, try, like), and
+///   customise, redo, switch) or an asking word (give, want, need, get, try, or "like" after "I'd" or "would"), and
 /// - an owner word: my, your, or Clicky's directly before "theme", or one of the forms that also fit a theme for something
 ///   else, which count only when "theme" ends the request or is followed by please, like, that, with, based, or, when the
 ///   words point at the picture, from:
@@ -223,7 +223,7 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
 
     let themeWordIndexes = words.indices.filter { words[$0] == "theme" || words[$0] == "themes" }
     let wordsThatAskToDesignATheme: Set<String> = ["change", "make", "design", "create", "customize", "customise", "redo", "switch"]
-    let wordsThatAskForATheme: Set<String> = ["give", "want", "need", "get", "try", "like"]
+    let wordsThatAskForATheme: Set<String> = ["give", "want", "need", "get", "try"]
     let wordsThatMayFollowARequestedTheme: Set<String> = ["please", "like", "that", "with", "based"]
     let wordPairsThatPointAtThePicture: Set<[String]> = [["this", "picture"], ["this", "image"], ["this", "photo"], ["match", "this"]]
     let pointsAtThePicture = words.indices.dropLast().contains { wordIndex in
@@ -238,7 +238,13 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
 
         let wordIndexesBeforeTheTheme = max(0, themeWordIndex - nearestWordsToCheck)..<themeWordIndex
         let aDesignWordIsNearby = wordIndexesBeforeTheTheme.contains { wordsThatAskToDesignATheme.contains(words[$0]) }
-        let anAskingWordIsNearby = wordIndexesBeforeTheTheme.contains { wordsThatAskForATheme.contains(words[$0]) }
+        // "Like" asks only after "I'd" or "would", since "sounds like a pirate theme" or "I like your theme" asks nothing.
+        let anAskingWordIsNearby = wordIndexesBeforeTheTheme.contains { wordIndex in
+            if words[wordIndex] == "like" {
+                return wordIndex > 0 && ["i'd", "would"].contains(words[wordIndex - 1])
+            }
+            return wordsThatAskForATheme.contains(words[wordIndex])
+        }
         guard aDesignWordIsNearby || anAskingWordIsNearby else { return false }
 
         // "Change my theme" says whose theme it is right before "theme", and that alone is enough.

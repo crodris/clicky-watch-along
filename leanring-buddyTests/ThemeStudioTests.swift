@@ -208,6 +208,18 @@ struct AsksToDesignAThemeTests {
         #expect(asksToDesignATheme("I want a new theme that feels like a rainy night") == .fromWords)
         #expect(asksToDesignATheme("make me a theme with soft colors") == .fromWords)
         #expect(asksToDesignATheme("change my theme to something cozy") == .fromWords)
+        // The tail rule sends a design word with "for" after "theme" to the router too, which the owner chose on PR 57.
+        #expect(asksToDesignATheme("design a theme for night") == nil)
+        #expect(asksToDesignATheme("make a theme, this is great") == nil)
+    }
+
+    @Test func likeAsksForAThemeOnlyAfterIdOrWould() {
+        #expect(asksToDesignATheme("I'd like a new theme") == .fromWords)
+        #expect(asksToDesignATheme("I would like a darker theme") == .fromWords)
+        #expect(asksToDesignATheme("this sounds like a pirate theme") == nil)
+        #expect(asksToDesignATheme("it looks like a space theme") == nil)
+        #expect(asksToDesignATheme("I like your theme") == nil)
+        #expect(asksToDesignATheme("I really like my new theme") == nil)
     }
 
     @Test func aQuestionAboutAWorksThemeOpensNothing() {

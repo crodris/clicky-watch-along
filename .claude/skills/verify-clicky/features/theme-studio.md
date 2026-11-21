@@ -104,5 +104,5 @@ Preconditions:
 - With Show Clicky off, the cursor overlay fades a second after the last interaction (transient cursor mode), so the preview shows on the card's tiles only until the next push-to-talk.
 - Agents started while only a preview shows take the saved theme's colors, not the preview's.
 - The menu bar panel's frame is fitted to its content when the panel opens and again when the saved theme list changes. After a delete, check that no row is clipped and the panel's top stays under the menu bar.
-- Escape in the rename field cancels only the rename: `closeLiveSceneOnEscape` returns while a text field in Clicky's own window is being edited. That check runs after the field editor takes the key, so the Escape-with-the-card-open step below is what proves it.
+- Escape in the rename field cancels only the rename: `closeLiveSceneOnEscape` returns while a text field in Clicky's own window is being edited. That check runs after the field editor takes the key, so the Escape-with-the-card-open step in the Rename and delete step above is what proves it.
 - Seeded agents never end on their own. Cancel them from the agent list or quit the app.
