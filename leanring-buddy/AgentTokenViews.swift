@@ -115,6 +115,16 @@ struct ThemePictureFaceView: View {
     }
 }
 
+/// How the "+N" text fits the 22 point disc. Two digits use smaller type than one, and the text keeps a margin on each
+/// side, so "+10" and "+99" stay clear of the 1.5 point edge. A count past two digits shrinks to fit.
+enum AgentOverflowDiscText {
+    static let horizontalPadding: CGFloat = 2
+
+    static func fontSize(overflowCount: Int) -> CGFloat {
+        overflowCount >= 10 ? 8 : 9
+    }
+}
+
 /// The "+N" disc for the agents that have no position of their own, in the same dark disc as a face.
 struct AgentOverflowDiscView: View {
     let overflowCount: Int
@@ -122,8 +132,12 @@ struct AgentOverflowDiscView: View {
 
     var body: some View {
         Text("+\(overflowCount)")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: AgentOverflowDiscText.fontSize(overflowCount: overflowCount), weight: .bold, design: .rounded))
             .foregroundColor(.white)
+            .lineLimit(1)
+            // A three digit count is cut down to fit instead of touching the edge.
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, AgentOverflowDiscText.horizontalPadding)
             .frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter)
             .background(Circle().fill(DS.Colors.agentTokenFace))
             .agentTokenEdgeAndShadow(isHovered: isHovered, edgeWidth: 1.5)

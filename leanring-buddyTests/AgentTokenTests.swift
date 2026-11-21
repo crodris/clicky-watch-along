@@ -368,4 +368,11 @@ struct AgentTokenTests {
         #expect(AgentTokenRingColorChoice.school(.inarizaki).color == HaikyuSchool.inarizaki.accentColor)
         #expect(AgentTokenRingColorChoice.assigned(.teal).color == DS.Colors.backgroundAgentTaskTeal)
     }
+
+    @Test func theOverflowDiscUsesSmallerTypeFromTwoDigits() {
+        #expect(AgentOverflowDiscText.fontSize(overflowCount: 1) == 9)
+        #expect(AgentOverflowDiscText.fontSize(overflowCount: 9) == 9)
+        #expect(AgentOverflowDiscText.fontSize(overflowCount: 10) == 8)
+        #expect(AgentOverflowDiscText.fontSize(overflowCount: 12) == 8)
+    }
 }
