@@ -62,7 +62,7 @@ final class ThemeInstallCardPanelController: ThemeInstallCardPresenting {
     }
 }
 
-private struct ThemeInstallCardView: View {
+struct ThemeInstallCardView: View {
     let pendingInstall: PendingThemeInstall
     let decide: (Bool) -> Void
 
