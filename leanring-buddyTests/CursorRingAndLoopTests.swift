@@ -182,13 +182,25 @@ private func controllerWithATurnWaitingForALoop(reading media: MediaOnTheFrontTa
 
 @Test(.timeLimit(.minutes(1))) @MainActor func aLoopDrawnAfterATabSwitchClearsAtOnceInsteadOfAfterASecond() async {
     // The learner switched tabs between the release and the hand-off, so the rect the loop would frame is stale.
-    let controller = await controllerWithATurnWaitingForALoop(reading: exampleMedia, polling: exampleSample(tabID: 99))
+    // The poll's waits are counted instead of timed, since a busy CI runner can hold the main actor past a whole poll
+    // interval, and the first sample must end the loop before the poll's first wait.
+    final class PollCounts { var samplesRead = 0; var waitsTaken = 0 }
+    let pollCounts = PollCounts()
+    let controller = CursorLoopController(
+        readTheMediaInTheFrontTab: { exampleMedia },
+        readTheFrontTabSample: {
+            pollCounts.samplesRead += 1
+            return exampleSample(tabID: 99)
+        },
+        waitBetweenFrontTabPolls: { pollCounts.waitsTaken += 1 }
+    )
+    controller.pushToTalkWasReleased()
+    await controller.waitForTheMediaReadToFinish()
     controller.requestBecameALookAtTheMedia()
-    let pollStart = ContinuousClock.now
     await controller.waitForThePollToEndTheLoop()
     #expect(!controller.isShowingTheLoop)
-    // The first sample runs before the poll's first wait, so the loop ends well before a whole poll interval.
-    #expect(ContinuousClock.now - pollStart < .seconds(CursorLoopController.secondsBetweenFrontTabPolls))
+    #expect(pollCounts.samplesRead == 1)
+    #expect(pollCounts.waitsTaken == 0)
 }
 
 @Test func aRequestDrawsALoopOnlyWhenNoSceneOrQuizQuestionOwnsTheScreen() {

@@ -25,6 +25,9 @@ final class CursorLoopController: ObservableObject {
     /// their own, since the real ones drive Chrome.
     private let readTheMediaInTheFrontTab: () -> MediaOnTheFrontTab?
     private let readTheFrontTabSample: () -> FrontTabSample?
+    /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
+    /// reading the clock of a busy machine.
+    private let waitBetweenFrontTabPolls: () async -> Void
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The voice state goes idle for a moment after a request is submitted, when the dictation session finishes
@@ -34,10 +37,12 @@ final class CursorLoopController: ObservableObject {
 
     init(
         readTheMediaInTheFrontTab: @escaping () -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
-        readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample
+        readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
+        waitBetweenFrontTabPolls: @escaping () async -> Void = { try? await Task.sleep(for: .seconds(CursorLoopController.secondsBetweenFrontTabPolls)) }
     ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
+        self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
         // The front app changing is a system event, so a notification is the only way to hear it.
         appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -194,7 +199,7 @@ final class CursorLoopController: ObservableObject {
                 let sampleNow = readTheFrontTabSample()
                 guard !Task.isCancelled else { return }
                 if let sampleNow, mediaTheLoopIsAround.isTheSameMediaInTheSameTab(as: sampleNow) {
-                    try? await Task.sleep(for: .seconds(Self.secondsBetweenFrontTabPolls))
+                    await waitBetweenFrontTabPolls()
                     continue
                 }
                 end(because: .tabOrMediaChanged)
