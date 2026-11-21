@@ -1163,3 +1163,108 @@ describe("the harness driver's session lines", () => {
     }
   });
 });
+
+describe("the planning cases", () => {
+  const popOutCase = fixtureCase("planning-find-seek-pop-out");
+  const backUpCase = fixtureCase("planning-find-then-back-up");
+  /** The line the harness writes for a later turn, which `turn1Line` writes for the first. */
+  const turnLine = (turnNumber: number, calls: string) => ({
+    type: "log",
+    message: `Brain: turn ${turnNumber} on claude-haiku-5-5 stopped for tool_use, tokens in 100, cache read 2000, cache write 0, out 50, 300 ms, calls ${calls}`,
+  });
+  const findMomentTurn: Array<[Record<string, unknown>, number]> = [
+    [turn1Line("find_moment"), 400],
+    [toolCallLine("call-1", "find_moment", { query: "swim bladder" }, 0), 402],
+  ];
+  const scoreSecondTurn = (brainCase: BrainCase, secondTurnCalls: string, secondTurnToolCallLines: Array<[Record<string, unknown>, number]>) =>
+    sampleFromHarnessRecord(brainCase, 0, replay(brainCase, [...findMomentTurn, [turnLine(2, secondTurnCalls), 800], ...secondTurnToolCallLines, [finishedLine(""), 830]]).record);
+
+  it("passes calls across turns that match an accepted sequence in order, with the seek's time taken from the scripted lookup, and reports every turn's cost", () => {
+    const passedSample = scoreSecondTurn(popOutCase, "seek_to_time,pop_out", [
+      [toolCallLine("call-2", "seek_to_time", { seconds: 98 }, 1), 802],
+      [toolCallLine("call-3", "pop_out", {}, 1), 804],
+    ]);
+
+    assert.equal(passedSample.outcome, "pass");
+    assert.deepEqual(passedSample.toolCalls.map((toolCall) => toolCall.name), ["find_moment", "seek_to_time", "pop_out"]);
+    assert.equal(passedSample.turnCount, 2);
+    // The first turn alone costs less than the command, which adds both turns.
+    assert.ok((passedSample.fullCommandCostUSD ?? 0) > (passedSample.costUSD ?? Infinity));
+  });
+
+  it("fails the right calls in the wrong order, which an unordered score would pass", () => {
+    // pop_out came first, so the hand-off ended the turn and the seek never ran: it has a name and no tool_call line.
+    const wrongOrderSample = scoreSecondTurn(popOutCase, "pop_out,seek_to_time", [[toolCallLine("call-2", "pop_out", {}, 1), 802]]);
+
+    assert.equal(wrongOrderSample.outcome, "wrongTool");
+    assert.equal(scoreToolCalls(wrongOrderSample.toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(popOutCase)), "pass");
+  });
+
+  it("fails a plan that stops early, and a seek whose time is not the scripted one", () => {
+    const stoppedAfterTheLookup = sampleFromHarnessRecord(popOutCase, 0, replay(popOutCase, [...findMomentTurn, [finishedLine("I found it"), 500]]).record);
+    const seekedToTheSecondMoment = scoreSecondTurn(popOutCase, "seek_to_time,pop_out", [
+      [toolCallLine("call-2", "seek_to_time", { seconds: 301 }, 1), 802],
+      [toolCallLine("call-3", "pop_out", {}, 1), 804],
+    ]);
+    const neverLookedUp = sampleFromHarnessRecord(popOutCase, 0, replay(popOutCase, [[turn1Line("none"), 400], [finishedLine("it is a shark"), 410]]).record);
+
+    assert.equal(stoppedAfterTheLookup.outcome, "wrongTool");
+    assert.equal(seekedToTheSecondMoment.outcome, "wrongInput");
+    assert.equal(neverLookedUp.outcome, "missedTool");
+  });
+
+  it("holds each accepted sequence to its own input, so one seek to 295 and two seeks from 305 both pass and a mix does not", () => {
+    const backUpOnce = scoreSecondTurn(backUpCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 295 }, 1), 802]]);
+    const seekThenBackUp = scoreSecondTurn(backUpCase, "seek_to_time,seek_relative", [
+      [toolCallLine("call-2", "seek_to_time", { seconds: 305 }, 1), 802],
+      [toolCallLine("call-3", "seek_relative", { seconds: -10 }, 1), 804],
+    ]);
+    const backedUpTwice = scoreSecondTurn(backUpCase, "seek_to_time,seek_relative", [
+      [toolCallLine("call-2", "seek_to_time", { seconds: 295 }, 1), 802],
+      [toolCallLine("call-3", "seek_relative", { seconds: -10 }, 1), 804],
+    ]);
+    const forgotToBackUp = scoreSecondTurn(backUpCase, "seek_to_time", [[toolCallLine("call-2", "seek_to_time", { seconds: 305 }, 1), 802]]);
+
+    assert.equal(backUpOnce.outcome, "pass");
+    assert.equal(seekThenBackUp.outcome, "pass");
+    assert.equal(backedUpTwice.outcome, "wrongInput");
+    assert.equal(forgotToBackUp.outcome, "wrongInput");
+  });
+
+  it("are 8 cases the Worker backend does not run, and the parity cases leave them out", () => {
+    const planningCases = evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand === true);
+    const planningSample = sample({ backend: "harness", suite: "planning" });
+    const parityCaseSample = sample({ backend: "harness" });
+    const split = splitBySuite([parityCaseSample, planningSample]);
+
+    assert.equal(planningCases.length, 8);
+    assert.deepEqual(split.parityCaseSamples, [parityCaseSample]);
+    assert.deepEqual(split.planningSamples, [planningSample]);
+    validateBrainEvals(evalFile, toolCatalog);
+  });
+
+  it("cover a lookup that feeds a seek, a hand-off that must come last, and actions in a fixed order", () => {
+    const planningCases = evalFile.cases.filter((brainCase) => brainCase.scoreWholeCommand === true);
+
+    assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).every((calls) => calls[0] === "find_moment" && calls.includes("seek_to_time"))));
+    assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "seek_relative,pop_out"));
+    assert.ok(planningCases.some((brainCase) => acceptedAnswersOf(brainCase).length === 1 && acceptedAnswersOf(brainCase)[0].join() === "rotate_model,zoom_to_part"));
+  });
+
+  it("are rejected when a sequence has its own input outside a planning case, calls find_moment with no scripted result, or checks a tool it does not call", () => {
+    const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
+    const validCase: BrainCase = { id: "new-planning-case", context: "video", say: "x", why: "x", scoreWholeCommand: true, accept: [["seek_relative", "pop_out"]] };
+
+    validateBrainEvals(withCase(validCase), toolCatalog);
+    assert.throws(
+      () => validateBrainEvals(withCase({ ...validCase, scoreWholeCommand: undefined, accept: [{ calls: ["seek_relative"], input: { seek_relative: { seconds: -30 } } }] }), toolCatalog),
+      /not scored on the whole command/,
+    );
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, accept: [["find_moment", "seek_to_time"]] }), toolCatalog), /must script the lookup's result/);
+    assert.throws(
+      () => validateBrainEvals(withCase({ ...validCase, accept: [{ calls: ["seek_relative", "pop_out"], input: { pause_video: { seconds: 1 } } }] }), toolCatalog),
+      /does not call/,
+    );
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, accept: ["none"] }), toolCatalog), /at least one call/);
+  });
+});

@@ -78,6 +78,7 @@ The router runs in two places: the Worker's `POST /voice-command` (the old path)
 It sends each case's words, screen state, and offered tools to the backend you pick and scores the tool calls of the first turn.
 Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts`, and the harness's own prompt in `harness/brain.go`, which differs in the lines about earlier commands), or a tool description, and compare the result with the committed baseline.
 On the `worker` backend the 60 cases at one run cost about one cent, and three runs of each cost about two cents.
+The 8 planning cases (see "Planning cases" below) run only on the `harness` backend.
 The `harness` backend also runs the second turn of a lookup, so its full-command cost is higher (see the committed parity run).
 
 ```bash
@@ -109,7 +110,7 @@ Every other tool gets `changed`.
 A case may script a tool's answer with `toolResults`, a map from a tool name to `{ outcome, result?, error? }`.
 `video-find-moment` scripts two caption lines for `find_moment`, and a lookup with no script gets an empty result.
 
-Both backends score the tool calls of the first turn, which is all the Worker backend returns.
+Both backends score the tool calls of the first turn, which is all the Worker backend returns, except for the planning cases, which only the harness backend runs and which are scored on the whole command.
 The Worker backend scores every `tool_use` block of the reply.
 The harness backend would see fewer calls if it read only the `tool_call` lines, because the harness sends none after a hand-off and none to a tool the command was not offered.
 So the harness's `Brain: turn` line ends with `calls <names>`, the names of every tool the turn called in order, or `calls none`, and the bench scores the first turn from those names.
@@ -175,6 +176,31 @@ node bench/brainEvals.ts session-run --label brain-session --runs 3 --port 8797
 It prints each mode's passes, cache read share (cached input tokens over all input tokens, every turn), p50 and p95 to the first tool call, and mean cost.
 The stateless mode passes fewer commands, since "undo the first turn" needs the history.
 
+### Planning cases
+
+A planning case is a request whose steps depend on each other, such as "go back to where he explains the swim bladder and pop it out" (find a moment, seek to the time it returns, then pop out).
+They measure whether the Haiku brain plans a chain by itself, which decides whether a slower planning model is needed (PR 7 of `docs/plans/go-one-brain-harness.md`).
+A case marks itself with `scoreWholeCommand: true`, and the harness backend scores it differently from every other case:
+
+- The calls of every turn count, in the order the model made them.
+  Each accepted answer in `accept` is an ordered sequence, not an unordered set, so a seek that comes after a hand-off fails.
+  A sequence that may come in several orders is listed once per order.
+- A sequence may be written `{ "calls": [...], "input": { ... } }` to carry input of its own, which replaces the case's `input` for that tool.
+  `planning-find-then-back-up` uses it, since two seeks (305, then back 10) and one seek to 295 are both right and need different inputs.
+- A seek's time must come from the case's scripted `find_moment` result, so each case scripts every lookup in `toolResults` and `validateBrainEvals` refuses a sequence that calls `find_moment` with no script.
+  The harness answers every other tool with `changed` or `handedOff`, as for any case.
+- The sample keeps the full command's time and cost, and the run prints a table with each case's pass count, `fullP50` (the `voice_command` line to `voice_command_finished`), and `meanFullUsd` (every turn's cost) next to the first-turn columns of the other tables.
+- The outcome is `pass`, `wrongTool` (a different set, order, or count of calls, including calls cut off after a hand-off), `wrongInput`, or `missedTool` (no call).
+
+Only the harness backend runs these cases.
+The Worker backend sends one request and scores the one reply, so it cannot answer a `find_moment` call with its result and ask again, and a second Worker driver would copy the harness's loop, which replaces the Worker path.
+`--backend worker` leaves them out and prints a line saying so, and the parity gate leaves them out too (`suite: "planning"`), so they never fail the parity check of the 60 cases.
+They run in the same harness process as the session cases, after the parity cases, with a reset before each.
+
+```bash
+node bench/brainEvals.ts run --label planning-haiku --backend harness --runs 3 --port 8797
+```
+
 ### What each score means
 
 Each run of a case ends in one outcome.
@@ -197,6 +223,7 @@ It holds the `scene_state` the app sends and the names of the tools the app offe
 A case holds an `id`, a `context`, what the learner `say`s, a `why`, and `accept`.
 `accept` lists acceptable answers, and any one passes.
 Each answer is a tool name, `"none"` for a plain spoken reply, or a list of names for tools called together.
+In a planning case (`scoreWholeCommand`) a list is an ordered sequence across all turns, and `{ calls, input }` is a sequence with input of its own.
 A case may also hold `input`, a map from a tool name to the input that tool's calls must carry, such as `{ "start_background_task": { "skill": "flashcards" } }`.
 Each listed key must equal the call's value, and `null` means the key must be absent, so `{ "skill": null }` checks that no skill was passed.
 Keys not listed are not checked, and every call of that tool must match.

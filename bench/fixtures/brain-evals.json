@@ -983,6 +983,131 @@
         "answer_with_screen"
       ],
       "why": "The open card must not capture a question about something else."
+    },
+    {
+      "id": "planning-find-seek-pop-out",
+      "context": "video",
+      "say": "go back to where he explains the swim bladder and pop it out",
+      "scoreWholeCommand": true,
+      "accept": [["find_moment", "seek_to_time", "pop_out"]],
+      "input": { "seek_to_time": { "seconds": 98 } },
+      "toolResults": {
+        "find_moment": {
+          "outcome": "lookedUp",
+          "result": [
+            { "seconds": 98, "captions": "so the swim bladder is the gas filled organ bony fish use to float" },
+            { "seconds": 301, "captions": "sharks have no swim bladder at all so they rely on their oily liver" }
+          ]
+        }
+      },
+      "why": "Three steps that depend on each other: the lookup gives the time, the seek needs it, and the pop-out must come last because it hands off and ends the command, and it lifts the frame the seek landed on."
+    },
+    {
+      "id": "planning-pause-slow-rewind",
+      "context": "video",
+      "say": "pause it, slow it down to half speed, and go back a minute",
+      "scoreWholeCommand": true,
+      "accept": [
+        ["pause_video", "set_speed", "seek_relative"],
+        ["pause_video", "seek_relative", "set_speed"],
+        ["set_speed", "pause_video", "seek_relative"],
+        ["set_speed", "seek_relative", "pause_video"],
+        ["seek_relative", "pause_video", "set_speed"],
+        ["seek_relative", "set_speed", "pause_video"]
+      ],
+      "input": { "set_speed": { "rate": 0.5 }, "seek_relative": { "seconds": -60 } },
+      "why": "Three independent actions in one reply, in any order, each with its own input. It checks that the router does all three and not only the first."
+    },
+    {
+      "id": "planning-find-then-back-up",
+      "context": "video",
+      "say": "go to where he talks about the liver and then back up ten seconds",
+      "scoreWholeCommand": true,
+      "accept": [
+        { "calls": ["find_moment", "seek_to_time", "seek_relative"], "input": { "seek_to_time": { "seconds": 305 }, "seek_relative": { "seconds": -10 } } },
+        { "calls": ["find_moment", "seek_to_time"], "input": { "seek_to_time": { "seconds": 295 } } }
+      ],
+      "toolResults": {
+        "find_moment": {
+          "outcome": "lookedUp",
+          "result": [
+            { "seconds": 305, "captions": "the shark's liver is full of oil and that oil is what keeps it up" },
+            { "seconds": 402, "captions": "that is why sharks have to keep swimming or they sink" }
+          ]
+        }
+      },
+      "why": "A seek relative to a found moment. Either two seeks (305, then back 10) or one seek to 295 is right, and the second seek must not be taken from the current time."
+    },
+    {
+      "id": "planning-find-seek-slow",
+      "context": "video",
+      "say": "go to where he explains the cartilage skeleton and watch it at half speed",
+      "scoreWholeCommand": true,
+      "accept": [
+        ["find_moment", "seek_to_time", "set_speed"],
+        ["find_moment", "set_speed", "seek_to_time"],
+        ["set_speed", "find_moment", "seek_to_time"]
+      ],
+      "input": { "seek_to_time": { "seconds": 214 }, "set_speed": { "rate": 0.5 } },
+      "toolResults": {
+        "find_moment": {
+          "outcome": "lookedUp",
+          "result": [
+            { "seconds": 214, "captions": "a shark's skeleton is cartilage which is lighter than bone" },
+            { "seconds": 17, "captions": "today we are looking at how sharks float without a swim bladder" }
+          ]
+        }
+      },
+      "why": "A lookup followed by two actions, where the speed change may come before or after the seek but the seek must wait for the lookup."
+    },
+    {
+      "id": "planning-seek-back-then-pop-out",
+      "context": "video",
+      "say": "go back thirty seconds and pop it out",
+      "scoreWholeCommand": true,
+      "accept": [["seek_relative", "pop_out"]],
+      "input": { "seek_relative": { "seconds": -30 } },
+      "why": "Order matters with no lookup. pop_out hands off and ends the command, so a seek that comes after it never runs and the pop-out lifts the wrong frame."
+    },
+    {
+      "id": "planning-find-last-mention",
+      "context": "video",
+      "say": "skip to the last time he mentions the liver",
+      "scoreWholeCommand": true,
+      "accept": [["find_moment", "seek_to_time"]],
+      "input": { "seek_to_time": { "seconds": 470 } },
+      "toolResults": {
+        "find_moment": {
+          "outcome": "lookedUp",
+          "result": [
+            { "seconds": 305, "captions": "the shark's liver is full of oil and that oil is what keeps it up" },
+            { "seconds": 470, "captions": "so the liver is the whole secret to how a shark stays level" },
+            { "seconds": 402, "captions": "a big liver can be a quarter of the shark's weight" }
+          ]
+        }
+      },
+      "why": "The seek's time comes from reading the lookup's three moments, not from taking the best match, so the router must pick the latest one."
+    },
+    {
+      "id": "planning-rotate-then-zoom-part",
+      "context": "scene3D",
+      "say": "turn it to the left and then zoom in on the spark plug",
+      "scoreWholeCommand": true,
+      "accept": [["rotate_model", "zoom_to_part"]],
+      "input": { "zoom_to_part": { "label": "spark plug" } },
+      "why": "Two camera moves in the order the learner said them, where the second needs a label from the scene state."
+    },
+    {
+      "id": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "say": "I think sixty goes farther, so set the angle to sixty and run it",
+      "scoreWholeCommand": true,
+      "accept": [
+        ["record_guess", "set_control", "run_simulation"],
+        ["set_control", "record_guess", "run_simulation"]
+      ],
+      "input": { "set_control": { "name": "angle", "value": 60 } },
+      "why": "Three steps with a fixed end: Run is locked until the guess is recorded, so run_simulation must come after record_guess, and the control must be set before the run."
     }
   ]
 }
