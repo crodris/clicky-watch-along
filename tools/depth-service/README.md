@@ -108,13 +108,13 @@ It replies `200` with:
 
 ```json
 {
-  "center": [0.0, 1.2, 3.4],
+  "center": [0.0, 0.354, 3.316],
   "right": [1.0, 0.0, 0.0],
   "up": [0.0, -0.96593, -0.25882],
   "forward": [0.0, -0.25882, 0.96593],
   "focalPx": 1500.0,
   "principal": [960.0, 540.0],
-  "distanceMeters": 3.6,
+  "distanceMeters": 3.335,
   "floorTiltDegrees": 15.0,
   "planeInlierShare": 0.97,
   "inferenceSeconds": 16.09,
