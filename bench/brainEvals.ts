@@ -226,12 +226,15 @@ export function requestBodyFor(brainCase: BrainCase, evalFile: BrainEvalFile, to
 /** The tag harness/brain.go puts around the actions of an interrupted command. brainEvals.test.ts pins it against the Go source. */
 export const interruptedBeforeTag = "interrupted_before";
 
-/** Untrusted text as one line that cannot close a tag, as `escapedLine` in harness/brain.go: "<" becomes "‹" and a line break becomes \n. */
+/**
+ * Untrusted text as one line that cannot close a tag, as `escapedLine` in harness/brain.go: "<" becomes "‹", a backslash is
+ * doubled, and every line break character (CR LF, LF, CR, vertical tab, form feed, U+0085, U+2028, U+2029) becomes \n.
+ */
 export function escapedLine(text: string): string {
-  return text.replaceAll("<", "‹").replace(lineBreakPattern, "\\n");
+  return text.replaceAll("<", "‹").replaceAll("\\", "\\\\").replace(lineBreakPattern, "\\n");
 }
 
-const lineBreakPattern = new RegExp(["\\r\\n", "[\\n\\r]", "\\u2028", "\\u2029"].join("|"), "g");
+const lineBreakPattern = new RegExp(["\\r\\n", "[\\n\\r\\v\\f\\u0085\\u2028\\u2029]"].join("|"), "g");
 
 /** What a tool that changed the screen returns, which the app writes as `VoiceToolOutcome.toolResultText`. */
 const changedToolResultText = compactJSONText({ ok: true, state: null });

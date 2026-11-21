@@ -7,6 +7,7 @@ import {
   acceptedAnswersOf,
   cacheReadShare,
   earlierActionLine,
+  escapedLine,
   harnessUserMessageText,
   interruptedBeforeTag,
   measureSession,
@@ -913,7 +914,11 @@ describe("the full-command columns", () => {
 });
 
 describe("the session fixture", () => {
-  const sessionCase = (caseId: string) => sessionFile.cases.find((brainCase) => brainCase.id === caseId) as BrainCase;
+  const sessionCase = (caseId: string): BrainCase => {
+    const foundCase = sessionFile.cases.find((brainCase) => brainCase.id === caseId);
+    assert.ok(foundCase, `the session fixture has no case ${caseId}`);
+    return foundCase;
+  };
 
   it("validates against the contexts and tools of the main fixture, with ids that do not repeat one of its cases", () => {
     validateSessionFixture(sessionFile, evalFile, toolCatalog);
@@ -987,6 +992,11 @@ describe("the harness's message and seed", () => {
     );
   });
 
+  it("escapes a line as harness/brain.go does: a backslash is doubled and every line break character becomes \\n", () => {
+    assert.equal(harnessUserMessageText("a\\nb", {}, []), "<scene_state>{}</scene_state>\n<learner_words>a\\\\nb</learner_words>", "a literal backslash and n differs from a line break");
+    assert.equal(escapedLine("a\u000bb\u000cc\u0085d\u2028e\u2029f\r\ng\nh\ri"), "a\\nb\\nc\\nd\\ne\\nf\\ng\\nh\\ni");
+  });
+
   it("uses the tags the Go session writes, so a renamed tag fails here", () => {
     const goSource = readFileSync(join(benchDirectory, "..", "harness", "brain.go"), "utf8");
 
@@ -1007,7 +1017,11 @@ describe("the harness's message and seed", () => {
     assert.equal(messages[0].content[0].text, harnessUserMessageText("turn it left", { page: "framePopout" }, []));
     assert.deepEqual(messages[1].content[0], { type: "tool_use", id: "toolu_seed_1_1", name: "rotate_model", input: { yawDegrees: -45, confirmation: "turned it" } });
     assert.deepEqual(messages[4].content.map((block) => block.id), ["toolu_seed_2_1", "toolu_seed_2_2"]);
-    assert.equal((messages[4].content[1].input as Record<string, unknown>).confirmation, "done", "a call with no confirmation gets one, as the model's calls always carry it");
+    assert.deepEqual(
+      messages[4].content[1],
+      { type: "tool_use", id: "toolu_seed_2_2", name: "zoom", input: { factor: 2, confirmation: "done" } },
+      "a call with no confirmation gets one, as the model's calls always carry it",
+    );
     assert.deepEqual(messages[5].content.map((block) => block.tool_use_id), ["toolu_seed_2_1", "toolu_seed_2_2"]);
     assert.deepEqual(messages[5].content[0].content, [{ type: "text", text: '{"ok":true,"result":[]}' }]);
     assert.deepEqual(messages[5].content[1].content, [{ type: "text", text: '{"ok":true,"state":null}' }], "the default result is what a tool that changed the screen returns");
@@ -1020,13 +1034,15 @@ describe("the harness's message and seed", () => {
 
     assert.deepEqual(plain, [{ type: "reset_session" }]);
     assert.deepEqual(seeded.map((line) => line.type), ["reset_session", "seed_session"]);
-    assert.equal((seeded[1].messages as unknown[]).length, 3);
+    assert.ok(Array.isArray(seeded[1].messages));
+    assert.equal(seeded[1].messages.length, 3);
     assert.deepEqual(seeded[1].interruptedBefore, []);
     assert.deepEqual(interrupted[1], { type: "seed_session", messages: [], interruptedBefore: ["zoom {} -> ok"] });
   });
 
   it("runs a case's own command in its context's scene with the keys the earlier commands changed", () => {
-    const undoCase = sessionFile.cases.find((brainCase) => brainCase.id === "session-undo-first-turn") as BrainCase;
+    const undoCase = sessionFile.cases.find((brainCase) => brainCase.id === "session-undo-first-turn");
+    assert.ok(undoCase, "the session fixture has no undo case");
     const voiceCommand = voiceCommandMessageFor(undoCase, evalFile, toolCatalog, "cmd-1");
 
     assert.deepEqual(voiceCommand.sceneState, { ...evalFile.contexts.scene3D.sceneState, yawDegrees: -45, pitchDegrees: 30 });

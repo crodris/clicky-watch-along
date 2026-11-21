@@ -32,6 +32,13 @@ const (
 	// it rewrites the start of the history and so throws away a warm cache.
 	mostCommandsBeforeAFold = 24
 
+	// mostFoldedCommandsKept is how many folded commands the fold block lists, newest first to stay. The block sits at the
+	// start of every request, and a cold cache is normal while a learner watches a video, so each command after a pause
+	// pays full price for the whole block. Without a cap it grows with every command, and after a few thousand commands
+	// the request passes the context window and every later command fails until the harness restarts. At about 200
+	// characters a command, 40 commands are about 2,000 tokens.
+	mostFoldedCommandsKept = 40
+
 	handedOffResultText = "Handed off: the app took this request over and answers it itself."
 	notRunResultText    = "Not run: the request was handed off"
 )
@@ -53,9 +60,11 @@ type sessionCommand struct {
 type brainSession struct {
 	mutex sync.Mutex
 	now   func() time.Time
-	// foldedCommands are the commands a fold turned into text, oldest first.
+	// foldedCommands are the newest commands a fold turned into text, oldest first, at most mostFoldedCommandsKept.
 	foldedCommands []sessionCommand
-	commands       []sessionCommand
+	// droppedFoldedCommands counts the older folded commands the cap pushed out, which the fold block says in one line.
+	droppedFoldedCommands int
+	commands              []sessionCommand
 	// interruptedActionLines are the lines of calls that finished in cancelled commands since the last command that
 	// stayed. The next command's user message tells the model about them.
 	interruptedActionLines []string
@@ -73,6 +82,7 @@ func (session *brainSession) reset() {
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 	session.foldedCommands = nil
+	session.droppedFoldedCommands = 0
 	session.commands = nil
 	session.interruptedActionLines = nil
 	session.lastRequestAt = time.Time{}
@@ -89,6 +99,7 @@ func (session *brainSession) seed(messages []anthropic.MessageParam, interrupted
 	session.mutex.Lock()
 	defer session.mutex.Unlock()
 	session.foldedCommands = nil
+	session.droppedFoldedCommands = 0
 	session.commands = commands
 	session.interruptedActionLines = slices.Clone(interruptedActionLines)
 	session.lastRequestAt = session.now()
@@ -139,7 +150,7 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 		history = append(history, command.messages...)
 	}
 	if len(session.foldedCommands) > 0 && len(history) > 0 {
-		history[0] = withTextBlockFirst(history[0], foldBlockText(session.foldedCommands))
+		history[0] = withTextBlockFirst(history[0], foldBlockText(session.foldedCommands, session.droppedFoldedCommands))
 	}
 	var breakpoint *cachePosition
 	if len(history) > 0 {
@@ -159,7 +170,8 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 	}
 }
 
-// foldAllButTheNewestCommands turns every command but the newest few into text. The caller holds the mutex.
+// foldAllButTheNewestCommands turns every command but the newest few into text, and drops the oldest folded commands
+// past mostFoldedCommandsKept. The caller holds the mutex.
 func (session *brainSession) foldAllButTheNewestCommands() {
 	foldedCount := len(session.commands) - commandsKeptWholeInAFold
 	for _, command := range session.commands[:foldedCount] {
@@ -167,15 +179,23 @@ func (session *brainSession) foldAllButTheNewestCommands() {
 		session.foldedCommands = append(session.foldedCommands, command)
 	}
 	session.commands = slices.Clone(session.commands[foldedCount:])
+	if overflow := len(session.foldedCommands) - mostFoldedCommandsKept; overflow > 0 {
+		session.droppedFoldedCommands += overflow
+		session.foldedCommands = slices.Clone(session.foldedCommands[overflow:])
+	}
 }
 
 // foldBlockText is the one text block that stands for every folded command: per command, what the learner said and what
 // it did, with the scene states and tool results left out. Every piece is escaped as one line, since an action line can
 // hold a tool's error text or the model's own input, which repeat page text, and nothing in it may close the
-// earlier_commands tag or start a line that reads as the learner's words.
-func foldBlockText(foldedCommands []sessionCommand) string {
+// earlier_commands tag or start a line that reads as the learner's words. When the cap dropped older commands, the
+// first line says how many, so the model knows the list starts partway through the session.
+func foldBlockText(foldedCommands []sessionCommand, droppedCommandCount int) string {
 	var block strings.Builder
 	block.WriteString("<" + earlierCommandsTag + ">")
+	if droppedCommandCount > 0 {
+		fmt.Fprintf(&block, "\n%d older commands are not listed", droppedCommandCount)
+	}
 	for _, command := range foldedCommands {
 		block.WriteString("\n")
 		if len(command.interruptedBefore) > 0 {
@@ -288,7 +308,9 @@ func (run *sessionRun) abandon() {
 	run.session.interruptedActionLines = append(slices.Clone(run.interruptedBefore), run.actionLines...)
 }
 
-// withToolResultsCut is the messages with every tool result's text cut to mostToolResultCharacters.
+// withToolResultsCut is the messages with every tool result's text cut to mostToolResultCharacters. The limit is shared by
+// a result's text items. The API refuses an empty text block, and one refusal would fail every later command, so an
+// item with no text left is dropped, and an item that lost all of its budget keeps only the cut marker.
 func withToolResultsCut(messages []anthropic.MessageParam) []anthropic.MessageParam {
 	cut := make([]anthropic.MessageParam, len(messages))
 	for messageIndex, message := range messages {
@@ -298,15 +320,19 @@ func withToolResultsCut(messages []anthropic.MessageParam) []anthropic.MessagePa
 				continue
 			}
 			copied := *block.OfToolResult
-			copied.Content = slices.Clone(copied.Content)
+			copied.Content = nil
 			charactersLeft := mostToolResultCharacters
-			for itemIndex, item := range copied.Content {
+			for _, item := range block.OfToolResult.Content {
 				if item.OfText == nil {
+					copied.Content = append(copied.Content, item)
 					continue
 				}
 				copiedItem := *item.OfText
 				copiedItem.Text, charactersLeft = textCutTo(copiedItem.Text, charactersLeft)
-				copied.Content[itemIndex] = anthropic.ToolResultBlockParamContentUnion{OfText: &copiedItem}
+				if copiedItem.Text == "" {
+					continue
+				}
+				copied.Content = append(copied.Content, anthropic.ToolResultBlockParamContentUnion{OfText: &copiedItem})
 			}
 			content[blockIndex] = anthropic.ContentBlockParamUnion{OfToolResult: &copied}
 		}
@@ -319,14 +345,15 @@ func withToolResultsCut(messages []anthropic.MessageParam) []anthropic.MessagePa
 const cutMarker = "...[cut]"
 
 // textCutTo is the text shortened to at most limit characters, ending in a marker when it was cut, and how many
-// characters are left for the next piece.
+// characters are left for the next piece. Text cut when the budget is nearly gone becomes the marker alone, which can
+// pass the limit by a few characters, so the text is never empty unless it was empty to begin with.
 func textCutTo(text string, limit int) (string, int) {
 	characterCount := utf8.RuneCountInString(text)
 	if characterCount <= limit {
 		return text, limit - characterCount
 	}
 	if limit <= len(cutMarker) {
-		return string([]rune(cutMarker)[:max(limit, 0)]), 0
+		return cutMarker, 0
 	}
 	return string([]rune(text)[:limit-len(cutMarker)]) + cutMarker, 0
 }
@@ -367,6 +394,25 @@ func commandsOfSeededMessages(messages []anthropic.MessageParam) ([]sessionComma
 			return nil, errors.New("the first seeded message must be a user message with the learner's words")
 		}
 		commands[len(commands)-1].messages = append(commands[len(commands)-1].messages, message)
+	}
+	for messageIndex, message := range messages {
+		if len(message.Content) == 0 {
+			return nil, fmt.Errorf("seeded message %d is empty, which the API refuses", messageIndex)
+		}
+		if message.Role != anthropic.MessageParamRoleAssistant {
+			continue
+		}
+		for _, block := range message.Content {
+			if block.OfToolUse == nil {
+				continue
+			}
+			if messageIndex+1 >= len(messages) {
+				return nil, fmt.Errorf("seeded tool_use %s has no tool_result after it", block.OfToolUse.ID)
+			}
+			if _, _, found := toolResultOf(messages[messageIndex+1], block.OfToolUse.ID); !found {
+				return nil, fmt.Errorf("seeded tool_use %s has no tool_result in the next message", block.OfToolUse.ID)
+			}
+		}
 	}
 	for commandIndex := range commands {
 		commands[commandIndex].transcript = learnerWordsOf(commands[commandIndex].messages[0])

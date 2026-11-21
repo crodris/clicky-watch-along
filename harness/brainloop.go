@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -145,15 +146,14 @@ func (brain *brainRunner) runToolCalls(
 		brain.send(commandContext, newVoiceToolCallMessage(commandID, call.ID, call.Name, inputWithoutConfirmation(call.Input), turnIndex))
 		result, err := waitForTheVoiceToolResult(commandContext, command, call.ID)
 		if err != nil {
+			// A result the app sent before its cancel_task is a call that finished, and it changed the screen, so its
+			// action line still reaches the next command through the rollback.
+			if result.ToolUseID == call.ID {
+				run.actionLines = append(run.actionLines, voiceToolActionLine(call, knownOutcomeOf(result), voiceToolResultText(result)))
+			}
 			return nil, nil, err
 		}
-		outcome := result.Outcome
-		if !outcome.isKnown() {
-			// The app sends an outcome with every voice tool result, so one without it is a newer or broken app. The
-			// model reads it as a failure, which ends the command with a spoken sentence instead of a wait.
-			fmt.Fprintf(os.Stderr, "harness: the tool result for %s had no outcome, so it counts as failed\n", call.ID)
-			outcome = voiceToolFailed
-		}
+		outcome := knownOutcomeOf(result)
 		outcomes = append(outcomes, outcome)
 		resultText := voiceToolResultText(result)
 		run.actionLines = append(run.actionLines, voiceToolActionLine(call, outcome, resultText))
@@ -162,9 +162,39 @@ func (brain *brainRunner) runToolCalls(
 			toolResultBlocks = append(toolResultBlocks, anthropic.NewToolResultBlock(call.ID, handedOffResultText, false))
 			continue
 		}
-		toolResultBlocks = append(toolResultBlocks, toolResultBlock(result))
+		toolResultBlocks = append(toolResultBlocks, tagSafeToolResult(toolResultBlock(result)))
 	}
 	return outcomes, toolResultBlocks, nil
+}
+
+// knownOutcomeOf is a result's outcome. The app sends one with every voice tool result, so a result without it is a newer
+// or broken app. The model reads it as a failure, which ends the command with a spoken sentence instead of a wait.
+func knownOutcomeOf(result toolResultMessage) voiceToolOutcome {
+	if !result.Outcome.isKnown() {
+		fmt.Fprintf(os.Stderr, "harness: the tool result for %s had no outcome, so it counts as failed\n", result.ToolUseID)
+		return voiceToolFailed
+	}
+	return result.Outcome
+}
+
+// tagSafeToolResult is a tool result with every "<" in its text written as "‹", so a caption or page text in a result
+// cannot hold a learner_words tag of its own once the session keeps it. Line breaks stay, since a result is a block of
+// text and not one line. The block it came from is not changed.
+func tagSafeToolResult(block anthropic.ContentBlockParamUnion) anthropic.ContentBlockParamUnion {
+	if block.OfToolResult == nil {
+		return block
+	}
+	copied := *block.OfToolResult
+	copied.Content = make([]anthropic.ToolResultBlockParamContentUnion, len(block.OfToolResult.Content))
+	for itemIndex, item := range block.OfToolResult.Content {
+		if item.OfText != nil {
+			copiedItem := *item.OfText
+			copiedItem.Text = strings.ReplaceAll(copiedItem.Text, "<", tagSafeLessThanSymbol)
+			item = anthropic.ToolResultBlockParamContentUnion{OfText: &copiedItem}
+		}
+		copied.Content[itemIndex] = item
+	}
+	return anthropic.ContentBlockParamUnion{OfToolResult: &copied}
 }
 
 // voiceToolResultText is the text of a voice tool's result, which the app sends as a string. Anything else reads as empty.
@@ -176,12 +206,24 @@ func voiceToolResultText(result toolResultMessage) string {
 	return text
 }
 
-// waitForTheVoiceToolResult waits for the app's answer to one call. A result for another call is dropped.
+// waitForTheVoiceToolResult waits for the app's answer to one call. A result for another call is dropped. When the command
+// is cancelled it also returns the call's result when the app sent one first: the app writes a finished call's result
+// before its cancel_task, so the result is already queued by the time the context is done, and a select that saw both
+// ready would otherwise pick one at random.
 func waitForTheVoiceToolResult(commandContext context.Context, command *runningTask, toolUseID string) (toolResultMessage, error) {
 	for {
 		select {
 		case <-commandContext.Done():
-			return toolResultMessage{}, commandContext.Err()
+			for {
+				select {
+				case result := <-command.toolResults:
+					if result.ToolUseID == toolUseID {
+						return result, commandContext.Err()
+					}
+				default:
+					return toolResultMessage{}, commandContext.Err()
+				}
+			}
 		case result := <-command.toolResults:
 			if result.ToolUseID != toolUseID {
 				fmt.Fprintf(os.Stderr, "harness: dropped a tool result for %s, which the command is not waiting on\n", result.ToolUseID)

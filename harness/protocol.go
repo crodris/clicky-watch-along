@@ -70,9 +70,8 @@ func (outcome voiceToolOutcome) isKnown() bool {
 }
 
 // voiceCommandMessage starts one voice command on the brain. SceneState is the JSON object the app builds of what is
-// on screen, and Tools are the tools this command may call, already filtered by the app. An older app also sends
-// recentActions, the lines of its last few tool calls, which the brain ignores, since its session holds every earlier
-// command.
+// on screen, and Tools are the tools this command may call, already filtered by the app. The message has no
+// recentActions, since the brain's session holds every earlier command, and a line that carries one is read with it left out.
 type voiceCommandMessage struct {
 	TaskID     string           `json:"taskID"`
 	Transcript string           `json:"transcript"`

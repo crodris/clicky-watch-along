@@ -647,3 +647,119 @@ func TestTheBenchSwitchComesOnlyFromTheEnvironmentValueOne(t *testing.T) {
 		}
 	}
 }
+
+// ---- The fold has a cap ----
+
+func TestTheFoldBlockListsOnlyTheNewestFortyFoldedCommandsAndSaysHowManyOlderOnesWereDropped(t *testing.T) {
+	session, clock := newTestSession()
+	commitCommands(session, 100)
+	clock.current = clock.current.Add(cacheLifetime)
+
+	foldBlock := session.begin("next", json.RawMessage(`{}`)).requestMessages()[0].Content[0].OfText.Text
+
+	// 100 commands leave 6 whole and 94 folded, and the cap keeps commands 55 to 94.
+	if got := countOf(foldBlock, "<learner_words>"); got != mostFoldedCommandsKept {
+		t.Errorf("the fold block lists %d commands, want %d", got, mostFoldedCommandsKept)
+	}
+	if !strings.Contains(foldBlock, "<learner_words>command 94</learner_words>") || !strings.Contains(foldBlock, "<learner_words>command 55</learner_words>") {
+		t.Errorf("the fold block lacks the newest folded commands: %s", foldBlock)
+	}
+	if strings.Contains(foldBlock, "<learner_words>command 54</learner_words>") || strings.Contains(foldBlock, "<learner_words>command 1</learner_words>") {
+		t.Errorf("the fold block still lists a command past the cap: %s", foldBlock)
+	}
+	if !strings.Contains(foldBlock, "\n54 older commands are not listed") {
+		t.Errorf("the fold block does not say how many commands the cap dropped: %s", foldBlock)
+	}
+	if strings.Count(foldBlock, "older commands are not listed") != 1 {
+		t.Errorf("the fold block says it more than once: %s", foldBlock)
+	}
+}
+
+func TestALaterFoldKeepsTheCapAndAddsToTheDroppedCount(t *testing.T) {
+	session, clock := newTestSession()
+	commitCommands(session, 100)
+	clock.current = clock.current.Add(cacheLifetime)
+	session.begin("first fold", json.RawMessage(`{}`))
+	if len(session.foldedCommands) != mostFoldedCommandsKept || session.droppedFoldedCommands != 54 {
+		t.Fatalf("after the first fold the session lists %d and dropped %d, want %d and 54", len(session.foldedCommands), session.droppedFoldedCommands, mostFoldedCommandsKept)
+	}
+	commitCommands(session, 19)
+	session.begin("second fold", json.RawMessage(`{}`))
+	if len(session.foldedCommands) != mostFoldedCommandsKept || session.droppedFoldedCommands != 54+19 {
+		t.Errorf("after the second fold the session lists %d and dropped %d, want %d and 73", len(session.foldedCommands), session.droppedFoldedCommands, mostFoldedCommandsKept)
+	}
+	session.reset()
+	if session.droppedFoldedCommands != 0 {
+		t.Errorf("a reset left a dropped count of %d", session.droppedFoldedCommands)
+	}
+}
+
+func TestAFoldBelowTheCapSaysNothingAboutDroppedCommands(t *testing.T) {
+	session, clock := newTestSession()
+	commitCommands(session, 10)
+	clock.current = clock.current.Add(cacheLifetime)
+
+	foldBlock := session.begin("next", json.RawMessage(`{}`)).requestMessages()[0].Content[0].OfText.Text
+
+	if strings.Contains(foldBlock, "not listed") {
+		t.Errorf("the fold block names dropped commands when none were dropped: %s", foldBlock)
+	}
+}
+
+// ---- A cut tool result never holds an empty text block ----
+
+func TestACutToolResultNeverHoldsAnEmptyTextBlockAndKeepsAMarkerWhereTheBudgetRanOut(t *testing.T) {
+	resultItem := func(text string) anthropic.ToolResultBlockParamContentUnion {
+		return anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{Text: text}}
+	}
+	message := anthropic.NewUserMessage(anthropic.ContentBlockParamUnion{OfToolResult: &anthropic.ToolResultBlockParam{
+		ToolUseID: "toolu_find",
+		Content:   []anthropic.ToolResultBlockParamContentUnion{resultItem(strings.Repeat("a", mostToolResultCharacters)), resultItem("a second item"), resultItem("")},
+	}})
+
+	items := withToolResultsCut([]anthropic.MessageParam{message})[0].Content[0].OfToolResult.Content
+
+	for itemIndex, item := range items {
+		if item.OfText != nil && item.OfText.Text == "" {
+			t.Errorf("item %d is an empty text block, which the API refuses", itemIndex)
+		}
+	}
+	if len(items) != 2 || items[1].OfText.Text != cutMarker {
+		t.Errorf("the second item should be the cut marker and the empty third item should be dropped, got %d items: %v", len(items), items)
+	}
+	if got := len(message.Content[0].OfToolResult.Content); got != 3 {
+		t.Errorf("the cut changed the session's own message, which now holds %d items", got)
+	}
+}
+
+// ---- A bad seed is refused ----
+
+func TestASeedWithAToolUseThatHasNoResultOrAnEmptyMessageIsRefused(t *testing.T) {
+	learnerMessage := anthropic.NewUserMessage(anthropic.NewTextBlock("turn it left"))
+	toolUseMessage := anthropic.NewAssistantMessage(anthropic.NewToolUseBlock("toolu_left", map[string]any{"yawDegrees": -45}, "rotate_model"))
+	tests := []struct {
+		name     string
+		messages []anthropic.MessageParam
+	}{
+		{"a tool_use at the end", []anthropic.MessageParam{learnerMessage, toolUseMessage}},
+		{"a tool_use answered by another id", []anthropic.MessageParam{learnerMessage, toolUseMessage, anthropic.NewUserMessage(anthropic.NewToolResultBlock("toolu_other", "ok", false))}},
+		{"an empty message", []anthropic.MessageParam{learnerMessage, {Role: anthropic.MessageParamRoleAssistant}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			session, _ := newTestSession()
+			commitCommands(session, 2)
+			if err := session.seed(test.messages, nil); err == nil {
+				t.Error("the bad seed was accepted")
+			}
+			if len(session.commands) != 2 {
+				t.Errorf("a refused seed changed the session, which now holds %d commands", len(session.commands))
+			}
+		})
+	}
+	session, _ := newTestSession()
+	answered := []anthropic.MessageParam{learnerMessage, toolUseMessage, anthropic.NewUserMessage(anthropic.NewToolResultBlock("toolu_left", "ok", false))}
+	if err := session.seed(answered, nil); err != nil {
+		t.Errorf("a whole seed was refused: %v", err)
+	}
+}
