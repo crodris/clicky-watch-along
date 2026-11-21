@@ -7,13 +7,13 @@
 //
 // Results go to bench/results/<label>-<side>-task-agent-<sha>.json, and every full answer to --out-dir.
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnHarness, readJSONLines, type HarnessCommand } from "./harnessProcess.ts";
 import { parseDevVars } from "./judgeModels.ts";
-import { costOfUsageLine, isRecord, type UsageLine } from "./usage.ts";
+import { costOfUsageLine, type UsageLine } from "./usage.ts";
 
 const benchDirectory = dirname(fileURLToPath(import.meta.url));
 const checkoutRoot = dirname(benchDirectory);
@@ -167,8 +167,6 @@ export function parseSideSpec(sideSpec: string): TaskSide {
   return { name, port, model };
 }
 
-type HarnessCommand = { command: string; args: string[] };
-
 const taskTimeoutMs = 10 * 60 * 1000;
 
 /** Runs one task on a fresh harness process and records how it ended. Never rejects: any failure is an outcome. */
@@ -180,16 +178,11 @@ export function driveTask(
   runIndex: number,
 ): Promise<TaskRun> {
   return new Promise((resolve) => {
-    // A minimal environment, as the app gives the harness: none of this machine's Anthropic credentials reach the Worker.
-    const harnessProcess = spawn(harness.command, harness.args, {
-      env: { CLICKY_WORKER_BASE_URL: `http://127.0.0.1:${side.port}`, CLICKY_APP_SECRET: appSecret, PATH: "/usr/bin:/bin" },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const { harnessProcess, stderrTail } = spawnHarness(harness, side.port, appSecret);
     const taskID = `bench-${side.name}-${task.id}-${runIndex}`;
     const turns: TaskTurn[] = [];
     const toolCalls: TaskRun["toolCalls"] = [];
     const logLines: string[] = [];
-    let stderrText = "";
     // Reset when the harness says ready, so a harness that dies first still reports a sane time.
     let startedAt = performance.now();
     let firstOutputMs: number | null = null;
@@ -232,24 +225,14 @@ export function driveTask(
     };
     const timeoutHandle = setTimeout(() => finish("failed", `the driver gave up after ${taskTimeoutMs / 1000} s`), taskTimeoutMs);
 
-    harnessProcess.stderr.on("data", (chunk: Buffer) => {
-      stderrText = (stderrText + chunk.toString()).slice(-500);
-    });
     harnessProcess.on("error", (error) => finish("failed", `the harness did not start: ${error.message}`));
     // "close", not "exit", so the stderr tail is read before the failure is recorded.
     harnessProcess.on("close", (exitCode) =>
-      finish("failed", `the harness exited with code ${exitCode} before the task ended. stderr tail: ${stderrText.split(appSecret).join("[secret]")}`),
+      finish("failed", `the harness exited with code ${exitCode} before the task ended. stderr tail: ${stderrTail()}`),
     );
 
-    createInterface({ input: harnessProcess.stdout }).on("line", (line) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        finish("failed", `the harness wrote a line that is not JSON: ${line.slice(0, 200)}`);
-        return;
-      }
-      if (!isRecord(message) || typeof message.type !== "string") {
+    readJSONLines(harnessProcess.stdout, (message) => {
+      if (typeof message.type !== "string") {
         return;
       }
       if (message.type !== "ready" && firstOutputMs === null && (message.type === "tool_call" || message.type === "log")) {
@@ -283,7 +266,7 @@ export function driveTask(
           finish("failed", String(message.reason));
           break;
       }
-    });
+    }, (line) => finish("failed", `the harness wrote a line that is not JSON: ${line.slice(0, 200)}`));
   });
 }
 

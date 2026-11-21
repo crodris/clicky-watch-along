@@ -73,10 +73,12 @@ CI runs it on every committed result, so a result file that no longer parses fai
 
 ## Brain evals
 
-`brainEvals.ts` measures whether the Haiku voice command router behind `POST /voice-command` picks the right tool for what a learner says.
-It sends each case's words, screen state, and offered tools to a Worker and scores the tool calls in the reply.
-Run it after any change to the router's model, its system prompt in `worker/src/voiceCommand.ts`, or a tool description, and compare the result with the committed baseline.
-The 60 cases at one run cost about one cent, and three runs of each cost about two cents.
+`brainEvals.ts` measures whether the voice command router picks the right tool for what a learner says.
+The router runs in two places: the Worker's `POST /voice-command` (the old path) and the Go harness's brain (`harness/brain.go`, the new path).
+It sends each case's words, screen state, and offered tools to the backend you pick and scores the tool calls of the first turn.
+Run it after any change to the router's model, its system prompt (`worker/src/voiceCommand.ts` and its copy in `harness/brain.go`), or a tool description, and compare the result with the committed baseline.
+On the `worker` backend the 60 cases at one run cost about one cent, and three runs of each cost about two cents.
+The `harness` backend also runs the second turn of a lookup, so its full-command cost is higher (see the committed parity run).
 
 ```bash
 V=.claude/skills/verify-clicky/verify-clicky.sh
@@ -108,6 +110,13 @@ A case may script a tool's answer with `toolResults`, a map from a tool name to 
 `video-find-moment` scripts two caption lines for `find_moment`, and a lookup with no script gets an empty result.
 
 Both backends score the tool calls of the first turn, which is all the Worker backend returns.
+The Worker backend scores every `tool_use` block of the reply.
+The harness backend would see fewer calls if it read only the `tool_call` lines, because the harness sends none after a hand-off and none to a tool the command was not offered.
+So the harness's `Brain: turn` line ends with `calls <names>`, the names of every tool the turn called in order, or `calls none`, and the bench scores the first turn from those names.
+A call with a `tool_call` line keeps its input.
+A name with no `tool_call` line is scored as a call with no known input, so `[design_theme, pick_theme_idea]` is a wrong tool on both backends, and a hidden call fails a case that checks that tool's `input`.
+The line holds names only, since a call's input can hold the learner's words.
+A harness that writes the older line with no `calls` field reads as a command with no turns, which the bench records as an error.
 The harness backend adds a second set of numbers for the whole command:
 
 - `p50` and `p95` are the time from the `voice_command` line to the first `tool_call` line.
@@ -126,6 +135,8 @@ It then checks the parity gate for the harness brain:
 
 The full-command cost is printed beside the first-turn cost and is not gated.
 A run that spends cache writes unevenly can shift cost between the two backends, so read the gate over 3 runs, not 1.
+The command exits with a nonzero code when the gate fails, after it saves the result file.
+A command the driver gives up on after 30 seconds gets a `cancel_task`, as a push-to-talk press sends one, and the driver waits for the harness to acknowledge it before the next command, so a late turn of the abandoned command never counts as the next command's.
 
 ```bash
 node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797
