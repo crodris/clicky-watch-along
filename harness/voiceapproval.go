@@ -72,13 +72,18 @@ func approvalTranscriptWords(transcript string) []string {
 }
 
 // approvalVoiceAnswerTheLearnerSaid is the model's answer when the learner's own words support it, or false when they do
-// not. A yes counts only when the whole transcript is a short answer: it says yes, holds no word of no, and has no word
-// outside the answer's vocabulary, so "okay, what is this video about" is not a yes. An "always" counts only when the
-// learner said always. A no needs no check, since declining is always safe. The answer is refused rather than changed,
-// so the chip, which reads the answer the harness settles, never names one the learner did not give.
-func approvalVoiceAnswerTheLearnerSaid(modelAnswer approvalVoiceAnswer, transcript string) (approvalVoiceAnswer, bool) {
+// not. A yes counts only for a request whose whole summary a card had shown for a second at the press
+// (requestWasSeenAtPress), and only when the whole transcript is a short answer: it says yes, holds no word of no, and
+// has no word outside the answer's vocabulary, so "okay, what is this video about" is not a yes. An "always" counts only
+// when the learner said always. A no needs neither check, since declining is always safe and a wrong no costs only a
+// retry. The answer is refused rather than changed, so the chip, which reads the answer the harness settles, never names
+// one the learner did not give.
+func approvalVoiceAnswerTheLearnerSaid(modelAnswer approvalVoiceAnswer, transcript string, requestWasSeenAtPress bool) (approvalVoiceAnswer, bool) {
 	if !modelAnswer.approved {
 		return modelAnswer, true
+	}
+	if !requestWasSeenAtPress {
+		return approvalVoiceAnswer{}, false
 	}
 	transcriptWords := approvalTranscriptWords(transcript)
 	spacedTranscript := " " + strings.Join(transcriptWords, " ") + " "
@@ -106,27 +111,35 @@ func approvalVoiceAnswerTheLearnerSaid(modelAnswer approvalVoiceAnswer, transcri
 	return modelAnswer, true
 }
 
-// approvalOffer is what a command may do about approvals, decided when it begins from the request the app says the
-// learner had seen at the press and the gate's own record of it. The zero value means no request can be answered.
+// approvalOffer is what a command may do about approvals, decided when it begins from the requests the app says waited
+// and were seen at the press and the gate's own record of them. The zero value means no request can be answered.
 type approvalOffer struct {
 	approvalID string
 	// capabilityWord is the kind of action the request asks for ("sends", "deletes", "spends", or "reads_private"), the
 	// only thing about it the model reads. The summary can hold text a web page or an MCP server wrote, so it never
 	// reaches the model.
 	capabilityWord string
+	// yesMayCount is true when a card had shown the request's whole summary for a second at the press. Without it only a
+	// no can answer the request.
+	yesMayCount bool
 }
 
-// answerableApproval is the request a voice yes or no may answer: the one the learner had seen at the press, and only
+// answerableApproval is the request a voice yes or no may answer: the one the app's card showed at the press, and only
 // while the gate still holds it as waiting. A request that was answered, abandoned, or never existed is not answerable.
-func (gate *approvalGate) answerableApproval(approvalIDSeenAtPress *string) approvalOffer {
-	if approvalIDSeenAtPress == nil {
+// A yes may count only when the app also says that request was seen whole at the press.
+func (gate *approvalGate) answerableApproval(approvalIDWaitingAtPress *string, approvalIDSeenAtPress *string) approvalOffer {
+	if approvalIDWaitingAtPress == nil {
 		return approvalOffer{}
 	}
-	needed, isWaiting := gate.waitingCapability(*approvalIDSeenAtPress)
+	needed, isWaiting := gate.waitingCapability(*approvalIDWaitingAtPress)
 	if !isWaiting {
 		return approvalOffer{}
 	}
-	return approvalOffer{approvalID: *approvalIDSeenAtPress, capabilityWord: string(needed)}
+	return approvalOffer{
+		approvalID:     *approvalIDWaitingAtPress,
+		capabilityWord: string(needed),
+		yesMayCount:    approvalIDSeenAtPress != nil && *approvalIDSeenAtPress == *approvalIDWaitingAtPress,
+	}
 }
 
 // canBeAnswered says whether a command may offer and run answer_approval.
@@ -134,9 +147,9 @@ func (offer approvalOffer) canBeAnswered() bool {
 	return offer.approvalID != ""
 }
 
-// offersForACommand is the app's tool list with answer_approval left out unless the gate holds the request the learner
-// had seen. This is the offer rule: the app lists the tool while its own desk shows a request, and the harness lists it
-// only while its gate agrees, so a request that was answered by a click in the meantime is never offered.
+// offersForACommand is the app's tool list with answer_approval left out unless the gate holds the request the app's card
+// showed at the press. This is the offer rule: the app lists the tool while its own desk shows a request, and the harness
+// lists it only while its gate agrees, so a request that was answered by a click in the meantime is never offered.
 func offersForACommand(appOffers []voiceToolOffer, offer approvalOffer) []voiceToolOffer {
 	if offer.canBeAnswered() {
 		return appOffers
@@ -196,7 +209,8 @@ func sceneStateForACommand(appSceneState json.RawMessage, offer approvalOffer) j
 // answerTheApproval runs the model's answer_approval call without asking the app, since only the harness knows whether the
 // request still waits and the answer goes to the gate. It returns the call's outcome and the result text the model reads.
 // It answers only in the command's first reply, since a later turn has read tool results, which can hold text a page or a
-// server wrote. It then needs the learner's own words to support the answer (approvalVoiceAnswerTheLearnerSaid), and the
+// server wrote. A yes needs the request to have been seen whole at the press, while a no does not. It then needs the
+// learner's own words to support the answer (approvalVoiceAnswerTheLearnerSaid), and the
 // gate to take it before any click did. A settled request is announced to the app with approval_settled, even when the
 // command was cancelled meanwhile, since the gate already took the answer and the app's card must go.
 func (brain *brainRunner) answerTheApproval(call toolCall, offer approvalOffer, turnIndex int, transcript string) (voiceToolOutcome, string) {
@@ -211,7 +225,10 @@ func (brain *brainRunner) answerTheApproval(call toolCall, offer approvalOffer, 
 	if !inputIsValid {
 		return voiceToolFailed, voiceToolFailureText("answer_approval needs approved set to true or false")
 	}
-	learnerAnswer, learnerSaidIt := approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript)
+	if modelAnswer.approved && !offer.yesMayCount {
+		return voiceToolFailed, voiceToolFailureText("the learner has not read the whole request on the card yet, so only a no counts. Tell them to read it there first")
+	}
+	learnerAnswer, learnerSaidIt := approvalVoiceAnswerTheLearnerSaid(modelAnswer, transcript, offer.yesMayCount)
 	if !learnerSaidIt {
 		return voiceToolFailed, voiceToolFailureText("the learner's words are not a short answer to the request, so it stays waiting")
 	}

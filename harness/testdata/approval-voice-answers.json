@@ -1,5 +1,5 @@
 {
-  "description": "What a voice answer to an approval request is worth. Each case gives the learner's transcript and the model's answer_approval input, and says what the check keeps: null when the learner's own words do not support the answer, or the answer. harness/voiceapproval_test.go and leanring-buddyTests/VoiceApprovalTests.swift both read this file, so the Go check and the Swift check (leanring-buddy/VoiceApprovals.swift) cannot differ while both exist. Delete it with the Swift copy.",
+  "description": "What a voice answer to an approval request is worth. Each case gives the learner's transcript, the model's answer_approval input, and seenAtPress, false when no card had shown the request's whole summary for a second at the press and true when the case leaves it out, and says what the check keeps: null when the learner's own words do not support the answer, or the answer. harness/voiceapproval_test.go and leanring-buddyTests/VoiceApprovalTests.swift both read this file, so the Go check and the Swift check (leanring-buddy/VoiceApprovals.swift) cannot differ while both exist. Delete it with the Swift copy.",
   "cases": [
     { "name": "a bare yes allows once", "transcript": "yes", "modelInput": { "approved": true, "always": false }, "expected": { "approved": true, "scope": "once" } },
     { "name": "an upper case yes allows once", "transcript": "YES", "modelInput": { "approved": true }, "expected": { "approved": true, "scope": "once" } },
@@ -27,6 +27,11 @@
     { "name": "a no with always set stays a plain no", "transcript": "no", "modelInput": { "approved": false, "always": true }, "expected": { "approved": false, "scope": "once" } },
     { "name": "a no needs no check against the words, since declining is always safe", "transcript": "pause the video", "modelInput": { "approved": false }, "expected": { "approved": false, "scope": "once" } },
     { "name": "a call with no approved field answers nothing", "transcript": "yes", "modelInput": { "always": false }, "expected": null },
-    { "name": "an approved that is not a boolean answers nothing", "transcript": "yes", "modelInput": { "approved": "true" }, "expected": null }
+    { "name": "an approved that is not a boolean answers nothing", "transcript": "yes", "modelInput": { "approved": "true" }, "expected": null },
+    { "name": "a yes before the summary was read is refused", "transcript": "yes", "modelInput": { "approved": true, "always": false }, "seenAtPress": false, "expected": null },
+    { "name": "an always before the summary was read is refused", "transcript": "always allow it", "modelInput": { "approved": true, "always": true }, "seenAtPress": false, "expected": null },
+    { "name": "a no before the summary was read declines at once", "transcript": "no", "modelInput": { "approved": false, "always": false }, "seenAtPress": false, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a no with always set before reading stays a plain no", "transcript": "no, never", "modelInput": { "approved": false, "always": true }, "seenAtPress": false, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a seen request still takes a yes", "transcript": "yes", "modelInput": { "approved": true, "always": false }, "seenAtPress": true, "expected": { "approved": true, "scope": "once" } }
   ]
 }

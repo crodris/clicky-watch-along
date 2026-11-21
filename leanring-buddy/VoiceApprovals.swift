@@ -78,14 +78,16 @@ private let approvalAnswerFillerWords: Set<String> = [
 /// This is the old path's check. On the harness path the harness runs the same check in harness/voiceapproval.go, and
 /// harness/testdata/approval-voice-answers.json, which both sides' tests read, keeps the two the same until this one is deleted.
 ///
-/// The model's answer when the learner's own words support it, or nil when they do not. The router model also reads
+/// The model's answer when the learner's own words support it, or nil when they do not. A yes counts only for a request
+/// whose whole summary a card had shown for a second at the press (`requestWasSeenAtPress`). The router model also reads
 /// text a page wrote, such as a video title, which could talk it into a yes, so a yes counts only when the whole
 /// transcript is a short answer: it says yes, holds no word of no, and has no word outside the answer's vocabulary, so
-/// "okay, what is this video about" is not a yes. An "always" counts only when the learner said always. A no needs no check, since
-/// declining is always safe. The answer is refused rather than changed, so the chip, which reads the model's input,
-/// never names an answer the learner did not give.
-nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceAnswer, transcript: String) -> ApprovalVoiceAnswer? {
+/// "okay, what is this video about" is not a yes. An "always" counts only when the learner said always. A no needs
+/// neither check, since declining is always safe and a wrong no costs only a retry. The answer is refused rather than
+/// changed, so the chip, which reads the model's input, never names an answer the learner did not give.
+nonisolated func approvalVoiceAnswerTheLearnerSaid(_ modelAnswer: ApprovalVoiceAnswer, transcript: String, requestWasSeenAtPress: Bool) -> ApprovalVoiceAnswer? {
     guard modelAnswer.approved else { return modelAnswer }
+    guard requestWasSeenAtPress else { return nil }
     let transcriptWords = transcript
         .lowercased()
         .replacingOccurrences(of: "\u{2019}", with: "'")
