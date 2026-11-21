@@ -732,17 +732,6 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Private
 
-    /// Triggers the system microphone prompt if the user has never been asked.
-    /// Once granted/denied the status sticks and polling picks it up.
-    private func promptForMicrophoneIfNotDetermined() {
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else { return }
-        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-            Task { @MainActor [weak self] in
-                self?.hasMicrophonePermission = granted
-            }
-        }
-    }
-
     /// Polls all permissions frequently so the UI updates live after the
     /// user grants them in System Settings. Screen Recording is the exception —
     /// macOS requires an app restart for that one to take effect.
@@ -967,7 +956,7 @@ final class CompanionManager: ObservableObject {
             }
         case .released:
             // Cancel the pending start task in case the user released the shortcut
-            // before the async startPushToTalk had a chance to begin recording.
+            // before the async startPushToTalkFromKeyboardShortcut had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
             // leaves the listening ring stuck on screen indefinitely.
             let releaseEndsAnAcceptedPress = pushToTalkPressAcceptance.releaseEndsAnAcceptedPress()

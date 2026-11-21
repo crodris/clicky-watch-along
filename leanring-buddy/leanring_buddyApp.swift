@@ -35,8 +35,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         print("🎯 Clicky: Starting...")
         print("🎯 Clicky: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
-        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
-
         menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
