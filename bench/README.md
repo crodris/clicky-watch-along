@@ -313,6 +313,26 @@ A 10 run check on 2026-11-21 saw the extra pick once on each backend (`theme-ref
 The harness still scored a recorded design then pick as `wrongInput`, because the pick never reached the app and its input read as unknown, so a call after a hand-off is no longer input checked, and `results/theme-refine-fixed-brain-evals-22149d9cf191.json` (10 runs, 20 of 20 on each backend, with one harness run that called the design then a pick) measures it.
 The first wording of the `seek_to_moment` description after the fixes ("not a particular mention") sent "the last time he mentions the liver" to `seek_to_moment` first and failed `planning-find-last-mention` 0 of 3, so the description says it cannot pick the first, the last, or another particular mention.
 
+`set_control` takes an optional `run` boolean (2026-11-21), so "set the angle to sixty and run it" is one call instead of `set_control` then `run_simulation`.
+The miss it removes is a reply that ends after `set_control`: the harness log shows `record_guess` and `set_control` in one turn and then nothing, while the spoken line says it ran.
+A reply that ends early loses its last call, so the fix removes the last call of that chain, which is an inference from the counts below, not a trace of the model.
+The change is measured against main's descriptions in 5 rounds of 2 runs each, alternating the two sides every round, on the harness backend (`results/set-control-run-interleave-main-r1-brain-evals-25b21e6045c0.json` to `r5`, and the `-change-` files beside them):
+
+| Case | Main | This change |
+| --- | --- | --- |
+| `planning-guess-set-run` | 7 of 10 (3 stopped after `set_control`) | 10 of 10 |
+| `experiment-try-angle` ("try 45 degrees" with a guess recorded) | 8 of 10 (2 set the control and did not run it) | 10 of 10 (`set_control` with `run: true`, 1 call) |
+| `experiment-set-angle`, `experiment-run-again`, `experiment-run-locked`, `experiment-guess-short`, `experiment-guess-unsure` | 50 of 50 | 50 of 50 |
+
+Main's two sides are scored on its own accepted answers (`set_control` then `run_simulation`) and this change on `set_control` with `run: true`, since the two descriptions offer different tools.
+The full parity run on this change, `results/set-control-run-brain-evals-085e08b2a219.json` (3 runs), passes the gate: 189 of 189 harness runs, p50 to the first call 674 ms against the Worker's 675 ms, cost 0.99 times the Worker's, 27 of 27 session runs, and 30 of 30 planning runs.
+The 4 misses of `results/planning-turn-budget-5-runs-brain-evals-9337d52a0578.json` (36 of 40) were this same case.
+
+The command is not faster.
+The three calls came back in one reply on main too (`turnCount` 1 in all 10 runs), so the chain never cost a model turn, unlike the `seek_to_moment` chain, which did.
+The passing runs took a p50 of 1183 ms on main and 1140 ms on this change, and cost $0.000216 and $0.000220, which is a few output tokens and inside the run-to-run spread.
+The gain is accuracy, not time.
+
 ### What each score means
 
 Each run of a case ends in one outcome.
@@ -330,7 +350,7 @@ A failed run prints the words, what the case accepted, and what the router calle
 ### The cases
 
 `fixtures/brain-evals.json` holds `contexts` and `cases`.
-A context is a screen the learner can be in: `nothing`, `video`, `scene3D`, `experimentGuess`, `popout`, `readyModel`, `taskAnswer`, and `approvalWaiting`.
+A context is a screen the learner can be in: `nothing`, `video`, `scene3D`, `experimentGuess`, `experimentExplore`, `popout`, `readyModel`, `taskAnswer`, and `approvalWaiting`.
 It holds the `scene_state` the app sends and the names of the tools the app offers there.
 A case holds an `id`, a `context`, what the learner `say`s, a `why`, and `accept`.
 `accept` lists acceptable answers, and any one passes.
