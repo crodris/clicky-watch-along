@@ -25,7 +25,7 @@ struct AgentTokenTests {
         startedAfter secondsAfterStart: TimeInterval = 0,
         endedAfter secondsToEnd: TimeInterval? = nil,
         resultIsWaiting: Bool = false,
-        player: HaikyuPlayer? = nil
+        tokenColor: AgentPaletteColor? = nil
     ) -> BackgroundAgent {
         let agentStartedAt = startedAt.addingTimeInterval(secondsAfterStart)
         return BackgroundAgent(
@@ -37,8 +37,8 @@ struct AgentTokenTests {
             currentStepStartedAt: agentStartedAt,
             endedAt: secondsToEnd.map { agentStartedAt.addingTimeInterval($0) },
             phase: phase,
-            player: player,
-            resultIsWaitingToBeDelivered: resultIsWaiting
+            resultIsWaitingToBeDelivered: resultIsWaiting,
+            tokenColor: tokenColor
         )
     }
 
@@ -305,11 +305,16 @@ struct AgentTokenTests {
         #expect(store.agents.first { $0.id == thirdModelID }?.tokenColor == .violet)
     }
 
-    @Test func anAgentThatIsATeamPlayerHasNoAssignedColorAndNeverTakesOneAwayFromOthers() async throws {
-        let store = makeBackgroundAgentStore(theme: .school(.karasuno))
+    @Test func anAgentThatIsATeamPlayerWearsTheTeamColorAndNeverTakesAPaletteColorAwayFromOthers() async throws {
+        let themeSettings = makeThemeSettings(startingWith: bundledTheme("school-karasuno"))
+        let store = BackgroundAgentStore(themeSettings: themeSettings)
         let playerAgentID = store.start(kind: .task)
-        #expect(store.agents.first { $0.id == playerAgentID }?.tokenColor == nil)
-        #expect(store.agents.first { $0.id == playerAgentID }?.player != nil)
+        #expect(store.agents.first { $0.id == playerAgentID }?.tokenColor == .custom(try #require(ThemeRGBColor(hex: "#F26B1D"))))
+        #expect(store.agents.first { $0.id == playerAgentID }?.rosterFace != nil)
+        // A task agent started under Clicky blue still takes teal, since the team's orange is not a palette color.
+        themeSettings.theme = clickyBlueTheme
+        let clickyBlueAgentID = store.start(kind: .task)
+        #expect(store.agents.first { $0.id == clickyBlueAgentID }?.tokenColor == .teal)
     }
 
     // MARK: - Clicks and the list's buttons
@@ -351,21 +356,20 @@ struct AgentTokenTests {
 
     // MARK: - Ring color
 
-    @Test func theRingTakesTheTeamColorForAPlayerAndTheKindColorUnderClickyBlue() async throws {
-        let player = HaikyuSchool.karasuno.roster[0]
-        #expect(agentTokenRingColorChoice(for: agent(.running(completedStepCount: 0), player: player)) == .school(.karasuno))
+    @Test func theRingTakesTheColorTheAgentWasGivenWhateverItsTheme() async throws {
+        let karasunoOrange = AgentPaletteColor.custom(try #require(ThemeRGBColor(hex: "#F26B1D")))
+        #expect(agentTokenRingColorChoice(for: agent(.running(completedStepCount: 0), tokenColor: karasunoOrange)) == .assigned(karasunoOrange))
         #expect(agentTokenRingColorChoice(for: agent(.running(completedStepCount: 0), kind: .experiment)) == .assigned(.lime))
-        #expect(agentTokenRingColorChoice(for: agent(.finished(.readyScene), kind: .threeDModel, endedAfter: 5, player: player)) == .school(.karasuno))
+        #expect(agentTokenRingColorChoice(for: agent(.finished(.readyScene), kind: .threeDModel, endedAfter: 5, tokenColor: karasunoOrange)) == .assigned(karasunoOrange))
     }
 
-    @Test func aFailedTokenIsRedWhateverTheTeamAndInarizakisRingIsTheLightColor() async throws {
-        let player = HaikyuSchool.nekoma.roster[0]
-        #expect(agentTokenRingColorChoice(for: agent(.failed(reason: "x"), endedAfter: 5, player: player)) == .failed)
+    @Test func aFailedTokenIsRedWhateverItsColorAndInarizakisRingIsTheLightColor() async throws {
+        let nekomaRed = AgentPaletteColor.custom(try #require(ThemeRGBColor(hex: "#E0313B")))
+        #expect(agentTokenRingColorChoice(for: agent(.failed(reason: "x"), endedAfter: 5, tokenColor: nekomaRed)) == .failed)
         #expect(agentTokenRingColorChoice(for: agent(.failed(reason: "x"), kind: .experiment, endedAfter: 5)) == .failed)
         #expect(AgentTokenRingColorChoice.failed.color == DS.Colors.destructive)
         // Inarizaki's near-black team color would vanish on the dark ring track, so its accent is already the light color.
-        #expect(HaikyuSchool.inarizaki.accentHex == "#F4F4F5")
-        #expect(AgentTokenRingColorChoice.school(.inarizaki).color == HaikyuSchool.inarizaki.accentColor)
+        #expect(bundledTheme("school-inarizaki").accentHex == "#F4F4F5")
         #expect(AgentTokenRingColorChoice.assigned(.teal).color == DS.Colors.backgroundAgentTaskTeal)
     }
 

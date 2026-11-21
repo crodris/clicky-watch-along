@@ -10,7 +10,7 @@ Team and Model fan their choices on an outer arc, Agents opens the agent list, S
   A key, a left, right, or middle mouse press, control, or command during the hold breaks it, and so does a mouse button already down from a drag.
 - `dial-hint` shows "hold ⇧⌥ · flick, release to pick" under the dial the first time it opens (`settingsDialHintWasShown` in UserDefaults), and never again.
 - `dial-preview` fills the token at the pointer's angle with the team's color and draws its icon in the team's ink color, while the pointer is inside the plate.
-- `dial-team-fan` opens Clicky blue, the ten schools, and Random on an arc over the top when the pointer is on Team, then up to 3 saved custom themes, newest first, each its own cursor drawn still on a dark disc, with the item under the pointer larger and named.
+- `dial-team-fan` opens the bundled themes, Clicky blue first, on an arc over the top when the pointer is on Team, then up to 3 saved custom themes, newest first, each its own cursor drawn still on a dark disc, with the item under the pointer larger and named.
   The fan spans 156 degrees whatever it holds, and a long saved name is cut with an ellipsis.
 - `dial-custom-glyph` draws a custom theme's own cursor, still, in the dial's center and on the Team token, where it sits on a dark disc inside the accent ring.
 - `dial-fan-travel` keeps a fan open while the pointer travels outward past the plate, even across another slice's angle, and changes the slice only when the pointer comes back inside the plate.
@@ -44,12 +44,12 @@ Steps:
   The screenshot shows a dark round plate under the mouse with Team at the top, Model and Agents on the right, Show and More on the left, the cursor glyph in the center, and the hint under the plate.
   Run `$V key dial-release` to cancel, since the pointer never left the center.
 - **Team fan and commit.** Hold, then move the pointer from the dial's center straight up 78 points onto Team, out to 135 points, and along the arc to a ball.
-  Run `$V shot dial-fan`: the Team token is filled with the team's color, the ball under the pointer is larger with its school's name on a dark pill on the ball's side away from the dial's center, and the plate stays.
-  Run `$V key dial-release`, then `defaults read com.crodris.clicky-watch-along companionTheme`, which now names that school, such as `school:nekoma`.
+  Run `$V shot dial-fan`: the Team token is filled with the team's color, the theme under the pointer is larger, as its own cursor on a dark disc, with its name on a dark pill on the side away from the dial's center, and the plate stays.
+  Run `$V key dial-release`, then `defaults read com.crodris.clicky-watch-along companionTheme`, which now names that theme, such as `bundled:school-nekoma`.
   Write the original value back when done, since the key is shared with the everyday app.
 - **Saved themes in the fan.** Save 2 themes with the Theme Studio first (see `theme-studio.md`), so `~/Library/Application Support/Clicky/Themes` has 2 folders.
   Hold, move the pointer straight up out of the plate past Team, then around the outside of the plate to the fan's right end, about 160 points out at -20 degrees, and run `$V shot dial-fan-saved`.
-  The fan ends with the saved themes after Random, newest first, the one under the pointer named on a pill, and the center and the Team token show the current custom cursor.
+  The fan ends with the saved themes after the bundled ones, newest first, the one under the pointer named on a pill, and the center and the Team token show the current custom cursor.
   Run `$V key escape` and then `$V key dial-release`, and `companionTheme` is unchanged.
 - **Agents.** Post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{}}}` to `http://127.0.0.1:8790/mcp`, then run `$V key agents-list` and `$V shot dial-agents-list`.
   The agent list opens at the mouse with the seeded agents, and stays until `$V key escape` or a click outside.

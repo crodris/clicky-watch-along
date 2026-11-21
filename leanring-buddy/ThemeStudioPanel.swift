@@ -120,7 +120,7 @@ struct ThemeStudioCardView: View {
 
     private var ideasOnTheCard: ThemeStudioIdeas? { studio.state.ideasOnTheCard }
 
-    private var highlightedIdea: CustomTheme? {
+    private var highlightedIdea: ClickyTheme? {
         guard case .showingIdeas(let ideas) = studio.state else { return nil }
         return ideas.highlightedIdea
     }
@@ -221,7 +221,7 @@ struct ThemeStudioCardView: View {
 
 /// One idea: its cursor, its name, its colors as swatches, and a small agent token in its first agent color.
 private struct ThemeStudioTileView: View {
-    let idea: CustomTheme
+    let idea: ClickyTheme
     let picture: NSImage?
     let isHighlighted: Bool
     let isDimmedWhileDesigning: Bool
@@ -245,9 +245,9 @@ private struct ThemeStudioTileView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 HStack(spacing: 3) {
-                    ForEach(Array(([idea.accentHex] + idea.agentColorHexes.prefix(3)).enumerated()), id: \.offset) { _, swatchHex in
+                    ForEach(Array(([Color(hex: idea.accentHex)] + idea.agentColorsInOrder.prefix(3).map(\.color)).enumerated()), id: \.offset) { _, swatchColor in
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(Color(hex: swatchHex))
+                            .fill(swatchColor)
                             .frame(width: 8, height: 8)
                     }
                     Spacer(minLength: 4)
@@ -273,12 +273,12 @@ private struct ThemeStudioTileView: View {
 
 /// An agent token in the idea's first agent color: a dark disc with a ring, and the picture or a triangle for its face.
 private struct ThemeStudioAgentTokenView: View {
-    let idea: CustomTheme
+    let idea: ClickyTheme
     let picture: NSImage?
 
     private static let diameter: CGFloat = 18
     private static let ringWidth: CGFloat = 2
-    private var firstAgentColor: Color { Color(hex: idea.agentColorHexes[0]) }
+    private var firstAgentColor: Color { idea.agentColorsInOrder.first?.color ?? Color(hex: idea.accentHex) }
 
     var body: some View {
         ZStack {
@@ -286,7 +286,7 @@ private struct ThemeStudioAgentTokenView: View {
             Circle()
                 .stroke(firstAgentColor, lineWidth: Self.ringWidth)
                 .padding(Self.ringWidth / 2)
-            if idea.usesPicture, let picture {
+            if idea.agents.faces == .picture, let picture {
                 ThemePictureFaceView(picture: picture, size: Self.diameter - 2 * Self.ringWidth)
             } else {
                 Triangle()

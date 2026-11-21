@@ -2,35 +2,33 @@
 """Fetch the round anime portraits for the optional Haikyu!! team theme.
 
 Usage:
-    python3 -I tools/fetch-haikyu-portraits.py [--swift-file leanring-buddy/HaikyuTheme.swift]
+    python3 -I tools/fetch-haikyu-portraits.py [--themes-dir themes]
                                                [--output-dir leanring-buddy/HaikyuPortraits]
                                                [--force]
 
-The roster table in HaikyuTheme.swift is the single source of truth: every
-`wikiTitle: "..."` string in it names a page on haikyuu.fandom.com. This script
-downloads each page's main image and crops it to a 160x160 JPEG named
-`<portraitResourceName>.jpg`, where the resource name is "haikyu-" plus the ASCII
-slug of the wiki title (diacritics stripped, lowercased, runs of non-alphanumerics
-become "-"). The portraits are anime art, so the output folder is gitignored and
-the images never reach the public repository.
+The rosters in the bundled theme files (themes/*.clickytheme/theme.json) are the
+single source of truth: each player's `fullName` names a page on
+haikyuu.fandom.com, and its `portrait` names the file. This script downloads each
+page's main image and crops it to a 160x160 JPEG with that file name. The
+portraits are anime art, so the output folder is gitignored and the images never
+reach the public repository. Xcode copies the folder to the top of the app's
+Resources, where the app looks a bundled roster's portraits up.
 
 Requires python3 (standard library only) and ffmpeg on PATH.
 """
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import unicodedata
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SWIFT_FILE = REPOSITORY_ROOT / "leanring-buddy" / "HaikyuTheme.swift"
+DEFAULT_THEMES_DIRECTORY = REPOSITORY_ROOT / "themes"
 DEFAULT_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "leanring-buddy" / "HaikyuPortraits"
 
 WIKI_API_URL = "https://haikyuu.fandom.com/api.php"
@@ -44,7 +42,7 @@ DEFAULT_CROP_TOP_SHARE = 0.12
 # Pages whose default crop misses the face. Each entry scales the image to a larger square first
 # (so the face fills the 160 pixel frame), then crops 160x160 at the given shares of the leftover
 # height and width. A face off to one side, as in an action shot, sets a left share other than 0.5.
-# wikiTitle: (square size in pixels, share of leftover height cropped from the top[, share of leftover width cropped from the left])
+# fullName: (square size in pixels, share of leftover height cropped from the top[, share of leftover width cropped from the left])
 FACE_CROP_OVERRIDES = {
     "Kanji Koganegawa": (330, 0.10),
     "Takanobu Aone": (280, 0.12),
@@ -56,27 +54,24 @@ FACE_CROP_OVERRIDES = {
     "Yū Nishinoya": (300, 0.16, 0.36),
 }
 
-WIKI_TITLE_PATTERN = re.compile(r'wikiTitle:\s*"([^"]+)"')
 
 
-def portrait_resource_name(wiki_title: str) -> str:
-    """Return "haikyu-" plus the ASCII slug of the title, matching HaikyuTheme.swift."""
-    without_diacritics = "".join(
-        character
-        for character in unicodedata.normalize("NFKD", wiki_title)
-        if not unicodedata.combining(character)
-    )
-    slug = re.sub(r"[^a-z0-9]+", "-", without_diacritics.lower()).strip("-")
-    return f"haikyu-{slug}"
-
-
-def read_wiki_titles(swift_file: Path) -> list[str]:
-    swift_source = swift_file.read_text(encoding="utf-8")
-    wiki_titles = []
-    for wiki_title in WIKI_TITLE_PATTERN.findall(swift_source):
-        if wiki_title not in wiki_titles:
-            wiki_titles.append(wiki_title)
-    return wiki_titles
+def read_roster_portraits(themes_directory: Path) -> list[tuple[str, str]]:
+    """Return (full name, portrait file name) for every roster player of every bundled theme, in file order."""
+    roster_portraits = []
+    for theme_file in sorted(themes_directory.glob("*.clickytheme/theme.json")):
+        faces = json.loads(theme_file.read_text(encoding="utf-8")).get("agents", {}).get("faces", {})
+        if faces.get("kind") != "roster":
+            continue
+        for player in faces.get("players", []):
+            portrait_file_name = player.get("portrait")
+            # A portrait name is joined onto the output folder, so one with a folder in it is refused.
+            if not portrait_file_name or "/" in portrait_file_name or portrait_file_name.startswith("."):
+                continue
+            entry = (player.get("fullName") or player["name"], portrait_file_name)
+            if entry not in roster_portraits:
+                roster_portraits.append(entry)
+    return roster_portraits
 
 
 # The wiki's API names the image URL, so only its own image host over https is fetched, and no reply is read past
@@ -188,7 +183,7 @@ def download_portrait(wiki_title: str, output_file: Path) -> None:
 
 def main() -> int:
     argument_parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    argument_parser.add_argument("--swift-file", type=Path, default=DEFAULT_SWIFT_FILE)
+    argument_parser.add_argument("--themes-dir", type=Path, default=DEFAULT_THEMES_DIRECTORY)
     argument_parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIRECTORY)
     argument_parser.add_argument("--force", action="store_true", help="re-download files that already exist")
     arguments = argument_parser.parse_args()
@@ -197,15 +192,15 @@ def main() -> int:
         print("ffmpeg is not on PATH", file=sys.stderr)
         return 1
 
-    wiki_titles = read_wiki_titles(arguments.swift_file)
-    if not wiki_titles:
-        print(f"no wikiTitle strings found in {arguments.swift_file}", file=sys.stderr)
+    roster_portraits = read_roster_portraits(arguments.themes_dir)
+    if not roster_portraits:
+        print(f"no roster portraits found in {arguments.themes_dir}", file=sys.stderr)
         return 1
 
     arguments.output_dir.mkdir(parents=True, exist_ok=True)
     failed_titles = []
-    for wiki_title in wiki_titles:
-        output_file = arguments.output_dir / f"{portrait_resource_name(wiki_title)}.jpg"
+    for wiki_title, portrait_file_name in roster_portraits:
+        output_file = arguments.output_dir / portrait_file_name
         if output_file.exists() and not arguments.force:
             print(f"skipped    {wiki_title} ({output_file.name} exists)")
             continue
@@ -217,7 +212,7 @@ def main() -> int:
             print(f"FAILED     {wiki_title}: {error}", file=sys.stderr)
 
     if failed_titles:
-        print(f"{len(failed_titles)} of {len(wiki_titles)} portraits failed", file=sys.stderr)
+        print(f"{len(failed_titles)} of {len(roster_portraits)} portraits failed", file=sys.stderr)
         return 1
     return 0
 

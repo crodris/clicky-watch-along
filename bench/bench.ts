@@ -390,8 +390,19 @@ function themeIdeasCase(id: string, description: string, requestWords: string, p
         const shapes: unknown = cursorOf(idea).shapes;
         return (Array.isArray(shapes) ? shapes : []).filter(isRecord).map((shape) => String(shape.d));
       };
-      const colorsOf = (idea: Record<string, unknown>) => [idea.accent, idea.contrast, ...(Array.isArray(idea.agentColors) ? idea.agentColors : [])];
-      const picturesUsed = ideas.filter((idea) => idea.usesPicture === true).length;
+      // A version 2 idea keeps its agent colors and faces under agents, and a version 1 idea, which an older app's Worker
+      // sends, keeps agentColors and usesPicture at the top.
+      const agentsOf = (idea: Record<string, unknown>) => (isRecord(idea.agents) ? idea.agents : {});
+      const agentColorsOf = (idea: Record<string, unknown>): unknown[] => {
+        const agentColors: unknown = Array.isArray(idea.agentColors) ? idea.agentColors : agentsOf(idea).colors;
+        return Array.isArray(agentColors) ? agentColors : [];
+      };
+      const colorsOf = (idea: Record<string, unknown>) => [idea.accent, idea.contrast, ...agentColorsOf(idea)];
+      const usesThePicture = (idea: Record<string, unknown>) => {
+        const faces = agentsOf(idea).faces;
+        return idea.usesPicture === true || (isRecord(faces) && faces.kind === "picture") || cursorOf(idea).kind === "picture";
+      };
+      const picturesUsed = ideas.filter(usesThePicture).length;
       const pictureCursors = ideas.filter((idea) => cursorOf(idea).kind === "picture").length;
       const problems = [
         ...(ideas.length === 3 ? [] : [`${ideas.length} ideas`]),
