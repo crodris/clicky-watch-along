@@ -268,6 +268,50 @@
         "start_background_task",
         "answer_approval"
       ]
+    },
+    "themeStudioClosed": {
+      "description": "Nothing on screen and no video in front, and the studio is closed, so the router can open it. The offered tools are the nothing context's plus design_theme. The existing contexts leave design_theme out, since the app offers it in all of them and fixtures/voice-command-video.json is a real capture from before it existed.",
+      "sceneState": {
+        "page": "none",
+        "videoQuizIsRunning": false
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "start_background_task",
+        "design_theme"
+      ]
+    },
+    "themeStudioIdeas": {
+      "description": "The Theme Studio card shows three ideas, Ember, Moonlit, and Forest, with Moonlit highlighted, and nothing else is on screen. The app offers the usual tools with nothing on screen, then design_theme, pick_theme_idea, save_theme, and close_theme_studio.",
+      "sceneState": {
+        "page": "none",
+        "themeStudio": {
+          "designing": false,
+          "highlighted": 2,
+          "ideas": [
+            "Ember",
+            "Moonlit",
+            "Forest"
+          ]
+        },
+        "videoQuizIsRunning": false
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "start_background_task",
+        "design_theme",
+        "pick_theme_idea",
+        "save_theme",
+        "close_theme_studio"
+      ]
     }
   },
   "cases": [
@@ -723,6 +767,207 @@
         "answer_with_screen"
       ],
       "why": "A question is not an answer to the request."
+    },
+    {
+      "id": "theme-closed-open-from-words",
+      "context": "themeStudioClosed",
+      "say": "change my theme",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": null
+        }
+      },
+      "why": "Easy. Opens the studio, and with no ideas on the card there is no idea to base the change on."
+    },
+    {
+      "id": "theme-closed-open-from-picture",
+      "context": "themeStudioClosed",
+      "say": "make my theme from this picture",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "fromPicture": true
+        }
+      },
+      "why": "This picture means the largest picture in Chrome's front tab, so fromPicture is true."
+    },
+    {
+      "id": "theme-closed-open-with-a-vibe",
+      "context": "themeStudioClosed",
+      "say": "I want a new theme that feels like a rainy night",
+      "accept": [
+        "design_theme"
+      ],
+      "why": "The wish goes in request, in the learner's words."
+    },
+    {
+      "id": "theme-closed-word-alone",
+      "context": "themeStudioClosed",
+      "say": "what is the theme of this video",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "The word theme alone is a question about the screen, not a request to design one."
+    },
+    {
+      "id": "theme-pick-number",
+      "context": "themeStudioIdeas",
+      "say": "two",
+      "accept": [
+        "pick_theme_idea"
+      ],
+      "input": {
+        "pick_theme_idea": {
+          "number": 2
+        }
+      },
+      "why": "Easy. A bare number picks that idea and tries it on the cursor."
+    },
+    {
+      "id": "theme-pick-by-words",
+      "context": "themeStudioIdeas",
+      "say": "let me see number three",
+      "accept": [
+        "pick_theme_idea"
+      ],
+      "input": {
+        "pick_theme_idea": {
+          "number": 3
+        }
+      },
+      "why": "A longer way to say a number is still a pick."
+    },
+    {
+      "id": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "say": "two, but make the cursor a star that spins while it thinks",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": 2
+        }
+      },
+      "why": "A number with a change is a design, not a pick, and basedOnIdea names the idea to change."
+    },
+    {
+      "id": "theme-refine-no-idea-named",
+      "context": "themeStudioIdeas",
+      "say": "make it a little bluer",
+      "accept": [
+        "design_theme"
+      ],
+      "why": "A change with no number is still a design, since the card shows ideas to change."
+    },
+    {
+      "id": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "say": "one, but with a softer sound when an agent finishes",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": 1
+        }
+      },
+      "why": "Sounds are part of a theme, so changing one is a design of that idea."
+    },
+    {
+      "id": "theme-new-wish",
+      "context": "themeStudioIdeas",
+      "say": "actually, something totally different, like the ocean",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "basedOnIdea": null
+        }
+      },
+      "why": "A new wish names no idea on the card, so there is no basedOnIdea."
+    },
+    {
+      "id": "theme-refine-use-picture",
+      "context": "themeStudioIdeas",
+      "say": "use this picture instead",
+      "accept": [
+        "design_theme"
+      ],
+      "input": {
+        "design_theme": {
+          "fromPicture": true
+        }
+      },
+      "why": "Pointing at a picture while the card is open designs from it."
+    },
+    {
+      "id": "theme-save-it",
+      "context": "themeStudioIdeas",
+      "say": "save it",
+      "accept": [
+        "save_theme"
+      ],
+      "why": "Easy. Saves the highlighted idea."
+    },
+    {
+      "id": "theme-save-ill-take-it",
+      "context": "themeStudioIdeas",
+      "say": "perfect, I'll take it",
+      "accept": [
+        "save_theme"
+      ],
+      "why": "Approval of the highlighted idea is a save."
+    },
+    {
+      "id": "theme-save-another-idea",
+      "context": "themeStudioIdeas",
+      "say": "save one",
+      "accept": [
+        [
+          "pick_theme_idea",
+          "save_theme"
+        ]
+      ],
+      "input": {
+        "pick_theme_idea": {
+          "number": 1
+        }
+      },
+      "why": "Idea 2 is highlighted, so saving idea 1 takes a pick first and then a save."
+    },
+    {
+      "id": "theme-close-never-mind",
+      "context": "themeStudioIdeas",
+      "say": "never mind",
+      "accept": [
+        "close_theme_studio"
+      ],
+      "why": "Easy. Closes the card and keeps the old theme."
+    },
+    {
+      "id": "theme-close-keep-old",
+      "context": "themeStudioIdeas",
+      "say": "forget it, I will keep my old theme",
+      "accept": [
+        "close_theme_studio"
+      ],
+      "why": "Keeping the old theme means closing the card."
+    },
+    {
+      "id": "theme-unrelated-question",
+      "context": "themeStudioIdeas",
+      "say": "how do sharks float",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "The open card must not capture a question about something else."
     }
   ]
 }

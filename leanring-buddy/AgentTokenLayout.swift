@@ -157,15 +157,21 @@ func menuBarIsShowing(screenFrame: CGRect, visibleFrame: CGRect) -> Bool {
 
 // MARK: - Colors
 
-/// The colors an agent can have under Clicky blue, in the order a new agent looks for a free one. Red is left out because
-/// it means failed, and so is green, which is the done check.
-enum AgentPaletteColor: CaseIterable, Equatable {
+/// The colors an agent can have. Under Clicky blue it takes one of the fixed palette, in the order a new agent looks for a
+/// free one. Red is left out because it means failed, and so is green, which is the done check. Under a custom theme it
+/// takes one of the theme's own agent colors, which the theme parser already kept clear of red and green.
+enum AgentPaletteColor: Equatable {
     case teal
     case amber
     case violet
     case lime
     case sky
     case pink
+    /// One of a custom theme's agent colors.
+    case custom(ThemeRGBColor)
+
+    /// The fixed palette under Clicky blue, in the order a new agent looks for a free color.
+    static let fixedPalette: [AgentPaletteColor] = [.teal, .amber, .violet, .lime, .sky, .pink]
 
     var color: Color {
         switch self {
@@ -175,6 +181,7 @@ enum AgentPaletteColor: CaseIterable, Equatable {
         case .lime: return DS.Colors.backgroundAgentExperimentLime
         case .sky: return DS.Colors.sky400
         case .pink: return DS.Colors.pink400
+        case .custom(let themeColor): return Color(red: themeColor.red, green: themeColor.green, blue: themeColor.blue)
         }
     }
 
@@ -187,6 +194,8 @@ enum AgentPaletteColor: CaseIterable, Equatable {
         case .lime: return DS.Colors.backgroundAgentExperimentLimeText
         case .sky: return DS.Colors.sky700
         case .pink: return DS.Colors.pink700
+        // Half the brightness of the same hue, which reads inside the chip's white outline.
+        case .custom(let themeColor): return Color(red: themeColor.red * 0.5, green: themeColor.green * 0.5, blue: themeColor.blue * 0.5)
         }
     }
 }
@@ -197,8 +206,18 @@ enum AgentPaletteColor: CaseIterable, Equatable {
 func agentPaletteColorToAssign(forKind agentKind: BackgroundAgentKind, colorsInUse: [AgentPaletteColor]) -> AgentPaletteColor {
     let preferredColor = agentKind.preferredPaletteColor
     if !colorsInUse.contains(preferredColor) { return preferredColor }
-    if let freeColor = AgentPaletteColor.allCases.first(where: { !colorsInUse.contains($0) }) { return freeColor }
-    return AgentPaletteColor.allCases[colorsInUse.count % AgentPaletteColor.allCases.count]
+    if let freeColor = AgentPaletteColor.fixedPalette.first(where: { !colorsInUse.contains($0) }) { return freeColor }
+    return AgentPaletteColor.fixedPalette[colorsInUse.count % AgentPaletteColor.fixedPalette.count]
+}
+
+/// The color a new agent takes under a custom theme: the first of the theme's agent colors that no other running agent or
+/// waiting result has, and once every one is in use, the theme's colors in order again. The theme's agent colors are
+/// already checked `#RRGGBB`, so none is dropped here.
+func agentPaletteColorToAssign(forCustomThemeAgentColorHexes agentColorHexes: [String], colorsInUse: [AgentPaletteColor]) -> AgentPaletteColor {
+    let themeColors = agentColorHexes.compactMap(ThemeRGBColor.init(hex:)).map(AgentPaletteColor.custom)
+    guard !themeColors.isEmpty else { return .teal }
+    if let freeColor = themeColors.first(where: { !colorsInUse.contains($0) }) { return freeColor }
+    return themeColors[colorsInUse.count % themeColors.count]
 }
 
 /// What colors a token's ring, before it becomes a SwiftUI color, so the choice is testable.

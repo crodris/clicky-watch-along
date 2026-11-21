@@ -302,7 +302,9 @@ struct SettingsDialView: View {
         }
     }
 
-    /// The cursor as Clicky draws it now: the team's volleyball, or the blue triangle.
+    /// The dial's center glyph: the team's volleyball, or a triangle in the accent color. The triangle is Clicky blue for the
+    /// default theme and the theme's accent for a custom one, which draws its own cursor everywhere else but gets only the
+    /// accent triangle here.
     @ViewBuilder private var cursorGlyph: some View {
         if let volleyballColors = theme.cursorVolleyballColors {
             VolleyballCursorView(volleyballColors: volleyballColors, flightStreakColor: accentColor, streakOpacity: 0)
@@ -459,6 +461,12 @@ private struct SettingsDialThemeBall: View {
         case .clickyBlue:
             SettingsDialBall(
                 volleyballColors: .clickyBlueFanBall,
+                size: size
+            )
+        case .custom(let customTheme):
+            // The fan lists only the built-in themes, so this is never on screen. A ball in the theme's two colors keeps the switch whole.
+            SettingsDialBall(
+                volleyballColors: VolleyballCursorColors(fillHex: customTheme.accentHex, outlineHex: "#1A1A1A", seamHex: customTheme.contrastHex),
                 size: size
             )
         case .random:

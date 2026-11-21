@@ -226,6 +226,29 @@ final class CompanionManager: ObservableObject {
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
     private let settingsDialController = SettingsDialController()
+    /// "Change my theme": the card with three theme ideas, previewed on the real cursor and saved by voice or click.
+    private lazy var themeStudioController: ThemeStudioController = {
+        let themeIdeasClient = ThemeIdeasClient(workerBaseURL: Self.workerBaseURL)
+        return ThemeStudioController(
+            themeSettings: themeSettings,
+            environment: ThemeStudioController.Environment(
+                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
+                playSound: { sound in sound.play() },
+                captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
+                designIdeas: { themeIdeasRequest in try await themeIdeasClient.designIdeas(for: themeIdeasRequest) }
+            ),
+            cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
+                // The voice tool's chip comes from the router, so only a click on Save needs its own.
+                guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
+                VoiceToolCallChip.shared.show(chipPhrase)
+            })
+        )
+    }()
+    private var themeStudioSpeechTask: Task<Void, Never>?
+    /// True from the moment the studio's own line starts to play until it ends, so closing the card stops that line and never
+    /// an unrelated answer that is playing when the card closes.
+    private var themeStudioLineIsPlaying = false
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -755,7 +778,7 @@ final class CompanionManager: ObservableObject {
             // An open agent list would sit under the dial, and its Agents slice opens it again.
             agentListPanelController.close()
             settingsDialController.open(snapshot: SettingsDialSnapshot(
-                theme: themeSettings.theme,
+                theme: themeSettings.shownTheme,
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
                 runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count
@@ -1076,7 +1099,11 @@ final class CompanionManager: ObservableObject {
     /// Claude's response may include a [POINT:x,y:label] tag which triggers
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String) {
-        if let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
+        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
+        if videoQuizPhrasesAreMatchedAheadOfTheRouter(
+            themeStudioIsOpen: themeStudioController.isOpen,
+            phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer
+        ), let videoQuizCommand = videoQuizVoiceCommand(for: transcript) {
             handleVideoQuizVoiceCommand(videoQuizCommand)
             return
         }
@@ -1086,7 +1113,6 @@ final class CompanionManager: ObservableObject {
             respondToTranscript(transcript: transcript, requestedSceneKind: nil)
             return
         }
-        let phaseIsWaitingForAQuizAnswer = liveScenePhaseIsWaitingForAQuizAnswer
         var sceneIsBuilding = false
         if case .buildingScene = liveScenePhase { sceneIsBuilding = true }
         let brainTakesEveryRequest = BrainTakesEveryRequest.isOn()
@@ -1098,7 +1124,8 @@ final class CompanionManager: ObservableObject {
             brainTakesEveryRequest: brainTakesEveryRequest,
             sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
-            sceneIsBuilding: sceneIsBuilding
+            sceneIsBuilding: sceneIsBuilding,
+            themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
@@ -1106,6 +1133,9 @@ final class CompanionManager: ObservableObject {
             return
         case .startExperiment:
             startTheExperimentInTheBackground(transcript: transcript)
+            return
+        case .designATheme(let themeStudioRequest):
+            startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
             return
         case nil:
             break
@@ -1119,6 +1149,7 @@ final class CompanionManager: ObservableObject {
             backgroundSceneIsReady: readyBackgroundScene != nil,
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
             approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            themeStudioIsOpen: themeStudioController.isOpen,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding,
             brainTakesEveryRequest: brainTakesEveryRequest
@@ -1473,7 +1504,7 @@ final class CompanionManager: ObservableObject {
 
         guard let framePopout,
               let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
-              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.theme),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
             await speakLiveSceneLine(failureLine)
@@ -1780,7 +1811,7 @@ final class CompanionManager: ObservableObject {
             if narrationStep == .sayTheChallengeOutcome, let challengeOutcome = runReport.challengeOutcome {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
-                    NSSound(named: NSSound.Name("Glass"))?.play()
+                    self.themeSettings.shownTheme.sounds.correct.play()
                 }
                 await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
             } else {
@@ -2060,7 +2091,7 @@ final class CompanionManager: ObservableObject {
         wrongAnswerCount: Int
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
-        LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome)
+        LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
         // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
         if !(grade == .wrong && wrongAnswerCount == 0) {
             releaseTheBuddyFromTheQuizQuestion()
@@ -2104,7 +2135,7 @@ final class CompanionManager: ObservableObject {
                 return
             }
             liveScenePhase = .allLabelsShowing
-            LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration)
+            LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
             await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false))
         case .repeatQuestion:
             await speakLiveSceneLine(quiz.question)
@@ -2241,7 +2272,7 @@ final class CompanionManager: ObservableObject {
         videoQuizQuestionIsActive = true
         if let framePopout,
            let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
-           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.theme),
+           let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
            LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: true, isFramePopout: true, overlayScreen: overlayScreen) {
             print("Video quiz: lifting the subject out of the frame with \(framePopout.parts.count) labels\(framePopout.pictureShowsDepth ? " as a flat card" : "")")
             liveScenePhase = .touring(quizToAskAfterTour: quiz)
@@ -2315,7 +2346,8 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Escape only cancels the settings dial when it is open, and only closes the agent list when that is open. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// Escape only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
+    /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -2327,6 +2359,10 @@ final class CompanionManager: ObservableObject {
         // With the agent list open, Escape only closes it.
         if agentListPanelController.isOpen {
             agentListPanelController.close()
+            return
+        }
+        // With the Theme Studio card open, Escape closes it and keeps the old theme, ahead of any scene behavior.
+        if themeStudioController.closeOnEscape() {
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -2465,7 +2501,9 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: readyTaskAnswer != nil,
             simulationIsWaitingForAGuess: pageState?["lessonStage"]?.stringValue == "guess",
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
-            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil
+            approvalIsWaiting: approvalRequestAVoiceAnswerMayReach != nil,
+            themeStudioIsOpen: themeStudioController.isOpen,
+            themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas
         )
     }
 
@@ -2514,10 +2552,21 @@ final class CompanionManager: ObservableObject {
                     await speakLiveSceneLine(voiceCommandGaveUpLine)
                     break
                 }
-                print("Voice command: the router failed, so the keyword path takes it: \(error)")
-                switch routerFailureFallback(for: transcript, sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene) {
+                print("Voice command: the router failed, so its fallback takes it: \(error)")
+                switch routerFailureFallback(
+                    for: transcript,
+                    sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+                    themeStudioIsOpen: themeStudioController.isOpen
+                ) {
+                case .giveUp:
+                    await speakLiveSceneLine(voiceCommandGaveUpLine)
+                    guard !Task.isCancelled else { return }
+                    voiceState = .idle
+                    scheduleTransientHideIfNeeded()
                 case .startExperiment:
                     startTheExperimentInTheBackground(transcript: transcript)
+                case .designATheme(let themeStudioRequest):
+                    startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
                 case .keywordPath:
                     respondByTheKeywordPath(transcript: transcript)
                 }
@@ -2742,7 +2791,126 @@ final class CompanionManager: ObservableObject {
             return await recordTheSimulationGuess(input["guess"]?.stringValue ?? "")
         case .answerApproval:
             return answerTheApproval(approvalIDTheLearnerIsAnswering, byVoiceInput: input, transcript: transcript)
+        case .designTheme:
+            let themeRequest = (input["request"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !themeRequest.isEmpty else { return .failed(error: "request must say what the learner wants", state: nil) }
+            startDesigningATheme(
+                request: themeRequest,
+                basedOnIdea: input["basedOnIdea"]?.numberValue.flatMap { Int(exactly: $0) },
+                pictureChoice: ThemeStudioPictureChoice(fromPictureInput: input["fromPicture"]?.boolValue)
+            )
+            return .handedOff
+        case .pickThemeIdea:
+            guard let ideaNumber = input["number"]?.numberValue.flatMap({ Int(exactly: $0) }), themeStudioController.pickIdea(number: ideaNumber) else {
+                return .failed(error: "number must be the number of an idea on the card, from 1 to 3", state: nil)
+            }
+            return .changed(state: .object(["themeStudio": voiceCommandThemeStudioState(themeStudioController.state) ?? .null]))
+        case .saveTheme:
+            switch themeStudioController.saveTheHighlightedIdea() {
+            case .saved(let themeName):
+                return .changed(state: .object(["themeSaved": .string(themeName)]))
+            case .nothingToSave:
+                return .failed(error: "no idea is on the card to save", state: nil)
+            case .failed:
+                return .failed(error: "the theme could not be saved", state: nil)
+            }
+        case .closeThemeStudio:
+            themeStudioController.close()
+            return .changed(state: nil)
         }
+    }
+
+    // MARK: - Theme Studio
+
+    /// Opens the studio or asks for new ideas, and returns at once, so the card and its spoken line say the result. The
+    /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
+    /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
+    private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
+        currentResponseTask?.cancel()
+        liveSceneRequestTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // A scene still building is cancelled whole, the way "let me try it" cancels it. Left in the building phase, the
+        // router would stay off for the studio's next command, and a video Clicky paused for the scene would stay paused.
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestGeneration += 1
+            let cancelledBuildGeneration = liveSceneRequestGeneration
+            liveScenePhase = .idle
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                // A newer scene request holds the pause for its own scene, so only the latest cancel resumes the video.
+                guard cancelledBuildGeneration == self.liveSceneRequestGeneration else { return }
+                self.videoQuizSession.resumeVideoAfterRequestedScene()
+            }
+        }
+        if pictureChoice == .captureAgain {
+            theRequestBecameALookAtTheMedia()
+        }
+        themeStudioController.design(request: request, basedOnIdea: basedOnIdea, pictureChoice: pictureChoice)
+        voiceState = pictureChoice == .captureAgain ? .processing : .idle
+        currentResponseTask = Task {
+            await self.themeStudioController.waitForTheDesign()
+            guard !Task.isCancelled else { return }
+            if self.voiceState == .processing {
+                self.voiceState = .idle
+            }
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Says a studio line once nothing else is happening: no audio playing, so a "no picture" line is not cut off by the
+    /// ideas' own line, no push-to-talk held, and no request of the learner's being worked on, so it never plays over their
+    /// voice or over the request that followed it. The three are checked together in one loop, since each can start while
+    /// the line waits for another.
+    /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
+    private func speakAThemeStudioLine(_ line: String) {
+        themeStudioSpeechTask?.cancel()
+        themeStudioSpeechTask = Task {
+            while !Task.isCancelled && !themeStudioLineMayStart(
+                dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
+                clickyIsThinking: self.voiceState == .processing,
+                audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
+                themeStudioIsDesigning: self.themeStudioController.state.isDesigning
+            ) {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            self.themeStudioLineIsPlaying = true
+            await self.speakLiveSceneLine(line)
+            await self.waitForClickyToFinishSpeaking()
+            guard !Task.isCancelled else { return }
+            self.themeStudioLineIsPlaying = false
+            if self.voiceState == .responding {
+                self.voiceState = .idle
+            }
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Ends the studio's spoken line when the card closes or saves. Cancelling the speech task also drops a line still waiting
+    /// for its turn, which a bare `stopPlayback` would let start after the card is gone. The task's own reset to idle never
+    /// runs once it is cancelled, so this does it. Playback stops only while the studio's own line is playing, since the
+    /// audio may be an answer the router handed off with the card open.
+    private func stopTheThemeStudioSpeech() {
+        themeStudioSpeechTask?.cancel()
+        themeStudioSpeechTask = nil
+        guard themeStudioLineIsPlaying else { return }
+        themeStudioLineIsPlaying = false
+        elevenLabsTTSClient.stopPlayback()
+        if voiceState == .responding {
+            voiceState = .idle
+            scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// A JPEG of the largest picture in Chrome's front tab, captured the way the image pop-out captures it, for a theme
+    /// built from it. Nil when Chrome has no picture on screen, or Screen Recording is off.
+    private func captureThePictureForTheThemeStudio() async -> ThemeStudioPicture? {
+        guard let pictureRect = VideoQuizSession.screenRectOfTheMediaToRiseFrom(),
+              let pictureGrab = try? await CompanionScreenCaptureUtility.captureScreenRectAsJPEG(pictureRect),
+              let jpegData = Data(base64Encoded: pictureGrab.jpeg) else {
+            return nil
+        }
+        return ThemeStudioPicture(jpegData: jpegData, width: pictureGrab.width, height: pictureGrab.height)
     }
 
     // MARK: - Task Agent
@@ -2902,7 +3070,7 @@ final class CompanionManager: ObservableObject {
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
     /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
-        NSSound(named: "Pop")?.play()
+        themeSettings.shownTheme.sounds.needsYourOK.play()
         agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
     }
 
@@ -3391,8 +3559,9 @@ final class CompanionManager: ObservableObject {
         backgroundAgentStore.finish(agentID, with: result)
         switch result {
         case .notionPage(let pageURL):
-            // "Glass" belongs to quiz answers.
-            NSSound(named: "Tink")?.play()
+            // The shown theme picks this done sound ("Tink" for a built-in theme), and a separate correct sound, "Glass" for a
+            // built-in theme, for quiz answers.
+            themeSettings.shownTheme.sounds.done.play()
             // The page opens behind the video tab. open_study_guide, asked for by voice, brings it forward instead.
             var secondaryChipText = "· say open my study guide"
             if let replacingPageURL, loadThePageInTheTabOfThePageItReplaces(pageURL, replacingPageURL: replacingPageURL) {
@@ -3408,7 +3577,7 @@ final class CompanionManager: ObservableObject {
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         case .readyScene:
-            NSSound(named: "Tink")?.play()
+            themeSettings.shownTheme.sounds.done.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
             VoiceToolCallChip.shared.show(
                 agentKind.finishedChipText,
@@ -3422,7 +3591,7 @@ final class CompanionManager: ObservableObject {
                 print("\(agentKind.displayName): the screen is busy, so it waits for \"\(agentKind.waitingPhrase)\"")
             }
         case .answer(_, let pageURL):
-            NSSound(named: "Tink")?.play()
+            themeSettings.shownTheme.sounds.done.play()
             // Like a guide's page, a task's page opens behind the video tab.
             if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
@@ -3438,7 +3607,7 @@ final class CompanionManager: ObservableObject {
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
     private func chipSender(forAgent agentID: UUID, kind: BackgroundAgentKind) -> VoiceToolCallChipSender {
-        .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, player: backgroundAgentStore.player(for: agentID))
+        .backgroundAgent(color: backgroundAgentStore.displayColor(for: agentID) ?? kind.preferredPaletteColor, face: backgroundAgentStore.face(for: agentID))
     }
 
     /// Cancels a running agent from the agent list. A cancelled agent shows no chip, and a cancelled new guide keeps no
@@ -3557,6 +3726,9 @@ final class CompanionManager: ObservableObject {
         // Only the capability word, never the summary, which a web page or an MCP server may have written.
         if let approvalWaitingState = voiceCommandApprovalWaitingState(oldestWaitingRequest: approvalRequestAVoiceAnswerMayReach) {
             sceneStateFields["approvalWaiting"] = .string(approvalWaitingState)
+        }
+        if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
+            sceneStateFields["themeStudio"] = themeStudioState
         }
         if let readyBackgroundScene {
             sceneStateFields["readyToShow"] = .string(readyToShowStateText(
