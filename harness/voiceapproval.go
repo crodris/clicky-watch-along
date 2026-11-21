@@ -75,17 +75,22 @@ func approvalTranscriptWords(transcript string) []string {
 // not. A yes counts only for a request whose whole summary a card had shown for a second at the press
 // (requestWasSeenAtPress), and only when the whole transcript is a short answer: it says yes, holds no word of no, and
 // has no word outside the answer's vocabulary, so "okay, what is this video about" is not a yes. An "always" counts only
-// when the learner said always. A no needs neither check, since declining is always safe and a wrong no costs only a
-// retry. The answer is refused rather than changed, so the chip, which reads the answer the harness settles, never names
+// when the learner said always. A no for a request the learner had read needs no check, since declining is always safe
+// and a wrong no costs only a retry. A no for an unread request needs a word of no, since the router takes every command
+// while a request waits, and a misread command or a caption could otherwise decline a request the learner never looked
+// at. The answer is refused rather than changed, so the chip, which reads the answer the harness settles, never names
 // one the learner did not give.
 func approvalVoiceAnswerTheLearnerSaid(modelAnswer approvalVoiceAnswer, transcript string, requestWasSeenAtPress bool) (approvalVoiceAnswer, bool) {
+	transcriptWords := approvalTranscriptWords(transcript)
 	if !modelAnswer.approved {
+		if !requestWasSeenAtPress && !slices.ContainsFunc(transcriptWords, func(word string) bool { return approvalNoWords[word] }) {
+			return approvalVoiceAnswer{}, false
+		}
 		return modelAnswer, true
 	}
 	if !requestWasSeenAtPress {
 		return approvalVoiceAnswer{}, false
 	}
-	transcriptWords := approvalTranscriptWords(transcript)
 	spacedTranscript := " " + strings.Join(transcriptWords, " ") + " "
 	saysNo := false
 	saysYes := false

@@ -31,9 +31,9 @@
 //
 // The harness decides voice approvals itself and handles `answer_approval` without sending it to the app, so the harness
 // backend scores the cases of a context with a waiting request (`approvalWaiting`) from what the harness's approval gate
-// settled. It seeds a waiting request with the bench-only `seed_approval_request`, names it in `approvalIDSeenAtPress`, and
-// reads the answer from the `approval_settled` line or the `Brain: approval` log line. An unrelated command passes only
-// with its own tool call and no settlement. The Worker backend still sends `approvalWaiting` in the scene state and scores
+// settled. It seeds a waiting request with the bench-only `seed_approval_request`, names it in `approvalIDWaitingAtPress`
+// and `approvalIDSeenAtPress`, and reads the answer from the `approval_settled` line or the `Brain: approval` log line. An
+// unrelated command passes only with its own tool call and no settlement. The Worker backend still sends `approvalWaiting` in the scene state and scores
 // the tool's input, as the app's old path does.
 //
 // How a request is built. The app sends { messages, tools } to the Worker, which adds the model, the system prompt, and a
@@ -965,7 +965,7 @@ export class HarnessCommandRecorder {
   private readonly brainCase: BrainCase;
   private readonly commandID: string;
 
-  /** `approvalID` is the request the command may answer, which `voiceCommandMessageFor` names in `approvalIDSeenAtPress`. */
+  /** `approvalID` is the request the command may answer, which `voiceCommandMessageFor` names in `approvalIDWaitingAtPress` and `approvalIDSeenAtPress`. */
   constructor(brainCase: BrainCase, commandID: string, approvalID: string | null = null) {
     this.brainCase = brainCase;
     this.commandID = commandID;

@@ -512,9 +512,10 @@ final class HarnessApprovalDesk: ObservableObject {
         approvalAnswerReadiness(wholeSummaryShownSince: wholeSummaryShownSinceBySurface[surface], at: date)
     }
 
-    /// The request a voice answer from a push-to-talk press at `date` may reach: the oldest, which the card shows, with
-    /// whether any surface had shown its whole summary for `secondsTheCardShowsBeforeAnAnswerCounts`. Nil when none waits.
-    /// A request that came on screen after the press is one the learner was not answering.
+    /// The request a voice answer from a push-to-talk press at `date` may reach: the oldest, which an open surface's card
+    /// shows and the waiting chip asks about when none is open, with whether any surface had shown its whole summary for
+    /// `secondsTheCardShowsBeforeAnAnswerCounts`. Nil when none waits. A request that came after the press is one the
+    /// learner was not answering.
     func approvalAtPress(at date: Date) -> ApprovalAtPress? {
         guard let oldestRequest = waitingRequests.first else { return nil }
         let wholeSummaryWasSeen = wholeSummaryShownSinceBySurface.values.contains { wholeSummaryShownSince in
@@ -609,10 +610,11 @@ final class HarnessApprovalDesk: ObservableObject {
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         let request = waitingRequests.remove(at: requestIndex)
         answeringApprovalIDs.remove(approvalID)
-        timedOutApprovalIDs.remove(approvalID)
+        // The learner sent nothing for a request the desk's own timeout declined, so its card says it timed out.
+        let desksOwnTimeoutDeclinedIt = timedOutApprovalIDs.remove(approvalID) != nil
         noteWhenTheOldestRequestShowed(oldestApprovalIDBefore: oldestApprovalIDBefore)
         print("Agent harness: approval \(approvalID) was answered but not settled within \(answerSettleGraceSeconds) s, so its card was dropped")
-        showTheEnding(.noReply, of: request)
+        showTheEnding(desksOwnTimeoutDeclinedIt ? .timedOut : .noReply, of: request)
         onWaitingRequestsChanged?(waitingRequests)
     }
 
@@ -666,8 +668,12 @@ final class HarnessApprovalDesk: ObservableObject {
         onWaitingRequestsChanged?(waitingRequests)
     }
 
-    /// Forgets a task's requests when the task ends. The harness already abandoned them, so nothing is sent.
+    /// Forgets a task's requests when the task ends. The harness already abandoned them, so nothing is sent. An ended
+    /// card of that task goes too, since "The task goes on" would describe a task that is gone.
     func dropRequests(forTaskID taskID: UUID) {
+        if lastEndedCard?.request.taskID == taskID {
+            lastEndedCard = nil
+        }
         let requestCountBefore = waitingRequests.count
         let oldestApprovalIDBefore = waitingRequests.first?.approvalID
         waitingRequests.removeAll { $0.taskID == taskID }

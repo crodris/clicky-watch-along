@@ -32,6 +32,8 @@
     { "name": "an always before the summary was read is refused", "transcript": "always allow it", "modelInput": { "approved": true, "always": true }, "seenAtPress": false, "expected": null },
     { "name": "a no before the summary was read declines at once", "transcript": "no", "modelInput": { "approved": false, "always": false }, "seenAtPress": false, "expected": { "approved": false, "scope": "once" } },
     { "name": "a no with always set before reading stays a plain no", "transcript": "no, never", "modelInput": { "approved": false, "always": true }, "seenAtPress": false, "expected": { "approved": false, "scope": "once" } },
+    { "name": "a no before reading needs a word of no", "transcript": "skip ahead ten seconds", "modelInput": { "approved": false, "always": false }, "seenAtPress": false, "expected": null },
+    { "name": "a curly don't before reading is a word of no", "transcript": "don’t", "modelInput": { "approved": false, "always": false }, "seenAtPress": false, "expected": { "approved": false, "scope": "once" } },
     { "name": "a seen request still takes a yes", "transcript": "yes", "modelInput": { "approved": true, "always": false }, "seenAtPress": true, "expected": { "approved": true, "scope": "once" } }
   ]
 }

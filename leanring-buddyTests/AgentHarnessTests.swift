@@ -614,6 +614,32 @@ struct AgentHarnessTests {
         #expect(answeredIDs == ["approval-1"])
     }
 
+    /// "The task goes on" would describe a task that is gone, so an ended card leaves with its task.
+    @Test func anEndedCardGoesWhenItsTaskEnds() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let desk = HarnessApprovalDesk(secondsAnEndedCardStays: 60, currentDate: { now }) { _, _, _ in }
+        desk.receive(anApprovalRequest("approval-1"))
+        desk.settle(approvalID: "approval-1", approved: true, scope: .once)
+        desk.dropRequests(forTaskID: secondTaskID)
+        #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .ended(.allowed(.once)), "another task's end leaves it")
+
+        desk.dropRequests(forTaskID: firstTaskID)
+        #expect(desk.cardToShow(on: .agentList, at: now) == nil)
+    }
+
+    /// The learner sent nothing for a request the desk's own timeout declined, so a harness that never settles it leaves a
+    /// card that says it timed out, never "Sent, but the agent never confirmed it."
+    @Test(.timeLimit(.minutes(1))) func aTimedOutRequestTheHarnessNeverSettlesEndsAsTimedOut() async {
+        let desk = HarnessApprovalDesk(timeoutSeconds: 0.1, answerSettleGraceSeconds: 0.1, secondsAnEndedCardStays: 60) { _, _, _ in }
+        desk.receive(anApprovalRequest("approval-1"))
+
+        let deadline = Date().addingTimeInterval(10)
+        while !desk.waitingRequests.isEmpty, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(desk.cardToShow(on: .agentList, at: Date())?.phase == .ended(.timedOut))
+    }
+
     @Test func aRequestThatBecomesTheOldestStartsItsCardOverAndOpensAClosedList() {
         var now = Date(timeIntervalSince1970: 1_000)
         var listIsOpen = true

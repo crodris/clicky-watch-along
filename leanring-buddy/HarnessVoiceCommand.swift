@@ -165,8 +165,8 @@ nonisolated let harnessPlanningLogLinePrefix = "Brain: planning on "
 /// larger model's turn, which ends a hung turn with a gave-up line first.
 nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 
-/// Runs one voice command's events: each tool call through `runTool`, with the approval ID the learner had seen at the
-/// press only for a call from the model's first turn, and its outcome back to the harness. It returns how the command
+/// Runs one voice command's events: each tool call through `runTool`, with the approval request the card showed at the
+/// press, and whether it was read whole then, only for a call from the model's first turn, and its outcome back to the harness. It returns how the command
 /// ended. The wait for each event has a deadline, which stops while a tool runs, since a tool such as play_video's check
 /// takes its own time, and which is 35 seconds instead of 10 after the harness says the larger model's turn started.
 /// When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still queued behind the

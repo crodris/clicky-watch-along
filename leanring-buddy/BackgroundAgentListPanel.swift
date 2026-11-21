@@ -940,26 +940,30 @@ struct ApprovalCardView: View {
             }
             summaryBox
             statusRow
-            HStack(spacing: 6) {
-                ApprovalAnswerButton(title: "Don't allow", isEnabled: isWaiting) {
-                    answerApproval(approvalRequest.approvalID, false, .once)
+            // Once an answer is on its way the buttons go, so Don't allow never shows dimmed, and the status line says
+            // what happened.
+            if isWaiting {
+                HStack(spacing: 6) {
+                    ApprovalAnswerButton(title: "Don't allow", isEnabled: true) {
+                        answerApproval(approvalRequest.approvalID, false, .once)
+                    }
+                    .accessibilityHint("Counts at once")
+                    ApprovalAnswerButton(title: "Allow once", isEnabled: allowButtonsAreEnabled) {
+                        answerApproval(approvalRequest.approvalID, true, .once)
+                    }
+                    .accessibilityHint("Available once the whole request has been read")
+                    ApprovalAnswerButton(title: "For this task", isEnabled: allowButtonsAreEnabled) {
+                        answerApproval(approvalRequest.approvalID, true, .always)
+                    }
+                    .accessibilityHint("Allows this tool and kind of access until the agent finishes")
                 }
-                .accessibilityHint("Counts at once")
-                ApprovalAnswerButton(title: "Allow once", isEnabled: allowButtonsAreEnabled) {
-                    answerApproval(approvalRequest.approvalID, true, .once)
-                }
-                .accessibilityHint("Available once the whole request has been read")
-                ApprovalAnswerButton(title: "For this task", isEnabled: allowButtonsAreEnabled) {
-                    answerApproval(approvalRequest.approvalID, true, .always)
-                }
-                .accessibilityHint("Allows this tool and kind of access until the agent finishes")
+                // The panel is never key, so a tooltip would not show. This line says how to answer by voice and what
+                // the third button covers.
+                Text(verbatim: "Or say yes or no. For this task lasts until the agent finishes.")
+                    .font(DS.TypeScale.caption.font)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            // The panel is never key, so a tooltip would not show. This line says how to answer by voice and what the
-            // third button covers.
-            Text(verbatim: "Or say yes or no. For this task lasts until the agent finishes.")
-                .font(DS.TypeScale.caption.font)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -1066,7 +1070,7 @@ struct ApprovalCardView: View {
         GeometryReader { railProxy in
             let summaryHeight = max(summaryFrame.height, 1)
             ZStack(alignment: .top) {
-                Capsule().fill(Color.white.opacity(0.1))
+                Capsule().fill(DS.Colors.surface4)
                 ForEach(Array(seenRanges.ranges.enumerated()), id: \.offset) { _, seenRange in
                     Capsule()
                         .fill(DS.Colors.warning)
@@ -1095,7 +1099,7 @@ struct ApprovalCardView: View {
                 EmptyView()
             }
             Text(verbatim: approvalCardStatusText(phase: phase, reduceMotionIsOn: reduceMotionIsOn))
-                .font(.system(size: 11, weight: .semibold))
+                .font(DS.TypeScale.caption.font)
                 .foregroundColor(statusTextColor)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1114,7 +1118,7 @@ struct ApprovalCardView: View {
 
     private func readyRing(progress: Double) -> some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.12), lineWidth: 2)
+            Circle().stroke(DS.Colors.surface4, lineWidth: 2)
             Circle()
                 .trim(from: 0, to: progress)
                 .stroke(DS.Colors.warning, style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -1151,7 +1155,7 @@ private struct ApprovalAnswerButton: View {
     var body: some View {
         Button(action: action) {
             Text(verbatim: title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(DS.TypeScale.caption.font)
                 .foregroundColor(isEnabled ? DS.Colors.textPrimary : DS.Colors.textTertiary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, minHeight: 28)
@@ -1159,7 +1163,7 @@ private struct ApprovalAnswerButton: View {
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium)
                         .fill(isHovered && isEnabled ? DS.Colors.surface4 : DS.Colors.surface3)
                 )
-                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).stroke(DS.Colors.borderSubtle, lineWidth: 1))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
