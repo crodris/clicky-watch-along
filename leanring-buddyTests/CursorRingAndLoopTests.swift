@@ -140,18 +140,17 @@ func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
 }
 
 /// A controller that reads `media` from the front tab instead of Chrome, with a turn waiting for a loop.
-/// `polledSample` is what the poll sees, and it matches the media's own sample unless a test says the tab changed.
-/// A test that counts the poll's reads or waits passes `readTheFrontTabSample` or `waitBetweenFrontTabPolls`.
+/// The poll sees the media's own sample unless a test passes `readTheFrontTabSample`, and a test that counts the poll's
+/// waits passes `waitBetweenFrontTabPolls`.
 @MainActor
 private func controllerWithATurnWaitingForALoop(
     reading media: MediaOnTheFrontTab?,
-    polling polledSample: FrontTabSample = exampleSample(),
-    readTheFrontTabSample: (() -> FrontTabSample?)? = nil,
+    readTheFrontTabSample: @escaping () -> FrontTabSample? = { exampleSample() },
     waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
 ) async -> CursorLoopController {
     let controller = CursorLoopController(
         readTheMediaInTheFrontTab: { media },
-        readTheFrontTabSample: readTheFrontTabSample ?? { polledSample },
+        readTheFrontTabSample: readTheFrontTabSample,
         waitBetweenFrontTabPolls: waitBetweenFrontTabPolls
     )
     controller.pushToTalkWasReleased()
