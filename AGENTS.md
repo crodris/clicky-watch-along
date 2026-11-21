@@ -140,6 +140,7 @@ A new design cancels one still running, and the old ideas stay dimmed on the car
 Starting a design cancels a scene still building the way "let me try it" does, so the router is not left off and a video Clicky paused for the scene plays again.
 The studio's spoken lines wait until no audio is playing, push-to-talk is not held, and Clicky is not thinking about a request, all checked together in one loop (`themeStudioLineMayStart`), so a line never plays over the learner or over the request that followed it.
 The studio's own design holds the thinking state while it reads a picture, so that state does not hold a line back while a design runs, and the "no picture" line still plays before the ideas' line.
+That excuse ends at the first push-to-talk press after the design started, since a thinking state after a press is the learner's own request: `CompanionManager` counts presses, records the count when each design starts, and passes both counts to `themeStudioLineMayStart`.
 A request from the picture draws the loop around the largest picture in Chrome's front tab and captures it the way the image pop-out does, and keeps the thinking state up until the ideas arrive. With no picture to capture, Clicky says "I don't see a picture in Chrome's front tab, so I'll go from your words." and designs from the words.
 The card keeps the picture, so a refinement and a save keep it.
 With Show Clicky off, transient cursor mode fades the overlay a second after the last interaction, so the preview then shows on the card's tiles only.

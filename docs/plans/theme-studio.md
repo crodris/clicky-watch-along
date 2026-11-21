@@ -211,7 +211,7 @@ Flow:
 6. Escape closes the studio first when it is open, ahead of the scene behavior, and keeps the old theme.
    A push-to-talk press does not close it. A new `design_theme` cancels a design call still running.
    Closing the card by Escape, the Close button, or `close_theme_studio` stops the line Clicky is saying about the ideas, and only that line: an answer playing for another request keeps playing.
-   A studio line waits until no audio plays, push-to-talk is not held, and Clicky is not thinking about a request, all checked together (`themeStudioLineMayStart`). The studio's own design does not count as thinking.
+   A studio line waits until no audio plays, push-to-talk is not held, and Clicky is not thinking about a request, all checked together (`themeStudioLineMayStart`). The studio's own design does not count as thinking, until the learner presses push-to-talk after the design started, since the thinking state after a press is their request. The check compares a press count now with the count recorded when the design started.
    The studio keeps the playback token of its own line, which `ElevenLabsTTSClient.speakText` returns, and closing the card stops playback only through `stopPlayback(ifTheCurrentLineIs:)`. A line another answer replaced, or one that ended, is not stopped, and the responding state is reset only when the stop reached the studio's line.
 
 The card is a borderless nonactivating panel that never becomes key, like the agent list, placed at the first corner around the mouse where it does not cover the pointer (reuse `approvalListAnchorTopLeft`).

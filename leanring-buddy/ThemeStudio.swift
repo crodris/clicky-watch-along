@@ -223,14 +223,20 @@ nonisolated func asksToDesignATheme(_ transcript: String) -> ThemeStudioRequest?
 /// the request that followed it.
 /// The studio's own design holds the thinking state while it reads a picture, so that state does not hold a line back while
 /// a design runs. Otherwise the "no picture" line would wait for the ideas, and their line would replace it.
+/// A push-to-talk press after the design started means any thinking state since then is the learner's new request, so the
+/// design stops excusing it. The presses are compared as counts, since the design cannot tell whose thinking it sees.
 nonisolated func themeStudioLineMayStart(
     dictationIsInProgress: Bool,
     clickyIsThinking: Bool,
     audioIsPlaying: Bool,
-    themeStudioIsDesigning: Bool
+    themeStudioIsDesigning: Bool,
+    pushToTalkPressCount: Int,
+    pushToTalkPressCountWhenTheDesignStarted: Int
 ) -> Bool {
     if dictationIsInProgress || audioIsPlaying { return false }
-    return themeStudioIsDesigning || !clickyIsThinking
+    let learnerPressedSinceTheDesignStarted = pushToTalkPressCount != pushToTalkPressCountWhenTheDesignStarted
+    let thinkingBelongsToTheStudiosOwnDesign = themeStudioIsDesigning && !learnerPressedSinceTheDesignStarted
+    return thinkingBelongsToTheStudiosOwnDesign || !clickyIsThinking
 }
 
 // MARK: - What a save says

@@ -179,11 +179,14 @@ struct AsksToDesignAThemeTests {
 // MARK: - When a line may play
 
 struct ThemeStudioLineTimingTests {
+    /// The design started at press number 3, and `pressesSinceTheDesignStarted` is how many presses came after it.
     private func lineMayStart(
-        dictation: Bool = false, thinking: Bool = false, audioPlaying: Bool = false, designing: Bool = false
+        dictation: Bool = false, thinking: Bool = false, audioPlaying: Bool = false, designing: Bool = false,
+        pressesSinceTheDesignStarted: Int = 0
     ) -> Bool {
         themeStudioLineMayStart(
-            dictationIsInProgress: dictation, clickyIsThinking: thinking, audioIsPlaying: audioPlaying, themeStudioIsDesigning: designing
+            dictationIsInProgress: dictation, clickyIsThinking: thinking, audioIsPlaying: audioPlaying, themeStudioIsDesigning: designing,
+            pushToTalkPressCount: 3 + pressesSinceTheDesignStarted, pushToTalkPressCountWhenTheDesignStarted: 3
         )
     }
 
@@ -199,6 +202,16 @@ struct ThemeStudioLineTimingTests {
         #expect(lineMayStart(thinking: true, designing: true))
         #expect(!lineMayStart(dictation: true, thinking: true, designing: true))
         #expect(!lineMayStart(thinking: true, audioPlaying: true, designing: true))
+    }
+
+    @Test func aPushToTalkPressAfterTheDesignStartedMakesThinkingTheLearnersRequestAndHoldsTheLineBack() {
+        // The thinking state while a design runs is still the studio's own until the learner presses.
+        #expect(lineMayStart(thinking: true, designing: true, pressesSinceTheDesignStarted: 0))
+        // After a press, the same state is the learner's request, whether or not the design is still running.
+        #expect(!lineMayStart(thinking: true, designing: true, pressesSinceTheDesignStarted: 1))
+        #expect(!lineMayStart(thinking: true, designing: false, pressesSinceTheDesignStarted: 1))
+        // A press that left Clicky idle holds nothing back, so the line still plays once the learner's request ended.
+        #expect(lineMayStart(thinking: false, designing: true, pressesSinceTheDesignStarted: 1))
     }
 }
 

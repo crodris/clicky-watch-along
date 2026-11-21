@@ -270,6 +270,10 @@ final class CompanionManager: ObservableObject {
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?
+    /// How many times push-to-talk has been pressed, which tells a studio line whether the learner made a request after the
+    /// current design started (`themeStudioLineMayStart`).
+    private var pushToTalkPressCount = 0
+    private var pushToTalkPressCountWhenTheThemeDesignStarted = 0
     private static let backgroundAgentChipSecondsOnScreen: TimeInterval = 4
     /// The last few tool calls, so the model can read "no, the other way" against what Clicky just did.
     private var recentVoiceToolActionLines: [String] = []
@@ -883,6 +887,7 @@ final class CompanionManager: ObservableObject {
             // Don't register push-to-talk while the onboarding video is playing
             guard !showOnboardingVideo else { return }
 
+            pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
@@ -1067,6 +1072,7 @@ final class CompanionManager: ObservableObject {
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
+            pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             cursorLoopController.pushToTalkWasPressed()
             cursorLoopController.pushToTalkWasReleased()
@@ -3028,6 +3034,8 @@ final class CompanionManager: ObservableObject {
     /// thinking state stays up while a picture is captured and designed from, so the loop around the picture shows what
     /// Clicky is looking at. Like any hand-off, it takes over the reply, so a router turn that called it ends here.
     private func startDesigningATheme(request: String, basedOnIdea: Int?, pictureChoice: ThemeStudioPictureChoice) {
+        // The request that started this design already pressed push-to-talk, so only a later press is the learner's next request.
+        pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
         liveSceneRequestTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
@@ -3062,7 +3070,8 @@ final class CompanionManager: ObservableObject {
     /// Says a studio line once nothing else is happening: no audio playing, so a "no picture" line is not cut off by the
     /// ideas' own line, no push-to-talk held, and no request of the learner's being worked on, so it never plays over their
     /// voice or over the request that followed it. The three are checked together in one loop, since each can start while
-    /// the line waits for another.
+    /// the line waits for another. The press counts tell the studio's own design apart from a request the learner made
+    /// after it started, since both hold the thinking state.
     /// It has its own task, since a push-to-talk press cancels the reply task and must not drop a line the card is waiting on.
     private func speakAThemeStudioLine(_ line: String) {
         themeStudioSpeechTask?.cancel()
@@ -3071,7 +3080,9 @@ final class CompanionManager: ObservableObject {
                 dictationIsInProgress: self.buddyDictationManager.isDictationInProgress,
                 clickyIsThinking: self.voiceState == .processing,
                 audioIsPlaying: self.elevenLabsTTSClient.isPlaying,
-                themeStudioIsDesigning: self.themeStudioController.state.isDesigning
+                themeStudioIsDesigning: self.themeStudioController.state.isDesigning,
+                pushToTalkPressCount: self.pushToTalkPressCount,
+                pushToTalkPressCountWhenTheDesignStarted: self.pushToTalkPressCountWhenTheThemeDesignStarted
             ) {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
