@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
-# A newer push to a pull request cancels its older run, and every push to main finishes so each main commit gets a result.
+# A newer push to a pull request cancels its older run. Each push to main gets its own group, since GitHub keeps one
+# pending run per group and cancels the one before it, and the changes job of a push diffs only against the commit
+# before that push, so a cancelled run's app changes would never be tested.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -97,6 +99,8 @@ jobs:
         env:
           COMMIT_BEFORE_THE_PUSH: ${{ github.event.before }}
         run: |
+          # The default shell has no pipefail, and without it a failed git diff would hand the script an empty list.
+          set -o pipefail
           compared_commit="HEAD^1"
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             compared_commit="$COMMIT_BEFORE_THE_PUSH"
