@@ -106,6 +106,21 @@ struct SeekToMomentTests {
         #expect(videoCaptionMomentsMatching(query: "explains the jump", captionLines: longJumpCaptionLines).first?.seconds == 30)
     }
 
+    // A teaser that says the framing word as well as the topic ties the explanation on score, and the explanation's
+    // nearby captions decide before the framing word does, so the teaser still loses.
+    @Test func aTeaserThatAlsoSaysTheFramingWordStillLosesToTheExplanation() {
+        let captionLines = [
+            VideoQuizTranscriptLine(seconds: 12, text: "today he explains how sharks float without a swim bladder"),
+            VideoQuizTranscriptLine(seconds: 15, text: "but first let's meet the great white"),
+            VideoQuizTranscriptLine(seconds: 19, text: "it can grow longer than a car"),
+            VideoQuizTranscriptLine(seconds: 95, text: "most bony fish have a swim bladder"),
+            VideoQuizTranscriptLine(seconds: 98, text: "it is a little sack of gas inside the fish"),
+            VideoQuizTranscriptLine(seconds: 102, text: "the fish lets gas into the bladder to rise"),
+            VideoQuizTranscriptLine(seconds: 106, text: "and lets gas out of the bladder to sink"),
+        ]
+        #expect(videoCaptionMomentsMatching(query: "explains the swim bladder", captionLines: captionLines).first?.seconds == 95)
+    }
+
     // A framing word inside a topic of two words, as in "the long jump", breaks the tie between lines that say the other
     // word, so a line that says only "long" does not win by coming first.
     @Test func aFramingWordInsideATopicPrefersTheLineThatSaysTheWholeTopic() {

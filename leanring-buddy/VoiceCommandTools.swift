@@ -1082,9 +1082,10 @@ nonisolated let secondsAroundALineThatBreakATie: Double = 30
 /// line count on their own while the query has a topic word, so a teaser that says "explains" cannot win. They only
 /// break a tie, so "the long jump" prefers a line that says "long jump" to one that says only "long". When the query
 /// has nothing but framing words, as in "the jump", they are the topic.
-/// Lines that score the same are ordered by the framing words they say, then by how often the captions within
-/// `secondsAroundALineThatBreakATie` of the line say the topic words, since an explanation repeats its terms across
-/// nearby lines and an intro teaser does not. Only when those tie too does the earliest line come first.
+/// Lines that score the same are ordered by how often the captions within `secondsAroundALineThatBreakATie` of the line
+/// say the topic words, since an explanation repeats its terms across nearby lines and an intro teaser does not, so a
+/// teaser that also says the framing word still loses to the explanation. Then the framing words they say decide, and
+/// only when those tie too does the earliest line come first.
 nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [VideoQuizTranscriptLine], limit: Int = 3) -> [VideoCaptionMoment] {
     let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says"]
     let framingWordsOfTheRequest: Set<String> = ["explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"]
@@ -1134,8 +1135,8 @@ nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [Video
     return scoredMoments
         .sorted { first, second in
             if first.score != second.score { return first.score > second.score }
-            if first.framingWordsSaid != second.framingWordsSaid { return first.framingWordsSaid > second.framingWordsSaid }
             if first.topicWordsSaidNearby != second.topicWordsSaidNearby { return first.topicWordsSaidNearby > second.topicWordsSaidNearby }
+            if first.framingWordsSaid != second.framingWordsSaid { return first.framingWordsSaid > second.framingWordsSaid }
             return first.moment.seconds < second.moment.seconds
         }
         .prefix(limit)
