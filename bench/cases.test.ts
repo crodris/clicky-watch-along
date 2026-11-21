@@ -109,9 +109,8 @@ describe("the /theme-ideas cases", () => {
     name: "Moonlit",
     accent: "#7DD3FC",
     contrast: "#1E1B4B",
-    agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"],
     cursor: { kind: "shapes", shapes: [{ d: "M12 2 L22 22 L2 22 Z", fill: "#7DD3FC", stroke: null, strokeWidth: 0 }], picture: null },
-    usesPicture: false,
+    agents: { ring: "perAgent", colors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], faces: { kind: "triangle" } },
     ...overrides,
   });
   const themeReply = (...ideas: object[]) => JSON.stringify({ title: "Three ideas", spokenLine: "Here are three.", ideas });
@@ -130,7 +129,7 @@ describe("the /theme-ideas cases", () => {
 
   it("passes the words case for three well-formed ideas that use no picture, and fails a picture that was never sent", () => {
     assert.equal(check("theme-ideas-words", themeReply(idea(), idea(), idea())).passed, true);
-    assert.equal(check("theme-ideas-words", themeReply(idea({ usesPicture: true }), idea(), idea())).passed, false);
+    assert.equal(check("theme-ideas-words", themeReply(idea({ agents: { ring: "accent", colors: [], faces: { kind: "picture" } } }), idea(), idea())).passed, false);
     assert.equal(check("theme-ideas-words", themeReply(idea({ cursor: { kind: "picture", shapes: [], picture: null } }), idea(), idea())).passed, false);
   });
 
@@ -141,8 +140,10 @@ describe("the /theme-ideas cases", () => {
     assert.equal(check("theme-ideas-words", themeReply(idea({ cursor: arcCursor }), idea(), idea())).passed, false);
   });
 
-  it("passes the picture case only when at least one idea uses the picture", () => {
-    assert.equal(check("theme-ideas-picture", themeReply(idea({ usesPicture: true }), idea(), idea())).passed, true);
+  it("passes the picture case only when at least one idea uses the picture, in a version 2 or a version 1 idea", () => {
+    assert.equal(check("theme-ideas-picture", themeReply(idea({ agents: { ring: "accent", colors: [], faces: { kind: "picture" } } }), idea(), idea())).passed, true);
+    assert.equal(check("theme-ideas-picture", themeReply(idea({ agents: undefined, agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], usesPicture: true }), idea(), idea())).passed, true);
+    assert.equal(check("theme-ideas-words", themeReply(idea({ agents: { ring: "perAgent", colors: ["#7dd3fc"], faces: { kind: "triangle" } } }), idea(), idea())).passed, false);
     assert.equal(check("theme-ideas-picture", themeReply(idea(), idea(), idea())).passed, false);
     assert.equal(check("theme-ideas-picture", "not json").passed, false);
   });
