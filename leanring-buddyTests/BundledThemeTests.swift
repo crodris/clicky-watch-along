@@ -76,12 +76,21 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
     BackgroundAgentStore(themeSettings: makeThemeSettings(startingWith: theme))
 }
 
-/// A UserDefaults suite of its own, emptied before and after `body`.
+/// The name of a fixed UserDefaults suite for a test that reads its saved values back, after the test host's bundle ID.
+/// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
+/// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
+/// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
+func fixedTestDefaultsSuiteName(_ testName: String) -> String {
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)"
+}
+
+/// A UserDefaults suite of its own, named by `fixedTestDefaultsSuiteName`, emptied before and after `body`.
 @MainActor
 func withEmptyDefaults(suiteName: String, _ body: @MainActor (UserDefaults) throws -> Void) throws {
-    let testDefaults = try #require(UserDefaults(suiteName: suiteName))
-    testDefaults.removePersistentDomain(forName: suiteName)
-    defer { testDefaults.removePersistentDomain(forName: suiteName) }
+    let runnerSuiteName = fixedTestDefaultsSuiteName(suiteName)
+    let testDefaults = try #require(UserDefaults(suiteName: runnerSuiteName))
+    testDefaults.removePersistentDomain(forName: runnerSuiteName)
+    defer { testDefaults.removePersistentDomain(forName: runnerSuiteName) }
     try body(testDefaults)
 }
 
