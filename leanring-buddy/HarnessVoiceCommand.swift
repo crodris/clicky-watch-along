@@ -153,6 +153,27 @@ nonisolated enum HarnessVoiceCommandEnding: Equatable, Sendable {
     case cancelled
 }
 
+/// The line Clicky speaks for a line the harness sent. The harness sends lines whole, and this is the one cut, since only
+/// Swift counts characters as the speech does, by grapheme cluster. The early line and the finished line both go through
+/// it, so the same words from the harness are the same line here.
+nonisolated func voiceCommandLineToSpeak(_ harnessSpokenLine: String) -> String {
+    String(harnessSpokenLine.prefix(longestSpokenVoiceCommandLine))
+}
+
+/// Where the audio of a voice command's finished line comes from.
+nonisolated enum VoiceCommandLineAudio: Equatable, Sendable {
+    /// The audio fetched when the early line arrived, since the finished line has exactly its words.
+    case theAudioFetchedEarly
+    /// A fetch started now: nothing was fetched early, or the early line had other words, such as after a lookup.
+    case aFetchStartedNow
+}
+
+/// Plays the audio fetched for the early line only when the finished line is exactly that line. Any difference, even
+/// in punctuation, fetches the finished line instead, so Clicky never says words the harness did not finish with.
+nonisolated func voiceCommandLineAudio(lineToSpeak: String, earlyLineFetched: String?) -> VoiceCommandLineAudio {
+    earlyLineFetched == lineToSpeak ? .theAudioFetchedEarly : .aFetchStartedNow
+}
+
 /// How long the app waits for the harness's next event of a command before it fails the command, so a hung harness
 /// falls back too. It is above the harness's own 8 second turn timeout, which ends a hung turn with task_failed first.
 nonisolated let secondsToWaitForTheNextHarnessVoiceCommandEvent: Double = 10
@@ -170,7 +191,8 @@ nonisolated let secondsToWaitForAPlanningTurn: Double = 35
 /// ended. The wait for each event has a deadline, which stops while a tool runs, since a tool such as play_video's check
 /// takes its own time, and which is 35 seconds instead of 10 after the harness says the larger model's turn started.
 /// When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still queued behind the
-/// deadline runs, since the router failure fallback runs instead.
+/// deadline runs, since the router failure fallback runs instead. The line a turn speaks if every call changes the screen
+/// reaches `whenTheLineIfEveryCallChangesArrives` before the turn's calls, so its audio can be fetched while they run.
 ///
 /// A hand-off ends the command at once as finished with no spoken line, since the harness's next step after a
 /// `.handedOff` result is always to finish silently. Waiting for its voice_command_finished would let a harness that
@@ -183,6 +205,7 @@ func runTheVoiceCommandEvents(
     secondsToWaitForAnEvent: Double = secondsToWaitForTheNextHarnessVoiceCommandEvent,
     secondsToWaitAfterAPlanningLine: Double = secondsToWaitForAPlanningTurn,
     whenNoEventArrivesInTime: @escaping @MainActor () -> Void,
+    whenTheLineIfEveryCallChangesArrives: (_ spokenLine: String) -> Void = { _ in },
     runTool: (_ toolCall: VoiceToolCall, _ approvalIDTheLearnerIsAnswering: String?) async -> VoiceToolOutcome
 ) async -> HarnessVoiceCommandEnding {
     let eventDeadlineRecord = HarnessVoiceCommandDeadlineRecord()
@@ -221,6 +244,10 @@ func runTheVoiceCommandEvents(
             case .planningTurnStarted:
                 // The larger model's turn is under way, and the harness ends it itself within 30 seconds.
                 startTheEventDeadline(secondsToWait: secondsToWaitAfterAPlanningLine)
+            case .spokenLineIfEveryCallChanges(let spokenLine):
+                // The turn's reply is in and its calls follow at once, so the audio is fetched while they run.
+                whenTheLineIfEveryCallChangesArrives(spokenLine)
+                startTheEventDeadline(secondsToWait: secondsToWaitForAnEvent)
             case .voiceCommandFinished(let spokenLine, let gaveUp):
                 return .finished(spokenLine: spokenLine, gaveUp: gaveUp)
             case .failed(let reason):

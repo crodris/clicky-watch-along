@@ -367,6 +367,8 @@ func TestAVoiceAnswerSettlesTheTasksRequestOnceAndALaterClickChangesNothing(t *t
 			toolCallLine = line
 		case "log":
 			driver.logs = append(driver.logs, line)
+		case "voice_line_if_every_call_changes":
+			driver.voiceLines = append(driver.voiceLines, line)
 		default:
 			t.Fatalf("unexpected line %s", line)
 		}

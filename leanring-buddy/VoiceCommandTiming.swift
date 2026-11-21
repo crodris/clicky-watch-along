@@ -24,8 +24,12 @@ nonisolated struct VoiceCommandTiming: Equatable, Sendable {
     var firstToolCallReceivedAt: Date?
     /// The audio of the first line the command spoke started playing.
     var firstLineAudioStartedAt: Date?
+    /// Whether the finished line played the audio fetched while the calls ran, or a fetch started after them. Nil for a
+    /// command that spoke no finished line, or that ran on the Worker router, which sends no early line.
+    var lineAudio: VoiceCommandLineAudio?
 
     /// The log line's text, which starts with the first duration. A duration whose two marks are not both set is "-".
+    /// It ends with `line_audio=`: `fetched_early`, `fetched_now`, or `-`.
     var logLine: String {
         let durations: [(name: String, from: Date?, to: Date?)] = [
             ("release_to_transcript_ms", pushToTalkReleasedAt, transcriptReadyAt),
@@ -35,10 +39,17 @@ nonisolated struct VoiceCommandTiming: Equatable, Sendable {
             ("first_call_to_first_line_ms", firstToolCallReceivedAt, firstLineAudioStartedAt),
             ("release_to_first_line_ms", pushToTalkReleasedAt, firstLineAudioStartedAt),
         ]
-        return durations.map { duration in
+        let durationFields = durations.map { duration in
             guard let from = duration.from, let to = duration.to else { return "\(duration.name)=-" }
             return "\(duration.name)=\(Int((to.timeIntervalSince(from) * 1000).rounded()))"
-        }.joined(separator: " ")
+        }
+        let lineAudioField: String
+        switch lineAudio {
+        case .theAudioFetchedEarly: lineAudioField = "line_audio=fetched_early"
+        case .aFetchStartedNow: lineAudioField = "line_audio=fetched_now"
+        case nil: lineAudioField = "line_audio=-"
+        }
+        return (durationFields + [lineAudioField]).joined(separator: " ")
     }
 }
 
@@ -73,6 +84,12 @@ final class VoiceCommandTimingRecorder {
 
     init(pushToTalkReleasedAt: Date?, transcriptReadyAt: Date) {
         timing = VoiceCommandTiming(pushToTalkReleasedAt: pushToTalkReleasedAt, transcriptReadyAt: transcriptReadyAt)
+    }
+
+    /// Where the finished line's audio came from. A command speaks one finished line, so it is set once.
+    var lineAudio: VoiceCommandLineAudio? {
+        get { timing.lineAudio }
+        set { timing.lineAudio = newValue }
     }
 
     func mark(_ moment: WritableKeyPath<VoiceCommandTiming, Date?>, at date: Date = Date()) {

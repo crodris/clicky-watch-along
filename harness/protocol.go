@@ -14,7 +14,8 @@ import (
 // has a "type" string, and every task message carries the task's ID, which is the UUID string of the agent in the
 // app's BackgroundAgentStore. A voice command reuses the task messages (tool_call, tool_result, cancel_task, task_failed)
 // with the command's own UUID in taskID, and adds voice_command and voice_command_finished. The Swift side of it is
-// leanring-buddy/AgentHarness.swift.
+// leanring-buddy/AgentHarness.swift. A voice command's turn that has calls also sends voice_line_if_every_call_changes
+// before its first tool_call.
 
 // inboundMessage is a message the app sends, already parsed and checked.
 type inboundMessage interface {
@@ -305,6 +306,16 @@ type voiceCommandFinishedMessage struct {
 	GaveUp     bool   `json:"gaveUp"`
 }
 
+// voiceLineIfEveryCallChangesMessage is the line a voice command will speak if every call of the turn that follows
+// changes the screen (spokenLineIfEveryCallChanges in brain.go). It goes out before the turn's first tool_call, so the app
+// can fetch the line's audio while the calls run. The app plays that audio only when voice_command_finished carries the
+// same spokenLine, and drops it otherwise, such as after a lookup, a failure, or a hand-off.
+type voiceLineIfEveryCallChangesMessage struct {
+	Type       string `json:"type"`
+	TaskID     string `json:"taskID"`
+	SpokenLine string `json:"spokenLine"`
+}
+
 // approvalSettledMessage tells the app which answer the gate took for a request, whoever gave it: a click's
 // approval_result or a voice command's answer_approval. The first answer wins, so this is the one outcome the app's
 // desk shows, and the desk drops the request's card only when it arrives. Scope is "always" only for a yes the learner
@@ -324,14 +335,15 @@ type logMessage struct {
 	Message string `json:"message"`
 }
 
-func (readyMessage) outboundMessage()                {}
-func (approvalRequestMessage) outboundMessage()      {}
-func (toolCallMessage) outboundMessage()             {}
-func (taskFinishedMessage) outboundMessage()         {}
-func (taskFailedMessage) outboundMessage()           {}
-func (logMessage) outboundMessage()                  {}
-func (voiceCommandFinishedMessage) outboundMessage() {}
-func (approvalSettledMessage) outboundMessage()      {}
+func (readyMessage) outboundMessage()                       {}
+func (approvalRequestMessage) outboundMessage()             {}
+func (toolCallMessage) outboundMessage()                    {}
+func (taskFinishedMessage) outboundMessage()                {}
+func (taskFailedMessage) outboundMessage()                  {}
+func (logMessage) outboundMessage()                         {}
+func (voiceCommandFinishedMessage) outboundMessage()        {}
+func (voiceLineIfEveryCallChangesMessage) outboundMessage() {}
+func (approvalSettledMessage) outboundMessage()             {}
 
 func newReadyMessage() readyMessage {
 	return readyMessage{Type: "ready"}
@@ -350,6 +362,10 @@ func newVoiceToolCallMessage(taskID string, toolUseID string, name toolName, inp
 
 func newVoiceCommandFinishedMessage(taskID string, spokenLine string, gaveUp bool) voiceCommandFinishedMessage {
 	return voiceCommandFinishedMessage{Type: "voice_command_finished", TaskID: taskID, SpokenLine: spokenLine, GaveUp: gaveUp}
+}
+
+func newVoiceLineIfEveryCallChangesMessage(taskID string, spokenLine string) voiceLineIfEveryCallChangesMessage {
+	return voiceLineIfEveryCallChangesMessage{Type: "voice_line_if_every_call_changes", TaskID: taskID, SpokenLine: spokenLine}
 }
 
 func newApprovalSettledMessage(approvalID string, approved bool, scope string) approvalSettledMessage {

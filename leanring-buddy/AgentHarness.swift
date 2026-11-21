@@ -42,6 +42,9 @@ nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case failed(reason: String)
     /// A voice command ended. spokenLine may be empty, and gaveUp says its last turn still needed the model.
     case voiceCommandFinished(spokenLine: String, gaveUp: Bool)
+    /// The line a voice command will speak if every call of the turn that follows changes the screen. It comes before the
+    /// turn's first call, so its audio can be fetched while the calls run. Only a voice command gets it.
+    case spokenLineIfEveryCallChanges(String)
     /// The brain's last turn runs on the larger model, which takes longer, so the command's wait for its next event is
     /// longer too (`secondsToWaitForAPlanningTurn`). Only a voice command gets it.
     case planningTurnStarted
@@ -92,6 +95,9 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
     case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
+    /// voice_line_if_every_call_changes: the line the command's next turn speaks if every one of its calls changes the
+    /// screen, sent before the turn's first tool_call (spokenLineIfEveryCallChanges in harness/brain.go).
+    case voiceLineIfEveryCallChanges(taskID: UUID, spokenLine: String)
     /// The harness's gate took this answer to an approval request. It is the one outcome the desk shows, whether the
     /// learner clicked or said it, and the first answer wins.
     case approvalSettled(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
@@ -156,6 +162,8 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
                 throw ParseError.missingField(messageType: messageType, fieldName: "gaveUp")
             }
             self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
+        case "voice_line_if_every_call_changes":
+            self = .voiceLineIfEveryCallChanges(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"))
         case "approval_settled":
             guard let approved = messageJSON["approved"]?.boolValue else {
                 throw ParseError.missingField(messageType: messageType, fieldName: "approved")
@@ -315,6 +323,8 @@ final class HarnessTaskRouter {
             end(taskID: taskID, lastEvent: .failed(reason: reason))
         case .voiceCommandFinished(let taskID, let spokenLine, let gaveUp):
             end(taskID: taskID, lastEvent: .voiceCommandFinished(spokenLine: spokenLine, gaveUp: gaveUp))
+        case .voiceLineIfEveryCallChanges(let taskID, let spokenLine):
+            eventContinuationsByTaskID[taskID]?.yield(.spokenLineIfEveryCallChanges(spokenLine))
         }
     }
 

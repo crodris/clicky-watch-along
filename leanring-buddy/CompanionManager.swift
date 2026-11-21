@@ -2926,6 +2926,10 @@ final class CompanionManager: ObservableObject {
         harnessVoiceCommandsSent += 1
         #endif
         var aToolOfTheCommandRan = false
+        // The audio of the line the current turn speaks if every call changes the screen, fetched while the calls run.
+        // Every exit that does not play it cancels it: a cancel, a hand-off, a failure, a gave-up line, or other words.
+        var earlyLineFetch: SpokenLineFetch?
+        defer { earlyLineFetch?.cancel() }
         let commandEnding = await runTheVoiceCommandEvents(
             commandEvents,
             lines: commandLines,
@@ -2936,6 +2940,12 @@ final class CompanionManager: ObservableObject {
                     taskID: commandID,
                     lastEvent: .failed(reason: "the agent harness sent nothing in time")
                 )
+            },
+            whenTheLineIfEveryCallChangesArrives: { spokenLine in
+                // A later turn's line replaces an earlier one, which a lookup or a failure made wrong.
+                earlyLineFetch?.cancel()
+                let lineToSpeak = voiceCommandLineToSpeak(spokenLine)
+                earlyLineFetch = lineToSpeak.isEmpty ? nil : self.elevenLabsTTSClient.startFetching(lineToSpeak)
             },
             runTool: { toolCall, approvalIDTheLearnerIsAnswering in
                 aToolOfTheCommandRan = true
@@ -2975,14 +2985,22 @@ final class CompanionManager: ObservableObject {
             }
         case .finished(let spokenLine, let gaveUp):
             guard !Task.isCancelled else { return false }
-            // The harness sends the line whole, and this is the one cut, since only Swift counts characters as the
-            // speech does, by grapheme cluster.
-            let lineToSpeak = String(spokenLine.prefix(longestSpokenVoiceCommandLine))
+            let lineToSpeak = voiceCommandLineToSpeak(spokenLine)
             if !lineToSpeak.isEmpty {
                 // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                 await agentTokenDockController.waitForTheServeToLand()
                 guard !Task.isCancelled else { return false }
-                if await speakLiveSceneLine(lineToSpeak) { timing.mark(\.firstLineAudioStartedAt) }
+                let lineAudio = voiceCommandLineAudio(lineToSpeak: lineToSpeak, earlyLineFetched: earlyLineFetch?.text)
+                timing.lineAudio = lineAudio
+                let lineFetch: SpokenLineFetch
+                if lineAudio == .theAudioFetchedEarly, let earlyLineFetch {
+                    lineFetch = earlyLineFetch
+                } else {
+                    lineFetch = elevenLabsTTSClient.startFetching(lineToSpeak)
+                }
+                // The player owns the fetch from here, so the cancel on the way out must not cut the line off.
+                if lineFetch === earlyLineFetch { earlyLineFetch = nil }
+                if await speakLiveSceneLine(lineFetch) { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
@@ -3413,8 +3431,8 @@ final class CompanionManager: ObservableObject {
                 case .voiceCommandFinished:
                     // Only a voice command ends this way, so a task never hears it.
                     throw TaskAgentError.harnessEndedWithNoResult
-                case .planningTurnStarted:
-                    // Only a voice command's turn plans, so a task has nothing to wait longer for.
+                case .planningTurnStarted, .spokenLineIfEveryCallChanges:
+                    // Only a voice command's turn plans or sends an early line, so a task has nothing to do for either.
                     break
                 }
             }
@@ -4348,11 +4366,21 @@ final class CompanionManager: ObservableObject {
         await speakLiveSceneLineAndReturnItsToken(line) != nil
     }
 
+    /// `speakLiveSceneLine` for a line whose audio may already be fetching, such as a voice command's line fetched while its
+    /// calls ran.
+    private func speakLiveSceneLine(_ lineFetch: SpokenLineFetch) async -> Bool {
+        await speakTheFetchedLineAndReturnItsToken(lineFetch) != nil
+    }
+
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
     private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
+        await speakTheFetchedLineAndReturnItsToken(elevenLabsTTSClient.startFetching(line))
+    }
+
+    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch) async -> SpokenLineToken? {
         do {
-            let lineToken = try await elevenLabsTTSClient.speakText(line)
+            let lineToken = try await elevenLabsTTSClient.play(lineFetch)
             voiceState = .responding
             return lineToken
         } catch is CancellationError {

@@ -78,6 +78,83 @@ nonisolated struct SpokenLineTokenLedger {
     }
 }
 
+/// The audio of one line, fetched from the Worker's `/tts` route and decoded into chunks of float samples as it streams in.
+/// The chunks wait in `chunks` until someone plays them, so a line can be fetched ahead of the moment it is spoken.
+/// `ElevenLabsTTSClient.startFetching` makes one and `play` plays it, once.
+@MainActor
+final class SpokenLineFetch {
+    let text: String
+    /// Each chunk holds `samplesPerChunk` samples, except the last, which holds what is left. The stream throws the
+    /// fetch's error, such as an HTTP error before any audio, and finishes after the last chunk.
+    let chunks: AsyncThrowingStream<[Float], Error>
+    private let download: Task<Void, Never>
+
+    init(text: String, request: URLRequest, session: URLSession, samplesPerChunk: Int) {
+        self.text = text
+        let (chunks, chunkContinuation) = AsyncThrowingStream<[Float], Error>.makeStream()
+        self.chunks = chunks
+        let download = Task {
+            do {
+                try await SpokenLineFetch.streamTheAudio(of: request, session: session, samplesPerChunk: samplesPerChunk, into: chunkContinuation)
+                chunkContinuation.finish()
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                // A newer line or answer cancelled this one. Callers stay quiet on CancellationError, so it must not
+                // reach them as a failure that plays the lost-voice line.
+                chunkContinuation.finish(throwing: CancellationError())
+            } catch {
+                chunkContinuation.finish(throwing: error)
+            }
+        }
+        self.download = download
+        // A player whose task is cancelled ends the stream, and the download then has nobody left to read it.
+        chunkContinuation.onTermination = { termination in
+            if case .cancelled = termination { download.cancel() }
+        }
+    }
+
+    /// Stops the download, for a line that will not be played. A fetch that is playing is stopped through the player.
+    func cancel() {
+        download.cancel()
+    }
+
+    nonisolated private static func streamTheAudio(
+        of request: URLRequest,
+        session: URLSession,
+        samplesPerChunk: Int,
+        into chunkContinuation: AsyncThrowingStream<[Float], Error>.Continuation
+    ) async throws {
+        let (audioBytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "ElevenLabsTTS", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            var errorBodyLines: [String] = []
+            for try await errorBodyLine in audioBytes.lines {
+                errorBodyLines.append(errorBodyLine)
+            }
+            throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "TTS API error (\(httpResponse.statusCode)): \(errorBodyLines.joined(separator: "\n"))"])
+        }
+        // A Worker deployed before streaming ignores output_format and sends MP3, which would play as noise if read as PCM.
+        guard httpResponse.mimeType?.contains("pcm") == true else {
+            throw NSError(domain: "ElevenLabsTTS", code: -2,
+                          userInfo: [NSLocalizedDescriptionKey: "TTS returned \(httpResponse.mimeType ?? "no content type") instead of streamed PCM. Deploy the current Worker."])
+        }
+        var pcmChunker = PCM16StreamChunker(samplesPerChunk: samplesPerChunk)
+        for try await audioByte in audioBytes {
+            if let chunk = pcmChunker.append(audioByte) {
+                chunkContinuation.yield(chunk)
+            }
+        }
+        // A line shorter than one chunk ends before the first chunk fills.
+        if let lastChunk = pcmChunker.flush() {
+            chunkContinuation.yield(lastChunk)
+        }
+        try Task.checkCancellation()
+    }
+}
+
 @MainActor
 final class ElevenLabsTTSClient {
     private static let sampleRate: Double = 24_000
@@ -141,13 +218,16 @@ final class ElevenLabsTTSClient {
     /// Throws on network or HTTP errors before playback starts. Cancellation-safe.
     @discardableResult
     func speakText(_ text: String) async throws -> SpokenLineToken {
-        stopPlayback()
-        let generation = playbackGeneration
+        try await play(startFetching(text))
+    }
 
+    /// Starts fetching the audio of `text` without playing it. The audio streams into the fetch's own buffer until it is
+    /// played or cancelled, so a line asked for ahead of time is ready when its moment comes. `speakText` is this followed
+    /// by `play`, so a line fetched early and a line fetched now play through the same code.
+    func startFetching(_ text: String) -> SpokenLineFetch {
         var request = URLRequest(url: proxyURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         let body: [String: Any] = [
             "text": text,
             "model_id": "eleven_v4_turbo",
@@ -157,61 +237,39 @@ final class ElevenLabsTTSClient {
                 "style": 0.4
             ]
         ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // A dictionary of strings and numbers always encodes.
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return SpokenLineFetch(text: text, request: request, session: session, samplesPerChunk: Self.samplesPerBuffer)
+    }
 
-        let audioBytes: URLSession.AsyncBytes
-        let response: URLResponse
+    /// Plays a fetch as soon as its first audio is in, stopping whatever plays now, and returns the line's token once its
+    /// audio has started. A fetch plays once, and this takes it over: every way out of it, a failure, a cancel of the
+    /// caller's task, or a later `stopPlayback`, also cancels the fetch, so no download outlives the line it was for.
+    @discardableResult
+    func play(_ fetch: SpokenLineFetch) async throws -> SpokenLineToken {
+        stopPlayback()
+        let generation = playbackGeneration
+
+        var chunkIterator = fetch.chunks.makeAsyncIterator()
+        let firstChunk: [Float]?
         do {
-            (audioBytes, response) = try await session.bytes(for: request)
-        } catch let urlError as URLError where urlError.code == .cancelled {
-            // A newer line or answer cancelled this one. Callers stay quiet on CancellationError,
-            // so this must not reach them as a failure that plays the lost-voice line.
+            // A cancel of the caller's task ends the stream, which cancels the download (SpokenLineFetch's onTermination).
+            firstChunk = try await chunkIterator.next()
+        } catch {
+            fetch.cancel()
+            throw error
+        }
+
+        guard !Task.isCancelled else {
+            fetch.cancel()
             throw CancellationError()
         }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "ElevenLabsTTS", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            var errorBodyLines: [String] = []
-            do {
-                for try await errorBodyLine in audioBytes.lines {
-                    errorBodyLines.append(errorBodyLine)
-                }
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                throw CancellationError()
-            }
-            throw NSError(domain: "ElevenLabsTTS", code: httpResponse.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: "TTS API error (\(httpResponse.statusCode)): \(errorBodyLines.joined(separator: "\n"))"])
-        }
-
-        // A Worker deployed before streaming ignores output_format and sends MP3, which would play as noise if read as PCM.
-        guard httpResponse.mimeType?.contains("pcm") == true else {
-            throw NSError(domain: "ElevenLabsTTS", code: -2,
-                          userInfo: [NSLocalizedDescriptionKey: "TTS returned \(httpResponse.mimeType ?? "no content type") instead of streamed PCM. Deploy the current Worker."])
-        }
-
-        var audioByteIterator = audioBytes.makeAsyncIterator()
-        var pcmChunker = PCM16StreamChunker(samplesPerChunk: Self.samplesPerBuffer)
-        var firstChunk: [Float]?
-        do {
-            while firstChunk == nil, let audioByte = try await audioByteIterator.next() {
-                firstChunk = pcmChunker.append(audioByte)
-            }
-        } catch let urlError as URLError where urlError.code == .cancelled {
-            throw CancellationError()
-        }
-        // A line shorter than one buffer ends before the first chunk fills.
-        if firstChunk == nil {
-            firstChunk = pcmChunker.flush()
-        }
-
-        try Task.checkCancellation()
         // A newer line or stopPlayback took over while this one loaded, so this line must not report that it is playing.
-        guard generation == playbackGeneration else { throw CancellationError() }
-        currentLineText = text
+        guard generation == playbackGeneration else {
+            fetch.cancel()
+            throw CancellationError()
+        }
+        currentLineText = fetch.text
         guard let firstChunk else {
             throw NSError(domain: "ElevenLabsTTS", code: -3,
                           userInfo: [NSLocalizedDescriptionKey: "TTS returned no audio"])
@@ -219,7 +277,12 @@ final class ElevenLabsTTSClient {
 
         if !audioEngine.isRunning {
             // The engine is paused between lines and stops after an output device change, so it starts again here.
-            try audioEngine.start()
+            do {
+                try audioEngine.start()
+            } catch {
+                fetch.cancel()
+                throw error
+            }
         }
         // The token is issued in the same synchronous run that starts the audio, so a caller that cancels its task before
         // this point never has a line playing that it holds no token for.
@@ -229,23 +292,17 @@ final class ElevenLabsTTSClient {
         playerNode.play()
         print("🔊 ElevenLabs TTS: playing streamed audio")
 
-        let audioBytesAfterFirstChunk = audioByteIterator
-        let pcmChunkerAfterFirstChunk = pcmChunker
+        let chunkIteratorAfterFirstChunk = chunkIterator
         streamingTask = Task { [weak self] in
-            var remainingAudioByteIterator = audioBytesAfterFirstChunk
-            var remainingPCMChunker = pcmChunkerAfterFirstChunk
+            // stopPlayback cancels this task, which ends the stream and so cancels the download.
+            var remainingChunkIterator = chunkIteratorAfterFirstChunk
             do {
-                while let audioByte = try await remainingAudioByteIterator.next() {
+                while let chunk = try await remainingChunkIterator.next() {
                     guard let self, generation == self.playbackGeneration else { return }
-                    if let chunk = remainingPCMChunker.append(audioByte) {
-                        self.scheduleBuffer(of: chunk, generation: generation)
-                    }
-                }
-                if let lastChunk = remainingPCMChunker.flush(), let self, generation == self.playbackGeneration {
-                    self.scheduleBuffer(of: lastChunk, generation: generation)
+                    self.scheduleBuffer(of: chunk, generation: generation)
                 }
             } catch {
-                if !(error is CancellationError) && (error as? URLError)?.code != .cancelled {
+                if !(error is CancellationError) {
                     print("⚠️ ElevenLabs TTS: the audio stream ended early: \(error)")
                 }
             }

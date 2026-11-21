@@ -84,6 +84,8 @@ func (driver *protocolDriver) expectLineWithin(expectedType string, timeout time
 				driver.logs = append(driver.logs, line)
 			case actualType == "approval_settled":
 				driver.settledLines = append(driver.settledLines, line)
+			case actualType == "voice_line_if_every_call_changes":
+				driver.voiceLines = append(driver.voiceLines, line)
 			default:
 				driver.t.Fatalf("expected a %s line, got %s", expectedType, line)
 			}
@@ -189,6 +191,61 @@ func TestACommandRunsATwoCallTurnThenALookupAndItsActionAndSpeaksTheConfirmation
 	lookupResult := jsonValueAt(t, lookupMessages[4], "content", 0)
 	if jsonValueAt(t, lookupResult, "tool_use_id") != "toolu_find" || jsonValueAt(t, lookupResult, "content", 0, "text") != `{"ok":true,"result":[{"captions":"the engine","seconds":95}]}` {
 		t.Errorf("the lookup result sent back was %v", lookupResult)
+	}
+}
+
+// A turn with calls sends the line it would speak if every call changes, ahead of its first call, so the app can fetch the
+// audio while the calls run. The finished line of a turn whose calls all changed carries the same words. A turn whose
+// calls have no confirmation, and a turn with no call, send no early line.
+func TestATurnSendsTheLineItWouldSpeakBeforeItsFirstCall(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_rotate", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned it left"}`),
+				brainToolUse("toolu_zoom", "zoom", `{"factor":1.3,"confirmation":"zoomed in"}`),
+			)
+		case 2:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_find", "find_moment", `{"query":"engine"}`))
+		case 3:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_seek", "seek_to_time", `{"seconds":95,"confirmation":"jumped there"}`))
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"I can't do that one."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(voiceCommandLine("command-1", "turn it left and zoom in"))
+	// expectLine fails on a tool_call that comes first, so this also pins the order.
+	if got, want := driver.expectLine("voice_line_if_every_call_changes"), `{"type":"voice_line_if_every_call_changes","taskID":"command-1","spokenLine":"turned it left zoomed in"}`; got != want {
+		t.Fatalf("the line before the first call:\n got %s\nwant %s", got, want)
+	}
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_rotate", voiceToolChanged, `{"ok":true,"state":null}`))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_zoom", voiceToolChanged, `{"ok":true,"state":null}`))
+	if got := driver.expectLine("voice_command_finished"); !strings.Contains(got, `"spokenLine":"turned it left zoomed in"`) {
+		t.Fatalf("the finished line did not carry the early line's words: %s", got)
+	}
+
+	// The lookup's turn has no confirmation, so only the action's turn sends an early line.
+	driver.voiceLines = nil
+	driver.send(voiceCommandLine("command-2", "go to the engine"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_find", voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_seek", voiceToolChanged, `{"ok":true,"state":null}`))
+	driver.expectLine("voice_command_finished")
+	if want := []string{`{"type":"voice_line_if_every_call_changes","taskID":"command-2","spokenLine":"jumped there"}`}; !reflect.DeepEqual(driver.voiceLines, want) {
+		t.Errorf("the early lines of a lookup and its action were %v, want %v", driver.voiceLines, want)
+	}
+
+	// A reply with no call speaks its text and sends no early line.
+	driver.voiceLines = nil
+	driver.send(voiceCommandLine("command-3", "do a backflip"))
+	driver.expectLine("voice_command_finished")
+	if len(driver.voiceLines) != 0 {
+		t.Errorf("a reply with no call sent early lines %v", driver.voiceLines)
 	}
 }
 

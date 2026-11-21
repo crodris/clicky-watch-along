@@ -91,6 +91,11 @@ func (brain *brainRunner) runCommand(commandContext context.Context, command *ru
 			return
 		}
 		run.addReply(reply)
+		// The line this turn speaks if every call changes the screen goes out before the first call, so the app fetches its
+		// audio while the calls run, and plays it only when voice_command_finished carries the same words.
+		if spokenLine := spokenLineIfEveryCallChanges(reply.toolCalls); spokenLine != "" {
+			brain.send(commandContext, newVoiceLineIfEveryCallChangesMessage(voiceCommand.TaskID, spokenLine))
+		}
 
 		outcomes, toolResultBlocks, err := brain.runToolCalls(commandContext, command, voiceCommand, reply.toolCalls, offered, approvalOffer, turnIndex, run)
 		if err != nil {
