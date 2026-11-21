@@ -32,11 +32,6 @@ const (
 	// it rewrites the start of the history and so throws away a warm cache.
 	mostCommandsBeforeAFold = 24
 
-	// foldBlockHeading starts the text block that holds the folded commands. The system prompt names it.
-	foldBlockHeading = "Earlier commands, folded:"
-	// interruptedBeforeLabel starts the line of a command's user message that lists what an interrupted command had already done.
-	interruptedBeforeLabel = "Interrupted before:"
-
 	handedOffResultText = "Handed off: the app took this request over and answers it itself."
 	notRunResultText    = "Not run: the request was handed off"
 )
@@ -175,22 +170,24 @@ func (session *brainSession) foldAllButTheNewestCommands() {
 }
 
 // foldBlockText is the one text block that stands for every folded command: per command, what the learner said and what
-// it did, with the scene states and tool results left out.
+// it did, with the scene states and tool results left out. Every piece is escaped as one line, since an action line can
+// hold a tool's error text or the model's own input, which repeat page text, and nothing in it may close the
+// earlier_commands tag or start a line that reads as the learner's words.
 func foldBlockText(foldedCommands []sessionCommand) string {
 	var block strings.Builder
-	block.WriteString(foldBlockHeading)
+	block.WriteString("<" + earlierCommandsTag + ">")
 	for _, command := range foldedCommands {
-		block.WriteString("\n\n")
+		block.WriteString("\n")
 		if len(command.interruptedBefore) > 0 {
-			block.WriteString(interruptedBeforeLabel + " " + strings.Join(command.interruptedBefore, "; ") + "\n")
+			block.WriteString(taggedLine(interruptedBeforeTag, strings.Join(command.interruptedBefore, "; ")) + "\n")
 		}
-		block.WriteString(`Learner said: "` + command.transcript + `"`)
+		block.WriteString(taggedLine(learnerWordsTag, command.transcript))
 		for _, actionLine := range command.actionLines {
-			block.WriteString("\n" + actionLine)
+			block.WriteString("\n" + escapedLine(actionLine))
 		}
 	}
-	// Action lines hold the model's own input to tools, which can repeat page text, so no "<" can close a tag early.
-	return strings.ReplaceAll(block.String(), "<", " ")
+	block.WriteString("\n</" + earlierCommandsTag + ">")
+	return block.String()
 }
 
 // withTextBlockFirst is the message with one more text block before its own. The message it came from is not changed.
@@ -335,13 +332,15 @@ func textCutTo(text string, limit int) (string, int) {
 }
 
 // voiceToolActionLine is one tool call in the app's recent action format, so the model reads it as the old path did:
-// the name, the input without the confirmation, and "ok" or "failed: <why>". resultText is the app's result text.
+// the name, the input without the confirmation, and "ok" or "failed: <why>". resultText is the app's result text. The
+// reason is a tool's error text, which can repeat page text, so the line is escaped to one line that cannot close a tag
+// (escapedLine) before it is stored.
 func voiceToolActionLine(call toolCall, outcome voiceToolOutcome, resultText string) string {
 	resultWord := "ok"
 	if outcome == voiceToolFailed {
 		resultWord = "failed: " + failureReasonOf(resultText)
 	}
-	return fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), resultWord)
+	return escapedLine(fmt.Sprintf("%s %s -> %s", call.Name, inputWithoutConfirmation(call.Input), resultWord))
 }
 
 // failureReasonOf is the error text of a failed tool's result, which the app writes as {"error": "...", "ok": false}.
@@ -383,8 +382,9 @@ func learnerWordsOf(userMessage anthropic.MessageParam) string {
 			continue
 		}
 		text := block.OfText.Text
-		if _, afterLabel, found := strings.Cut(text, `Learner said: "`); found {
-			return strings.TrimSuffix(afterLabel, `"`)
+		if _, afterTag, found := strings.Cut(text, "<"+learnerWordsTag+">"); found {
+			words, _, _ := strings.Cut(afterTag, "</"+learnerWordsTag+">")
+			return words
 		}
 		return text
 	}

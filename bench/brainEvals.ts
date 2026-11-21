@@ -218,20 +218,27 @@ export function requestBodyFor(brainCase: BrainCase, evalFile: BrainEvalFile, to
 
 // ---------- The harness's session ----------
 
-/** The line label harness/brainsession.go writes before the actions of an interrupted command. brainEvals.test.ts pins it against the Go source. */
-export const interruptedBeforeLabel = "Interrupted before:";
+/** The tag harness/brain.go puts around the actions of an interrupted command. brainEvals.test.ts pins it against the Go source. */
+export const interruptedBeforeTag = "interrupted_before";
+
+/** Untrusted text as one line that cannot close a tag, as `escapedLine` in harness/brain.go: "<" becomes "‹" and a line break becomes \n. */
+export function escapedLine(text: string): string {
+  return text.replaceAll("<", "‹").replace(lineBreakPattern, "\\n");
+}
+
+const lineBreakPattern = new RegExp(["\\r\\n", "[\\n\\r]", "\\u2028", "\\u2029"].join("|"), "g");
 
 /** What a tool that changed the screen returns, which the app writes as `VoiceToolOutcome.toolResultText`. */
 const changedToolResultText = compactJSONText({ ok: true, state: null });
 
 /**
- * Mirrors brainUserMessageText in harness/brain.go, the message the harness's brain reads for each command: the scene, a
- * line for the actions an interrupted command had done, and the learner's words. The harness backend never builds it, since
- * the harness does, but a seeded session holds earlier commands in the same form.
+ * Mirrors brainUserMessageText in harness/brain.go, the message the harness's brain reads for each command: the scene, the
+ * actions an interrupted command had done, and the learner's words, each in its own tag. The harness backend never builds
+ * it, since the harness does, but a seeded session holds earlier commands in the same form.
  */
 export function harnessUserMessageText(learnerTranscript: string, sceneState: unknown, interruptedActionLines: string[]): string {
-  const interruptedText = interruptedActionLines.length === 0 ? "" : `${interruptedBeforeLabel} ${interruptedActionLines.join("; ").replaceAll("<", " ")}\n`;
-  return `<scene_state>${compactJSONText(sceneState).replaceAll("<", " ")}</scene_state>\n${interruptedText}Learner said: "${learnerTranscript}"`;
+  const interruptedText = interruptedActionLines.length === 0 ? "" : `<${interruptedBeforeTag}>${escapedLine(interruptedActionLines.join("; "))}</${interruptedBeforeTag}>\n`;
+  return `<scene_state>${escapedLine(compactJSONText(sceneState))}</scene_state>\n${interruptedText}<learner_words>${escapedLine(learnerTranscript)}</learner_words>`;
 }
 
 /** One earlier call in the app's recent action format, which is also what the harness writes into a fold. */

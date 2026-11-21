@@ -36,12 +36,12 @@ func commitACommand(session *brainSession, transcript string, resultText string)
 	run.commit()
 }
 
-// whatTheModelWouldRead is the request messages of a command that began now, as JSON. A command that is never committed
-// leaves no trace, so reading the session this way changes nothing a test checks.
-func whatTheModelWouldRead(t *testing.T, session *brainSession) string {
+// whatTheSessionHolds is the history a command that began now would read, as JSON, before that command's own words. A
+// command that is never committed leaves no trace, so reading the session this way changes nothing a test checks.
+func whatTheSessionHolds(t *testing.T, session *brainSession) string {
 	t.Helper()
 	run := session.begin("probe", json.RawMessage(`{}`))
-	return string(mustMarshal(run.requestMessages()))
+	return string(mustMarshal(run.history))
 }
 
 func countOf(text string, part string) int { return strings.Count(text, part) }
@@ -51,7 +51,7 @@ func countOf(text string, part string) int { return strings.Count(text, part) }
 func TestARolledBackCommandLeavesTheSessionAsItWasAndItsFinishedCallsGoIntoTheNextUserMessage(t *testing.T) {
 	session, _ := newTestSession()
 	commitACommand(session, "turn it left", `{"ok":true,"state":null}`)
-	before := whatTheModelWouldRead(t, session)
+	before := whatTheSessionHolds(t, session)
 
 	run := session.begin("zoom in and turn it up", json.RawMessage(`{"page":"framePopout"}`))
 	run.own = append(run.own,
@@ -60,12 +60,12 @@ func TestARolledBackCommandLeavesTheSessionAsItWasAndItsFinishedCallsGoIntoTheNe
 	run.actionLines = append(run.actionLines, `zoom {"factor":1.3} -> ok`)
 	run.abandon()
 
-	if after := whatTheModelWouldRead(t, session); after != before && !strings.Contains(after, "Interrupted before:") {
+	if after := whatTheSessionHolds(t, session); after != before {
 		t.Errorf("the rolled back command changed the session:\n before %s\n after  %s", before, after)
 	}
 	next := session.begin("no, the other way", json.RawMessage(`{"page":"framePopout"}`))
 	nextText := next.own[0].Content[0].OfText.Text
-	if !strings.Contains(nextText, "Interrupted before: zoom {\"factor\":1.3} -> ok\n") {
+	if !strings.Contains(nextText, "<interrupted_before>zoom {\"factor\":1.3} -> ok</interrupted_before>\n") {
 		t.Errorf("the next command's message did not carry the interrupted action line: %s", nextText)
 	}
 	// Everything before the new command's own text is what the session held before the cancelled command.
@@ -82,12 +82,12 @@ func TestInterruptedLinesPileUpAcrossCancelsAndClearOnceACommandStays(t *testing
 		run.abandon()
 	}
 	staying := session.begin("c", json.RawMessage(`{}`))
-	if text := staying.own[0].Content[0].OfText.Text; !strings.Contains(text, "Interrupted before: rotate_model {} -> ok; zoom {} -> ok\n") {
+	if text := staying.own[0].Content[0].OfText.Text; !strings.Contains(text, "<interrupted_before>rotate_model {} -> ok; zoom {} -> ok</interrupted_before>\n") {
 		t.Fatalf("the two cancelled commands' lines were not both carried: %s", text)
 	}
 	staying.commit()
 
-	if text := session.begin("d", json.RawMessage(`{}`)).own[0].Content[0].OfText.Text; strings.Contains(text, "Interrupted before") {
+	if text := session.begin("d", json.RawMessage(`{}`)).own[0].Content[0].OfText.Text; strings.Contains(text, "interrupted_before") {
 		t.Errorf("a command that stayed did not clear the interrupted lines: %s", text)
 	}
 }
@@ -102,7 +102,7 @@ func TestACommandThatWasBeingCancelledAgainKeepsTheLinesItCarried(t *testing.T) 
 	second.actionLines = []string{"zoom {} -> ok"}
 	second.abandon()
 
-	if text := session.begin("c", json.RawMessage(`{}`)).own[0].Content[0].OfText.Text; !strings.Contains(text, "Interrupted before: rotate_model {} -> ok; zoom {} -> ok\n") {
+	if text := session.begin("c", json.RawMessage(`{}`)).own[0].Content[0].OfText.Text; !strings.Contains(text, "<interrupted_before>rotate_model {} -> ok; zoom {} -> ok</interrupted_before>\n") {
 		t.Errorf("the lines were not kept in order: %s", text)
 	}
 }
@@ -125,10 +125,10 @@ func TestAColdCacheFoldsEveryCommandButTheNewestSixIntoOneTextBlockWithNoSceneSt
 
 	// Commands 1 and 2 are folded: their words and action lines are in the first block, and their own messages are gone.
 	foldBlock := messages[0].Content[0].OfText.Text
-	if !strings.HasPrefix(foldBlock, foldBlockHeading) {
+	if !strings.HasPrefix(foldBlock, "<"+earlierCommandsTag+">") {
 		t.Fatalf("the first block is not the fold block: %s", foldBlock)
 	}
-	for _, folded := range []string{`Learner said: "command 1"`, `Learner said: "command 2"`, `rotate_model {"yawDegrees":45} -> ok`} {
+	for _, folded := range []string{`<learner_words>command 1</learner_words>`, `<learner_words>command 2</learner_words>`, `rotate_model {"yawDegrees":45} -> ok`} {
 		if !strings.Contains(foldBlock, folded) {
 			t.Errorf("the fold block lacks %q: %s", folded, foldBlock)
 		}
@@ -141,7 +141,7 @@ func TestAColdCacheFoldsEveryCommandButTheNewestSixIntoOneTextBlockWithNoSceneSt
 	}
 	// Commands 3 to 8 stay whole, each with its scene state.
 	for commandNumber := 3; commandNumber <= 8; commandNumber++ {
-		if !strings.Contains(requestText, fmt.Sprintf(`Learner said: \"command %d\"`, commandNumber)) || !strings.Contains(requestText, fmt.Sprintf("toolu_command_%d", commandNumber)) {
+		if !strings.Contains(requestText, fmt.Sprintf(`learner_words\u003ecommand %d\u003c/learner_words`, commandNumber)) || !strings.Contains(requestText, fmt.Sprintf("toolu_command_%d", commandNumber)) {
 			t.Errorf("command %d was folded, and the newest six stay whole", commandNumber)
 		}
 	}
@@ -172,7 +172,7 @@ func TestAFoldWaitsForAColdCacheOrMoreThanTwentyFourCommands(t *testing.T) {
 
 			messages := session.begin("next", json.RawMessage(`{}`)).requestMessages()
 
-			isFolded := strings.HasPrefix(messages[0].Content[0].OfText.Text, foldBlockHeading)
+			isFolded := strings.HasPrefix(messages[0].Content[0].OfText.Text, "<"+earlierCommandsTag+">")
 			if isFolded != test.wantFolded {
 				t.Errorf("folded was %v, want %v", isFolded, test.wantFolded)
 			}
@@ -282,8 +282,8 @@ func TestAToolResultInTheHistoryIsCutToTwoThousandCharacters(t *testing.T) {
 	history := session.begin("next", json.RawMessage(`{}`)).requestMessages()
 
 	resultText := history[2].Content[0].OfToolResult.Content[0].OfText.Text
-	if got := len([]rune(resultText)); got != mostToolResultCharacters {
-		t.Errorf("the kept result has %d characters, want %d", got, mostToolResultCharacters)
+	if got := len([]rune(resultText)); got != 2000 {
+		t.Errorf("the kept result has %d characters, want %d", got, 2000)
 	}
 	if !strings.HasSuffix(resultText, cutMarker) {
 		t.Errorf("the cut result does not say it was cut: ...%s", resultText[len(resultText)-20:])
@@ -292,13 +292,13 @@ func TestAToolResultInTheHistoryIsCutToTwoThousandCharacters(t *testing.T) {
 
 func TestAToolResultWithinTheLimitIsKeptWhole(t *testing.T) {
 	session, _ := newTestSession()
-	exactResult := strings.Repeat("x", mostToolResultCharacters)
+	exactResult := strings.Repeat("x", 2000)
 	commitACommand(session, "find the engine", exactResult)
 
 	history := session.begin("next", json.RawMessage(`{}`)).requestMessages()
 
 	if got := history[2].Content[0].OfToolResult.Content[0].OfText.Text; got != exactResult {
-		t.Errorf("a result of exactly %d characters was changed to %d characters", mostToolResultCharacters, len([]rune(got)))
+		t.Errorf("a result of exactly %d characters was changed to %d characters", 2000, len([]rune(got)))
 	}
 }
 
@@ -310,7 +310,7 @@ func TestResetEmptiesTheSessionAndAnOldCommandNeverWritesBackIntoTheNewOne(t *te
 	running := session.begin("still running", json.RawMessage(`{}`))
 	session.reset()
 
-	if got := whatTheModelWouldRead(t, session); countOf(got, "command ") != 0 {
+	if got := whatTheSessionHolds(t, session); countOf(got, "command ") != 0 {
 		t.Errorf("a reset session still holds commands: %s", got)
 	}
 	running.commit()
@@ -343,15 +343,15 @@ func TestSeedingReplacesTheSessionAndDerivesTheWordsAndActionsAFoldWritesDown(t 
 	if strings.Contains(string(mustMarshal(messages)), "something old") {
 		t.Error("seeding did not replace the earlier session")
 	}
-	for _, folded := range []string{`Learner said: "seed 1"`, `rotate_model {"yawDegrees":45} -> ok`, `Learner said: "seed 19"`} {
+	for _, folded := range []string{`<learner_words>seed 1</learner_words>`, `rotate_model {"yawDegrees":45} -> ok`, `<learner_words>seed 19</learner_words>`} {
 		if !strings.Contains(foldBlock, folded) {
 			t.Errorf("the fold block lacks %q: %s", folded, foldBlock)
 		}
 	}
-	if strings.Contains(foldBlock, `Learner said: "seed 20"`) {
+	if strings.Contains(foldBlock, `<learner_words>seed 20</learner_words>`) {
 		t.Error("the newest six commands were folded")
 	}
-	if text := run.own[0].Content[0].OfText.Text; !strings.Contains(text, "Interrupted before: zoom {} -> ok") {
+	if text := run.own[0].Content[0].OfText.Text; !strings.Contains(text, "<interrupted_before>zoom {} -> ok</interrupted_before>") {
 		t.Errorf("the seeded interrupted line did not reach the next command: %s", text)
 	}
 }
@@ -438,10 +438,10 @@ func TestASecondCommandSeesTheFirstAndTheRequestKeepsEveryToolUseAnswered(t *tes
 	if len(messages) != 3 {
 		t.Fatalf("the second command's request holds %d messages, want the first command's three joined with its own words", len(messages))
 	}
-	if got := firstUserText(t, secondRequest); !strings.Contains(got, `Learner said: "turn it left"`) {
+	if got := firstUserText(t, secondRequest); !strings.Contains(got, `<learner_words>turn it left</learner_words>`) {
 		t.Errorf("the first command's words are missing: %s", got)
 	}
-	if got := lastUserText(t, secondRequest); !strings.Contains(got, `Learner said: "no, the other way"`) {
+	if got := lastUserText(t, secondRequest); !strings.Contains(got, `<learner_words>no, the other way</learner_words>`) {
 		t.Errorf("the second command's words are missing: %s", got)
 	}
 	everyToolUseHasItsResult(t, secondRequest)
@@ -530,7 +530,7 @@ func TestACancelledCommandLeavesTheSessionAsItWasAndTheNextCommandHearsWhatItDid
 	if strings.Contains(requestText, "toolu_turn") || strings.Contains(requestText, "toolu_zoom") || strings.Contains(requestText, "turn and zoom") {
 		t.Errorf("the cancelled command's messages are in the next request: %s", requestText)
 	}
-	if got := lastUserText(t, thirdRequest); !strings.Contains(got, `Interrupted before: rotate_model {"yawDegrees":90} -> ok`+"\n"+`Learner said: "no, the other way"`) {
+	if got := lastUserText(t, thirdRequest); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":90} -> ok</interrupted_before>`+"\n"+`<learner_words>no, the other way</learner_words>`) {
 		t.Errorf("the next message did not say what the cancelled command had done: %s", got)
 	}
 	if strings.Contains(lastUserText(t, thirdRequest), "zoom {") {
@@ -567,7 +567,7 @@ func TestANewCommandWaitsForTheCommandItCancelledToRollBackBeforeItReadsTheSessi
 		driver.expectLine("voice_command_finished")
 
 		requests := worker.requests()
-		if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `Interrupted before: rotate_model {"yawDegrees":90} -> ok`) {
+		if got := lastUserText(t, requests[len(requests)-1].body); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":90} -> ok</interrupted_before>`) {
 			t.Fatalf("run %d: the following command read the session before the cancelled one rolled back: %s", run, got)
 		}
 	}
@@ -582,7 +582,7 @@ func TestAHarnessWithoutTheBenchSwitchIgnoresResetAndSeed(t *testing.T) {
 	driver.send(voiceCommandLine("command-1", "show the shark"))
 	driver.expectLine("voice_command_finished")
 	driver.send(`{"type":"reset_session"}`)
-	driver.send(`{"type":"seed_session","messages":[{"role":"user","content":[{"type":"text","text":"Learner said: \"seeded\""}]}]}`)
+	driver.send(`{"type":"seed_session","messages":[{"role":"user","content":[{"type":"text","text":"<learner_words>seeded</learner_words>"}]}]}`)
 	driver.send(voiceCommandLine("command-2", "and this"))
 	driver.expectLine("voice_command_finished")
 
@@ -611,7 +611,7 @@ func TestAHarnessStartedForTheBenchTakesResetAndSeed(t *testing.T) {
 		t.Errorf("reset_session left the first command in the session: %s", requestText)
 	}
 
-	seededMessages := `[{"role":"user","content":[{"type":"text","text":"<scene_state>{}</scene_state>\nLearner said: \"turn it left\""}]},` +
+	seededMessages := `[{"role":"user","content":[{"type":"text","text":"<scene_state>{}</scene_state>\n<learner_words>turn it left</learner_words>"}]},` +
 		`{"role":"assistant","content":[{"type":"tool_use","id":"toolu_seed","name":"rotate_model","input":{"yawDegrees":-45}}]},` +
 		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_seed","content":[{"type":"text","text":"{\"ok\":true}"}],"is_error":false}]}]`
 	driver.send(`{"type":"seed_session","interruptedBefore":["zoom {} -> ok"],"messages":` + seededMessages + `}`)
@@ -622,7 +622,7 @@ func TestAHarnessStartedForTheBenchTakesResetAndSeed(t *testing.T) {
 	if requestText := string(mustMarshal(thirdRequest)); strings.Contains(requestText, "and this") || !strings.Contains(requestText, "toolu_seed") {
 		t.Errorf("seed_session did not replace the session: %s", requestText)
 	}
-	if got := lastUserText(t, thirdRequest); !strings.Contains(got, "Interrupted before: zoom {} -> ok") {
+	if got := lastUserText(t, thirdRequest); !strings.Contains(got, "<interrupted_before>zoom {} -> ok</interrupted_before>") {
 		t.Errorf("the seeded interrupted line did not reach the command: %s", got)
 	}
 	everyToolUseHasItsResult(t, thirdRequest)

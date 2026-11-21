@@ -148,7 +148,7 @@ func TestACommandRunsATwoCallTurnThenALookupAndItsActionAndSpeaksTheConfirmation
 	if requests[0].path != "/v1/messages" || first["stream"] != nil {
 		t.Errorf("a brain turn went to %s with stream %v, want an unstreamed /v1/messages", requests[0].path, first["stream"])
 	}
-	wantMessage := `<scene_state>{"page":"framePopout"}</scene_state>` + "\n" + `Learner said: "turn it left and zoom in"`
+	wantMessage := `<scene_state>{"page":"framePopout"}</scene_state>` + "\n" + `<learner_words>turn it left and zoom in</learner_words>`
 	if got := firstUserText(t, first); got != wantMessage {
 		t.Errorf("the user message:\n got %q\nwant %q", got, wantMessage)
 	}
