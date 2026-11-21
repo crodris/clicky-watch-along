@@ -9,10 +9,11 @@
 //   "hang"   writes turn 1 only after 300 ms, as a slow Claude reply would. A cancel_task stops that, then writes two lines
 //            the command had already queued, 10 ms apart, and logs the cancel 40 ms in, so a driver that stops reading
 //            at the first stray line lets the second one reach the next command.
-// Every other command is answered 30 ms after it arrives, so the stray lines above land while the next command waits.
 //   other    calls rotate_model once.
+// Every command but "hang" is answered 30 ms after it arrives, so the stray lines above land while the next command waits.
 // A command that ends after a tool finishes with the outcome and text the app answered.
 import { createInterface } from "node:readline";
+import { isRecord } from "../usage.ts";
 
 const write = (message: Record<string, unknown>) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const turnLine = (turn: number, inputTokens: number, outputTokens: number, calls: string) =>
@@ -27,16 +28,20 @@ let commandID = "";
 let lookupContent = "";
 let lateTurnTimer: ReturnType<typeof setTimeout> | undefined;
 createInterface({ input: process.stdin }).on("line", (line) => {
-  const message = JSON.parse(line);
-  if (message.type === "voice_command") {
-    setTimeout(() => answerCommand(message), message.transcript.includes("hang") ? 0 : 30);
+  const message: unknown = JSON.parse(line);
+  if (!isRecord(message)) {
+    return;
+  }
+  if (message.type === "voice_command" && typeof message.taskID === "string" && typeof message.transcript === "string") {
+    const voiceCommand = { taskID: message.taskID, transcript: message.transcript };
+    setTimeout(() => answerCommand(voiceCommand), voiceCommand.transcript.includes("hang") ? 0 : 30);
   } else if (message.type === "cancel_task") {
     clearTimeout(lateTurnTimer);
     turnLine(1, 777, 777, "none");
     setTimeout(() => turnLine(1, 777, 777, "none"), 10);
     setTimeout(() => write({ type: "log", message: "Brain: command cancelled during turn 1" }), 40);
-  } else if (message.type === "tool_result") {
-    answerToolResult(message);
+  } else if (message.type === "tool_result" && typeof message.outcome === "string" && typeof message.content === "string") {
+    answerToolResult({ outcome: message.outcome, content: message.content });
   }
 });
 
