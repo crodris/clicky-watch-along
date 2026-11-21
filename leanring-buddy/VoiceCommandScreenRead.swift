@@ -21,8 +21,18 @@ final class FrontTabReadAtRelease {
     /// How many times the real read ran, for a test.
     private(set) var readCount = 0
 
-    init(readTheFrontTab: @escaping () -> ChromeVideoTab? = { try? ChromeVideoTab.frontTabOfTheFrontWindow() }) {
+    init(readTheFrontTab: @escaping () -> ChromeVideoTab? = FrontTabReadAtRelease.readChromesFrontTab) {
         self.readTheFrontTab = readTheFrontTab
+    }
+
+    /// Chrome's front tab, or nil with the reason in the log, since a refusal and a Chrome with no window both read as no tab.
+    static func readChromesFrontTab() -> ChromeVideoTab? {
+        do {
+            return try ChromeVideoTab.frontTabOfTheFrontWindow()
+        } catch {
+            print("Release read: could not read the front tab: \(error)")
+            return nil
+        }
     }
 
     /// The front tab, or nil when Chrome has no window to read. A nil answer is kept too, so a Chrome that refuses is asked once.
