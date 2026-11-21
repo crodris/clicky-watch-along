@@ -162,6 +162,8 @@ final class VideoQuizSummaryPanelController {
     private var glideOrigin: CGPoint = .zero
     private var shownCardView: VideoQuizSummaryCardView?
     private var accentNSColor: NSColor = .white
+    /// The Glide that carries the Card in, so a close before it lands can end it at once.
+    private var glideInFlight: CarrierFlight?
 
     /// True from the moment the Card starts to Glide in, so Escape closes it even before it lands.
     var isShowing: Bool { panel != nil }
@@ -218,7 +220,7 @@ final class VideoQuizSummaryPanelController {
             }
             return
         }
-        TetherCarrier.shared.play(
+        glideInFlight = TetherCarrier.shared.play(
             .glideFromOrigin(glideOrigin, into: cardFrame),
             carrying: cardView,
             onDisplay: screen.displayID,
@@ -235,7 +237,9 @@ final class VideoQuizSummaryPanelController {
     func close(animated: Bool) {
         guard let closingPanel = panel else { return }
         panel = nil
-        // A Card still Gliding in has nothing on screen to close, and the guard in its landing keeps it from appearing.
+        // A Card still Gliding in lands at once, and the guard in its landing keeps the real panel from showing.
+        glideInFlight?.landAtOnce()
+        glideInFlight = nil
         guard animated, closingPanel.isVisible, let cardFrame = shownCardFrame, let cardView = shownCardView else {
             closingPanel.orderOut(nil)
             return

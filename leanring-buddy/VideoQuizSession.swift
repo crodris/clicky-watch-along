@@ -744,7 +744,7 @@ final class VideoQuizSession {
         case showsItsPopout(VideoFramePopout)
         /// The question was asked by voice alone, so the video plays again from 10 seconds before it.
         case playsFromBeforeIt
-        /// The quiz tab is gone or shows another video now, or Chrome refused the script, so nothing moved.
+        /// The quiz tab is gone or shows another video now, or Chrome refused a script, so the go-back stopped there.
         case couldNotGoBack
     }
 

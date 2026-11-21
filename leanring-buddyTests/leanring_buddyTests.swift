@@ -670,7 +670,8 @@ struct leanring_buddyTests {
         )
         let clickyBluePageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
         #expect(clickyBluePageHTML.contains("\"quizLabelColor\":\"#3380FF\""))
-        #expect(clickyBluePageHTML.contains("\"quizLabelTextColor\":\"#FFFFFF\""))
+        // Text on the accent is the Tether ink from scene-style.css, so the page carries no text color of the theme's.
+        #expect(!clickyBluePageHTML.contains("quizLabelTextColor"))
         let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: bundledTheme("school-nekoma")))
         #expect(nekomaPageHTML.contains("\"quizLabelColor\":\"#E0313B\""))
     }
