@@ -727,13 +727,13 @@ private struct WrappingTagsLayout: Layout {
 
 // MARK: - Buttons
 
-private enum ThemeStudioButtonStyle {
+enum ThemeStudioButtonStyle {
     /// Filled with the highlighted idea's accent, with letters that read on it. With no idea yet, a neutral fill.
     case primary(accentHex: String?)
     case plain
 }
 
-private struct ThemeStudioButton: View {
+struct ThemeStudioButton: View {
     let title: String
     let style: ThemeStudioButtonStyle
     let isEnabled: Bool

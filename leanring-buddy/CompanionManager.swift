@@ -279,6 +279,11 @@ final class CompanionManager: ObservableObject {
             })
         )
     }()
+    /// The "Add theme?" card shown before a theme file the learner opened is installed.
+    private lazy var themeInstallConfirmation = ThemeInstallConfirmation(
+        cardPresenter: ThemeInstallCardPanelController(),
+        install: { [weak self] confirmedInstall in self?.installTheConfirmedThemePackage(confirmedInstall) }
+    )
     private var themeStudioSpeechTask: Task<Void, Never>?
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
@@ -2589,6 +2594,10 @@ final class CompanionManager: ObservableObject {
         if themeStudioController.closeOnEscape() {
             return
         }
+        // An "Add theme?" card is answered with a no.
+        if themeInstallConfirmation.cancelOnEscape() {
+            return
+        }
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
             clearTheLiveSceneAndReleaseTheBuddy()
@@ -3507,19 +3516,35 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Installing a theme file
 
-    /// Installs a `.clickytheme` package the learner opened and puts it on, with a chip that says how it went. A package
-    /// that does not parse is refused with a log line naming the rule it broke, and nothing changes.
+    /// A `.clickytheme` package the learner opened: reads and checks it, and asks "Add theme?" before installing anything. A
+    /// package that does not parse is refused with a log line naming the rule it broke and a chip, with no card, and nothing
+    /// changes.
     func installTheThemePackage(at themePackageURL: URL) {
         do {
-            let installedTheme = try themeSettings.installAndApply(packageAt: themePackageURL)
-            print("Themes: installed \(themePackageURL.lastPathComponent) as \(installedTheme.id)")
-            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
-            installedTheme.sounds.done.play()
+            let packagePreview = try themeSettings.previewPackage(at: themePackageURL)
+            themeInstallConfirmation.ask(about: PendingThemeInstall(packageURL: themePackageURL, theme: packagePreview.theme, pictureJPEG: packagePreview.pictureJPEG))
         } catch let parseError as CustomThemeParseError {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
             VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
         } catch {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+        }
+    }
+
+    /// The learner added the theme on the card: installs it, puts it on, plays its done sound, and says so. The package is
+    /// read and checked again, since it may have changed while the card showed.
+    private func installTheConfirmedThemePackage(_ confirmedInstall: PendingThemeInstall) {
+        do {
+            let installedTheme = try themeSettings.installAndApply(packageAt: confirmedInstall.packageURL)
+            print("Themes: installed \(confirmedInstall.packageURL.lastPathComponent) as \(installedTheme.id)")
+            VoiceToolCallChip.shared.show(themeAddedChipPhrase, secondaryChipText: installedTheme.name)
+            installedTheme.sounds.done.play()
+        } catch let parseError as CustomThemeParseError {
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(parseError.reason)")
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+        } catch {
+            print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(error)")
             VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
         }
     }
