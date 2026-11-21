@@ -711,11 +711,16 @@ The `bench` job typechecks `bench/`, runs its unit tests with `pnpm test`, and c
 It also runs `verify-clicky.test.sh`, which checks how `verify-clicky.sh build` tells that the app is older than a Swift file, how `app-launch` tells that a Clicky is already running, how `app-launch` moves an earlier launch's files aside, how `app-launch` reads its brain flags and keeps `--every-permission`, `--no-app-secret`, and `--wrong-app-secret` out of the app's own arguments, that the two secret flags pass the app's `--app-secret-mode none|wrong` argument and never write or delete the defaults the everyday Clicky shares, that `doctor` reports a missing, refused, or matching app secret without printing it, that `app-launch` warns and names `grant` when the app starts without Accessibility, which start lines open the app's permissions panel that `app-launch --every-permission` stops on, that `worker-down` given a port stops only that Worker, and that `scroll` lists its usage and refuses a value that is not a whole number of at most 6 digits.
 The `app` job installs Go with `actions/setup-go`, which the app's "Build Agent Harness" phase finds on PATH, so the Mac runner needs no Go of its own.
 It then builds the `leanring-buddy` scheme with Xcode 26.5 and `CODE_SIGNING_ALLOWED=NO`, then runs `leanring-buddyTests` hosted in the built `Clicky.app`.
-Pushes and same-repo pull requests run it on the self-hosted Mac runner `clicky-mac`, because GitHub's macOS queue can take over 10 minutes.
-That runner runs as a separate macOS user and builds into the job's temp folder.
+Only pull requests run it, since babysit keeps each pull request current with main before it merges, and a push to main would test the same code again.
+A `changes` job runs `tools/app-job-needed.sh` on the pull request's changed files, and the `app` job is skipped when every file is outside the app build and its tests: `bench/`, `worker/`, `demo/`, `docs/`, `.claude/`, `.ship/`, `tools/three-tiles/`, and the top-level docs.
+A path not on that list runs it, and `tools/app-job-needed.test.sh` pins the list.
+Same-repo pull requests run it on the self-hosted Mac runners, every one labeled `clicky-mac`, because GitHub's macOS queue can take over 10 minutes.
+Each runner takes one job at a time, so the Mac has several runner processes, and the jobs run side by side.
+The runners run as a separate macOS user and build into the job's temp folder.
 The developer's Screen Recording and Accessibility grants belong to the `Clicky.app` their Xcode builds, and CI never replaces that app.
 The test host only checks those permissions and never requests them.
-macOS keeps one Accessibility grant per bundle ID for the whole Mac, across users, and an unsigned app with that ID that checks it resets the grant, so CI builds with `CLICKY_BUNDLE_ID_SUFFIX=.ci` and its app is `com.crodris.clicky-watch-along.ci`.
+macOS keeps one Accessibility grant per bundle ID for the whole Mac, across users, and an unsigned app with that ID that checks it resets the grant, so CI builds with `CLICKY_BUNDLE_ID_SUFFIX=.ci-<runner name>`, and the `clicky-mac` runner's app is `com.crodris.clicky-watch-along.ci-clicky-mac`.
+The runner name in the suffix keeps test hosts that run at the same time from sharing an app's defaults.
 The project's app bundle ID is `com.crodris.clicky-watch-along$(CLICKY_BUNDLE_ID_SUFFIX)`, and the suffix is empty everywhere else.
 Before that, on 2026-11-20, each CI test run on the Mac runner could turn off the developer's Accessibility grant.
 The developer's home folder must stay mode 700, so CI jobs cannot read their files or tokens.

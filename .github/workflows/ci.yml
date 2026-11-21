@@ -79,10 +79,39 @@ jobs:
       # verify-clicky's build checks that the app is newer than every Swift file under leanring-buddy/, and this test pins that check.
       - run: bash ../.claude/skills/verify-clicky/verify-clicky.test.sh
 
+  # Says whether the pull request changes anything the app build or its tests read, so a bench, worker, or docs change
+  # does not wait in line for a Mac runner.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      app: ${{ steps.app.outputs.app }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash tools/app-job-needed.test.sh
+      # A renamed file counts at its old path too, since moving a file out of the app changes the app.
+      - id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST_FILES: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
+        run: |
+          changed_files="$(gh api --paginate "$PULL_REQUEST_FILES" --jq '.[] | .filename, (.previous_filename // empty)')"
+          echo "app=$(printf '%s\n' "$changed_files" | bash tools/app-job-needed.sh)" >> "$GITHUB_OUTPUT"
+
   app:
-    # Pushes and same-repo PRs run on the self-hosted Mac runner, as a separate macOS user, because GitHub's macOS queue can take over 10 minutes.
+    # Only pull requests run it. Babysit keeps each pull request current with main before it merges, so a push to main
+    # would test the same code again and hold a Mac runner while other pull requests wait.
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    # Same-repo PRs run on the self-hosted Mac runners, as a separate macOS user, because GitHub's macOS queue can take over 10 minutes.
     # Fork PRs stay on GitHub's runner, and the repo requires approval before an outside contributor's workflow runs, since a fork can edit this line.
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'clicky-mac' || 'macos-latest' }}
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'clicky-mac' || 'macos-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,9 +129,11 @@ jobs:
       # The Mac runner uses the Mac's only Xcode, so an App Store update fails here instead of changing the build.
       - if: runner.environment == 'self-hosted'
         run: xcodebuild -version | grep -qx 'Xcode 26.5'
-      # Build into the job's temp folder, which the runner empties after each job, so the Mac runner starts clean like a GitHub VM.
       # CLICKY_BUNDLE_ID_SUFFIX gives the unsigned CI app its own bundle ID. macOS keeps one Accessibility grant per bundle
       # ID for the whole Mac, so a test host under the developer's ID reset the developer's grant on 2026-11-20.
+      # The suffix names the runner, so test hosts that run at the same time on the Mac's runners never share an app's defaults.
+      - run: echo "CLICKY_BUNDLE_ID_SUFFIX=.ci-$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9' '-')" >> "$GITHUB_ENV"
+      # Build into the job's temp folder, which the runner empties after each job, so the Mac runner starts clean like a GitHub VM.
       - run: >
           xcodebuild build
           -project leanring-buddy.xcodeproj
@@ -111,7 +142,7 @@ jobs:
           -destination 'platform=macOS'
           -derivedDataPath "$RUNNER_TEMP/DerivedData"
           CODE_SIGNING_ALLOWED=NO
-          CLICKY_BUNDLE_ID_SUFFIX=.ci
+          CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
       - run: >
           xcodebuild test
           -project leanring-buddy.xcodeproj
@@ -121,4 +152,4 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/DerivedData"
           -only-testing:leanring-buddyTests
           CODE_SIGNING_ALLOWED=NO
-          CLICKY_BUNDLE_ID_SUFFIX=.ci
+          CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
