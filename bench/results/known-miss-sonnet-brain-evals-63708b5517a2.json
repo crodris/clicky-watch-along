@@ -1,0 +1,378 @@
+{
+  "label": "known-miss-sonnet",
+  "benchKind": "brain-evals",
+  "commitSHA": "63708b5517a2",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-21T04:42:11.932Z",
+  "runCount": 5,
+  "port": 8797,
+  "backend": "harness",
+  "models": [
+    "claude-sonnet-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 0,
+        "passed": 0,
+        "passRate": null,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": null,
+        "p95Ms": null,
+        "totalCostUSD": null,
+        "meanCostUSD": null,
+        "fullCommandP50Ms": null,
+        "meanFullCommandCostUSD": null
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    }
+  },
+  "sessionSummary": {
+    "runs": 5,
+    "passed": 0,
+    "passRate": 0,
+    "wrongTool": 5,
+    "wrongInput": 0,
+    "missedTool": 0,
+    "spuriousTool": 0,
+    "errors": 0,
+    "p50Ms": 1740,
+    "p95Ms": 2133,
+    "totalCostUSD": 0.01447,
+    "meanCostUSD": 0.002894,
+    "fullCommandP50Ms": 1741,
+    "meanFullCommandCostUSD": 0.002894
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "session-correction-after-interrupt",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1646.237958,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 575,
+          "cacheReadTokens": 5404,
+          "outputTokens": 158
+        }
+      ],
+      "costUSD": 0.0039399000000000005,
+      "fullCommandCostUSD": 0.0039399000000000005,
+      "totalMs": 1645.8317909999998,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 0.77
+          }
+        }
+      ],
+      "spokenText": "zoomed back out",
+      "suite": "sessions"
+    },
+    {
+      "backend": "harness",
+      "caseId": "session-correction-after-interrupt",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1877.8385420000004,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5979,
+          "outputTokens": 153
+        }
+      ],
+      "costUSD": 0.0025099000000000002,
+      "fullCommandCostUSD": 0.0025099000000000002,
+      "totalMs": 1877.0469170000006,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 0.77
+          }
+        }
+      ],
+      "spokenText": "zoomed back out",
+      "suite": "sessions"
+    },
+    {
+      "backend": "harness",
+      "caseId": "session-correction-after-interrupt",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 2133.9837909999997,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5979,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.0027099,
+      "fullCommandCostUSD": 0.0027099,
+      "totalMs": 2133.4903750000003,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 0.77
+          }
+        }
+      ],
+      "spokenText": "zoomed back out",
+      "suite": "sessions"
+    },
+    {
+      "backend": "harness",
+      "caseId": "session-correction-after-interrupt",
+      "context": "scene3D",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 1740.526249999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5979,
+          "outputTokens": 168
+        }
+      ],
+      "costUSD": 0.0026599,
+      "fullCommandCostUSD": 0.0026599,
+      "totalMs": 1740.3087919999998,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 0.77
+          }
+        }
+      ],
+      "spokenText": "zoomed back out",
+      "suite": "sessions"
+    },
+    {
+      "backend": "harness",
+      "caseId": "session-correction-after-interrupt",
+      "context": "scene3D",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 1704.3201250000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 191,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5979,
+          "outputTokens": 167
+        }
+      ],
+      "costUSD": 0.0026499,
+      "fullCommandCostUSD": 0.0026499,
+      "totalMs": 1704.161709,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "zoom",
+          "input": {
+            "factor": 0.77
+          }
+        }
+      ],
+      "spokenText": "zoomed back out",
+      "suite": "sessions"
+    }
+  ]
+}

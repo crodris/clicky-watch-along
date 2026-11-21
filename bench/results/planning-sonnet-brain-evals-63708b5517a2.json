@@ -1,0 +1,1308 @@
+{
+  "label": "planning-sonnet",
+  "benchKind": "brain-evals",
+  "commitSHA": "63708b5517a2",
+  "workingTreeIsDirty": false,
+  "recordedAt": "2026-11-21T04:41:51.876Z",
+  "runCount": 3,
+  "port": 8797,
+  "backend": "harness",
+  "models": [
+    "claude-sonnet-5-5"
+  ],
+  "summaryByBackend": {
+    "harness": {
+      "overall": {
+        "runs": 0,
+        "passed": 0,
+        "passRate": null,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": null,
+        "p95Ms": null,
+        "totalCostUSD": null,
+        "meanCostUSD": null,
+        "fullCommandP50Ms": null,
+        "meanFullCommandCostUSD": null
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    }
+  },
+  "planningSummary": {
+    "runs": 24,
+    "passed": 21,
+    "passRate": 0.875,
+    "wrongTool": 3,
+    "wrongInput": 0,
+    "missedTool": 0,
+    "spuriousTool": 0,
+    "errors": 0,
+    "p50Ms": 1671,
+    "p95Ms": 2032,
+    "totalCostUSD": 0.09745,
+    "meanCostUSD": 0.00406,
+    "fullCommandP50Ms": 2148,
+    "meanFullCommandCostUSD": 0.005287
+  },
+  "samples": [
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 2969.108042,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 5496,
+          "cacheReadTokens": 0,
+          "outputTokens": 78
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 367,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 175
+        }
+      ],
+      "costUSD": 0.014922,
+      "fullCommandCostUSD": 0.0179556,
+      "totalMs": 1454.510875,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 98
+          }
+        },
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 3012.6432919999997,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 367,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 175
+        }
+      ],
+      "costUSD": 0.0017315999999999998,
+      "fullCommandCostUSD": 0.0047652,
+      "totalMs": 1636.1866249999994,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 98
+          }
+        },
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-pop-out",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 2733.0465839999997,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 201,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 367,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 175
+        }
+      ],
+      "costUSD": 0.0017315999999999998,
+      "fullCommandCostUSD": 0.0047652,
+      "totalMs": 1293.2965839999997,
+      "outcome": "wrongTool",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "swim bladder"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 98
+          }
+        },
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-pause-slow-rewind",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1829.045,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 204
+        }
+      ],
+      "costUSD": 0.0029936,
+      "fullCommandCostUSD": 0.0029936,
+      "totalMs": 1828.4980829999986,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -60
+          }
+        }
+      ],
+      "spokenText": "paused, half speed, back a minute",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-pause-slow-rewind",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1666.845875000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 204
+        }
+      ],
+      "costUSD": 0.0029936,
+      "fullCommandCostUSD": 0.0029936,
+      "totalMs": 1666.3439579999995,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -60
+          }
+        }
+      ],
+      "spokenText": "paused, half speed, back a minute",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-pause-slow-rewind",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 2148.455959000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 204
+        }
+      ],
+      "costUSD": 0.0029936,
+      "fullCommandCostUSD": 0.0029936,
+      "totalMs": 2147.942500000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pause_video",
+          "input": {}
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -60
+          }
+        }
+      ],
+      "spokenText": "paused, half speed, back a minute",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 2772.6980829999993,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 75
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 360,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 85
+        }
+      ],
+      "costUSD": 0.0017036,
+      "fullCommandCostUSD": 0.0038231999999999997,
+      "totalMs": 1588.403957999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 295
+          }
+        }
+      ],
+      "spokenText": "ten seconds before the liver part",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 3071.5210420000003,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 363,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 115
+        }
+      ],
+      "costUSD": 0.0017335999999999999,
+      "fullCommandCostUSD": 0.0041592,
+      "totalMs": 1671.2087919999976,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 295
+          }
+        }
+      ],
+      "spokenText": "ten seconds before the liver part",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-then-back-up",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 2361.4157080000004,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 202,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 363,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 84
+        }
+      ],
+      "costUSD": 0.0017335999999999999,
+      "fullCommandCostUSD": 0.0038491999999999997,
+      "totalMs": 1424.0981250000004,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 295
+          }
+        }
+      ],
+      "spokenText": "ten seconds before the liver",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 2721.4303330000002,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 155
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 509,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.0025116,
+      "fullCommandCostUSD": 0.0048592,
+      "totalMs": 1726.0982909999984,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 214
+          }
+        }
+      ],
+      "spokenText": "here it is",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 2849.1762500000004,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 152
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 506,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.0024816,
+      "fullCommandCostUSD": 0.0048232,
+      "totalMs": 1830.0360409999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 214
+          }
+        }
+      ],
+      "spokenText": "going there now",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-seek-slow",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 2598.0905839999978,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 206,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 155
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 509,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 78
+        }
+      ],
+      "costUSD": 0.0025116,
+      "fullCommandCostUSD": 0.0048592,
+      "totalMs": 1527.846999999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "cartilage skeleton"
+          }
+        },
+        {
+          "name": "set_speed",
+          "input": {
+            "rate": 0.5
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 214
+          }
+        }
+      ],
+      "spokenText": "here it is",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-seek-back-then-pop-out",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1740.3420420000002,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 133
+        }
+      ],
+      "costUSD": 0.0022716,
+      "fullCommandCostUSD": 0.0022716,
+      "totalMs": 1740.0770830000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-seek-back-then-pop-out",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1725.4141249999957,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 133
+        }
+      ],
+      "costUSD": 0.0022716,
+      "fullCommandCostUSD": 0.0022716,
+      "totalMs": 1725.2354999999952,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-seek-back-then-pop-out",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1552.8055420000019,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 128
+        }
+      ],
+      "costUSD": 0.0022216,
+      "fullCommandCostUSD": 0.0022216,
+      "totalMs": 1552.1235830000005,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "seek_relative",
+          "input": {
+            "seconds": -30
+          }
+        },
+        {
+          "name": "pop_out",
+          "input": {}
+        }
+      ],
+      "spokenText": "",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 2498.097249999999,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 76
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 386,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 89
+        }
+      ],
+      "costUSD": 0.0017016,
+      "fullCommandCostUSD": 0.0039131999999999995,
+      "totalMs": 1341.1151669999963,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "jumping there now",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 2371.002625000001,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 76
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 386,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 92
+        }
+      ],
+      "costUSD": 0.0017016,
+      "fullCommandCostUSD": 0.0039432,
+      "totalMs": 1266.1786670000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "jumping there now",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-find-last-mention",
+      "context": "video",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 2567.6489589999983,
+      "turnCount": 2,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 196,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 76
+        },
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 386,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5496,
+          "outputTokens": 87
+        }
+      ],
+      "costUSD": 0.0017016,
+      "fullCommandCostUSD": 0.0038931999999999994,
+      "totalMs": 1352.392667,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "find_moment",
+          "input": {
+            "query": "liver"
+          }
+        },
+        {
+          "name": "seek_to_time",
+          "input": {
+            "seconds": 470
+          }
+        }
+      ],
+      "spokenText": "jumping there",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-rotate-then-zoom-part",
+      "context": "scene3D",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1773.106958000004,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 239,
+          "cacheWriteTokens": 5404,
+          "cacheReadTokens": 0,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.015608,
+      "fullCommandCostUSD": 0.015608,
+      "totalMs": 1772.7937079999974,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        },
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "spark plug"
+          }
+        }
+      ],
+      "spokenText": "turned left, on the spark plug",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-rotate-then-zoom-part",
+      "context": "scene3D",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1991.3057919999992,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5404,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.0026384,
+      "fullCommandCostUSD": 0.0026384,
+      "totalMs": 1990.9142499999944,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        },
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "spark plug"
+          }
+        }
+      ],
+      "spokenText": "turned left, on the spark plug",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-rotate-then-zoom-part",
+      "context": "scene3D",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1728.4602500000037,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 239,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5404,
+          "outputTokens": 163
+        }
+      ],
+      "costUSD": 0.0026484,
+      "fullCommandCostUSD": 0.0026484,
+      "totalMs": 1728.2273340000029,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "rotate_model",
+          "input": {
+            "yawDegrees": -45
+          }
+        },
+        {
+          "name": "zoom_to_part",
+          "input": {
+            "label": "spark plug"
+          }
+        }
+      ],
+      "spokenText": "turned it left here's the spark plug",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 2032.8534169999984,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 5704,
+          "cacheReadTokens": 0,
+          "outputTokens": 225
+        }
+      ],
+      "costUSD": 0.01734,
+      "fullCommandCostUSD": 0.01734,
+      "totalMs": 2032.3481670000037,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "60 degrees goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 60
+          }
+        },
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "got it running it at sixty",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1937.7606670000023,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5704,
+          "outputTokens": 225
+        }
+      ],
+      "costUSD": 0.0036504000000000003,
+      "fullCommandCostUSD": 0.0036504000000000003,
+      "totalMs": 1937.273000000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "60 degrees goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 60
+          }
+        },
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "got it running it at sixty",
+      "suite": "planning"
+    },
+    {
+      "backend": "harness",
+      "caseId": "planning-guess-set-run",
+      "context": "experimentGuess",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1893.0647919999974,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-sonnet-5-5",
+          "inputTokens": 415,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 5704,
+          "outputTokens": 225
+        }
+      ],
+      "costUSD": 0.0036504000000000003,
+      "fullCommandCostUSD": 0.0036504000000000003,
+      "totalMs": 1892.593624999994,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "record_guess",
+          "input": {
+            "guess": "60 degrees goes farther"
+          }
+        },
+        {
+          "name": "set_control",
+          "input": {
+            "name": "angle",
+            "value": 60
+          }
+        },
+        {
+          "name": "run_simulation",
+          "input": {}
+        }
+      ],
+      "spokenText": "got it running it at sixty",
+      "suite": "planning"
+    }
+  ]
+}
