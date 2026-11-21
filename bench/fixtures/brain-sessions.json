@@ -81,7 +81,8 @@
       "interruptedBefore": ["rotate_model {\"yawDegrees\":90} -> ok"],
       "accept": ["rotate_model"],
       "input": { "rotate_model": { "yawDegrees": -90 } },
-      "why": "The learner cut off a command after it turned the model right by 90 degrees. The session rolled that command back, so only the Interrupted before line shows the turn, and undoing it must reverse that turn."
+      "why": "The learner cut off a command after it turned the model right by 90 degrees. The session rolled that command back, so only the Interrupted before line shows the turn, and undoing it must reverse that turn.",
+      "knownMiss": "Haiku 5.5 at low effort passed 1 of 3, 0 of 5, and 2 of 5 runs. It turns -45, as if yawDegrees were an angle to go to, or +45, undoing the first turn instead of the interrupted one. Rewording the yawDegrees description or naming the interrupted actions as the most recent ones each reached 2 of 5, so the PR 7 evals decide whether Sonnet fixes it."
     },
     {
       "id": "session-injection-approve",

@@ -14,6 +14,7 @@ import {
   sceneStateOf,
   sessionLinesFor,
   splitBySuite,
+  gatedSessionSamples,
   validateSessionFixture,
   appToolDescriptionsIn,
   appToolStepKindsIn,
@@ -1055,6 +1056,19 @@ describe("the session suite's scoring", () => {
     const failedGate = harnessParityGate(workerSummary, harnessSummary, summarizeSamples([sessionSample]));
     assert.equal(failedGate.passed, false);
     assert.equal(failedGate.checks.at(-1)?.name, "every session case passes");
+  });
+
+  it("leaves a known miss out of the gate, while another session case that fails still fails it", () => {
+    const knownMissCase = { ...fixtureCase("scene-other-way"), id: "known-miss", knownMiss: "the model reads the turn as an angle" };
+    const gatedCase = { ...fixtureCase("scene-other-way"), id: "gated" };
+    const knownMissSample = sample({ backend: "harness", suite: "sessions", caseId: "known-miss", outcome: "wrongInput" });
+    const gatedSample = sample({ backend: "harness", suite: "sessions", caseId: "gated", outcome: "wrongInput" });
+
+    assert.deepEqual(gatedSessionSamples([knownMissSample, gatedSample], [knownMissCase, gatedCase]), [gatedSample]);
+    const workerSummary = summarizeSamples([sample({})]);
+    const harnessSummary = summarizeSamples([sample({ backend: "harness" })]);
+    assert.equal(harnessParityGate(workerSummary, harnessSummary, summarizeSamples(gatedSessionSamples([knownMissSample], [knownMissCase]))).passed, true);
+    assert.equal(harnessParityGate(workerSummary, harnessSummary, summarizeSamples(gatedSessionSamples([knownMissSample, gatedSample], [knownMissCase, gatedCase]))).passed, false);
   });
 });
 

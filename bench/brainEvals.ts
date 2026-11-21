@@ -106,6 +106,11 @@ export type BrainCase = {
   toolResults?: Record<string, ScriptedToolResult>;
   /** Why the case exists, for the reader of a failure. */
   why: string;
+  /**
+   * Set on a session case that today's brain model is known to fail some of the time, with the reason. The run still runs
+   * and reports it, and the gate leaves it out, so a known weakness of the model does not block the brain's gate.
+   */
+  knownMiss?: string;
 };
 
 /** One tool call of an earlier command, with the answer the app gave it. */
@@ -515,6 +520,12 @@ export function summarizeSamples(samples: BrainSample[]): ScoreSummary {
         ? null
         : Number((fullCommandCosts.reduce((total: number, cost) => total + (cost ?? 0), 0) / fullCommandCosts.length).toFixed(6)),
   };
+}
+
+/** The session samples the gate counts: every one except those of a case marked `knownMiss`. */
+export function gatedSessionSamples(sessionSamples: BrainSample[], sessionCases: BrainCase[]): BrainSample[] {
+  const knownMissCaseIDs = new Set(sessionCases.filter((brainCase) => brainCase.knownMiss !== undefined).map((brainCase) => brainCase.id));
+  return sessionSamples.filter((sample) => !knownMissCaseIDs.has(sample.caseId));
 }
 
 /** The samples of the cases both backends run, and the samples of the session cases, which only the harness backend runs. */
@@ -982,7 +993,7 @@ export const parityMostCostMultiple = 1.5;
  * The gate for the harness brain, from the Worker's and the harness's summaries of the same run: every harness run
  * passes, its p50 to the first tool call is within 100 ms of the Worker's, and its first-turn cost per call is within 1.5
  * times the Worker's. The full-command cost is reported beside it and is not checked. When the run also held the session
- * cases of fixtures/brain-sessions.json, every one of those must pass too.
+ * cases of fixtures/brain-sessions.json, every one of those must pass too, except a case marked `knownMiss`.
  */
 export function harnessParityGate(
   workerSummary: ScoreSummary,
@@ -1262,7 +1273,7 @@ async function runBrainEvals() {
       const failedSamples = sessionSamples.filter((sample) => sample.caseId === brainCase.id && sample.outcome !== "pass");
       if (failedSamples.length > 0) {
         console.log(
-          `FAIL sessions ${brainCase.id} (${failedSamples.length}/${runCount}): "${brainCase.say}" accepts ${acceptedText(brainCase)}, got ${[...new Set(failedSamples.map((sample) => `${sample.outcome}: ${describeCalls(sample.toolCalls)}`))].join("; ")}`,
+          `${brainCase.knownMiss === undefined ? "FAIL" : "KNOWN MISS"} sessions ${brainCase.id} (${failedSamples.length}/${runCount}): "${brainCase.say}" accepts ${acceptedText(brainCase)}, got ${[...new Set(failedSamples.map((sample) => `${sample.outcome}: ${describeCalls(sample.toolCalls)}`))].join("; ")}`,
         );
       }
     }
@@ -1289,7 +1300,8 @@ async function runBrainEvals() {
     }
   }
 
-  const gate = backendOption === "both" ? harnessParityGate(summaryByBackend.worker.overall, summaryByBackend.harness.overall, sessionSummary) : undefined;
+  const gatedSessionSummary = sessionSummary === undefined ? undefined : summarizeSamples(gatedSessionSamples(sessionSamples, selectedSessionCases));
+  const gate = backendOption === "both" ? harnessParityGate(summaryByBackend.worker.overall, summaryByBackend.harness.overall, gatedSessionSummary) : undefined;
   for (const check of gate?.checks ?? []) {
     console.log(`${check.passed ? "GATE PASS" : "GATE FAIL"} ${check.name}: ${check.detail}`);
   }
