@@ -116,6 +116,11 @@ struct AgentHarnessTests {
             "type": .string("cancel_task"),
             "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),
         ]))
+        #expect(try decodedJSON(of: HarnessCommand.cancelTask(taskID: firstTaskID, runningToolUseID: "toolu_zoom").line) == .object([
+            "type": .string("cancel_task"),
+            "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),
+            "runningToolUseID": .string("toolu_zoom"),
+        ]))
     }
 
     // MARK: - Voice commands on the brain

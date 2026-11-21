@@ -183,7 +183,10 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
     /// from it and never reads a link out of `content`, which a video's own text can write, so it is set for that tool
     /// alone and left out of the line otherwise.
     case toolResult(taskID: UUID, toolUseID: String, content: JSONValue, isError: Bool, sourceURL: String? = nil)
-    case cancelTask(taskID: UUID)
+    /// `runningToolUseID` is set only for a voice command: the call the app had started and not answered when the press came,
+    /// which may already have changed the screen. The harness reverses a cut-off page call on "undo that" only when this
+    /// names it, since a call the press caught before it started never ran.
+    case cancelTask(taskID: UUID, runningToolUseID: String? = nil)
     /// The answer to one approval_request, named by the harness's approvalID.
     case approvalResult(approvalID: String, approved: Bool, scope: HarnessApprovalScope)
     /// Starts a voice command on the brain. `sceneState` is `voiceCommandSceneState`'s object, and `tools` the list after
@@ -219,8 +222,12 @@ nonisolated enum HarnessCommand: Equatable, Sendable {
                 toolResultFields["sourceURL"] = .string(sourceURL)
             }
             return .object(toolResultFields)
-        case .cancelTask(let taskID):
-            return .object(["type": .string("cancel_task"), "taskID": .string(taskID.uuidString)])
+        case .cancelTask(let taskID, let runningToolUseID):
+            var cancelFields: [String: JSONValue] = ["type": .string("cancel_task"), "taskID": .string(taskID.uuidString)]
+            if let runningToolUseID {
+                cancelFields["runningToolUseID"] = .string(runningToolUseID)
+            }
+            return .object(cancelFields)
         case .approvalResult(let approvalID, let approved, let scope):
             return .object([
                 "type": .string("approval_result"),

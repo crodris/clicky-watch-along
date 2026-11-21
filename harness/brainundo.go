@@ -323,24 +323,26 @@ func (run *sessionRun) noteChange(change appliedChange) {
 // also keeps the change the undo reversed from being undone a second time. It also writes the call's action line, marked
 // as cut off, so the next command's interrupted_before tag names it. The system prompt tells the model to reverse an
 // earlier action itself when asked to undo, and a call the model never hears of would let it reach past the cut-off call.
-func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall, isAnUndo bool) {
+func (run *sessionRun) noteACallWhoseEffectIsUnknown(cancelledCall toolCall, isAnUndo bool, theAppHadStartedIt bool) {
 	run.actionLines = append(run.actionLines, voiceToolCutOffActionLine(cancelledCall))
 	run.noteChange(appliedChange{
 		tool:            cancelledCall.Name,
 		input:           inputWithoutConfirmation(cancelledCall.Input),
-		effectIsUnknown: !aCutOffCallHasRun(cancelledCall.Name, isAnUndo, run.pageMayStillRefuseChanges),
+		effectIsUnknown: !aCutOffCallHasRun(cancelledCall.Name, isAnUndo, run.pageMayStillRefuseChanges, theAppHadStartedIt),
 	})
 }
 
-// aCutOffCallHasRun is true for a page call a press cut off that is not an undo, on a page whose tour has finished. The
-// app runs a page tool's JavaScript in its own web view, which answers in a few milliseconds, so the call has almost surely
-// changed the scene, and its inverse is exact. Without it, the model works out the reverse of an angle itself and got it
+// aCutOffCallHasRun is true for a page call a press cut off that is not an undo, on a page whose tour has finished, when
+// the app's cancel_task named it as the call it had started. The app runs a page tool's JavaScript in its own web view,
+// which answers in a few milliseconds, so a started call has almost surely changed the scene, and its inverse is exact.
+// The app drops a call that reaches it after the press, or that waits in its queue behind the press, without running it,
+// and its cancel_task then names no running call. Without it, the model works out the reverse of an angle itself and got it
 // wrong in 11 of 15 runs of session-undo-after-cut-off. A page still in its tour may have refused the call, since a pop-out
 // refuses a move while it builds and a landmark refuses one until its reveal. A video call goes to Chrome over Apple
 // Events, and play_video waits about 1.6 seconds on its play check, so it may not have run. A cut-off undo stays a change
 // with no inverse, so the change it reversed is not undone twice.
-func aCutOffCallHasRun(tool toolName, isAnUndo bool, pageMayStillRefuseChanges bool) bool {
-	return !isAnUndo && !pageMayStillRefuseChanges && changeTargets[tool] == targetsThePage
+func aCutOffCallHasRun(tool toolName, isAnUndo bool, pageMayStillRefuseChanges bool, theAppHadStartedIt bool) bool {
+	return theAppHadStartedIt && !isAnUndo && !pageMayStillRefuseChanges && changeTargets[tool] == targetsThePage
 }
 
 // pageTourIsStillGoing is true when the scene state says tourFinished is false. A page that does not report it, such as a
@@ -507,8 +509,10 @@ func appliedChangeOfActionLine(actionLine string) (appliedChange, bool) {
 	case "-> ok":
 		return appliedChange{tool: toolName(name), input: input}, true
 	case "-> " + cutOffResultWord:
-		// A seed cannot tell a cut-off undo from a new call, so it reads the line as a new call, as the harness records one.
-		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: !aCutOffCallHasRun(toolName(name), false, false)}, true
+		// A seed's line carries none of what the harness knew at the cancel, so it reads as a new call (never an undo), on
+		// a page whose tour had finished, that the app had started, which is the case a cut-off line most often stands for.
+		const isAnUndo, pageMayStillRefuseChanges, theAppHadStartedIt = false, false, true
+		return appliedChange{tool: toolName(name), input: input, effectIsUnknown: !aCutOffCallHasRun(toolName(name), isAnUndo, pageMayStillRefuseChanges, theAppHadStartedIt)}, true
 	default:
 		return appliedChange{}, false
 	}

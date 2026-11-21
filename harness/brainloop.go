@@ -191,8 +191,8 @@ func theWorkerRefusedTheAppSecret(err error) bool {
 // them too, since a later call that depends on it, such as a pop-out after a seek that found no moment, would act on
 // the wrong screen and the learner would never hear the failure: each later call gets its own "Not run" result and the
 // model is asked again. It records the action line of every call the app ran, and the change of every call that changed
-// the screen. A call a cancel catches while the app is still running it is recorded as a change with no inverse, and its
-// action line says it was cut off. A call to undo_last_change reaches the app as the inverse of the newest change
+// the screen. A call a cancel catches before the app answered it is recorded as a change, with its inverse only for a page
+// call the app had started (aCutOffCallHasRun), and its action line says it was cut off. A call to undo_last_change reaches the app as the inverse of the newest change
 // (brainundo.go), so an undo whose inverse fails, or that cannot be undone, is a failed call like any other. It returns an
 // error only when the command was cancelled.
 func (brain *brainRunner) runToolCalls(
@@ -257,13 +257,16 @@ func (brain *brainRunner) runToolCalls(
 		if err != nil {
 			// A result the app sent before its cancel_task is a call that finished, and it changed the screen, so its
 			// action line still reaches the next command through the rollback, and its change joins the record. With no
-			// result, a call the app received may still have been applied, so the record gets a change with no inverse
-			// that "undo that" cannot reach past. A call the cancel kept from being sent never ran, and neither did a
-			// lookup, which changes nothing.
+			// result, a call the app received may still have been applied, so the record gets a change that "undo that"
+			// cannot reach past, with its inverse only for a page call the app's cancel_task named as running
+			// (aCutOffCallHasRun). A call the cancel kept from being sent never ran, and neither did a lookup, which
+			// changes nothing.
 			if result.ToolUseID == callToRun.ID {
 				run.noteFinishedCall(callToRun, knownOutcomeOf(result), voiceToolResultText(result), isAnUndo)
 			} else if callWasSent && !isALookup(voiceCommand.Tools, callToRun.Name) {
-				run.noteACallWhoseEffectIsUnknown(callToRun, isAnUndo)
+				runningToolUseID := command.toolUseIDTheAppWasRunningAtTheCancel.Load()
+				theAppHadStartedIt := runningToolUseID != nil && *runningToolUseID == callToRun.ID
+				run.noteACallWhoseEffectIsUnknown(callToRun, isAnUndo, theAppHadStartedIt)
 			}
 			return nil, nil, err
 		}

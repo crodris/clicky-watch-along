@@ -39,6 +39,11 @@ func cancelTaskLine(taskID string) string {
 	return fmt.Sprintf(`{"type":"cancel_task","taskID":%q}`, taskID)
 }
 
+// cancelTaskLineWhileRunning is the cancel the app sends when the press came while it ran the named call.
+func cancelTaskLineWhileRunning(taskID string, runningToolUseID string) string {
+	return fmt.Sprintf(`{"type":"cancel_task","taskID":%q,"runningToolUseID":%q}`, taskID, runningToolUseID)
+}
+
 // ---- A fake Worker's answer to a brain turn, which is not streamed ----
 
 func writeBrainReply(writer http.ResponseWriter, stopReason string, contentBlocksJSON ...string) {

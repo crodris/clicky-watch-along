@@ -185,7 +185,7 @@ func (serving *harness) handle(line []byte) {
 	case toolResultMessage:
 		serving.deliverToolResult(message)
 	case cancelTaskMessage:
-		serving.cancelTask(message.TaskID)
+		serving.cancelTask(message)
 	case seedApprovalRequestMessage:
 		if !serving.benchMode {
 			fmt.Fprintln(os.Stderr, "harness: dropped seed_approval_request, which only a harness started with CLICKY_BENCH=1 takes")
@@ -287,10 +287,12 @@ func (serving *harness) deliverToolResult(result toolResultMessage) {
 	}
 }
 
-func (serving *harness) cancelTask(taskID string) {
+func (serving *harness) cancelTask(message cancelTaskMessage) {
 	serving.tasksMutex.Lock()
 	defer serving.tasksMutex.Unlock()
-	if task := serving.tasks[taskID]; task != nil {
+	if task := serving.tasks[message.TaskID]; task != nil {
+		// Stored before the cancel, so a command that sees its context end reads the call the app was running.
+		task.toolUseIDTheAppWasRunningAtTheCancel.Store(&message.RunningToolUseID)
 		cancelUnlessAHandOffCompletedIt(task)
 	}
 }
