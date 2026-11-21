@@ -248,12 +248,6 @@ func cursorEmote(forAnswerOutcome revealOutcome: LiveSceneRevealOutcome) -> Curs
     }
 }
 
-/// Whether a line Clicky speaks reports something that went wrong. Every such line, such as "Sorry, I couldn't do that one.",
-/// opens with "Sorry", and no other line does.
-func spokenLineIsAFailure(_ line: String) -> Bool {
-    line.hasPrefix("Sorry")
-}
-
 // MARK: - Glyph shading
 
 /// The triangle's gradient: light at the tip, the accent in the middle, deeper at the base. A color as three channels.
@@ -414,14 +408,12 @@ struct CursorTintedGlyph<Glyph: View>: View {
     let tintColor: Color
     let tintStrength: Double
 
-    @ViewBuilder var body: some View {
-        if tintStrength > 0 {
-            glyph
-                .overlay(tintColor.opacity(tintStrength).blendMode(.sourceAtop))
-                .compositingGroup()
-        } else {
-            glyph
-        }
+    var body: some View {
+        // Always the same view tree, so a tint starting or ending never rebuilds the glyph and restarts its animations. The
+        // wash reaches past the glyph's frame, since a rotated triangle's tips do, and the blend keeps it on the glyph's pixels.
+        glyph
+            .overlay { tintColor.opacity(tintStrength).padding(-16).blendMode(.sourceAtop) }
+            .compositingGroup()
     }
 }
 

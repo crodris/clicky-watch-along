@@ -203,14 +203,6 @@ struct CursorEmoteTests {
         #expect(cursorEmote(forAnswerOutcome: .shakeAndKeepTheQuestionMark) == .shake)
         #expect(cursorEmote(forAnswerOutcome: .revealWithoutCelebration) == nil)
     }
-
-    @Test func everySorryLineIsAFailureAndNoOtherLineIs() {
-        #expect(spokenLineIsAFailure(voiceCommandGaveUpLine))
-        #expect(spokenLineIsAFailure("Sorry, I couldn't build that one."))
-        #expect(spokenLineIsAFailure("Sorry, I couldn't design that one."))
-        #expect(!spokenLineIsAFailure("Sure, I'll build that while you watch."))
-        #expect(!spokenLineIsAFailure("Good try. The heart pumps blood."))
-    }
 }
 
 struct CursorGlyphShadeTests {
@@ -402,7 +394,7 @@ struct CursorBodyLanguageRenderTests {
 @MainActor
 struct CursorBodyLanguageFrameTests {
     private let startedAt = Date(timeIntervalSinceReferenceDate: 5000)
-    private let framePointSide: CGFloat = 80
+    private let framePointSide: CGFloat = 48
 
     private func clickyBlue() throws -> ClickyTheme {
         try #require(bundledThemesForTests.first { $0.id == "clicky-blue" })
@@ -435,28 +427,61 @@ struct CursorBodyLanguageFrameTests {
         .frame(width: framePointSide, height: framePointSide)
     }
 
-    private func pixels(of view: some View, onDark: Bool = true) throws -> NSBitmapImageRep {
+    /// One pixel's channels from 0 to 1.
+    struct PixelColor {
+        let redComponent: Double
+        let greenComponent: Double
+        let blueComponent: Double
+        let alphaComponent: Double
+    }
+
+    /// A rendered frame as plain bytes. Reading each pixel through `NSBitmapImageRep.colorAt` allocates a color per pixel, which
+    /// starved the main actor for tens of seconds on a loaded CI runner and failed unrelated tests that wait on it.
+    struct RenderedPixels {
+        let pixelsWide: Int
+        let pixelsHigh: Int
+        let bytes: [UInt8]
+
+        func colorAt(x pixelColumn: Int, y pixelRow: Int) -> PixelColor {
+            let firstByte = (pixelRow * pixelsWide + pixelColumn) * 4
+            // Premultiplied alpha over an opaque background is the color itself, so the background's pixels read as opaque.
+            return PixelColor(
+                redComponent: Double(bytes[firstByte]) / 255,
+                greenComponent: Double(bytes[firstByte + 1]) / 255,
+                blueComponent: Double(bytes[firstByte + 2]) / 255,
+                alphaComponent: Double(bytes[firstByte + 3]) / 255
+            )
+        }
+    }
+
+    private func pixels(of view: some View, onDark: Bool = true) throws -> RenderedPixels {
         let renderer = ImageRenderer(content: view.background(onDark ? Color(hex: "#101211") : Color.white))
         renderer.scale = 2
         let cgImage = try #require(renderer.cgImage)
-        return NSBitmapImageRep(cgImage: cgImage)
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        var bytes = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
+        let context = try #require(CGContext(
+            data: &bytes, width: cgImage.width, height: cgImage.height, bitsPerComponent: 8, bytesPerRow: cgImage.width * 4,
+            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        return RenderedPixels(pixelsWide: cgImage.width, pixelsHigh: cgImage.height, bytes: bytes)
     }
 
     /// The center of the pixels that are clearly the cursor's own, not the glow or the background.
-    private func centroidOfTheCursor(_ bitmap: NSBitmapImageRep, isCursorPixel: (NSColor) -> Bool) throws -> CGPoint {
-        var sumX = 0.0, sumY = 0.0, count = 0.0
-        for y in 0..<bitmap.pixelsHigh {
-            for x in 0..<bitmap.pixelsWide {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), isCursorPixel(color) else { continue }
-                sumX += Double(x); sumY += Double(y); count += 1
+    private func centroidOfTheCursor(_ bitmap: RenderedPixels, isCursorPixel: (PixelColor) -> Bool) throws -> CGPoint {
+        var sumOfColumns = 0.0, sumOfRows = 0.0, count = 0.0
+        for pixelRow in 0..<bitmap.pixelsHigh {
+            for pixelColumn in 0..<bitmap.pixelsWide where isCursorPixel(bitmap.colorAt(x: pixelColumn, y: pixelRow)) {
+                sumOfColumns += Double(pixelColumn); sumOfRows += Double(pixelRow); count += 1
             }
         }
         try #require(count > 0)
-        return CGPoint(x: sumX / count, y: sumY / count)
+        return CGPoint(x: sumOfColumns / count, y: sumOfRows / count)
     }
 
-    private func isBlue(_ color: NSColor) -> Bool { color.blueComponent > 0.6 && color.redComponent < 0.5 && color.alphaComponent > 0.9 }
-    private func isRedOrBlue(_ color: NSColor) -> Bool { color.alphaComponent > 0.9 && (color.redComponent > 0.5 || color.blueComponent > 0.6) && color.greenComponent < 0.6 }
+    private func isBlue(_ color: PixelColor) -> Bool { color.blueComponent > 0.6 && color.redComponent < 0.5 && color.alphaComponent > 0.9 }
+    private func isRedOrBlue(_ color: PixelColor) -> Bool { color.alphaComponent > 0.9 && (color.redComponent > 0.5 || color.blueComponent > 0.6) && color.greenComponent < 0.6 }
 
     @Test func aShakeMovesTheCursorSidewaysAndAHopMovesItUp() throws {
         let theme = try clickyBlue()
@@ -481,8 +506,8 @@ struct CursorBodyLanguageFrameTests {
         let theme = try clickyBlue()
         let rest = try pixels(of: frame(theme: theme, secondsIn: 0))
         let shaken = try pixels(of: frame(theme: theme, emote: .shake, secondsIn: 0.25, reduceMotion: true))
-        let restCenter = try #require(rest.colorAt(x: 80, y: 90)?.usingColorSpace(.sRGB))
-        let shakenCenter = try #require(shaken.colorAt(x: 80, y: 90)?.usingColorSpace(.sRGB))
+        let restCenter = rest.colorAt(x: 48, y: 58)
+        let shakenCenter = shaken.colorAt(x: 48, y: 58)
         #expect(shakenCenter.redComponent > restCenter.redComponent + 0.15)
         #expect(shakenCenter.blueComponent < restCenter.blueComponent)
     }
@@ -491,15 +516,16 @@ struct CursorBodyLanguageFrameTests {
         let theme = try #require(bundledThemesForTests.first { $0.id == "school-karasuno" })
         func extent(speedShare: Double, directionDegrees: Double) throws -> (width: Int, height: Int) {
             let bitmap = try pixels(of: frame(theme: theme, speedShare: speedShare, directionDegrees: directionDegrees, secondsIn: 5))
-            var minX = Int.max, maxX = 0, minY = Int.max, maxY = 0
-            for y in 0..<bitmap.pixelsHigh {
-                for x in 0..<bitmap.pixelsWide {
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.alphaComponent > 0.9,
-                          color.redComponent + color.greenComponent + color.blueComponent > 0.9 else { continue }
-                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            var leftmostColumn = Int.max, rightmostColumn = 0, topRow = Int.max, bottomRow = 0
+            for pixelRow in 0..<bitmap.pixelsHigh {
+                for pixelColumn in 0..<bitmap.pixelsWide {
+                    let color = bitmap.colorAt(x: pixelColumn, y: pixelRow)
+                    guard color.alphaComponent > 0.9, color.redComponent + color.greenComponent + color.blueComponent > 0.9 else { continue }
+                    leftmostColumn = min(leftmostColumn, pixelColumn); rightmostColumn = max(rightmostColumn, pixelColumn)
+                    topRow = min(topRow, pixelRow); bottomRow = max(bottomRow, pixelRow)
                 }
             }
-            return (maxX - minX, maxY - minY)
+            return (rightmostColumn - leftmostColumn, bottomRow - topRow)
         }
         let atRest = try extent(speedShare: 0, directionDegrees: 0)
         let flyingUp = try extent(speedShare: 1, directionDegrees: 0)
@@ -515,15 +541,15 @@ struct CursorBodyLanguageFrameTests {
         let theme = try #require(bundledThemesForTests.first { $0.id == "school-karasuno" })
         func height(secondsSinceLanding: Double) throws -> Int {
             let bitmap = try pixels(of: frame(theme: theme, landed: true, directionDegrees: 0, secondsIn: secondsSinceLanding))
-            var minY = Int.max, maxY = 0
-            for y in 0..<bitmap.pixelsHigh {
-                for x in 0..<bitmap.pixelsWide {
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.alphaComponent > 0.9,
-                          color.redComponent + color.greenComponent + color.blueComponent > 0.9 else { continue }
-                    minY = min(minY, y); maxY = max(maxY, y)
+            var topRow = Int.max, bottomRow = 0
+            for pixelRow in 0..<bitmap.pixelsHigh {
+                for pixelColumn in 0..<bitmap.pixelsWide {
+                    let color = bitmap.colorAt(x: pixelColumn, y: pixelRow)
+                    guard color.alphaComponent > 0.9, color.redComponent + color.greenComponent + color.blueComponent > 0.9 else { continue }
+                    topRow = min(topRow, pixelRow); bottomRow = max(bottomRow, pixelRow)
                 }
             }
-            return maxY - minY
+            return bottomRow - topRow
         }
         #expect(try height(secondsSinceLanding: 0.05) < height(secondsSinceLanding: 1) - 2)
     }

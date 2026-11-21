@@ -1729,7 +1729,7 @@ final class CompanionManager: ObservableObject {
               let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
               LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
             liveScenePhase = .idle
-            await speakLiveSceneLine(failureLine)
+            await speakLiveSceneLine(failureLine, isAFailure: true)
             voiceState = .idle
             // No scene opened, so nothing will clear it and resume the video.
             // A previous pop-out cleared for this request may still be landing back in its frame.
@@ -2550,7 +2550,7 @@ final class CompanionManager: ObservableObject {
     /// No scene is on screen, so nothing else will resume a video paused for it.
     private func sayTheSceneCouldNotBeBuilt() async {
         liveScenePhase = .idle
-        await speakLiveSceneLine("Sorry, I couldn't build that one.")
+        await speakLiveSceneLine("Sorry, I couldn't build that one.", isAFailure: true)
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
         await LiveSceneOverlay.shared.waitForReturnToFinish()
@@ -2862,7 +2862,7 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if theTurnsRanOut {
-            if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+            if await speakLiveSceneLine(voiceCommandGaveUpLine, isAFailure: true) { timing.mark(\.firstLineAudioStartedAt) }
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2964,7 +2964,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
-                if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+                if await speakLiveSceneLine(voiceCommandGaveUpLine, isAFailure: true) { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             voiceState = .idle
@@ -3014,7 +3014,7 @@ final class CompanionManager: ObservableObject {
         // so handing it back would loop between the two on every failure.
         if liveScenePhaseIsWaitingForAQuizAnswer {
             print("Voice command: the router failed during a quiz question: \(failureDescription)")
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakLiveSceneLine(voiceCommandGaveUpLine, isAFailure: true)
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3027,7 +3027,7 @@ final class CompanionManager: ObservableObject {
             themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .giveUp:
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakLiveSceneLine(voiceCommandGaveUpLine, isAFailure: true)
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -4277,16 +4277,17 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
+    /// `isAFailure` says the line reports something that went wrong, so the cursor shakes as Clicky says it. The caller says
+    /// so, since a failure line can start with any words ("I couldn't find a YouTube video open in Chrome.").
     @discardableResult
-    private func speakLiveSceneLine(_ line: String) async -> Bool {
-        await speakLiveSceneLineAndReturnItsToken(line) != nil
+    private func speakLiveSceneLine(_ line: String, isAFailure: Bool = false) async -> Bool {
+        await speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) != nil
     }
 
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
-    private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
-        // Every line Clicky speaks about something that went wrong starts with "Sorry", so the cursor shakes with it.
-        if spokenLineIsAFailure(line) { playCursorEmote(.shake) }
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool = false) async -> SpokenLineToken? {
+        if isAFailure { playCursorEmote(.shake) }
         do {
             let lineToken = try await elevenLabsTTSClient.speakText(line)
             voiceState = .responding
@@ -4498,6 +4499,7 @@ final class CompanionManager: ObservableObject {
     /// or reply request fails. Uses NSSpeechSynthesizer so it works even when
     /// ElevenLabs is down.
     private func speakCreditsErrorFallback() {
+        playCursorEmote(.shake)
         let utterance = "Sorry, I lost my voice for a second. Please try that again."
         let synthesizer = NSSpeechSynthesizer()
         synthesizer.startSpeaking(utterance)

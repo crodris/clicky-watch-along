@@ -207,6 +207,9 @@ struct CursorRingView: View {
     @State private var playingHandoff: PlayingRingHandoff?
     /// When the dots began to orbit, so a handoff out of them starts where the orbit is.
     @State private var dotsBeganOrbitingAt = Date()
+    /// The cue `onChange` last saw. Until it catches up with `cue`, the view is drawing the render a cue change started, which
+    /// is too early for the dots: the handoff or the orbit's start time is not set yet.
+    @State private var lastSeenCue: CursorCue?
 
     var body: some View {
         ZStack {
@@ -217,7 +220,7 @@ struct CursorRingView: View {
                 ListeningTicksView(audioPowerLevel: audioPowerLevel, color: color)
                     .transition(.opacity)
             }
-            if cue == .thinkingWithDots, playingHandoff == nil {
+            if cue == .thinkingWithDots, playingHandoff == nil, lastSeenCue == nil || lastSeenCue == cue {
                 ThinkingDotsView(color: color, orbitBeganAt: dotsBeganOrbitingAt)
                     // After the ticks turned into the dots, the dots are already on screen, so they do not fade in again.
                     .transition(reduceMotion ? .opacity : .asymmetric(insertion: .identity, removal: .opacity))
@@ -226,8 +229,10 @@ struct CursorRingView: View {
         .frame(width: CursorRingGeometry.outerRadiusInPoints * 2, height: CursorRingGeometry.outerRadiusInPoints * 2)
         .animation(.easeOut(duration: DS.Move.fadeSeconds), value: cue)
         .allowsHitTesting(false)
+        .onAppear { lastSeenCue = cue }
         .onChange(of: cue) { previousCue, newCue in
             beginAHandoffIfTheChangePlaysOne(from: previousCue, to: newCue)
+            lastSeenCue = newCue
         }
     }
 
@@ -246,7 +251,8 @@ struct CursorRingView: View {
                 audioPowerLevel: audioPowerLevel,
                 shimmerPhase: now.timeIntervalSinceReferenceDate * 5
             ),
-            secondsTheDotsHadOrbitedAtTheStart: now.timeIntervalSince(dotsBeganOrbitingAt)
+            // The ticks may have turned into the dots only a moment ago, so the orbit may not have begun: it starts at the top.
+            secondsTheDotsHadOrbitedAtTheStart: max(now.timeIntervalSince(dotsBeganOrbitingAt), 0)
         )
         playingHandoff = handoffToPlay
         // The dots start orbiting at the top where the ticks left them.

@@ -681,8 +681,8 @@ struct BlueCursorView: View {
 
     /// Animates the buddy along a quadratic bezier arc from its current position
     /// to the specified destination. The triangle rotates to face its direction
-    /// of travel (tangent to the curve) each frame, scales up at the midpoint
-    /// for a "swooping" feel, and the glow intensifies during flight.
+    /// of travel (tangent to the curve) each frame, stretches along that direction
+    /// at the middle of the flight (the Point move), and the glow grows with its speed.
     private func animateBezierFlightArc(
         to destination: CGPoint,
         onComplete: @escaping () -> Void
@@ -706,7 +706,7 @@ struct BlueCursorView: View {
         let distance = hypot(deltaX, deltaY)
 
         // Flight duration scales with distance: short hops are quick, long
-        // flights are more dramatic (the Point move, clamped to 0.6s–1.4s).
+        // flights are more dramatic (the Point move, clamped to 0.6s-1.4s).
         let pointMoveCurve = DS.Move.point.curve
         let flightDurationSeconds = pointMoveCurve.seconds(travelingPoints: distance)
         let frameInterval: Double = 1.0 / 60.0
@@ -730,9 +730,9 @@ struct BlueCursorView: View {
                 self.navigationAnimationTimer = nil
                 self.cursorPosition = endPosition
                 self.buddyFlightSpeedShare = 0
-                // The landing squash starts here; it is a Point move form that Reduce Motion never reaches, since its
-                // flight is the fade.
-                self.buddyLandedAt = Date()
+                // The landing squash starts when the cursor lands on a target, not when it comes back to the mouse. Reduce Motion
+                // never reaches it, since its flight is the fade.
+                if !self.isReturningToCursor { self.buddyLandedAt = Date() }
                 onComplete()
                 return
             }
@@ -741,32 +741,33 @@ struct BlueCursorView: View {
             let linearProgress = Double(currentFrame) / Double(totalFrames)
 
             // The Point move's easing, smoothstep: 3t² - 2t³ (Hermite interpolation)
-            let t = pointMoveCurve.progress(atSeconds: linearProgress * flightDurationSeconds, travelingPoints: distance)
+            let easedFlightProgress = pointMoveCurve.progress(atSeconds: linearProgress * flightDurationSeconds, travelingPoints: distance)
 
-            // Quadratic bezier: B(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
-            let oneMinusT = 1.0 - t
-            let bezierX = oneMinusT * oneMinusT * startPosition.x
-                        + 2.0 * oneMinusT * t * controlPoint.x
-                        + t * t * endPosition.x
-            let bezierY = oneMinusT * oneMinusT * startPosition.y
-                        + 2.0 * oneMinusT * t * controlPoint.y
-                        + t * t * endPosition.y
+            // Quadratic bezier: B(p) = (1-p)²·P0 + 2(1-p)p·P1 + p²·P2, with p the eased flight progress
+            let oneMinusEasedProgress = 1.0 - easedFlightProgress
+            let bezierX = oneMinusEasedProgress * oneMinusEasedProgress * startPosition.x
+                        + 2.0 * oneMinusEasedProgress * easedFlightProgress * controlPoint.x
+                        + easedFlightProgress * easedFlightProgress * endPosition.x
+            let bezierY = oneMinusEasedProgress * oneMinusEasedProgress * startPosition.y
+                        + 2.0 * oneMinusEasedProgress * easedFlightProgress * controlPoint.y
+                        + easedFlightProgress * easedFlightProgress * endPosition.y
 
             self.cursorPosition = CGPoint(x: bezierX, y: bezierY)
 
             // Rotation: face the direction of travel by computing the tangent
-            // to the bezier curve. B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
-            let tangentX = 2.0 * oneMinusT * (controlPoint.x - startPosition.x)
-                         + 2.0 * t * (endPosition.x - controlPoint.x)
-            let tangentY = 2.0 * oneMinusT * (controlPoint.y - startPosition.y)
-                         + 2.0 * t * (endPosition.y - controlPoint.y)
+            // to the bezier curve. B'(p) = 2(1-p)(P1-P0) + 2p(P2-P1)
+            let tangentX = 2.0 * oneMinusEasedProgress * (controlPoint.x - startPosition.x)
+                         + 2.0 * easedFlightProgress * (endPosition.x - controlPoint.x)
+            let tangentY = 2.0 * oneMinusEasedProgress * (controlPoint.y - startPosition.y)
+                         + 2.0 * easedFlightProgress * (endPosition.y - controlPoint.y)
             // +90° offset because the triangle's "tip" points up at 0° rotation,
             // and atan2 returns 0° for rightward movement
             self.triangleRotationDegrees = atan2(tangentY, tangentX) * (180.0 / .pi) + 90.0
             self.buddyFlightDirectionDegrees = self.triangleRotationDegrees
 
             // The cursor stretches along its flight, most at the middle, and the streaks and glow follow the same speed.
-            self.buddyFlightSpeedShare = CursorPointFlight.speedShare(linearProgress: linearProgress)
+            // A flight that goes nowhere has no direction to stretch along, so it stays round.
+            self.buddyFlightSpeedShare = distance > 1 ? CursorPointFlight.speedShare(linearProgress: linearProgress) : 0
         }
     }
 

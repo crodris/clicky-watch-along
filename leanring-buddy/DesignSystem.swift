@@ -330,8 +330,8 @@ enum DS {
     /// - The dial's, agent list's, studio's, and panel's close, which is `orderOut` today: Glide close at 0.7x.
     /// - A disc's phase and check, 0.25 s ease-out: Pop for the badge, Snap for the ring.
     /// - The ring cue's 0.15 and 0.35 s crossfades and the loop's 0.3 s fade: one fade, `fadeSeconds`.
-    /// - The pointing flight's 0.6 to 1.4 s smoothstep with a peak scale of 1.3: Point, with a stretch of 1.15 and a
-    ///   landing ring.
+    /// - The pointing flight's 0.6 to 1.4 s smoothstep: Point. Its old scale pulse of 1.3 is now a stretch of 1.15 along the
+    ///   flight (`CursorPointFlight`), with a landing squash and a landing ring.
     /// - The agent serve's 0.5 s keyframes: Send, on the carrier panel.
     /// - The welcome fade's and onboarding video's 2 s eases: Glide over 0.6 s, on the first run only.
     /// - The scene pages' CSS (0.15, 0.3, and 0.6 s labels, the 0.45 s shake, the 0.7 s burst, the 0.4 s lift): Snap, Pop,
