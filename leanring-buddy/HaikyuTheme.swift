@@ -438,7 +438,7 @@ final class CompanionThemeSettings: ObservableObject {
     /// new name. Throws what `CustomThemeStore.rename` throws, such as a name over 24 characters, and changes nothing then.
     func renameSavedTheme(themeID: String, to typedName: String) throws {
         let renamedTheme = try customThemeStore.rename(themeID: themeID, to: typedName)
-        savedCustomThemes = customThemeStore.loadSavedThemes()
+        savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
         if case .custom(let themeInUse) = theme, themeInUse.id == themeID {
             // The saved setting is the id, which did not change, so only the name this holds needs replacing.
             theme = .custom(renamedTheme)
@@ -450,7 +450,7 @@ final class CompanionThemeSettings: ObservableObject {
     /// falls back to the triangle, since the picture went with the folder.
     func deleteSavedTheme(themeID: String) throws {
         try customThemeStore.delete(themeID: themeID)
-        savedCustomThemes = customThemeStore.loadSavedThemes()
+        savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
         CustomThemePictureCache.forgetImage(forThemeID: themeID)
         if case .custom(let themeInUse) = theme, themeInUse.id == themeID {
             theme = .clickyBlue

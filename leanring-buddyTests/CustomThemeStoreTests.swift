@@ -244,7 +244,7 @@ struct CustomThemeStoreRenameAndDeleteTests {
 
             #expect(renamedTheme.id == savedTheme.id)
             #expect(renamedTheme.name == "Night Owl")
-            #expect(store.loadSavedThemes() == [renamedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [renamedTheme])
             // The file holds the old file with the name replaced and nothing else changed.
             #expect(try themeFileJSON(of: savedTheme.id, in: store) == replacingField(in: themeFileBeforeTheRename, at: ["name"], with: .string("Night Owl")))
             #expect(try Data(contentsOf: store.pictureURL(forThemeID: savedTheme.id)) == pictureBytes)
@@ -298,7 +298,7 @@ struct CustomThemeStoreRenameAndDeleteTests {
             try store.delete(themeID: themeToDelete.id)
 
             #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.appendingPathComponent(themeToDelete.id).path))
-            #expect(store.loadSavedThemes() == [themeToKeep])
+            #expect(store.loadSavedThemes().map(\.theme) == [themeToKeep])
             #expect(FileManager.default.fileExists(atPath: store.themesDirectoryURL.appendingPathComponent(themeToKeep.id).path))
         }
     }
@@ -337,7 +337,7 @@ struct CustomThemeStoreRenameAndDeleteTests {
             }
 
             #expect(FileManager.default.fileExists(atPath: sibling.fileURL.path))
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
