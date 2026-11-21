@@ -4,7 +4,7 @@
 //
 //  seek_to_moment seeks to the caption line that videoCaptionMomentsMatching ranks first, with no second look by the
 //  model, so these tests pin which line wins on realistic captions, and when it is offered and what its chip says.
-//  The captions are lines of bench/fixtures/video-quiz-plan-sharks.json.
+//  Most captions are lines of bench/fixtures/video-quiz-plan-sharks.json.
 //
 
 import Testing
@@ -52,9 +52,30 @@ struct SeekToMomentTests {
         #expect(videoCaptionMomentsMatching(query: "swim bladder gas organ", captionLines: captionLines).first?.seconds == 98)
     }
 
-    // Known limit: a query whose words every mention says equally cannot tell a teaser from the explanation. The earliest
-    // line wins, which in an explainer video is often the teaser, so seek_to_moment's description sends "the last time",
-    // "the second time", and "that was the wrong spot" to find_moment, where the model sees every candidate.
+    // Captions every few seconds, as YouTube writes them. The teaser and the explanation's first line each say "swim
+    // bladder" with no help from the next line, so they tie on score. The explanation's neighbors keep saying "bladder",
+    // and the teaser's talk about other things, so the explanation wins even though the teaser comes first.
+    @Test func aTieGoesToTheMentionWhoseNearbyCaptionsKeepSayingTheQuery() {
+        let captionLines = [
+            VideoQuizTranscriptLine(seconds: 12, text: "today we find out how sharks float without a swim bladder"),
+            VideoQuizTranscriptLine(seconds: 15, text: "but first let's meet the great white"),
+            VideoQuizTranscriptLine(seconds: 19, text: "it can grow longer than a car"),
+            VideoQuizTranscriptLine(seconds: 95, text: "most bony fish have a swim bladder"),
+            VideoQuizTranscriptLine(seconds: 98, text: "it is a little sack of gas inside the fish"),
+            VideoQuizTranscriptLine(seconds: 102, text: "the fish lets gas into the bladder to rise"),
+            VideoQuizTranscriptLine(seconds: 106, text: "and lets gas out of the bladder to sink"),
+        ]
+        #expect(videoCaptionMomentsMatching(query: "swim bladder", captionLines: captionLines).first?.seconds == 95)
+        // The same captions with the explanation first: the result comes from the nearby captions, not from line order.
+        let explanationFirst = captionLines.suffix(4).map { VideoQuizTranscriptLine(seconds: $0.seconds - 90, text: $0.text) }
+            + [VideoQuizTranscriptLine(seconds: 40, text: "now let's look at their teeth")]
+            + captionLines.prefix(3).map { VideoQuizTranscriptLine(seconds: $0.seconds + 300, text: $0.text) }
+        #expect(videoCaptionMomentsMatching(query: "swim bladder", captionLines: explanationFirst).first?.seconds == 5)
+    }
+
+    // Known limit: when the nearby captions tie too, the earliest line wins, which in an explainer video can be the teaser,
+    // so seek_to_moment's description sends "the last time", "the second time", and "that was the wrong spot" to
+    // find_moment, where the model sees every candidate.
     @Test func whenEveryMentionSaysTheQueryEquallyTheEarliestLineWins() {
         let captionLines = [
             VideoQuizTranscriptLine(seconds: 17, text: "today we look at how sharks float without a swim bladder"),

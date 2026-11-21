@@ -1027,6 +1027,11 @@ nonisolated struct VideoCaptionMoment: Equatable, Sendable {
 /// The caption lines that say the query's words, best first. A line counts only when it says one of them
 /// itself, so a seek lands where it is said, and the line after it adds weight because captions split sentences.
 /// Short and common words do not count.
+/// Lines that score the same are ordered by how often the captions within `secondsAroundALineThatBreakATie` of the line
+/// say the query's words, since an explanation repeats its terms across nearby lines and an intro teaser does not.
+/// Only when that ties too does the earliest line come first.
+nonisolated let secondsAroundALineThatBreakATie: Double = 30
+
 nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [VideoQuizTranscriptLine], limit: Int = 3) -> [VideoCaptionMoment] {
     let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says"]
     func words(in text: String) -> Set<String> {
@@ -1038,23 +1043,36 @@ nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [Video
     guard !queryWords.isEmpty else { return [] }
     struct ScoredMoment {
         let score: Int
+        let queryWordsSaidNearby: Int
         let moment: VideoCaptionMoment
     }
+    let queryWordMatchesPerLine = captionLines.map { captionLine in queryWords.intersection(words(in: captionLine.text)).count }
     var scoredMoments: [ScoredMoment] = []
     for lineIndex in captionLines.indices {
-        let lineMatches = queryWords.intersection(words(in: captionLines[lineIndex].text)).count
+        let lineMatches = queryWordMatchesPerLine[lineIndex]
         guard lineMatches > 0 else { continue }
-        let nextLineText = lineIndex + 1 < captionLines.count ? captionLines[lineIndex + 1].text : ""
-        let nextLineMatches = queryWords.intersection(words(in: nextLineText)).count
+        let nextLineIndex = lineIndex + 1
+        let nextLineText = nextLineIndex < captionLines.count ? captionLines[nextLineIndex].text : ""
+        let nextLineMatches = nextLineIndex < captionLines.count ? queryWordMatchesPerLine[nextLineIndex] : 0
         let momentText = nextLineText.isEmpty ? captionLines[lineIndex].text : "\(captionLines[lineIndex].text) \(nextLineText)"
+        // The line and the one after it already count in the score, so the tie-break reads only the lines around them.
+        let lineSeconds = captionLines[lineIndex].seconds
+        let queryWordsSaidNearby = captionLines.indices
+            .filter { otherLineIndex in
+                otherLineIndex != lineIndex && otherLineIndex != nextLineIndex
+                    && abs(captionLines[otherLineIndex].seconds - lineSeconds) <= secondsAroundALineThatBreakATie
+            }
+            .reduce(0) { total, otherLineIndex in total + queryWordMatchesPerLine[otherLineIndex] }
         scoredMoments.append(ScoredMoment(
             score: lineMatches * 2 + nextLineMatches,
-            moment: VideoCaptionMoment(seconds: captionLines[lineIndex].seconds, text: momentText)
+            queryWordsSaidNearby: queryWordsSaidNearby,
+            moment: VideoCaptionMoment(seconds: lineSeconds, text: momentText)
         ))
     }
     return scoredMoments
         .sorted { first, second in
             if first.score != second.score { return first.score > second.score }
+            if first.queryWordsSaidNearby != second.queryWordsSaidNearby { return first.queryWordsSaidNearby > second.queryWordsSaidNearby }
             return first.moment.seconds < second.moment.seconds
         }
         .prefix(limit)
