@@ -520,7 +520,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             // The page refuses a missing name or value, so the chip says nothing for them either.
             guard let controlName = textInput("name"), let controlValue = numberInput("value") else { return nil }
             let valueText = Int(exactly: controlValue).map(String.init) ?? String(format: "%.1f", controlValue)
-            return "Setting \(controlName) to \(valueText)"
+            // With run true the page plays the simulation right after setting, so the chip says both. A refused run fails the call, which shows no chip.
+            return input["run"]?.boolValue == true ? "Setting \(controlName) to \(valueText) and running it" : "Setting \(controlName) to \(valueText)"
         case "run_simulation":
             return "Running it"
         case "record_guess":
