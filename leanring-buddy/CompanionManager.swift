@@ -812,6 +812,7 @@ final class CompanionManager: ObservableObject {
             agentListPanelController.close()
             settingsDialController.open(snapshot: SettingsDialSnapshot(
                 theme: themeSettings.shownTheme,
+                themePicture: themeSettings.shownThemePicture,
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
                 runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,

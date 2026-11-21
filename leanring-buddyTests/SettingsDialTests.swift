@@ -9,6 +9,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 @testable import Clicky
 
@@ -481,5 +482,59 @@ struct SettingsDialLabelTests {
                 #expect(distance(from: tokenCenter, to: pillRect) >= SettingsDialGeometry.tokenDiameter / 2, "\(slice) label covers the \(tokenSlice) token")
             }
         }
+    }
+}
+
+// MARK: - Custom cursor in the dial
+
+@MainActor
+struct SettingsDialCustomCursorRenderTests {
+
+    /// Renders at 2x and reads the pixels, since a cursor that scales on paper can still draw outside its slot or nothing.
+    private func renderedPixels(of view: some View, side: CGFloat) -> NSBitmapImageRep? {
+        let renderer = ImageRenderer(content: view.frame(width: side, height: side))
+        renderer.scale = 2
+        guard let cgImage = renderer.cgImage else { return nil }
+        return NSBitmapImageRep(cgImage: cgImage)
+    }
+
+    @Test func aShapesCursorIsScaledToTheLongestSideItIsGivenAndLeavesTheRestOfTheSlotEmpty() throws {
+        let theme = try parsedThemeIdea()
+        // The star spans box x 5.2 through 18.8 on its middle row, so at 2x in a 44 point slot, the pixel at x 34 is 17 points
+        // in. A 12 point cursor has not reached it, and a 44 point cursor is already past it. A cursor drawn at its natural
+        // 24 points would fill the pixel in the first case, and miss it in the second.
+        let smallCursorPixels = try #require(renderedPixels(
+            of: SettingsDialCustomCursor(customTheme: theme, picture: nil, longestSide: 12),
+            side: 44
+        ))
+        #expect(try #require(smallCursorPixels.colorAt(x: 44, y: 44)).alphaComponent > 0.9)
+        #expect(try #require(smallCursorPixels.colorAt(x: 34, y: 44)).alphaComponent < 0.05)
+        #expect(try #require(smallCursorPixels.colorAt(x: 8, y: 44)).alphaComponent < 0.05)
+
+        let largeCursorPixels = try #require(renderedPixels(
+            of: SettingsDialCustomCursor(customTheme: theme, picture: nil, longestSide: 44),
+            side: 44
+        ))
+        #expect(try #require(largeCursorPixels.colorAt(x: 24, y: 44)).alphaComponent > 0.9)
+    }
+
+    @Test func aWidePictureCursorIsScaledToTheSlotAndNotClippedByIt() throws {
+        let theme = try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true)
+        // A solid red 80 by 20 picture draws 32 by 12 points as a cursor, so 22 by 8.25 points scaled into a 22 point slot.
+        let picture = NSImage(size: NSSize(width: 80, height: 20), flipped: false) { drawingRect in
+            NSColor(red: 1, green: 0, blue: 0, alpha: 1).setFill()
+            drawingRect.fill()
+            return true
+        }
+        let pixels = try #require(renderedPixels(
+            of: SettingsDialCustomCursor(customTheme: theme, picture: picture, longestSide: 22),
+            side: 44
+        ))
+        // The picture spans pixels 22 through 66 across and about 36 through 52 down. Its outline stays inside that box.
+        #expect(try #require(pixels.colorAt(x: 44, y: 44)).alphaComponent > 0.95)
+        #expect(try #require(pixels.colorAt(x: 26, y: 44)).alphaComponent > 0.9)
+        #expect(try #require(pixels.colorAt(x: 62, y: 44)).alphaComponent > 0.9)
+        #expect(try #require(pixels.colorAt(x: 14, y: 44)).alphaComponent < 0.05)
+        #expect(try #require(pixels.colorAt(x: 44, y: 24)).alphaComponent < 0.05)
     }
 }

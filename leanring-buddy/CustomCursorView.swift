@@ -176,6 +176,12 @@ struct CustomCursorView: View {
     }
 
     private var drawingSize: CGSize {
+        Self.drawingSize(of: customTheme, picture: picture)
+    }
+
+    /// The size the cursor draws at before any motion: the 24 point box for shapes, the picture's size for a picture. The
+    /// settings dial reads it to scale the cursor into a token or a fan slot.
+    static func drawingSize(of customTheme: CustomTheme, picture: NSImage?) -> CGSize {
         switch customTheme.cursor {
         case .shapes:
             return CGSize(width: CursorDrawingBox.sideLength, height: CursorDrawingBox.sideLength)
