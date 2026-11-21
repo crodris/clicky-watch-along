@@ -280,7 +280,7 @@ final class CompanionManager: ObservableObject {
     }()
     private var themeStudioSpeechTask: Task<Void, Never>?
     /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
-    private lazy var roomArtPreviewController = RoomArtPreviewController(
+    private lazy var roomArtPreviewController = RoomArtPreviewController(environment: .live(
         workerBaseURL: Self.workerBaseURL,
         capturePicture: { [weak self] in
             await self?.captureThePictureForTheThemeStudio().map { picture in
@@ -295,7 +295,7 @@ final class CompanionManager: ObservableObject {
                 self.scheduleTransientHideIfNeeded()
             }
         }
-    )
+    ))
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?

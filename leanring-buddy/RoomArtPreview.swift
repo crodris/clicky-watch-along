@@ -408,16 +408,23 @@ nonisolated final class RoomArtFrameProcessor: @unchecked Sendable {
 
 // MARK: - Reading the page
 
+/// The page in Chrome's front tab, as `POST /room-art` reads it.
+nonisolated struct RoomArtFrontTab: Equatable, Sendable {
+    let url: String
+    let title: String
+    let text: String
+}
+
 /// The front tab's address, title, and text, the text cut to what `POST /room-art` takes. Nil when Chrome has no window.
 /// The script has no double quotes or backslashes, since it runs inside an AppleScript string.
 @MainActor
-func readTheFrontTabForRoomArt() -> (url: String, title: String, text: String)? {
+func readTheFrontTabForRoomArt() -> RoomArtFrontTab? {
     guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
     let pageText = (try? ChromeVideoTab.runJavaScript(
         "document.body ? document.body.innerText.slice(0, \(RoomArtPageRequest.longestPageText)) : ''",
         in: frontTab
     )) ?? ""
-    return (frontTab.url, frontTab.title, pageText)
+    return RoomArtFrontTab(url: frontTab.url, title: frontTab.title, text: pageText)
 }
 
 /// What Clicky says when the front tab has no picture to hang.
@@ -425,15 +432,46 @@ nonisolated let roomArtNoPictureLine = "I don't see a picture in Chrome's front 
 
 // MARK: - Controller
 
+/// Shows and hides the panel, so tests need no window.
+@MainActor
+protocol RoomArtPanelPresenting: AnyObject {
+    func show()
+    func hide()
+}
+
 @MainActor
 final class RoomArtPreviewController: ObservableObject {
+    /// Everything the controller reaches outside itself, so a test can stand in for Chrome, the Worker, the camera, and
+    /// the voice.
+    struct Environment {
+        var readTheFrontTab: () -> RoomArtFrontTab?
+        var capturePicture: () async -> RoomArtPicture?
+        var readThePage: (RoomArtPageRequest) async throws -> RoomArtPageReading
+        var measureTheWall: (RoomWallRequest) async throws -> WallPlane
+        var makeFrameSource: () -> RoomFrameSource
+        var speak: (String) -> Void
+
+        /// Chrome, the Worker at `workerBaseURL`, and the camera (or a Debug build's `--room-camera-file`).
+        static func live(workerBaseURL: String, capturePicture: @escaping () async -> RoomArtPicture?, speak: @escaping (String) -> Void) -> Environment {
+            let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
+            return Environment(
+                readTheFrontTab: readTheFrontTabForRoomArt,
+                capturePicture: capturePicture,
+                readThePage: { pageRequest in try await roomArtClient.readThePage(pageRequest) },
+                measureTheWall: { wallRequest in try await roomArtClient.measureTheWall(wallRequest) },
+                makeFrameSource: { makeRoomFrameSource() },
+                speak: speak
+            )
+        }
+    }
+
     @Published private(set) var phase = RoomArtPhase.closed
 
-    private let roomArtClient: RoomArtClient
-    private let capturePicture: () async -> RoomArtPicture?
-    private let speak: (String) -> Void
-    private let frameProcessor = RoomArtFrameProcessor()
-    private lazy var panelController = RoomArtPanelController(previewController: self, metalLayer: frameProcessor.metalLayer)
+    private let environment: Environment
+    let frameProcessor = RoomArtFrameProcessor()
+    private var injectedPanelPresenter: RoomArtPanelPresenting?
+    private lazy var panelPresenter: RoomArtPanelPresenting = injectedPanelPresenter
+        ?? RoomArtPanelController(previewController: self, metalLayer: frameProcessor.metalLayer)
     private let flatteningContext = CIContext()
 
     private var frameSource: RoomFrameSource?
@@ -445,10 +483,10 @@ final class RoomArtPreviewController: ObservableObject {
     private var openingNumber = 0
     private var hereItIsWasSaid = false
 
-    init(workerBaseURL: String, capturePicture: @escaping () async -> RoomArtPicture?, speak: @escaping (String) -> Void) {
-        roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
-        self.capturePicture = capturePicture
-        self.speak = speak
+    /// With no presenter, the real panel shows.
+    init(environment: Environment, panelPresenter: RoomArtPanelPresenting? = nil) {
+        self.environment = environment
+        injectedPanelPresenter = panelPresenter
     }
 
     var isOpen: Bool { phase.isOpen }
@@ -460,18 +498,18 @@ final class RoomArtPreviewController: ObservableObject {
         openingNumber += 1
         let thisOpening = openingNumber
         // The picture is captured before the panel opens, since the panel covers the screen.
-        let frontTab = readTheFrontTabForRoomArt()
-        guard let frontTab, let picture = await capturePicture(), thisOpening == openingNumber,
+        let frontTab = environment.readTheFrontTab()
+        guard let frontTab, let picture = await environment.capturePicture(), thisOpening == openingNumber,
               let pictureSource = CGImageSourceCreateWithData(picture.jpegData as CFData, nil),
               let pictureImage = CGImageSourceCreateImageAtIndex(pictureSource, 0, nil) else {
-            if thisOpening == openingNumber { speak(roomArtNoPictureLine) }
+            if thisOpening == openingNumber { environment.speak(roomArtNoPictureLine) }
             return
         }
         self.pictureImage = pictureImage
         pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: frontTab.text, picture: picture)
         hereItIsWasSaid = false
         phase = phase.opening()
-        panelController.show()
+        panelPresenter.show()
 
         frameProcessor.startASession { [weak self] in
             Task { @MainActor in
@@ -479,7 +517,7 @@ final class RoomArtPreviewController: ObservableObject {
                 self.startAMeasurement(anchorInCameraPixels: nil)
             }
         }
-        let frameSource = makeRoomFrameSource()
+        let frameSource = environment.makeFrameSource()
         self.frameSource = frameSource
         let frameProcessor = frameProcessor
         do {
@@ -514,7 +552,7 @@ final class RoomArtPreviewController: ObservableObject {
         frameSource?.stop()
         frameSource = nil
         frameProcessor.endTheSession()
-        panelController.hide()
+        panelPresenter.hide()
         pageRequest = nil
         pictureImage = nil
         phase = phase.closing()
@@ -559,7 +597,7 @@ final class RoomArtPreviewController: ObservableObject {
 
     private func measureTheWall(keyframe: RoomArtKeyframe, measurementID: RoomArtMeasurementID) async {
         do {
-            let wall = try await roomArtClient.measureTheWall(keyframe.wallRequest)
+            let wall = try await environment.measureTheWall(keyframe.wallRequest)
             guard !Task.isCancelled else { return }
             print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
             apply(phase.withWallMeasured(wall, measurementID: measurementID))
@@ -573,7 +611,7 @@ final class RoomArtPreviewController: ObservableObject {
     private func readTheArt(measurementID: RoomArtMeasurementID) async {
         guard let pageRequest, let pictureImage else { return }
         do {
-            let pageReading = try await roomArtClient.readThePage(pageRequest)
+            let pageReading = try await environment.readThePage(pageRequest)
             guard !Task.isCancelled else { return }
             switch pageReading {
             case .notWallArt(let title):
@@ -615,20 +653,20 @@ final class RoomArtPreviewController: ObservableObject {
         case .showing(let artwork, let wall):
             guard let keyframeCorners = wall.keyframeCorners(widthMeters: artwork.widthMeters, heightMeters: artwork.heightMeters) else {
                 phase = .failed(.wallNotMeasured)
-                speak(RoomArtFailure.wallNotMeasured.spokenLine)
+                environment.speak(RoomArtFailure.wallNotMeasured.spokenLine)
                 return
             }
             frameProcessor.showTheArt(artwork.flattenedImage, keyframeCorners: keyframeCorners)
             if !hereItIsWasSaid {
                 hereItIsWasSaid = true
-                speak("Here it is at \(artwork.sizeLabel).")
+                environment.speak("Here it is at \(artwork.sizeLabel).")
             }
         case .failed(let failure):
             // The panel keeps its last frame and says what went wrong until the learner closes it.
             frameSource?.stop()
             frameSource = nil
             frameProcessor.endTheSession()
-            speak(failure.spokenLine)
+            environment.speak(failure.spokenLine)
         case .closed, .startingCamera, .measuring:
             break
         }
@@ -638,7 +676,7 @@ final class RoomArtPreviewController: ObservableObject {
 // MARK: - Panel
 
 @MainActor
-final class RoomArtPanelController {
+final class RoomArtPanelController: RoomArtPanelPresenting {
     static let panelSize = CGSize(width: 960, height: 540)
 
     private weak var previewController: RoomArtPreviewController?
