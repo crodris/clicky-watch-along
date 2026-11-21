@@ -467,8 +467,23 @@ describe("the words an input must hold or omit", () => {
     const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
     validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: ["gills"] } } }), toolCatalog);
     assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { pause_video: { query: ["gills"] } } }), toolCatalog), /no accepted answer calls/);
-    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputOmits: { seek_to_moment: { query: ["Pop"] } } }), toolCatalog), /not lower case/);
-    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: [] } } }), toolCatalog), /empty or not lower case/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputOmits: { seek_to_moment: { query: ["Pop"] } } }), toolCatalog), /not one lower case whole word/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: [] } } }), toolCatalog), /lists no words/);
+  });
+
+  it("is checked by the fixture validator: each listed word is exactly one whole word, since a word the scorer would split never matches", () => {
+    const validCase: BrainCase = { id: "new-case", context: "video", say: "go to the gills", why: "x", accept: ["seek_to_moment"] };
+    const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
+    for (const unmatchableWord of ["pop it out", "x-ray", "he's", " pop", ""]) {
+      for (const wordsFieldName of ["inputContains", "inputOmits"] as const) {
+        assert.throws(
+          () => validateBrainEvals(withCase({ ...validCase, [wordsFieldName]: { seek_to_moment: { query: ["gills", unmatchableWord] } } }), toolCatalog),
+          /not one lower case whole word/,
+          `${wordsFieldName} ${JSON.stringify(unmatchableWord)}`,
+        );
+      }
+    }
+    validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: ["gills", "x", "ray"] } } }), toolCatalog);
   });
 
   it("is listed on every case that accepts seek_to_moment, so a wording change that sends the whole request or nothing is caught", () => {

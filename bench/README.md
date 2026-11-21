@@ -252,7 +252,7 @@ Each run of a case ends in one outcome.
 
 - `pass`: the tools the router called match one of the case's accepted answers. Order and repeated calls do not matter.
 - `wrongTool`: it called a tool, and no accepted answer is that tool or set of tools.
-- `wrongInput`: the tools called match an accepted answer, but a call's input differs from the case's `input`.
+- `wrongInput`: the tools called match an accepted answer, but a call's input differs from the case's `input`, or a string input lacks a word of the case's `inputContains` or holds a word of its `inputOmits`.
 - `missedTool`: it called no tool, and every accepted answer holds a tool.
 - `spuriousTool`: it called a tool, and the only accepted answer is a plain spoken reply.
 - `error`: the Worker answered with an error or not at all.
@@ -275,7 +275,10 @@ Keys not listed are not checked, and every call of that tool must match.
 A tool named in `input` must be one an accepted answer calls.
 An input the learner's words fill in, such as the `query` of `seek_to_moment`, has no one correct value, so a case checks its words with `inputContains` and `inputOmits`, such as `{ "seek_to_moment": { "query": ["swim", "bladder"] } }`.
 Every listed word must be a whole word of the input (`inputContains`), or must not be one (`inputOmits`), compared in lower case, and every call of that tool must pass.
+Each listed word must itself be exactly one lower case word as the scorer splits text (letters and digits only), so "pop it out", "x-ray", and "he's" are refused when the fixture loads, since they could never match.
 `inputContains` fails an empty or missing query, and `inputOmits` fails a query that repeats the whole request, such as "swim bladder and pop it out".
+List in `inputOmits` only words that belong to another step of the request or to its framing and that a caption about the topic would not hold, such as "pop" for a pop-out step, "ten" and "seconds" for a relative seek, "half" and "speed" for a speed change, and "where" and "he" for a lone seek.
+Do not list common words a good query can hold ("up", "out", "go", "back"), or a verb the router sometimes keeps in a correct query: it called `explains the gills` for the gills case in the recorded run (`results/query-words-fixed-brain-evals-8f2f1a182413.json`, the five `seek_to_moment` cases on the harness backend, 3 runs each, 15 of 15).
 Both are lists of lower case words, and the tool must be one an accepted answer calls.
 A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them, which only the Worker backend reads, and the same actions as `earlierCommands` for the harness backend.
 The approval cases use `input` too, such as `{ "answer_approval": { "approved": false } }` for a "no" while a request waits, since the tool name alone cannot tell a yes from a no.

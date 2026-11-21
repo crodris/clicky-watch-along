@@ -118,7 +118,11 @@ export type BrainCase = {
    * that is empty or that repeats the whole request, such as "swim bladder and pop it out".
    */
   inputContains?: InputWords;
-  /** Words each call of a tool must not hold in a string input, such as the framing words of the request around a query. */
+  /**
+   * Words each call of a tool must not hold in a string input: words of another step of the request or of its framing that a
+   * good query would not hold, not common words such as "up" or "go". Each listed word must be one lower case word as `wordsOf`
+   * splits text, and the validator refuses one that is not, since it could never match.
+   */
   inputOmits?: InputWords;
   /**
    * Set on a planning case, whose steps depend on each other. The case passes when the calls of every turn, in the order
@@ -419,8 +423,17 @@ export function validateBrainEvals(evalFile: BrainEvalFile, toolCatalog: ToolCat
           throw new Error(`Case ${brainCase.id} checks the words of ${toolName} in ${wordsFieldName}, which no accepted answer calls.`);
         }
         for (const [key, words] of Object.entries(wordsByKey)) {
-          if (words.length === 0 || words.some((word) => word.trim() === "" || word !== word.toLowerCase())) {
-            throw new Error(`Case ${brainCase.id} lists words for ${toolName}.${key} in ${wordsFieldName} that are empty or not lower case.`);
+          if (words.length === 0) {
+            throw new Error(`Case ${brainCase.id} lists no words for ${toolName}.${key} in ${wordsFieldName}.`);
+          }
+          // The scorer compares each listed word with the words `wordsOf` splits the input into, so a listed word that
+          // `wordsOf` would split ("pop it out", "x-ray", "he's") or change ("Pop") could never match. A word that is
+          // one `wordsOf` word is its own first word, and any other text is not.
+          const unmatchableWords = words.filter((word) => wordsOf(word)[0] !== word);
+          if (unmatchableWords.length > 0) {
+            throw new Error(
+              `Case ${brainCase.id} lists words for ${toolName}.${key} in ${wordsFieldName} that are not one lower case whole word each: ${JSON.stringify(unmatchableWords)}.`,
+            );
           }
         }
       }
@@ -558,7 +571,7 @@ function everyCallHoldsExpectedWords(toolCalls: ToolCall[], brainCase: BrainCase
   return toolCalls.every((toolCall) => callHoldsWords(toolCall, brainCase.inputContains, true) && callHoldsWords(toolCall, brainCase.inputOmits, false));
 }
 
-/** The outcome of one reply: the tool names, then, for a case that lists expected input, every call of that tool. */
+/** The outcome of one reply: the tool names, then, for a case that lists expected input or words, every call of that tool. */
 export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const nameOutcome = scoreToolCalls(toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(brainCase));
   if (nameOutcome !== "pass") {
@@ -592,9 +605,10 @@ export function scoreApprovalCase(toolCalls: ToolCall[], settlement: ApprovalSet
 
 /**
  * The outcome of a planning case: the calls of every turn, in the order they were made, must equal one accepted sequence,
- * and then each call must hold the expected input, the case's `input` with the sequence's own input over it. A wrong order
- * is a `wrongTool`, like a wrong set of tools, and a sequence that is right but takes a seek's time from anywhere but the
- * scripted lookup is a `wrongInput`.
+ * and then each call must hold the expected input, the case's `input` with the sequence's own input over it, and the case's
+ * `inputContains` words and none of its `inputOmits` words. A wrong order is a `wrongTool`, like a wrong set of tools. A
+ * sequence that is right but takes a seek's time from anywhere but the scripted lookup, or has a string input that lacks an
+ * `inputContains` word or holds an `inputOmits` word, is a `wrongInput`.
  */
 export function scoreWholeCommand(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const calledToolNames = toolCalls.map((toolCall) => toolCall.name);
