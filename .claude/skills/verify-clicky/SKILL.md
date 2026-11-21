@@ -132,6 +132,7 @@ The drive primitives are:
 $V post <route> <body.json> [port]   # default port 8789, a Worker this script started
 $V shot <name>                       # one PNG per display
 $V key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>     # a real key event through System Events
+$V scroll <points>                   # one real scroll wheel event at the mouse, positive scrolls down (up to 6 digits)
 ```
 
 `post` saves the response body to the run and prints it.
@@ -146,7 +147,7 @@ Unified logging does not capture `print()`, so `log stream` shows nothing useful
 
 ## Helpers
 
-`verify-clicky.sh` is the only helper, and it is executable.
+`verify-clicky.sh` is the only helper you run, and it is executable. It calls `scroll.swift` for the `scroll` primitive.
 Run it with no arguments for this usage:
 
 ```text
@@ -167,6 +168,9 @@ shot <name>               Save a screenshot of every display into the run.
 key <escape|push-to-talk-tap|dial-hold|dial-release|agents-list>
                           Press that key through System Events, as the learner would, while the app runs.
                           dial-hold and dial-release hold and let go of shift and option for the settings dial, and agents-list opens the agent list through the dial and puts the mouse back.
+scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
+                          A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
+                          Park the mouse over the scroll area first, such as the approval card's summary.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
 ```
 

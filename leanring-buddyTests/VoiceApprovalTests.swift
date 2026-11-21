@@ -154,10 +154,4 @@ struct VoiceApprovalTests {
         // In open space it opens below and to the right, as the list always has.
         #expect(approvalListAnchorTopLeft(mouseLocation: CGPoint(x: 700, y: 450), panelSize: panelSize, visibleFrame: visibleFrame, gapFromTheMouse: 12) == CGPoint(x: 712, y: 438))
     }
-
-    @Test func theCardCountsTheSummaryAsShownOnlyOnceItsLastLineIsInView() {
-        #expect(approvalSummaryShowsToItsEnd(summaryBottom: 120, scrollAreaHeight: 120), "a summary that fits shows at once")
-        #expect(!approvalSummaryShowsToItsEnd(summaryBottom: 480, scrollAreaHeight: 200), "a long summary is not read until it is scrolled to its end")
-        #expect(approvalSummaryShowsToItsEnd(summaryBottom: 200.5, scrollAreaHeight: 200), "scrolled to the end, within half a point")
-    }
 }

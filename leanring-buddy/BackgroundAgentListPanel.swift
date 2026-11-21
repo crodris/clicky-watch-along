@@ -44,11 +44,56 @@ func approvalListAnchorTopLeft(mouseLocation: CGPoint, panelSize: CGSize, visibl
     return candidateAnchors[0]
 }
 
-/// Whether the approval card's summary shows down to its last line: the bottom of the summary text, in the scroll
-/// area's own coordinates, is inside the area's height. A summary that does not fit counts only once it is scrolled to
-/// its end. A learner who drags straight to the end skips the middle, which this does not catch.
-func approvalSummaryShowsToItsEnd(summaryBottom: CGFloat, scrollAreaHeight: CGFloat) -> Bool {
-    summaryBottom <= scrollAreaHeight + 1
+/// How far apart two seen ranges of the approval summary may be, in points, and still count as touching. Layout and
+/// scrolling land on fractions of a point, so two ranges that meet can leave a sliver. A text line is about 13 points
+/// tall, so a gap this small never hides one.
+private let approvalSummaryRangeGapTolerance: CGFloat = 1
+
+/// Sorts the ranges and joins any that overlap or sit within `approvalSummaryRangeGapTolerance` of each other.
+private func mergedApprovalSummaryRanges(_ ranges: [ClosedRange<CGFloat>]) -> [ClosedRange<CGFloat>] {
+    var mergedRanges: [ClosedRange<CGFloat>] = []
+    for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+        if let lastMergedRange = mergedRanges.last, range.lowerBound <= lastMergedRange.upperBound + approvalSummaryRangeGapTolerance {
+            mergedRanges[mergedRanges.count - 1] = lastMergedRange.lowerBound...max(lastMergedRange.upperBound, range.upperBound)
+        } else {
+            mergedRanges.append(range)
+        }
+    }
+    return mergedRanges
+}
+
+/// Whether the ranges of the approval summary that have been inside the scroll area, in the summary's own coordinates
+/// (0 is its top, `summaryHeight` its bottom), cover it from top to bottom. A learner who drags straight to the end
+/// has seen the bottom but not the middle, so only coverage of the whole height counts as having read it.
+func approvalSummaryWasShownWhole(seenRanges: [ClosedRange<CGFloat>], summaryHeight: CGFloat) -> Bool {
+    guard summaryHeight > 0, let coveredRange = mergedApprovalSummaryRanges(seenRanges).first else { return false }
+    return coveredRange.lowerBound <= approvalSummaryRangeGapTolerance
+        && coveredRange.upperBound >= summaryHeight - approvalSummaryRangeGapTolerance
+}
+
+/// The part of the approval summary inside the scroll area, in the summary's own coordinates, from where the summary
+/// sits in the scroll area's coordinates (`summaryMinY` is 0 at the top and goes negative as the learner scrolls down).
+/// Nil when none of it is inside, such as a bounce past the end.
+func approvalSummaryRangeInView(summaryMinY: CGFloat, summaryHeight: CGFloat, scrollAreaHeight: CGFloat) -> ClosedRange<CGFloat>? {
+    let topInView = max(0, -summaryMinY)
+    let bottomInView = min(summaryHeight, -summaryMinY + scrollAreaHeight)
+    guard topInView <= bottomInView else { return nil }
+    return topInView...bottomInView
+}
+
+/// The ranges of one approval request's summary that the card has had inside its scroll area. Each range is tagged
+/// with the request it was seen for, so a card that starts showing another request starts with none.
+struct ApprovalSummarySeenRanges: Equatable {
+    private(set) var approvalID: String?
+    private(set) var ranges: [ClosedRange<CGFloat>] = []
+
+    mutating func record(_ range: ClosedRange<CGFloat>, forApprovalID newApprovalID: String) {
+        if approvalID != newApprovalID {
+            approvalID = newApprovalID
+            ranges = []
+        }
+        ranges = mergedApprovalSummaryRanges(ranges + [range])
+    }
 }
 
 // MARK: - Panel
@@ -218,7 +263,7 @@ final class AgentListPanelController {
 
     func close() {
         discTheListWasOpenedFrom = nil
-        approvalDesk.theCardStoppedShowingTheWholeSummary()
+        approvalDesk.theCardHasNotShownTheWholeSummary()
         if let clickOutsideMonitor {
             NSEvent.removeMonitor(clickOutsideMonitor)
             self.clickOutsideMonitor = nil
@@ -417,11 +462,11 @@ private struct AgentListView: View {
                     approvalRequest: oldestRequest,
                     agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map { agent in agent.player?.displayName ?? agent.kind.displayName } ?? "An agent",
                     answerApproval: actions.answerApproval,
-                    wholeSummaryIsShowing: { wholeSummaryIsShowing in
-                        if wholeSummaryIsShowing {
+                    summaryWasShownWhole: { summaryWasShownWhole in
+                        if summaryWasShownWhole {
                             approvalDesk.theCardShowedTheWholeSummary(ofApprovalID: oldestRequest.approvalID)
                         } else {
-                            approvalDesk.theCardStoppedShowingTheWholeSummary()
+                            approvalDesk.theCardHasNotShownTheWholeSummary()
                         }
                     }
                 )
@@ -737,9 +782,15 @@ func agentListPortraitBorderColor(phase: BackgroundAgentPhase, school: HaikyuSch
 
 // MARK: - Approval card
 
-private struct ApprovalSummaryBottomPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+/// Where the summary text sits in the scroll area's coordinates: its top goes negative as the learner scrolls down.
+private struct ApprovalSummaryFrame: Equatable {
+    var minY: CGFloat
+    var height: CGFloat
+}
+
+private struct ApprovalSummaryFramePreferenceKey: PreferenceKey {
+    static let defaultValue = ApprovalSummaryFrame(minY: 0, height: 0)
+    static func reduce(value: inout ApprovalSummaryFrame, nextValue: () -> ApprovalSummaryFrame) {
         value = nextValue()
     }
 }
@@ -753,15 +804,17 @@ private struct ApprovalSummaryScrollAreaHeightPreferenceKey: PreferenceKey {
 
 /// The oldest approval request, pinned above the agent rows: the harness's summary shown whole as plain text, which a
 /// web page or an MCP server may have written, and the Yes, Always, and No buttons. The summary scrolls inside the card
-/// when it is long, and the card tells the desk whether all of it is showing, since an answer counts only after it has.
+/// when it is long, and the card tells the desk whether it has shown all of it, from top to bottom, since an answer
+/// counts only after it has.
 private struct ApprovalCardView: View {
     let approvalRequest: HarnessApprovalRequest
     let agentName: String
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
-    let wholeSummaryIsShowing: (Bool) -> Void
+    let summaryWasShownWhole: (Bool) -> Void
 
-    @State private var summaryBottom: CGFloat = .infinity
+    @State private var summaryFrame = ApprovalSummaryFrame(minY: 0, height: 0)
     @State private var scrollAreaHeight: CGFloat = 0
+    @State private var seenRanges = ApprovalSummarySeenRanges()
 
     private static let scrollAreaCoordinateSpaceName = "approvalSummaryScrollArea"
 
@@ -779,9 +832,10 @@ private struct ApprovalCardView: View {
                     .padding(8)
                     .background(
                         GeometryReader { summaryProxy in
+                            let frameInScrollArea = summaryProxy.frame(in: .named(Self.scrollAreaCoordinateSpaceName))
                             Color.clear.preference(
-                                key: ApprovalSummaryBottomPreferenceKey.self,
-                                value: summaryProxy.frame(in: .named(Self.scrollAreaCoordinateSpaceName)).maxY
+                                key: ApprovalSummaryFramePreferenceKey.self,
+                                value: ApprovalSummaryFrame(minY: frameInScrollArea.minY, height: frameInScrollArea.height)
                             )
                         }
                     )
@@ -795,13 +849,13 @@ private struct ApprovalCardView: View {
                 }
             )
             .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(DS.Colors.surface2))
-            .onPreferenceChange(ApprovalSummaryBottomPreferenceKey.self) { newSummaryBottom in
-                summaryBottom = newSummaryBottom
-                reportWhetherTheWholeSummaryShows()
+            .onPreferenceChange(ApprovalSummaryFramePreferenceKey.self) { newSummaryFrame in
+                summaryFrame = newSummaryFrame
+                recordWhatTheScrollAreaShows()
             }
             .onPreferenceChange(ApprovalSummaryScrollAreaHeightPreferenceKey.self) { newScrollAreaHeight in
                 scrollAreaHeight = newScrollAreaHeight
-                reportWhetherTheWholeSummaryShows()
+                recordWhatTheScrollAreaShows()
             }
             HStack(spacing: 6) {
                 AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {
@@ -823,9 +877,17 @@ private struct ApprovalCardView: View {
         .padding(.vertical, 10)
     }
 
-    private func reportWhetherTheWholeSummaryShows() {
-        guard scrollAreaHeight > 0 else { return }
-        wholeSummaryIsShowing(approvalSummaryShowsToItsEnd(summaryBottom: summaryBottom, scrollAreaHeight: scrollAreaHeight))
+    /// Adds the part of the summary the scroll area shows now to the ranges seen, and tells the desk whether the ranges
+    /// cover the whole summary. A jump to the end records only the end, so the middle stays unseen until it scrolls by.
+    private func recordWhatTheScrollAreaShows() {
+        guard summaryFrame.height > 0, scrollAreaHeight > 0,
+              let rangeInView = approvalSummaryRangeInView(
+                  summaryMinY: summaryFrame.minY,
+                  summaryHeight: summaryFrame.height,
+                  scrollAreaHeight: scrollAreaHeight
+              ) else { return }
+        seenRanges.record(rangeInView, forApprovalID: approvalRequest.approvalID)
+        summaryWasShownWhole(approvalSummaryWasShownWhole(seenRanges: seenRanges.ranges, summaryHeight: summaryFrame.height))
     }
 }
 

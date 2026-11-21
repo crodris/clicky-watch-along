@@ -1,8 +1,9 @@
 #!/bin/bash
 # Checks first_source_newer_than, which tells `build` that Xcode built from older files, such as right after a checkout,
 # running_clicky_pids, which `app-launch` uses to refuse a second Clicky, parse_app_launch_arguments, which reads
-# `app-launch`'s flags, command_worker_down, which stops one Worker when given its port, and
-# move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait.
+# `app-launch`'s flags, command_worker_down, which stops one Worker when given its port,
+# move_the_previous_launch_files_aside, which keeps an earlier launch's log lines away from app-wait, and the scroll
+# command's usage line and refusal of a value that is not a whole number of at most 6 digits.
 # Usage: bash .claude/skills/verify-clicky/verify-clicky.test.sh
 set -euo pipefail
 source "$(dirname "$0")/verify-clicky.sh"
@@ -68,6 +69,17 @@ check "both brain flags pass their launch arguments" "${app_launch_flag_argument
 check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
 parse_app_launch_arguments "pop this out"
 check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
+# The usage text is how a driver learns the scroll primitive, and a bad value must stop before any event is posted.
+check "usage lists the scroll command" "$(usage | grep -c 'scroll <points>')" "1"
+# The function exits on a bad value, which ends only the command substitution, so its failure status is tolerated outside it.
+scroll_error="$(command_scroll "not-a-number" 2>&1)" || true
+scroll_refusal="scroll takes a whole number of points up to 6 digits, positive to scroll down"
+check "scroll refuses a value that is not a whole number" "$scroll_error" "$scroll_refusal"
+# Int32.min passes Int32(...) but traps when scroll.swift negates it, so the digit cap must stop it here.
+scroll_error="$(command_scroll "-2147483648" 2>&1)" || true
+check "scroll refuses a value of more than 6 digits" "$scroll_error" "$scroll_refusal"
+scroll_error="$(command_scroll "1000000" 2>&1)" || true
+check "scroll refuses a positive value of 7 digits" "$scroll_error" "$scroll_refusal"
 # A second launch in the same run must not leave the first launch's lines where app-wait reads.
 run_directory="$test_directory/run"
 mkdir -p "$run_directory"
@@ -106,4 +118,4 @@ echo "fifth steps" >"$steps_run_directory/rehearsal-steps.txt"
 move_the_previous_launch_files_aside "$steps_run_directory"
 check "a number with only a steps file is taken" "$(cat "$steps_run_directory/app-2.log")" "fifth launch"
 check "the earlier steps file is left alone" "$(cat "$steps_run_directory/rehearsal-steps-1.txt")" "earlier steps"
-echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, and app log rotation"
+echo "ok: verify-clicky build freshness, running-app detection, app-launch flags, app log rotation, and scroll usage and argument checks"

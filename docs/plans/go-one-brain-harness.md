@@ -229,10 +229,10 @@ The seen ranges reset when another request becomes the oldest and when the list 
 - One Swift test: ranges for the top and the bottom only leave the middle uncovered and return false, and adding the middle returns true.
 - One Swift test: when another request becomes the oldest, its card starts with no seen ranges.
 
-**Verify.** Start a task whose MCP tool call has a summary taller than 200 points, so the card scrolls.
-Use `$V scroll` to jump to the end, then `$V shot`.
+**Verify.** Start a task whose MCP tool call has a summary taller than 400 points, so the card scrolls and the top range (0 to 200) and the bottom range do not overlap.
+Use `$V scroll 2000` to jump to the end, then `$V shot`.
 Click Yes with a real click through the demo mouse script, since `debug_answer_approval` answers without the seen check, and check that the log says `ignored a click on approval`.
-Then scroll through the middle, wait 1 second, click, and check `given (once)`.
+Then scroll back up through the middle with several `$V scroll -80` calls, or return to the top with `$V scroll -2000` and step down with `$V scroll 80` calls, wait 1 second, click, and check `given (once)`.
 This also proves on the real app that the frame preference updates while scrolling, which is the open half of F36.
 
 ---
