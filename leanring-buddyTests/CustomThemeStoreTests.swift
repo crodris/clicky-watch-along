@@ -33,7 +33,7 @@ struct CustomThemeStoreTests {
             let savedTheme = try store.save(idea, pictureJPEG: nil)
             #expect(savedTheme.id.hasPrefix("moonlit-"))
             #expect(CustomThemeStore.isAValidThemeID(savedTheme.id))
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
@@ -42,7 +42,7 @@ struct CustomThemeStoreTests {
             let idea = try parsedThemeIdea(goodPictureCursorThemeIdea, pictureIsAvailable: true)
             let savedTheme = try store.save(idea, pictureJPEG: pictureBytes)
             #expect(try Data(contentsOf: store.pictureURL(forThemeID: savedTheme.id)) == pictureBytes)
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
@@ -50,7 +50,7 @@ struct CustomThemeStoreTests {
         try withATemporaryThemeStore { store in
             let savedTheme = try store.save(try parsedThemeIdea(), pictureJPEG: pictureBytes)
             #expect(!FileManager.default.fileExists(atPath: store.pictureURL(forThemeID: savedTheme.id).path))
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 
@@ -92,7 +92,7 @@ struct CustomThemeStoreTests {
 
             #expect(try Data(contentsOf: themeFileURL) == themeFileBeforeTheWrite)
             #expect(try Data(contentsOf: store.pictureURL(forThemeID: existingTheme.id)) == pictureBytes)
-            #expect(store.loadSavedThemes() == [existingTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [existingTheme])
         }
     }
 
@@ -136,7 +136,38 @@ struct CustomThemeStoreTests {
             for themeName in ["ember", "Zen", "Aurora"] {
                 _ = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string(themeName))), pictureJPEG: nil)
             }
-            #expect(store.loadSavedThemes().map(\.name) == ["Aurora", "ember", "Zen"])
+            #expect(store.loadSavedThemes().map(\.theme.name) == ["Aurora", "ember", "Zen"])
+        }
+    }
+
+    @Test func eachLoadedThemeCarriesTheModificationDateOfItsThemeFile() throws {
+        try withATemporaryThemeStore { store in
+            let olderTheme = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string("Older"))), pictureJPEG: nil)
+            let newerTheme = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string("Newer"))), pictureJPEG: nil)
+            // Whole seconds, so the dates are exact on any file system, and a day ahead of the clock. APFS moves a file's
+            // creation date back to match a modification date set earlier than it, which would make the two dates equal and
+            // hide a read of the wrong one.
+            let dayFromNow = Date(timeIntervalSinceReferenceDate: Date().timeIntervalSinceReferenceDate.rounded() + 86_400)
+            let olderSavedDate = dayFromNow
+            let newerSavedDate = dayFromNow.addingTimeInterval(3600)
+            for (savedTheme, savedDate) in [(olderTheme, olderSavedDate), (newerTheme, newerSavedDate)] {
+                let themeFilePath = store.themesDirectoryURL
+                    .appendingPathComponent(savedTheme.id, isDirectory: true)
+                    .appendingPathComponent(CustomThemeStore.themeFileName).path
+                try FileManager.default.setAttributes([.modificationDate: savedDate], ofItemAtPath: themeFilePath)
+            }
+            let savedDatesByName = Dictionary(uniqueKeysWithValues: store.loadSavedThemes().map { ($0.theme.name, $0.savedDate) })
+            #expect(savedDatesByName == ["Older": olderSavedDate, "Newer": newerSavedDate])
+        }
+    }
+
+    @Test func aThemeJustSavedIsDatedAtTheMomentOfTheSave() throws {
+        try withATemporaryThemeStore { store in
+            let momentBeforeTheSave = Date()
+            _ = try store.save(try parsedThemeIdea(), pictureJPEG: nil)
+            let savedDate = try #require(store.loadSavedThemes().first?.savedDate)
+            // File systems round to a fraction of a second, so allow a little either way.
+            #expect(abs(savedDate.timeIntervalSince(momentBeforeTheSave)) < 5)
         }
     }
 
@@ -149,7 +180,7 @@ struct CustomThemeStoreTests {
             try FileManager.default.createDirectory(at: brokenFolderURL, withIntermediateDirectories: true)
             try brokenIdeaText.write(to: brokenFolderURL.appendingPathComponent(CustomThemeStore.themeFileName), atomically: true, encoding: .utf8)
             try FileManager.default.createDirectory(at: store.themesDirectoryURL.appendingPathComponent("empty-0000", isDirectory: true), withIntermediateDirectories: true)
-            #expect(store.loadSavedThemes() == [goodTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [goodTheme])
         }
     }
 

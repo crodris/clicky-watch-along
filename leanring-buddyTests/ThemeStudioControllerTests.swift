@@ -219,7 +219,7 @@ struct ThemeStudioControllerTests {
             #expect(savedTheme.name == "Moonlit")
             #expect(harness.playedSounds == [savedTheme.sounds.done])
             #expect(savedTheme.id.hasPrefix("moonlit-"))
-            #expect(store.loadSavedThemes() == [savedTheme])
+            #expect(store.loadSavedThemes().map(\.theme) == [savedTheme])
         }
     }
 

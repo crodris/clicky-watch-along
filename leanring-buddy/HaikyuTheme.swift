@@ -268,8 +268,8 @@ enum CompanionTheme: Equatable {
     case custom(CustomTheme)
 
     /// The built-in choices in the order the menu bar panel's picker and the settings dial's Team fan show them: Clicky blue,
-    /// the ten schools, then Random. The saved custom themes are not here, so the dial's Team fan keeps its ring of
-    /// twelve. The menu bar panel lists them after these.
+    /// the ten schools, then Random. The saved custom themes are not here. The menu bar panel lists them all after these,
+    /// and the dial's Team fan lists the three newest (`SettingsDialFans`).
     static let allChoices: [CompanionTheme] =
         [.clickyBlue] + HaikyuSchool.allCases.map(CompanionTheme.school) + [.random]
 
@@ -379,8 +379,11 @@ final class CompanionThemeSettings: ObservableObject {
         didSet { userDefaults.set(theme.rawValue, forKey: Self.userDefaultsKey) }
     }
 
-    /// The custom themes the learner saved, sorted by name, for the menu bar panel's picker.
-    @Published private(set) var savedCustomThemes: [CustomTheme]
+    /// The custom themes the learner saved with their saved dates, sorted by name. The menu bar panel's picker lists them in
+    /// this order, and the settings dial's Team fan sorts the same list by date.
+    @Published private(set) var savedCustomThemesWithSavedDates: [SavedCustomTheme]
+
+    var savedCustomThemes: [CustomTheme] { savedCustomThemesWithSavedDates.map(\.theme) }
 
     /// The idea the Theme Studio is previewing on the real cursor. Nil when the studio is closed. Never saved.
     @Published private(set) var previewTheme: CompanionTheme?
@@ -393,9 +396,12 @@ final class CompanionThemeSettings: ObservableObject {
     init(userDefaults: UserDefaults = .standard, customThemeStore: CustomThemeStore = .standard()) {
         self.userDefaults = userDefaults
         self.customThemeStore = customThemeStore
-        let savedCustomThemes = customThemeStore.loadSavedThemes()
-        self.savedCustomThemes = savedCustomThemes
-        theme = CompanionTheme(rawValue: userDefaults.string(forKey: Self.userDefaultsKey) ?? "", savedCustomThemes: savedCustomThemes)
+        let savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
+        self.savedCustomThemesWithSavedDates = savedCustomThemesWithSavedDates
+        theme = CompanionTheme(
+            rawValue: userDefaults.string(forKey: Self.userDefaultsKey) ?? "",
+            savedCustomThemes: savedCustomThemesWithSavedDates.map(\.theme)
+        )
     }
 
     /// What the menu bar panel's "Team theme" section lists: the built-in choices, then the themes the learner designed and saved.
@@ -427,7 +433,7 @@ final class CompanionThemeSettings: ObservableObject {
     @discardableResult
     func saveAndApply(_ idea: CustomTheme, pictureJPEG: Data?) throws -> CustomTheme {
         let savedTheme = try customThemeStore.save(idea, pictureJPEG: pictureJPEG)
-        savedCustomThemes = customThemeStore.loadSavedThemes()
+        savedCustomThemesWithSavedDates = customThemeStore.loadSavedThemes()
         clearPreview()
         theme = .custom(savedTheme)
         return savedTheme

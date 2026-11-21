@@ -18,6 +18,15 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case themeIDIsNotAValidFolderName
 }
 
+/// A theme read back from the Themes folder, with when it was saved.
+nonisolated struct SavedCustomTheme: Equatable, Sendable {
+    let theme: CustomTheme
+    /// The modification date of the theme's theme.json, which `write` creates last, so it is the moment of the save. A hand
+    /// edit moves it too. A file system that reports no date gives `.distantPast`, so that theme counts as the oldest.
+    /// The settings dial's Team fan lists the newest saved themes first by this date.
+    let savedDate: Date
+}
+
 nonisolated struct CustomThemeStore: Sendable {
     let themesDirectoryURL: URL
 
@@ -119,8 +128,8 @@ nonisolated struct CustomThemeStore: Sendable {
         }
     }
 
-    /// Every theme that parses, sorted by name. Anything else in the folder is skipped with a log line.
-    func loadSavedThemes() -> [CustomTheme] {
+    /// Every theme that parses, with its saved date, sorted by name. Anything else in the folder is skipped with a log line.
+    func loadSavedThemes() -> [SavedCustomTheme] {
         let fileManager = FileManager.default
         guard let themeDirectoryURLs = try? fileManager.contentsOfDirectory(
             at: themesDirectoryURL,
@@ -129,7 +138,7 @@ nonisolated struct CustomThemeStore: Sendable {
         ) else {
             return []
         }
-        var savedThemes: [CustomTheme] = []
+        var savedThemes: [SavedCustomTheme] = []
         for themeDirectoryURL in themeDirectoryURLs {
             let folderName = themeDirectoryURL.lastPathComponent
             guard (try? themeDirectoryURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
@@ -141,21 +150,26 @@ nonisolated struct CustomThemeStore: Sendable {
                 print("Custom themes: skipped \(folderName): \(error)")
             }
         }
-        return savedThemes.sorted { firstTheme, secondTheme in
+        return savedThemes.sorted { firstSavedTheme, secondSavedTheme in
+            let firstTheme = firstSavedTheme.theme
+            let secondTheme = secondSavedTheme.theme
             let nameOrder = firstTheme.name.localizedCaseInsensitiveCompare(secondTheme.name)
             return nameOrder == .orderedSame ? firstTheme.id < secondTheme.id : nameOrder == .orderedAscending
         }
     }
 
-    private func loadTheme(inFolderNamed folderName: String) throws -> CustomTheme {
+    private func loadTheme(inFolderNamed folderName: String) throws -> SavedCustomTheme {
         guard Self.isAValidThemeID(folderName) else {
             throw CustomThemeParseError(reason: "the folder name is not a theme id")
         }
-        let themeFileData = try Data(contentsOf: themesDirectoryURL
+        let themeFileURL = themesDirectoryURL
             .appendingPathComponent(folderName, isDirectory: true)
-            .appendingPathComponent(Self.themeFileName))
+            .appendingPathComponent(Self.themeFileName)
+        let themeFileData = try Data(contentsOf: themeFileURL)
         let ideaJSON = try JSONDecoder().decode(JSONValue.self, from: themeFileData)
         let pictureIsThere = FileManager.default.fileExists(atPath: pictureURL(forThemeID: folderName).path)
-        return try CustomTheme.parse(idea: ideaJSON, id: folderName, pictureIsAvailable: pictureIsThere)
+        let theme = try CustomTheme.parse(idea: ideaJSON, id: folderName, pictureIsAvailable: pictureIsThere)
+        let savedDate = (try? themeFileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        return SavedCustomTheme(theme: theme, savedDate: savedDate)
     }
 }
