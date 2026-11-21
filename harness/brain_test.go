@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // ---- The tools, ported from toolsForAnthropic's tests in worker/src/voiceCommand.test.ts ----
@@ -325,5 +327,27 @@ func TestUntrustedTextIsEscapedOnceAndTheSceneStateStaysJSON(t *testing.T) {
 	}
 	if strings.Contains(sceneText, "<") {
 		t.Errorf("the scene state holds a < that could close its tag: %q", sceneText)
+	}
+
+	// JSON allows these line breaks raw inside a string, so the tag writes them as escapes, and the JSON keeps its meaning.
+	separatorState := json.RawMessage("{\"title\":\"a\u0085b\u2028c\u2029d\"}")
+	separatorText := strings.TrimSuffix(strings.TrimPrefix(strings.Split(brainUserMessageText("hi", separatorState, nil), "\n")[0], "<scene_state>"), "</scene_state>")
+	if strings.ContainsAny(separatorText, "\u0085\u2028\u2029") {
+		t.Errorf("the scene state holds a raw line break character: %q", separatorText)
+	}
+	var decoded struct{ Title string }
+	if json.Unmarshal([]byte(separatorText), &decoded) != nil || decoded.Title != "a\u0085b\u2028c\u2029d" {
+		t.Errorf("the escaped scene state lost its meaning: %q", separatorText)
+	}
+
+	// Learner words read back out of a seeded message are unescaped, so the fold escapes them only once.
+	transcript := `say C:\new` + "\nthen stop"
+	seededMessage := anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, json.RawMessage(`{}`), nil)))
+	if got := learnerWordsOf(seededMessage); got != transcript {
+		t.Errorf("the seeded learner words did not read back as said: got %q, want %q", got, transcript)
+	}
+	seededFold := foldBlockText([]sessionCommand{{transcript: learnerWordsOf(seededMessage)}}, 0)
+	if !strings.Contains(seededFold, taggedLine(learnerWordsTag, transcript)) {
+		t.Errorf("the fold escapes seeded learner words more than once: %q", seededFold)
 	}
 }

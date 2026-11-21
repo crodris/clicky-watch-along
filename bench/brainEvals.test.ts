@@ -997,6 +997,14 @@ describe("the harness's message and seed", () => {
     assert.equal(escapedLine("a\u000bb\u000cc\u0085d\u2028e\u2029f\r\ng\nh\ri"), "a\\nb\\nc\\nd\\ne\\nf\\ng\\nh\\ni");
   });
 
+  it("keeps the scene state valid JSON in its tag, as taggedJSON in harness/brain.go does", () => {
+    const message = harnessUserMessageText("undo that", { title: "a\\b <c>\u0085d\u2028e\u2029f" }, []);
+    const sceneText = message.split("\n")[0].replace("<scene_state>", "").replace("</scene_state>", "");
+
+    assert.equal(sceneText, '{"title":"a\\\\b ‹c>\\u0085d\\u2028e\\u2029f"}');
+    assert.deepEqual(JSON.parse(sceneText), { title: "a\\b ‹c>\u0085d\u2028e\u2029f" });
+  });
+
   it("uses the tags the Go session writes, so a renamed tag fails here", () => {
     const goSource = readFileSync(join(benchDirectory, "..", "harness", "brain.go"), "utf8");
 

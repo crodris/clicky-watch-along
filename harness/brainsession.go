@@ -430,11 +430,33 @@ func learnerWordsOf(userMessage anthropic.MessageParam) string {
 		text := block.OfText.Text
 		if _, afterTag, found := strings.Cut(text, "<"+learnerWordsTag+">"); found {
 			words, _, _ := strings.Cut(afterTag, "</"+learnerWordsTag+">")
-			return words
+			return unescapedLine(words)
 		}
 		return text
 	}
 	return ""
+}
+
+// unescapedLine undoes escapedLine's backslash and line break escapes, so words read back out of a seeded message are
+// escaped once more, and only once, when the fold writes them. A "‹" stays, since escaping it again changes nothing.
+func unescapedLine(escapedText string) string {
+	var text strings.Builder
+	for index := 0; index < len(escapedText); index++ {
+		if escapedText[index] == '\\' && index+1 < len(escapedText) {
+			switch escapedText[index+1] {
+			case '\\':
+				text.WriteByte('\\')
+				index++
+				continue
+			case 'n':
+				text.WriteByte('\n')
+				index++
+				continue
+			}
+		}
+		text.WriteByte(escapedText[index])
+	}
+	return text.String()
 }
 
 // actionLinesOfMessages writes the action line of each tool call that has a result, in order.

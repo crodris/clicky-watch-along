@@ -237,11 +237,11 @@ export function escapedLine(text: string): string {
 const lineBreakPattern = new RegExp(["\\r\\n", "[\\n\\r\\v\\f\\u0085\\u2028\\u2029]"].join("|"), "g");
 
 /**
- * Compact JSON for a tag, as `taggedJSON` in harness/brain.go: it stays valid JSON, so only "<" becomes "‹" and the line and
- * paragraph separators, which JSON allows raw, become their \u escapes.
+ * Compact JSON for a tag, as `taggedJSON` in harness/brain.go: it stays valid JSON, so only "<" becomes "‹" and the line
+ * break characters JSON allows raw (U+0085, U+2028, U+2029) become their \u escapes.
  */
 export function jsonForTag(compactJSON: string): string {
-  return compactJSON.replaceAll("<", "‹").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
+  return compactJSON.replaceAll("<", "‹").replaceAll("\u0085", "\\u0085").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
 }
 
 /** What a tool that changed the screen returns, which the app writes as `VoiceToolOutcome.toolResultText`. */

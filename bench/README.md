@@ -152,7 +152,7 @@ A case that needs earlier commands lists them in `earlierCommands`, each a `say`
 `sceneStateChanges` sets keys of the context's scene state that the earlier commands changed, such as `yawDegrees`, so the case's own `scene_state` matches the history.
 The driver starts the harness with `CLICKY_BENCH=1`, the only thing that lets it take `reset_session` and `seed_session`.
 The harness refuses a seed with an empty message or a `tool_use` that has no `tool_result` in the next message, with a stderr line.
-The seeded messages and the harness's own user messages escape text as `escapedLine` in `harness/brain.go` does (`<` as `‹`, a backslash doubled, each line break character as `\n`), and a test pins the bench's copy.
+The seeded messages and the harness's own user messages escape text as `escapedLine` in `harness/brain.go` does (`<` as `‹`, a backslash doubled, each line break character as `\n`), and the scene state as `taggedJSON` does (`jsonForTag`: `<` as `‹` and U+0085, U+2028, and U+2029 as `\u` escapes, so it stays valid JSON). A test pins the bench's copies.
 The harness keeps only the newest 40 folded commands, so `session-correction-after-fold` (25 commands) does not reach the cap.
 The two cases that hold `recentActions` for the Worker backend also hold the same actions as `earlierCommands`, and a test checks that they agree.
 
