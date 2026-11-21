@@ -94,6 +94,12 @@ export type AcceptedSequence = { calls: string[]; input?: Record<string, Record<
  */
 export type AcceptedAnswer = string | string[] | AcceptedSequence;
 
+/**
+ * Words a string input holds or lacks, by tool name and then input key: `{ seek_to_moment: { query: ["swim", "bladder"] } }`.
+ * A word counts when it is a whole word of the input, compared in lower case, so "pop" is not found in "popular".
+ */
+export type InputWords = Record<string, Record<string, string[]>>;
+
 export type BrainCase = {
   id: string;
   context: string;
@@ -106,6 +112,18 @@ export type BrainCase = {
    * the key must be absent. Keys not listed are not checked, and a tool not listed is not checked at all.
    */
   input?: Record<string, Record<string, unknown>>;
+  /**
+   * Words each call of a tool must hold in a string input, for an input the learner's words fill in, such as the `query` of
+   * `seek_to_moment`, where an exact match would fail every correct wording. Together with `inputOmits` it fails a query
+   * that is empty or that repeats the whole request, such as "swim bladder and pop it out".
+   */
+  inputContains?: InputWords;
+  /**
+   * Words each call of a tool must not hold in a string input: words of another step of the request or of its framing that a
+   * good query would not hold, not common words such as "up" or "go". Each listed word must be one lower case word as `wordsOf`
+   * splits text, and the validator refuses one that is not, since it could never match.
+   */
+  inputOmits?: InputWords;
   /**
    * Set on a planning case, whose steps depend on each other. The case passes when the calls of every turn, in the order
    * they were made, equal one accepted sequence and carry the expected `input`, so `accept` lists ordered sequences and
@@ -399,6 +417,27 @@ export function validateBrainEvals(evalFile: BrainEvalFile, toolCatalog: ToolCat
         throw new Error(`Case ${brainCase.id} checks the input of ${toolName}, which no accepted answer calls.`);
       }
     }
+    for (const [wordsFieldName, inputWords] of [["inputContains", brainCase.inputContains], ["inputOmits", brainCase.inputOmits]] as const) {
+      for (const [toolName, wordsByKey] of Object.entries(inputWords ?? {})) {
+        if (!acceptedAnswersOf(brainCase).flat().includes(toolName)) {
+          throw new Error(`Case ${brainCase.id} checks the words of ${toolName} in ${wordsFieldName}, which no accepted answer calls.`);
+        }
+        for (const [key, words] of Object.entries(wordsByKey)) {
+          if (words.length === 0) {
+            throw new Error(`Case ${brainCase.id} lists no words for ${toolName}.${key} in ${wordsFieldName}.`);
+          }
+          // The scorer compares each listed word with the words `wordsOf` splits the input into, so a listed word that
+          // `wordsOf` would split ("pop it out", "x-ray", "he's") or change ("Pop") could never match. A word that is
+          // one `wordsOf` word is its own first word, and any other text is not.
+          const unmatchableWords = words.filter((word) => wordsOf(word)[0] !== word);
+          if (unmatchableWords.length > 0) {
+            throw new Error(
+              `Case ${brainCase.id} lists words for ${toolName}.${key} in ${wordsFieldName} that are not one lower case whole word each: ${JSON.stringify(unmatchableWords)}.`,
+            );
+          }
+        }
+      }
+    }
     const holdsSequenceWithInput = brainCase.accept.some((answer) => typeof answer === "object" && !Array.isArray(answer));
     if (holdsSequenceWithInput && brainCase.scoreWholeCommand !== true) {
       throw new Error(`Case ${brainCase.id} is not scored on the whole command, so it cannot hold an accepted sequence with input of its own.`);
@@ -523,13 +562,37 @@ function everyCallHoldsExpectedInput(toolCalls: ToolCall[], expectedInputByToolN
   );
 }
 
-/** The outcome of one reply: the tool names, then, for a case that lists expected input, every call of that tool. */
+/** The whole words of a string, in lower case. */
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word !== "");
+}
+
+/**
+ * Whether every call of each listed tool holds the case's words: each `inputContains` word is in the string input, and no
+ * `inputOmits` word is. A call with an unknown input, or an input that is not a string, holds none.
+ */
+function everyCallHoldsExpectedWords(toolCalls: ToolCall[], brainCase: BrainCase): boolean {
+  const callHoldsWords = (toolCall: ToolCall, inputWords: InputWords | undefined, wordsMustBeThere: boolean): boolean =>
+    Object.entries(inputWords?.[toolCall.name] ?? {}).every(([key, words]) => {
+      const inputValue = toolCall.input[key];
+      if (toolCall.inputIsUnknown === true || typeof inputValue !== "string") {
+        return false;
+      }
+      const wordsInInput = new Set(wordsOf(inputValue));
+      return words.every((word) => wordsInInput.has(word) === wordsMustBeThere);
+    });
+  return toolCalls.every((toolCall) => callHoldsWords(toolCall, brainCase.inputContains, true) && callHoldsWords(toolCall, brainCase.inputOmits, false));
+}
+
+/** The outcome of one reply: the tool names, then, for a case that lists expected input or words, every call of that tool. */
 export function scoreBrainCase(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const nameOutcome = scoreToolCalls(toolCalls.map((toolCall) => toolCall.name), acceptedAnswersOf(brainCase));
   if (nameOutcome !== "pass") {
     return nameOutcome;
   }
-  return everyCallHoldsExpectedInput(callsOfOneReplyThatRan(toolCalls), brainCase.input ?? {}) ? "pass" : "wrongInput";
+  // A call after a hand-off in this reply never ran, so neither its input nor its words are checked.
+  const callsThatRan = callsOfOneReplyThatRan(toolCalls);
+  return everyCallHoldsExpectedInput(callsThatRan, brainCase.input ?? {}) && everyCallHoldsExpectedWords(callsThatRan, brainCase) ? "pass" : "wrongInput";
 }
 
 /**
@@ -557,9 +620,10 @@ export function scoreApprovalCase(toolCalls: ToolCall[], settlement: ApprovalSet
 
 /**
  * The outcome of a planning case: the calls of every turn, in the order they were made, must equal one accepted sequence,
- * and then each call must hold the expected input, the case's `input` with the sequence's own input over it. A wrong order
- * is a `wrongTool`, like a wrong set of tools, and a sequence that is right but takes a seek's time from anywhere but the
- * scripted lookup is a `wrongInput`.
+ * and then each call must hold the expected input, the case's `input` with the sequence's own input over it, and the case's
+ * `inputContains` words and none of its `inputOmits` words. A wrong order is a `wrongTool`, like a wrong set of tools. A
+ * sequence that is right but takes a seek's time from anywhere but the scripted lookup, or has a string input that lacks an
+ * `inputContains` word or holds an `inputOmits` word, is a `wrongInput`.
  */
 export function scoreWholeCommand(toolCalls: ToolCall[], brainCase: BrainCase): Exclude<Outcome, "error"> {
   const calledToolNames = toolCalls.map((toolCall) => toolCall.name);
@@ -570,7 +634,7 @@ export function scoreWholeCommand(toolCalls: ToolCall[], brainCase: BrainCase): 
     return calledToolNames.length === 0 ? "missedTool" : "wrongTool";
   }
   const someSequenceHoldsItsInput = sequencesInThisOrder.some((sequence) => everyCallHoldsExpectedInput(toolCalls, { ...brainCase.input, ...sequence.input }));
-  return someSequenceHoldsItsInput ? "pass" : "wrongInput";
+  return someSequenceHoldsItsInput && everyCallHoldsExpectedWords(toolCalls, brainCase) ? "pass" : "wrongInput";
 }
 
 // ---------- Summary ----------
@@ -1373,7 +1437,11 @@ function describeCalls(toolCalls: ToolCall[], separator = " + "): string {
 }
 
 const acceptedText = (brainCase: BrainCase) => {
-  const inputText = brainCase.input === undefined ? "" : ` with input ${JSON.stringify(brainCase.input)}`;
+  const inputText = [
+    brainCase.input === undefined ? "" : ` with input ${JSON.stringify(brainCase.input)}`,
+    brainCase.inputContains === undefined ? "" : ` holding ${JSON.stringify(brainCase.inputContains)}`,
+    brainCase.inputOmits === undefined ? "" : ` omitting ${JSON.stringify(brainCase.inputOmits)}`,
+  ].join("");
   // A planning case's sequences are ordered, so they read as a chain, and a sequence's own input shows beside it.
   const separator = brainCase.scoreWholeCommand === true ? " > " : " + ";
   const sequenceTexts = acceptedSequencesOf(brainCase).map((sequence) => {

@@ -402,12 +402,14 @@
     },
     {
       "id": "video-seek-to-moment",
+      "inputContains": { "seek_to_moment": { "query": ["swim", "bladder"] } },
+      "inputOmits": { "seek_to_moment": { "query": ["where", "he"] } },
       "context": "video",
       "say": "go back to where he explains the swim bladder",
       "accept": [
         "seek_to_moment"
       ],
-      "why": "Going to a spot in the captions is one call, since seek_to_moment finds the best line and seeks there, and the old find_moment then seek_to_time takes two model turns."
+      "why": "Going to a spot in the captions is one call, since seek_to_moment finds the best line and seeks there, and the old find_moment then seek_to_time takes two model turns. The query must name the topic, so it must not repeat the request's framing words \"where\" and \"he\". It may hold \"go\" or \"back\", since captions about a topic can use them."
     },
     {
       "id": "video-find-moment",
@@ -1012,6 +1014,8 @@
     },
     {
       "id": "planning-find-seek-pop-out",
+      "inputContains": { "seek_to_moment": { "query": ["swim", "bladder"] } },
+      "inputOmits": { "seek_to_moment": { "query": ["pop"] } },
       "context": "video",
       "say": "go back to where he explains the swim bladder and pop it out",
       "scoreWholeCommand": true,
@@ -1036,6 +1040,8 @@
     },
     {
       "id": "planning-find-then-back-up",
+      "inputContains": { "seek_to_moment": { "query": ["liver"] } },
+      "inputOmits": { "seek_to_moment": { "query": ["ten", "seconds"] } },
       "context": "video",
       "say": "go to where he talks about the liver and then back up ten seconds",
       "scoreWholeCommand": true,
@@ -1046,6 +1052,8 @@
     },
     {
       "id": "planning-find-seek-slow",
+      "inputContains": { "seek_to_moment": { "query": ["cartilage", "skeleton"] } },
+      "inputOmits": { "seek_to_moment": { "query": ["half", "speed"] } },
       "context": "video",
       "say": "go to where he explains the cartilage skeleton and watch it at half speed",
       "scoreWholeCommand": true,
@@ -1105,6 +1113,8 @@
     },
     {
       "id": "planning-seek-fails-then-pop-out",
+      "inputContains": { "seek_to_moment": { "query": ["gills"] } },
+      "inputOmits": { "seek_to_moment": { "query": ["pop"] } },
       "context": "video",
       "say": "go back to where he explains the gills and pop it out",
       "scoreWholeCommand": true,

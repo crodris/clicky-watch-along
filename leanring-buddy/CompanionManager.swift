@@ -10,8 +10,8 @@
 import AVFoundation
 import Combine
 import Foundation
-import PostHog
 import ScreenCaptureKit
+import Speech
 import SwiftUI
 
 enum CompanionVoiceState {
@@ -88,6 +88,10 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var hasScreenRecordingPermission = false
     @Published private(set) var hasMicrophonePermission = false
     @Published private(set) var hasScreenContentPermission = false
+    /// Always true when the transcription provider does not use Speech Recognition (see `speechRecognitionPermissionIsSatisfied`).
+    @Published private(set) var hasSpeechRecognitionPermission = false
+    /// Chrome control is optional: only the video features need it, so it never blocks `allPermissionsGranted`.
+    @Published private(set) var chromeAutomationPermissionStatus: ChromeAutomationPermissionStatus = .notAskedYet
 
     /// Screen location (global AppKit coords) of a detected UI element the
     /// buddy should fly to and point at. Parsed from Claude's response;
@@ -378,10 +382,12 @@ final class CompanionManager: ObservableObject {
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
 
-    /// True when all three required permissions (accessibility, screen recording,
-    /// microphone) are granted. Used by the panel to show a single "all good" state.
+    /// True when every required permission (accessibility, screen recording, the screen content check, microphone,
+    /// and Speech Recognition when the provider uses it) is granted. Used by the panel to show a single "all good" state.
+    /// Chrome control is not required, since only the video features use it.
     var allPermissionsGranted: Bool {
         hasAccessibilityPermission && hasScreenRecordingPermission && hasMicrophonePermission && hasScreenContentPermission
+            && hasSpeechRecognitionPermission
     }
 
     /// Whether the blue cursor overlay is currently visible on screen.
@@ -427,33 +433,6 @@ final class CompanionManager: ObservableObject {
     var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") }
         set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
-    }
-
-    /// Always true in this fork, so the email step never appears and no
-    /// address goes to the upstream signup form.
-    @Published var hasSubmittedEmail: Bool = true
-
-    /// Submits the user's email to FormSpark and identifies them in PostHog.
-    func submitEmail(_ email: String) {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedEmail.isEmpty else { return }
-
-        hasSubmittedEmail = true
-        UserDefaults.standard.set(true, forKey: "hasSubmittedEmail")
-
-        // Identify user in PostHog
-        PostHogSDK.shared.identify(trimmedEmail, userProperties: [
-            "email": trimmedEmail
-        ])
-
-        // Submit to FormSpark
-        Task {
-            var request = URLRequest(url: URL(string: "https://submit-form.com/RWbGJxmIs")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": trimmedEmail])
-            _ = try? await URLSession.shared.data(for: request)
-        }
     }
 
     func start() {
@@ -656,6 +635,12 @@ final class CompanionManager: ObservableObject {
         let micAuthStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         hasMicrophonePermission = micAuthStatus == .authorized
 
+        hasSpeechRecognitionPermission = speechRecognitionPermissionIsSatisfied(
+            providerRequiresSpeechRecognition: buddyDictationManager.transcriptionProviderRequiresSpeechRecognitionPermission,
+            authorizationStatus: SFSpeechRecognizer.authorizationStatus()
+        )
+        chromeAutomationPermissionStatus = ChromeAutomationPermissionStatus.current()
+
         // Debug: log permission state on changes
         if previouslyHadAccessibility != hasAccessibilityPermission
             || previouslyHadScreenRecording != hasScreenRecordingPermission
@@ -681,6 +666,41 @@ final class CompanionManager: ObservableObject {
 
         if !previouslyHadAll && allPermissionsGranted {
             ClickyAnalytics.trackAllPermissionsGranted()
+        }
+    }
+
+    /// Shows the Speech Recognition prompt when the learner has not been asked, and opens System Settings when
+    /// the answer was no, since macOS never asks twice.
+    func requestSpeechRecognitionPermission() {
+        guard SFSpeechRecognizer.authorizationStatus() == .notDetermined else {
+            if let privacySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
+                NSWorkspace.shared.open(privacySettingsURL)
+            }
+            return
+        }
+        SFSpeechRecognizer.requestAuthorization { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshAllPermissions()
+            }
+        }
+    }
+
+    /// Shows the macOS prompt to control Chrome, or opens System Settings when the learner already said no.
+    /// The prompt blocks until the learner answers, so it runs off the main actor.
+    /// Chrome must be running, since macOS only answers for a running app.
+    func requestChromeAutomationPermission() {
+        switch chromeAutomationPermissionStatus {
+        case .granted, .chromeIsNotRunning:
+            return
+        case .denied:
+            if let automationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+                NSWorkspace.shared.open(automationSettingsURL)
+            }
+        case .notAskedYet:
+            Task.detached { [weak self] in
+                let statusAfterPrompt = ChromeAutomationPermissionStatus.requestFromTheLearner()
+                await MainActor.run { self?.chromeAutomationPermissionStatus = statusAfterPrompt }
+            }
         }
     }
 

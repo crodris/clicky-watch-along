@@ -459,9 +459,12 @@ private struct AgentListView: View {
             RoundedRectangle(cornerRadius: 3)
                 .fill(Color(hex: customTheme.accentHex))
                 .frame(width: 10, height: 10)
+            // A saved name runs to 24 characters, so it is cut before it pushes the running count off the header.
             Text(customTheme.name)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 
@@ -481,6 +484,8 @@ private struct AgentListView: View {
                 Text("\(store.agents.filter(\.isRunning).count) \(runningAgentsWord)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .padding(.horizontal, 14)
             .frame(height: Self.headerHeight)
@@ -495,6 +500,7 @@ private struct AgentListView: View {
                     approvalRequest: oldestRequest,
                     agentName: store.agents.first { agent in agent.id == oldestRequest.taskID }.map { agent in agent.player?.displayName ?? agent.kind.displayName } ?? "An agent",
                     isAnswering: approvalDesk.answeringApprovalIDs.contains(oldestRequest.approvalID),
+                    summaryShownSince: approvalDesk.oldestRequestVisibleSince,
                     answerApproval: actions.answerApproval,
                     summaryWasShownWhole: { summaryWasShownWhole in
                         if summaryWasShownWhole {
@@ -586,6 +592,8 @@ private struct AgentRowView: View {
                         rowIcon
                         VStack(alignment: .leading, spacing: 2) {
                             rowTitle
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             Text(agent.subject ?? "Finding the video")
                                 .font(.system(size: 11))
                                 .foregroundColor(DS.Colors.textSecondary)
@@ -694,15 +702,20 @@ private struct AgentRowView: View {
                         .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
                         .foregroundColor(stepStatus == .done ? DS.Colors.success : stepStatus == .current ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                         .frame(width: 12)
+                    // A task agent writes its own step lines, so a long one is cut instead of growing the row.
                     Text(agent.stepNames[stepIndex])
                         .font(.system(size: 11, weight: stepStatus == .current ? .bold : .regular))
                         .foregroundColor(stepStatus == .pending ? DS.Colors.textSecondary : DS.Colors.textPrimary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
                 }
             }
             if case .failed(let reason) = agent.phase {
                 Text(reason)
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.destructiveText)
+                    .lineLimit(3)
+                    .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if case .cancelled = agent.phase {
@@ -753,6 +766,8 @@ extension AgentRowView {
 private struct AgentActionButton: View {
     let title: String
     let titleColor: Color
+    /// A dimmed button is one whose click would not count yet, so it keeps the arrow, shows no hover, and does nothing.
+    var isDimmed = false
     let action: () -> Void
 
     @State private var isHovered = false
@@ -764,11 +779,13 @@ private struct AgentActionButton: View {
                 .foregroundColor(titleColor)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(isHovered ? DS.Colors.surface4 : DS.Colors.surface3))
+                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small).fill(isHovered && !isDimmed ? DS.Colors.surface4 : DS.Colors.surface3))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .hoverAndPointer { isHovered = $0 }
+        .disabled(isDimmed)
+        .opacity(isDimmed ? 0.5 : 1)
+        .hoverAndPointer(isEnabled: !isDimmed) { isHovered = $0 }
         .padding(.top, 2)
     }
 }
@@ -846,12 +863,17 @@ private struct ApprovalCardView: View {
     /// The answer went to the harness, whose gate takes the first answer, and its settlement has not come back yet, so
     /// the card shows no buttons and never a decline that the gate did not take.
     let isAnswering: Bool
+    /// `HarnessApprovalDesk.oldestRequestVisibleSince`: the same value `answerByClick` checks, so the buttons look ready
+    /// exactly when a click counts.
+    let summaryShownSince: Date?
     let answerApproval: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     let summaryWasShownWhole: (Bool) -> Void
 
     @State private var summaryFrame = ApprovalSummaryFrame(minY: 0, height: 0)
     @State private var scrollAreaHeight: CGFloat = 0
     @State private var seenRanges = ApprovalSummarySeenRanges()
+    /// Bumped when the 1 second after the whole summary showed has passed, so the card draws again with the buttons ready.
+    @State private var readinessClockTick = Date()
 
     private static let scrollAreaCoordinateSpaceName = "approvalSummaryScrollArea"
 
@@ -903,24 +925,39 @@ private struct ApprovalCardView: View {
                     .padding(.top, 2)
             } else {
                 HStack(spacing: 6) {
-                    AgentActionButton(title: "Yes", titleColor: DS.Colors.success) {
+                    AgentActionButton(title: "Yes", titleColor: DS.Colors.success, isDimmed: answerReadiness.buttonsAreDimmed) {
                         answerApproval(approvalRequest.approvalID, true, .once)
                     }
-                    AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary) {
+                    AgentActionButton(title: "Always", titleColor: DS.Colors.textPrimary, isDimmed: answerReadiness.buttonsAreDimmed) {
                         answerApproval(approvalRequest.approvalID, true, .always)
                     }
-                    AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText) {
+                    AgentActionButton(title: "No", titleColor: DS.Colors.destructiveText, isDimmed: answerReadiness.buttonsAreDimmed) {
                         answerApproval(approvalRequest.approvalID, false, .once)
                     }
                 }
             }
-            // The panel is never key, so a tooltip would not show, and the card says how long Always lasts.
-            Text(verbatim: "Always lasts until this task ends. Or say yes or no.")
+            // The panel is never key, so a tooltip would not show. One line in the same spot says why the buttons are
+            // dimmed, then how long Always lasts, so the card keeps its height in every state.
+            Text(verbatim: answerReadiness.waitingLine ?? "Always lasts until this task ends. Or say yes or no.")
                 .font(.system(size: 10))
                 .foregroundColor(DS.Colors.textSecondary)
+                .lineLimit(1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        // Syncs the redraw with the clock: nothing else changes when the second passes. Stops once the answer counts.
+        .task(id: summaryShownSince) {
+            while approvalAnswerReadiness(wholeSummaryShownSince: summaryShownSince, at: Date()) == .readyInAMoment {
+                try? await Task.sleep(for: .milliseconds(100))
+                readinessClockTick = Date()
+            }
+        }
+    }
+
+    private var answerReadiness: ApprovalAnswerReadiness {
+        // Reads the tick so SwiftUI draws this again when it changes.
+        _ = readinessClockTick
+        return approvalAnswerReadiness(wholeSummaryShownSince: summaryShownSince, at: Date())
     }
 
     /// Adds the part of the summary the scroll area shows now to the ranges seen, and tells the desk whether the ranges

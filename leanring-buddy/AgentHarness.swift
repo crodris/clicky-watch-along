@@ -331,6 +331,36 @@ final class HarnessTaskRouter {
 
 // MARK: - Approvals
 
+/// Whether a click or a voice answer on the oldest approval request counts yet. The desk decides it from this one
+/// function, and the card draws its buttons and its hint from the same value, so the look never differs from what a
+/// click does.
+enum ApprovalAnswerReadiness: Equatable {
+    /// The card has not yet shown the whole summary from top to bottom.
+    case summaryNotYetSeen
+    /// The whole summary has been shown, and `HarnessApprovalDesk.secondsTheCardShowsBeforeAnAnswerCounts` has not passed.
+    case readyInAMoment
+    case ready
+
+    /// The line under the buttons while an answer would not count, or nil once it does and the card shows its usual hint.
+    var waitingLine: String? {
+        switch self {
+        case .summaryNotYetSeen: return "Scroll through the whole request to answer"
+        case .readyInAMoment: return "Ready in a second"
+        case .ready: return nil
+        }
+    }
+
+    /// The buttons dim until an answer counts, so a click that the desk would ignore is never offered.
+    var buttonsAreDimmed: Bool { self != .ready }
+}
+
+/// `wholeSummaryShownSince` is `HarnessApprovalDesk.oldestRequestVisibleSince`, nil until the card showed the whole summary.
+func approvalAnswerReadiness(wholeSummaryShownSince: Date?, at date: Date) -> ApprovalAnswerReadiness {
+    guard let wholeSummaryShownSince else { return .summaryNotYetSeen }
+    let secondsShown = date.timeIntervalSince(wholeSummaryShownSince)
+    return secondsShown >= HarnessApprovalDesk.secondsTheCardShowsBeforeAnAnswerCounts ? .ready : .readyInAMoment
+}
+
 /// Holds each approval_request until the learner answers it, its task ends, or `timeoutSeconds` pass, which declines it.
 /// An answer the harness does not settle within `answerSettleGraceSeconds` drops the card, since a harness that hung
 /// after it took the answer would otherwise leave the card with no buttons for as long as its task lives.
@@ -363,8 +393,9 @@ final class HarnessApprovalDesk: ObservableObject {
     /// for a request the desk's own timeout declined, since "Declined it" under the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
-    /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest.
-    private var oldestRequestVisibleSince: Date?
+    /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest. Published so the
+    /// card dims its buttons from the same value `answerByClick` checks (`approvalAnswerReadiness`).
+    @Published private(set) var oldestRequestVisibleSince: Date?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
     /// Whether the agent list is open, so a request that becomes the oldest shows in its card.
     var listIsShowing: () -> Bool = { false }
@@ -414,6 +445,8 @@ final class HarnessApprovalDesk: ObservableObject {
 
     /// The card has not yet shown the whole summary, or the list closed, which discards what the card had seen.
     func theCardHasNotShownTheWholeSummary() {
+        // Skips a write of nil over nil, since every write of a published value redraws the card.
+        guard oldestRequestVisibleSince != nil else { return }
         oldestRequestVisibleSince = nil
     }
 
@@ -422,8 +455,7 @@ final class HarnessApprovalDesk: ObservableObject {
     /// learner could not have read, so a yes cannot answer it.
     func oldestRequestIDTheLearnerHasSeen(at date: Date) -> String? {
         guard let oldestRequest = waitingRequests.first,
-              let oldestRequestVisibleSince,
-              date.timeIntervalSince(oldestRequestVisibleSince) >= Self.secondsTheCardShowsBeforeAnAnswerCounts else { return nil }
+              approvalAnswerReadiness(wholeSummaryShownSince: oldestRequestVisibleSince, at: date) == .ready else { return nil }
         return oldestRequest.approvalID
     }
 

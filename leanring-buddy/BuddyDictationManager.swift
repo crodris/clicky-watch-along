@@ -234,6 +234,8 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     )
     @Published private(set) var microphoneButtonRecordingStartedAt: Date?
     @Published private(set) var transcriptionProviderDisplayName = ""
+    /// Whether the chosen provider needs the Speech Recognition permission, which the menu bar panel lists.
+    let transcriptionProviderRequiresSpeechRecognitionPermission: Bool
     @Published var lastErrorMessage: String?
     @Published private(set) var currentPermissionProblem: BuddyDictationPermissionProblem?
 
@@ -285,6 +287,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         let transcriptionProvider = BuddyTranscriptionProviderFactory.makeDefaultProvider()
         self.transcriptionProvider = transcriptionProvider
         self.transcriptionProviderDisplayName = transcriptionProvider.displayName
+        self.transcriptionProviderRequiresSpeechRecognitionPermission = transcriptionProvider.requiresSpeechRecognitionPermission
         super.init()
     }
 

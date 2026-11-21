@@ -491,6 +491,38 @@ struct AgentHarnessTests {
         #expect(answers.map(\.approved) == [false], "an action the app cannot name is declined at once")
     }
 
+    /// The card dims its buttons from `approvalAnswerReadiness`, and the desk's click check reads the same function, so at
+    /// every moment the card looks ready exactly when `answerByClick` counts.
+    @Test func theCardLooksReadyExactlyWhenAClickCounts() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let desk = HarnessApprovalDesk(currentDate: { now }) { _, _, _ in }
+        desk.listIsShowing = { true }
+        desk.receive(anApprovalRequest("approval-1"))
+
+        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now) == .summaryNotYetSeen)
+        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now).buttonsAreDimmed)
+        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now).waitingLine == "Scroll through the whole request to answer")
+
+        desk.theCardShowedTheWholeSummary(ofApprovalID: "approval-1")
+        now += 0.4
+        let readinessDuringTheSecond = approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now)
+        #expect(readinessDuringTheSecond == .readyInAMoment)
+        #expect(readinessDuringTheSecond.buttonsAreDimmed)
+        #expect(readinessDuringTheSecond.waitingLine == "Ready in a second")
+        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == nil, "a dimmed card is a click that does not count")
+
+        now += 0.7
+        let readinessAfterTheSecond = approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now)
+        #expect(readinessAfterTheSecond == .ready)
+        #expect(!readinessAfterTheSecond.buttonsAreDimmed)
+        #expect(readinessAfterTheSecond.waitingLine == nil)
+        #expect(desk.oldestRequestIDTheLearnerHasSeen(at: now) == "approval-1", "a ready card is a click that counts")
+
+        // Closing the list discards what the card had shown, so the buttons dim again.
+        desk.theCardHasNotShownTheWholeSummary()
+        #expect(approvalAnswerReadiness(wholeSummaryShownSince: desk.oldestRequestVisibleSince, at: now) == .summaryNotYetSeen)
+    }
+
     @Test func anAnswerCountsOnlyOnceTheCardHasShownTheWholeSummaryForASecond() {
         var now = Date(timeIntervalSince1970: 1_000)
         var answeredIDs: [String] = []
