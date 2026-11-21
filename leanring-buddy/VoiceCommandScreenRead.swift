@@ -10,6 +10,53 @@
 
 import Foundation
 
+/// The active tab of Chrome's front window, read at most once for one push-to-talk release. The cursor loop's media read and
+/// the voice command's screen read both start at the release and both begin with this read, which is several Apple Events
+/// to Chrome on the main actor, so the first to ask reads it and the other reuses the answer. Nothing here reads before
+/// someone asks, so a release that no consumer needs reads nothing.
+@MainActor
+final class FrontTabReadAtRelease {
+    private let readTheFrontTab: () -> ChromeVideoTab?
+    private var frontTabRead: (tab: ChromeVideoTab?, tookSeconds: TimeInterval)?
+    /// How many times the real read ran, for a test.
+    private(set) var readCount = 0
+
+    init(readTheFrontTab: @escaping () -> ChromeVideoTab? = { try? ChromeVideoTab.frontTabOfTheFrontWindow() }) {
+        self.readTheFrontTab = readTheFrontTab
+    }
+
+    /// The front tab, or nil when Chrome has no window to read. A nil answer is kept too, so a Chrome that refuses is asked once.
+    func frontTab() -> ChromeVideoTab? {
+        if let frontTabRead {
+            print("Release read: reused the front tab, which took \(Int(frontTabRead.tookSeconds * 1000)) ms to read the first time")
+            return frontTabRead.tab
+        }
+        let readStartedAt = Date()
+        let tab = readTheFrontTab()
+        readCount += 1
+        let tookSeconds = Date().timeIntervalSince(readStartedAt)
+        frontTabRead = (tab, tookSeconds)
+        print("Release read: read the front tab in \(Int(tookSeconds * 1000)) ms")
+        return tab
+    }
+}
+
+/// Where the study guide check gets the front video's URL. A release that read the front tab hands over its answer, nil
+/// included, so a Chrome with no window never costs a second read. Only a command with no release read reads Chrome itself.
+enum FrontVideoURLSource {
+    case releaseRead(String?)
+    case readNow
+
+    func url(readNow readChromeNow: () -> String?) -> String? {
+        switch self {
+        case .releaseRead(let urlTheReleaseRead):
+            return urlTheReleaseRead
+        case .readNow:
+            return readChromeNow()
+        }
+    }
+}
+
 /// What the page and the study guide check answered, and when the last of them finished.
 struct VoiceCommandPageRead {
     let pageTools: [VoiceToolDescriptor]
