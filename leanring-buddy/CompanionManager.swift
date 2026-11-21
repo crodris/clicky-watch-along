@@ -508,8 +508,6 @@ final class CompanionManager: ObservableObject {
         // again on future launches — the cursor will auto-show instead
         hasCompletedOnboarding = true
 
-        ClickyAnalytics.trackOnboardingStarted()
-
         // Play Besaid theme at 60% volume, fade out after 1m 30s
         startOnboardingMusic()
 
@@ -524,7 +522,6 @@ final class CompanionManager: ObservableObject {
     /// is already visible so we just restart the welcome animation and video.
     func replayOnboarding() {
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-        ClickyAnalytics.trackOnboardingReplayed()
         startOnboardingMusic()
         // Tear down any existing overlays and recreate with isFirstAppearance = true
         overlayWindowManager.hasShownOverlayBefore = false
@@ -619,7 +616,6 @@ final class CompanionManager: ObservableObject {
         let previouslyHadAccessibility = hasAccessibilityPermission
         let previouslyHadScreenRecording = hasScreenRecordingPermission
         let previouslyHadMicrophone = hasMicrophonePermission
-        let previouslyHadAll = allPermissionsGranted
 
         let currentlyHasAccessibility = WindowPositionManager.hasAccessibilityPermission()
         hasAccessibilityPermission = currentlyHasAccessibility
@@ -648,24 +644,10 @@ final class CompanionManager: ObservableObject {
             print("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
         }
 
-        // Track individual permission grants as they happen
-        if !previouslyHadAccessibility && hasAccessibilityPermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "accessibility")
-        }
-        if !previouslyHadScreenRecording && hasScreenRecordingPermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "screen_recording")
-        }
-        if !previouslyHadMicrophone && hasMicrophonePermission {
-            ClickyAnalytics.trackPermissionGranted(permission: "microphone")
-        }
         // Screen content permission is persisted — once the user has approved the
         // SCShareableContent picker, we don't need to re-check it.
         if !hasScreenContentPermission {
             hasScreenContentPermission = UserDefaults.standard.bool(forKey: "hasScreenContentPermission")
-        }
-
-        if !previouslyHadAll && allPermissionsGranted {
-            ClickyAnalytics.trackAllPermissionsGranted()
         }
     }
 
@@ -733,7 +715,6 @@ final class CompanionManager: ObservableObject {
                     guard didCapture else { return }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
-                    ClickyAnalytics.trackPermissionGranted(permission: "screen_content")
 
                     // If onboarding was already completed, show the cursor overlay now
                     if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isClickyCursorEnabled {
@@ -968,8 +949,6 @@ final class CompanionManager: ObservableObject {
             }
     
 
-            ClickyAnalytics.trackPushToTalkStarted()
-
             // The transcript of this press may arrive after a newer press began, so it carries its own press number.
             let pressCountOfThisPress = pushToTalkPressCount
             pendingKeyboardShortcutStartTask?.cancel()
@@ -982,7 +961,6 @@ final class CompanionManager: ObservableObject {
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
                         print("🗣️ Companion received transcript: \(finalTranscript)")
-                        ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self?.sendTranscriptToClaudeWithScreenshot(transcript: finalTranscript, pushToTalkPressCount: pressCountOfThisPress)
                     }
                 )
@@ -992,7 +970,6 @@ final class CompanionManager: ObservableObject {
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
             // leaves the listening ring stuck on screen indefinitely.
-            ClickyAnalytics.trackPushToTalkReleased()
             let releaseEndsAnAcceptedPress = pushToTalkPressAcceptance.releaseEndsAnAcceptedPress()
             if releaseEndsAnAcceptedPress {
                 lastPushToTalkRelease = PushToTalkRelease(pressCount: pushToTalkPressCount, releasedAt: Date())
@@ -1641,7 +1618,6 @@ final class CompanionManager: ObservableObject {
 
                     detectedElementScreenLocation = globalLocation
                     detectedElementDisplayFrame = displayFrame
-                    ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
                     print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
                 } else {
                     print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
@@ -1661,8 +1637,6 @@ final class CompanionManager: ObservableObject {
 
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
 
-                ClickyAnalytics.trackAIResponseReceived(response: spokenText)
-
                 // Play the response via TTS. Keep the thinking dots (processing state)
                 // until the audio actually starts playing, then switch to responding.
                 if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1673,7 +1647,6 @@ final class CompanionManager: ObservableObject {
                     } catch is CancellationError {
                         // The learner spoke again, so this reply was interrupted on purpose.
                     } catch {
-                        ClickyAnalytics.trackTTSError(error: error.localizedDescription)
                         print("⚠️ ElevenLabs TTS error: \(error)")
                         speakCreditsErrorFallback()
                     }
@@ -1681,7 +1654,6 @@ final class CompanionManager: ObservableObject {
             } catch is CancellationError {
                 // User spoke again — response was interrupted
             } catch {
-                ClickyAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 speakCreditsErrorFallback()
             }
@@ -4298,7 +4270,6 @@ final class CompanionManager: ObservableObject {
         } catch is CancellationError {
             return nil
         } catch {
-            ClickyAnalytics.trackTTSError(error: error.localizedDescription)
             print("⚠️ ElevenLabs TTS error: \(error)")
             speakCreditsErrorFallback()
             return nil
@@ -4599,7 +4570,6 @@ final class CompanionManager: ObservableObject {
             forTimes: [NSValue(time: demoTriggerTime)],
             queue: .main
         ) { [weak self] in
-            ClickyAnalytics.trackOnboardingDemoTriggered()
             self?.performOnboardingDemoInteraction()
         }
 
@@ -4610,7 +4580,6 @@ final class CompanionManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            ClickyAnalytics.trackOnboardingVideoCompleted()
             self.onboardingVideoOpacity = 0.0
             // Wait for the 2s fade-out animation to complete before tearing down
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
