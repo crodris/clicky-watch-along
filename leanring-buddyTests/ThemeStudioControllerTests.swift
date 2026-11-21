@@ -48,6 +48,8 @@ private final class StudioHarness {
     let themeSettings: CompanionThemeSettings
     let presenter = RecordingCardPresenter()
     var spokenLines: [String] = []
+    /// Whether the card's failed notice was already up as each line was spoken, which the app reads to leave out a chip that would repeat it.
+    var failedNoticeWasShowingWhenSpoken: [Bool] = []
     private(set) var stopSpeakingCount = 0
     var playedSounds: [ThemeSound] = []
     var requestsSentToTheWorker: [ThemeIdeasRequest] = []
@@ -61,7 +63,10 @@ private final class StudioHarness {
         studio = ThemeStudioController(
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
-                speak: { [unowned self] line in self.spokenLines.append(line) },
+                speak: { [unowned self] line in
+                    self.spokenLines.append(line)
+                    self.failedNoticeWasShowingWhenSpoken.append(self.studio.showsTheDesignFailedNotice)
+                },
                 stopSpeaking: { [unowned self] in self.stopSpeakingCount += 1 },
                 playSound: { [unowned self] sound in self.playedSounds.append(sound) },
                 captureThePicture: { [unowned self] in self.picturesTheCaptureReturns.isEmpty ? nil : self.picturesTheCaptureReturns.removeFirst() },
@@ -451,6 +456,28 @@ struct ThemeStudioTetherTests {
         #expect(harness.studio.showsTheDesignFailedNotice)
         harness.studio.pickIdea(number: 2)
         #expect(!harness.studio.showsTheDesignFailedNotice)
+    }
+
+    @Test func theFailedNoticeIsUpBeforeTheFailureLineIsSpokenSoTheChipCanLeaveItOut() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        harness.spokenLines.removeAll()
+        harness.failedNoticeWasShowingWhenSpoken.removeAll()
+        harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.spokenLines == [ThemeStudioController.couldNotDesignLine])
+        #expect(harness.failedNoticeWasShowingWhenSpoken == [true])
+    }
+
+    @Test func aFirstDesignThatFailsSpeaksTheFailureLineWithNoNoticeSoTheChipShows() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ throw WorkerFailure() }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.spokenLines == [ThemeStudioController.couldNotDesignLine])
+        #expect(harness.failedNoticeWasShowingWhenSpoken == [false])
     }
 
     @Test func aFirstDesignThatFailsClosesTheCardWithNoNotice() async throws {

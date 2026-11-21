@@ -306,7 +306,7 @@ struct ThemeStudioCardView: View {
             }
             if studio.showsTheDesignFailedNotice {
                 TetherCallout(accent: DS.Colors.destructive, rim: .chip) {
-                    Image(systemName: "exclamationmark")
+                    Image(systemName: "xmark")
                 } content: {
                     Text("Couldn't design that. Your ideas are still here.")
                         .lineLimit(2)

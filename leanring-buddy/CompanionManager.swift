@@ -267,8 +267,9 @@ final class CompanionManager: ObservableObject {
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
                 speak: { [weak self] line in
-                    // A failed design is also a red Callout, so the failure never rests on the voice alone.
-                    if line == ThemeStudioController.couldNotDesignLine {
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone. While the card stays
+                    // open with its old ideas, the card's own red Callout says it, so the chip would say it twice.
+                    if line == ThemeStudioController.couldNotDesignLine, self?.themeStudioController.showsTheDesignFailedNotice != true {
                         VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
                     }
                     self?.speakAThemeStudioLine(line)
@@ -3563,10 +3564,10 @@ final class CompanionManager: ObservableObject {
             installedTheme.sounds.done.play()
         } catch let parseError as CustomThemeParseError {
             print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(parseError.reason)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
             print("Themes: refused \(confirmedInstall.packageURL.lastPathComponent): \(error)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
 
@@ -4163,7 +4164,7 @@ final class CompanionManager: ObservableObject {
         guard let startTheWorkAgain = tryAgainActionsByAgentID[agentID] else { return }
         guard startTheWorkAgain() else {
             print("Agent list: could not try \(agentID) again, so its row keeps the button")
-            VoiceToolCallChip.shared.show("Couldn't try that again")
+            VoiceToolCallChip.shared.show("Couldn't try that again", sender: .failure)
             return
         }
         tryAgainActionsByAgentID[agentID] = nil
