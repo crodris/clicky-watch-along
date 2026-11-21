@@ -1,0 +1,1769 @@
+{
+  "label": "theme-refine-after",
+  "benchKind": "brain-evals",
+  "commitSHA": "e44553854e1f",
+  "workingTreeIsDirty": true,
+  "recordedAt": "2026-11-21T18:41:40.849Z",
+  "runCount": 10,
+  "port": 8797,
+  "backend": "both",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "gate": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "every harness run passes",
+        "passed": true,
+        "detail": "20 of 20"
+      },
+      {
+        "name": "p50 to the first tool call within 100 ms of the Worker's",
+        "passed": true,
+        "detail": "harness 1034 ms, Worker 1047 ms, -13 ms"
+      },
+      {
+        "name": "first-turn cost per call within 1.5 times the Worker's",
+        "passed": true,
+        "detail": "harness $0.000155, Worker $0.000155, 1.00 times"
+      }
+    ]
+  },
+  "summaryByBackend": {
+    "worker": {
+      "overall": {
+        "runs": 20,
+        "passed": 20,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 1047,
+        "p95Ms": 1268,
+        "totalCostUSD": 0.00309,
+        "meanCostUSD": 0.000155,
+        "fullCommandP50Ms": null,
+        "meanFullCommandCostUSD": null
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 20,
+          "passed": 20,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 1047,
+          "p95Ms": 1268,
+          "totalCostUSD": 0.00309,
+          "meanCostUSD": 0.000155,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        }
+      }
+    },
+    "harness": {
+      "overall": {
+        "runs": 20,
+        "passed": 20,
+        "passRate": 1,
+        "wrongTool": 0,
+        "wrongInput": 0,
+        "missedTool": 0,
+        "spuriousTool": 0,
+        "errors": 0,
+        "p50Ms": 1034,
+        "p95Ms": 1187,
+        "totalCostUSD": 0.0031,
+        "meanCostUSD": 0.000155,
+        "fullCommandP50Ms": 1034,
+        "meanFullCommandCostUSD": 0.000155
+      },
+      "byContext": {
+        "nothing": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "video": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "scene3D": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "experimentGuess": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "popout": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "readyModel": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "taskAnswer": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "approvalWaiting": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioClosed": {
+          "runs": 0,
+          "passed": 0,
+          "passRate": null,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": null,
+          "p95Ms": null,
+          "totalCostUSD": null,
+          "meanCostUSD": null,
+          "fullCommandP50Ms": null,
+          "meanFullCommandCostUSD": null
+        },
+        "themeStudioIdeas": {
+          "runs": 20,
+          "passed": 20,
+          "passRate": 1,
+          "wrongTool": 0,
+          "wrongInput": 0,
+          "missedTool": 0,
+          "spuriousTool": 0,
+          "errors": 0,
+          "p50Ms": 1034,
+          "p95Ms": 1187,
+          "totalCostUSD": 0.0031,
+          "meanCostUSD": 0.000155,
+          "fullCommandP50Ms": 1034,
+          "meanFullCommandCostUSD": 0.000155
+        }
+      }
+    }
+  },
+  "samples": [
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "reworking two with a spinning star"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea two with a tweak, and the Theme Studio is open with idea two already highlighted. A wish about how the cursor looks while the card is open goes to design_theme, with the basedOnIdea set to 2.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 195
+        }
+      ],
+      "costUSD": 0.00016496000000000002,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1308.5954169999998,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1069.819791,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 154
+        }
+      ],
+      "costUSD": 0.00014494,
+      "fullCommandCostUSD": 0.00014494,
+      "totalMs": 1069.487166,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1034.3055830000003,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 182
+        }
+      ],
+      "costUSD": 0.00015894,
+      "fullCommandCostUSD": 0.00015894,
+      "totalMs": 1034.1063750000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 1,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "a star cursor that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "making idea two a spinning star"
+          }
+        }
+      ],
+      "spokenText": "The learner named idea two and wants a change to it. The Theme Studio is open with idea 2 already highlighted, so I'll design a new version based on idea two with the star cursor request.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 177
+        }
+      ],
+      "costUSD": 0.00015596000000000002,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1089.7892499999998,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 2,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "working on the star cursor"
+          }
+        }
+      ],
+      "spokenText": "The learner named idea two and wants a change to it. The Theme Studio card is open with idea two highlighted, so I'll apply the wish to idea two.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 168
+        }
+      ],
+      "costUSD": 0.00015146000000000002,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 928.2699999999995,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 1186.6797499999993,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 175
+        }
+      ],
+      "costUSD": 0.00015544,
+      "fullCommandCostUSD": 0.00015544,
+      "totalMs": 1186.564291999999,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 868.6490419999991,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 153
+        }
+      ],
+      "costUSD": 0.00014444,
+      "fullCommandCostUSD": 0.00014444,
+      "totalMs": 868.4936669999988,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 3,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "working on a star cursor"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea two picked and changed to a spinning star cursor. The Theme Studio is open with idea 2 highlighted, so I'll design a theme change based on idea two.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 178
+        }
+      ],
+      "costUSD": 0.00015646,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1086.7802500000016,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 4,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "Changing two to a spinning star cursor"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea two adjusted, which means a design change on the Theme Studio card based on that idea. The card is open with idea two highlighted, so I'll call design_theme with basedOnIdea 2.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 192
+        }
+      ],
+      "costUSD": 0.00016346,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1268.2510409999995,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 1135.707375,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 196
+        }
+      ],
+      "costUSD": 0.00016594,
+      "fullCommandCostUSD": 0.00016594,
+      "totalMs": 1135.5326249999998,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 5,
+      "httpStatus": 0,
+      "fullCommandMs": 1003.8524590000015,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015444,
+      "fullCommandCostUSD": 0.00015444,
+      "totalMs": 1003.7609170000014,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 5,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "Changing two to a spinning star."
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea two adjusted, which is a theme wish while the card is open. I'll call design_theme with basedOnIdea 2.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 169
+        }
+      ],
+      "costUSD": 0.00015196,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1046.8407920000009,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 6,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "two, but make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "making idea two a spinning star"
+          }
+        }
+      ],
+      "spokenText": "The learner named idea two and wants a change to it. The Theme Studio card is open with idea 2 highlighted, so I'll apply the wish to idea 2.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 176
+        }
+      ],
+      "costUSD": 0.00015546,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1021.3466659999976,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 6,
+      "httpStatus": 0,
+      "fullCommandMs": 1147.662124999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 153
+        }
+      ],
+      "costUSD": 0.00014444,
+      "fullCommandCostUSD": 0.00014444,
+      "totalMs": 1147.405791000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 7,
+      "httpStatus": 0,
+      "fullCommandMs": 919.018458999999,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 145
+        }
+      ],
+      "costUSD": 0.00014044,
+      "fullCommandCostUSD": 0.00014044,
+      "totalMs": 918.7700420000001,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 7,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "Working on a star cursor for two."
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea two adjusted, which is a theme wish while the card is open. I'll call design_theme with basedOnIdea 2.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 169
+        }
+      ],
+      "costUSD": 0.00015196,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1128.9038340000006,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 8,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "Working on a spinning star cursor."
+          }
+        }
+      ],
+      "spokenText": "The learner named idea two and wants a change to it. The Theme Studio is open with idea 2 highlighted, so I'll design a change based on idea two.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015396,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1102.758249999999,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 8,
+      "httpStatus": 0,
+      "fullCommandMs": 959.5317080000023,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.00014894,
+      "fullCommandCostUSD": 0.00014894,
+      "totalMs": 959.2573330000014,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 9,
+      "httpStatus": 0,
+      "fullCommandMs": 912.3201660000013,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 183,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 160
+        }
+      ],
+      "costUSD": 0.00014794,
+      "fullCommandCostUSD": 0.00014794,
+      "totalMs": 912.1139160000021,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 2,
+            "request": "make the cursor a star that spins while it thinks"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-cursor-shape",
+      "context": "themeStudioIdeas",
+      "runIndex": 9,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "make the cursor a star that spins while it thinks",
+            "basedOnIdea": 2,
+            "confirmation": "reworking two with a spinning star"
+          }
+        }
+      ],
+      "spokenText": "The learner names idea two and wants a change to it. Theme Studio is open with idea 2 highlighted, so I'll design a change based on idea two.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 194,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 170
+        }
+      ],
+      "costUSD": 0.00015246000000000001,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1080.4123330000002,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "httpStatus": 0,
+      "fullCommandMs": 1178.5561670000025,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 201
+        }
+      ],
+      "costUSD": 0.00016824,
+      "fullCommandCostUSD": 0.00016824,
+      "totalMs": 1178.3482920000024,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "Ember, but with a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 0,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "making idea one softer"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one with a softer sound on agent finish. The Theme Studio is open with idea 2 highlighted, so I'll design a change based on idea one.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 168
+        }
+      ],
+      "costUSD": 0.00015125999999999998,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1000.9242919999997,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 1,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "Softening the finish sound on idea one"
+          }
+        }
+      ],
+      "spokenText": "The Theme Studio is open with idea one, and the learner wants a softer sound when an agent finishes. That is a wish about the theme's sounds, so it goes to design_theme based on idea one.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 183
+        }
+      ],
+      "costUSD": 0.00015875999999999998,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1056.3833750000013,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 1,
+      "httpStatus": 0,
+      "fullCommandMs": 1040.8280840000007,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015424000000000001,
+      "fullCommandCostUSD": 0.00015424000000000001,
+      "totalMs": 1040.2647920000018,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 2,
+      "httpStatus": 0,
+      "fullCommandMs": 932.2346249999973,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.00014874000000000002,
+      "fullCommandCostUSD": 0.00014874000000000002,
+      "totalMs": 931.7226250000022,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 2,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "softening idea one's finish sound"
+          }
+        }
+      ],
+      "spokenText": "The Theme Studio is open with idea one, so I'll design a change to it with a softer completion sound.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 151
+        }
+      ],
+      "costUSD": 0.00014276,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1015.1046249999999,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 3,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "a softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "softening the finish sound"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one changed with a softer completion sound, and the Theme Studio card is open, so I'll use design_theme with basedOnIdea set to 1.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 170
+        }
+      ],
+      "costUSD": 0.00015225999999999998,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 917.5633329999982,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 3,
+      "httpStatus": 0,
+      "fullCommandMs": 1269.5788749999992,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 249
+        }
+      ],
+      "costUSD": 0.00019224000000000002,
+      "fullCommandCostUSD": 0.00019224000000000002,
+      "totalMs": 1269.4257500000022,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "pick_theme_idea",
+          "input": {
+            "number": 1
+          }
+        },
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 4,
+      "httpStatus": 0,
+      "fullCommandMs": 1032.1685419999994,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015424000000000001,
+      "fullCommandCostUSD": 0.00015424000000000001,
+      "totalMs": 1031.9712080000027,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 4,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "pick_theme_idea",
+          "input": {
+            "number": 1,
+            "confirmation": "trying one"
+          }
+        },
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "softening the finish sound"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one with a softer sound on agent finish. The Theme Studio is open with idea two highlighted, so I'll first pick idea one, then design the change based on it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 248
+        }
+      ],
+      "costUSD": 0.00019125999999999998,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1145.8020830000023,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 5,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "softening the finish sound"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one changed, so I'll open the design wish on that idea.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 141
+        }
+      ],
+      "costUSD": 0.00013775999999999998,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 908.0705000000016,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 5,
+      "httpStatus": 0,
+      "fullCommandMs": 1083.5120000000024,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 180
+        }
+      ],
+      "costUSD": 0.00015774000000000002,
+      "fullCommandCostUSD": 0.00015774000000000002,
+      "totalMs": 1083.4208750000034,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 6,
+      "httpStatus": 0,
+      "fullCommandMs": 979.7009999999937,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 171
+        }
+      ],
+      "costUSD": 0.00015324000000000002,
+      "fullCommandCostUSD": 0.00015324000000000002,
+      "totalMs": 979.5879579999964,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "same as idea one, but with a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 6,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "Softening the finish sound on idea one"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one, with a change to its sound. The Theme Studio is open with idea one available, so I'll design from that idea with the requested change, since a sound tweak is a wish about the theme.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 184
+        }
+      ],
+      "costUSD": 0.00015926,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 1125.6347079999978,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 7,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "a softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "Softening the finish sound on idea one."
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one with a softer sound when an agent finishes. The Theme Studio card is open, so this is a wish to change idea one, not a pick.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015376,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 946.5413339999941,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 7,
+      "httpStatus": 0,
+      "fullCommandMs": 1068.780166000004,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 173
+        }
+      ],
+      "costUSD": 0.00015424000000000001,
+      "fullCommandCostUSD": 0.00015424000000000001,
+      "totalMs": 1068.6800000000003,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 8,
+      "httpStatus": 0,
+      "fullCommandMs": 1142.6037090000027,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 180
+        }
+      ],
+      "costUSD": 0.00015774000000000002,
+      "fullCommandCostUSD": 0.00015774000000000002,
+      "totalMs": 1142.4482500000013,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "a softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 8,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "a softer sound when an agent finishes",
+            "basedOnIdea": 1,
+            "confirmation": "softening the finish sound"
+          }
+        }
+      ],
+      "spokenText": "The learner wants idea one changed with a softer sound on agent finish, so I'll open Theme Studio with that wish based on idea one.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 160
+        }
+      ],
+      "costUSD": 0.00014726,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 932.6107499999998,
+      "outcome": "pass"
+    },
+    {
+      "backend": "worker",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 9,
+      "fullCommandMs": null,
+      "turnCount": 1,
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "request": "softer sound when an agent finishes",
+            "basedOnIdea": 1
+          }
+        }
+      ],
+      "spokenText": "The Theme Studio card is open with idea two highlighted, and the learner wants idea one with a softer sound. That's a design change to idea one, so I'll call design_theme based on it.",
+      "usageLines": [
+        {
+          "route": "/voice-command",
+          "model": "claude-haiku-5-5",
+          "serviceTier": "standard",
+          "inputTokens": 192,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4806,
+          "outputTokens": 144
+        }
+      ],
+      "costUSD": 0.00013926,
+      "fullCommandCostUSD": null,
+      "httpStatus": 200,
+      "totalMs": 856.2609169999996,
+      "outcome": "pass"
+    },
+    {
+      "backend": "harness",
+      "caseId": "theme-refine-sound",
+      "context": "themeStudioIdeas",
+      "runIndex": 9,
+      "httpStatus": 0,
+      "fullCommandMs": 935.3641250000001,
+      "turnCount": 1,
+      "usageLines": [
+        {
+          "route": "/v1/messages",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 181,
+          "cacheWriteTokens": 0,
+          "cacheReadTokens": 4964,
+          "outputTokens": 162
+        }
+      ],
+      "costUSD": 0.00014874000000000002,
+      "fullCommandCostUSD": 0.00014874000000000002,
+      "totalMs": 935.2570419999975,
+      "outcome": "pass",
+      "toolCalls": [
+        {
+          "name": "design_theme",
+          "input": {
+            "basedOnIdea": 1,
+            "request": "softer sound when an agent finishes"
+          }
+        }
+      ],
+      "spokenText": ""
+    }
+  ]
+}

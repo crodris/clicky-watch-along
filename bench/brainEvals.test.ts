@@ -1168,6 +1168,33 @@ describe("the harness driver's session lines", () => {
   });
 });
 
+describe("a number with a change on the Theme Studio card", () => {
+  const refineCases = ["theme-refine-sound", "theme-refine-cursor-shape"].map((caseId) => fixtureCase(caseId));
+  const ideaNumberOf = (brainCase: BrainCase): number => Number(brainCase.input?.design_theme?.basedOnIdea);
+
+  it("passes the design alone and the design with a pick of the same idea, in either order", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      const pick = { name: "pick_theme_idea", input: { number: ideaNumber } };
+      assert.equal(scoreBrainCase([design], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([pick, design], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([design, pick], brainCase), "pass", brainCase.id);
+    }
+  });
+
+  it("fails a pick of another idea, a pick alone, and a design of another idea", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const otherIdeaNumber = ideaNumber === 1 ? 3 : 1;
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      assert.equal(scoreBrainCase([{ name: "pick_theme_idea", input: { number: otherIdeaNumber } }, design], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([{ name: "pick_theme_idea", input: { number: ideaNumber } }], brainCase), "wrongTool", brainCase.id);
+      assert.equal(scoreBrainCase([{ name: "design_theme", input: { request: "x", basedOnIdea: otherIdeaNumber } }], brainCase), "wrongInput", brainCase.id);
+    }
+  });
+});
+
 describe("the planning cases", () => {
   const popOutCase = fixtureCase("planning-find-seek-pop-out");
   const findLastCase = fixtureCase("planning-find-last-mention");
