@@ -279,6 +279,23 @@ final class CompanionManager: ObservableObject {
         )
     }()
     private var themeStudioSpeechTask: Task<Void, Never>?
+    /// "Show me how this would look in my room": the live camera panel with the picture from Chrome's front tab on the wall.
+    private lazy var roomArtPreviewController = RoomArtPreviewController(
+        workerBaseURL: Self.workerBaseURL,
+        capturePicture: { [weak self] in
+            await self?.captureThePictureForTheThemeStudio().map { picture in
+                RoomArtPicture(jpegData: picture.jpegData, width: picture.width, height: picture.height)
+            }
+        },
+        speak: { [weak self] line in
+            Task {
+                guard let self, await self.speakLiveSceneLine(line) else { return }
+                await self.waitForClickyToFinishSpeaking()
+                if self.voiceState == .responding { self.voiceState = .idle }
+                self.scheduleTransientHideIfNeeded()
+            }
+        }
+    )
     /// The playback token of the studio's own spoken line, so closing the card stops that exact line and never an unrelated
     /// answer that is playing when the card closes. Once the line has ended, the token matches nothing and stops nothing.
     private var themeStudioLineToken: SpokenLineToken?
@@ -1251,6 +1268,10 @@ final class CompanionManager: ObservableObject {
             return
         case .designATheme(let themeStudioRequest):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
+            return
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            startShowingTheArtInMyRoom()
             return
         case nil:
             break
@@ -2588,6 +2609,10 @@ final class CompanionManager: ObservableObject {
         if themeStudioController.closeOnEscape() {
             return
         }
+        // With the room art panel open, Escape closes it and stops the camera, ahead of any scene behavior.
+        if roomArtPreviewController.closeOnEscape() {
+            return
+        }
         // A second Escape while a pop-out lands in its frame hides it at once.
         if LiveSceneOverlay.shared.isReturningToSource {
             clearTheLiveSceneAndReleaseTheBuddy()
@@ -3024,6 +3049,9 @@ final class CompanionManager: ObservableObject {
             startTheExperimentInTheBackground(transcript: transcript)
         case .designATheme(let themeStudioRequest):
             startDesigningATheme(request: transcript, basedOnIdea: nil, pictureChoice: themeStudioRequest == .fromThePicture ? .captureAgain : .none)
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            startShowingTheArtInMyRoom()
         case .keywordPath:
             respondByTheKeywordPath(transcript: transcript)
         }
@@ -3103,6 +3131,9 @@ final class CompanionManager: ObservableObject {
         case .animatePicture:
             theRequestBecameALookAtTheMedia()
             return .handOff { self.respondToTranscript(transcript: transcript, requestedSceneKind: .animatedFramePopout) }
+        case .showArtInMyRoom:
+            theRequestBecameALookAtTheMedia()
+            return .handOff { self.startShowingTheArtInMyRoom() }
         case .closeScene:
             return .handOff { self.closeTheSceneByVoice() }
         case .explainPart:
@@ -3322,6 +3353,19 @@ final class CompanionManager: ObservableObject {
         if voiceState == .responding {
             voiceState = .idle
             scheduleTransientHideIfNeeded()
+        }
+    }
+
+    /// Reads the picture and the page and opens the room art panel. The thinking state shows while the page is read, and
+    /// the panel and its spoken line say the rest. Like any hand-off, it takes over the reply.
+    private func startShowingTheArtInMyRoom() {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        voiceState = .processing
+        currentResponseTask = Task {
+            await self.roomArtPreviewController.showTheArtInTheRoom()
+            if self.voiceState == .processing { self.voiceState = .idle }
+            self.scheduleTransientHideIfNeeded()
         }
     }
 

@@ -180,6 +180,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case buildSimulation = "build_simulation"
     case popOut = "pop_out"
     case animatePicture = "animate_picture"
+    case showArtInMyRoom = "show_art_in_my_room"
     case closeScene = "close_scene"
     case explainPart = "explain_part"
     case pauseVideo = "pause_video"
@@ -208,7 +209,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     /// A turn that only runs tools, such as turning a model or seeking a video, never does.
     var handsOffToALookAtTheMedia: Bool {
         switch self {
-        case .answerWithScreen, .buildNewScene, .popOut, .animatePicture:
+        case .answerWithScreen, .buildNewScene, .popOut, .animatePicture, .showArtInMyRoom:
             return true
         default:
             return false
@@ -249,7 +250,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             switch appVoiceTool {
             // With the brain flag on, a first utterance reaches these with nothing on screen and no video in front, so none of them
             // may depend on either. animate_picture runs the same path as pop_out, which lifts a picture or pops one out first.
-            case .answerWithScreen, .buildNewScene, .popOut, .animatePicture:
+            // show_art_in_my_room reads the picture on Chrome's front tab itself, and says so when there is none.
+            case .answerWithScreen, .buildNewScene, .popOut, .animatePicture, .showArtInMyRoom:
                 return !context.quizQuestionIsOpen
             // With an experiment on screen, set_control and run_simulation change it, and a second build costs a model call.
             case .buildSimulation:
@@ -353,6 +355,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Lift the subject of the video frame or the largest picture in Chrome's front tab out in 3D with its parts labeled. Use it only when they say pop this out or pop it out. It pauses a playing video by itself."
         case .animatePicture:
             return "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app. It pauses a playing video by itself."
+        case .showArtInMyRoom:
+            return "Hang the picture or wall art on Chrome's front tab on the learner's wall in their live camera view, at its real size from the page. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room'."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
@@ -414,7 +418,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             .object(["type": .string("number"), "description": .string(description)])
         }
         switch self {
-        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .closeScene, .pauseVideo, .playVideo, .endQuiz:
+        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .pauseVideo, .playVideo, .endQuiz:
             return objectSchema([:], required: [])
         case .buildNewScene:
             return objectSchema(
@@ -576,8 +580,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         case "start_background_task":
             return "Starting a task"
         default:
-            // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, and hear_task_answer hand off to
-            // a path with its own status line, thinking dots, rising scene, or voice. answer_approval shows no chip of its
+            // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, hear_task_answer, and
+            // show_art_in_my_room hand off to a path with its own status line, thinking dots, rising scene, panel, or voice. answer_approval shows no chip of its
             // own, since the desk's approval_settled shows the outcome the harness's gate took, on both paths.
             return nil
         }
@@ -1000,6 +1004,9 @@ nonisolated enum KeywordBranchAheadOfTheRouter: Equatable, Sendable {
     case startExperiment
     /// "Change my theme" opens the Theme Studio with no model call to pick the tool.
     case designATheme(ThemeStudioRequest)
+    /// "Show me how this would look in my room" hangs the picture on the learner's wall in the camera panel, ahead of the
+    /// live scene's "show me", which would build a 3D scene of it.
+    case showArtInMyRoom
 }
 
 /// The keyword branch a transcript takes before the router sees it, or nil. When the brain flag is on and the router
@@ -1030,6 +1037,9 @@ nonisolated func keywordBranchAheadOfTheRouter(
     if !phaseIsWaitingForAQuizAnswer, let themeStudioRequest = asksToDesignATheme(transcript) {
         return .designATheme(themeStudioRequest)
     }
+    if !phaseIsWaitingForAQuizAnswer, asksToSeeArtInMyRoom(transcript) {
+        return .showArtInMyRoom
+    }
     switch liveSceneKind(for: transcript) {
     case .animatedFramePopout:
         return .animatePicture
@@ -1048,6 +1058,8 @@ nonisolated func keywordBranchAheadOfTheRouter(
 nonisolated enum RouterFailureFallback: Equatable {
     case startExperiment
     case designATheme(ThemeStudioRequest)
+    /// "Show this in my room" skipped its keyword branch to reach the router, and the keyword path would build a 3D scene.
+    case showArtInMyRoom
     case keywordPath(LiveSceneKind?)
     case giveUp
 }
@@ -1063,6 +1075,7 @@ nonisolated func routerFailureFallback(for transcript: String, sceneIsOnScreen: 
     )
     if skippedKeywordBranch == .startExperiment { return .startExperiment }
     if case .designATheme(let themeStudioRequest)? = skippedKeywordBranch { return .designATheme(themeStudioRequest) }
+    if skippedKeywordBranch == .showArtInMyRoom { return .showArtInMyRoom }
     return .keywordPath(keywordPathSceneKind(for: transcript))
 }
 
