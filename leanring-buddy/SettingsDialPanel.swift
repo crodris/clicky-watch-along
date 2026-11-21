@@ -8,6 +8,10 @@
 //  The rules for what the pointer picks live in SettingsDialModel.swift. This file draws the dial and turns the real
 //  mouse into offsets from the dial's center.
 //
+//  The plate is an opaque Tether Card disc with a rim in the theme's accent, strongest at the top. The dial opens with the
+//  Glide, its fan items pop in 14 ms apart, and hover is a Snap. A release over an item flies that item into the center while
+//  the dial shrinks into the cursor at 0.7x (`SettingsDialClosingForm`), and a cancel fades it out in 120 ms.
+//
 
 import AppKit
 import Combine
@@ -36,12 +40,22 @@ final class SettingsDialViewModel: ObservableObject {
     let reduceMotion: Bool
     @Published var isPresented = false
     @Published var selection = SettingsDialSelection(slice: nil, fanItemIndex: nil)
+    /// Nil while the dial is open. Set when the keys are released, so the view plays the way the dial leaves.
+    @Published var closing: SettingsDialClosing?
 
     init(snapshot: SettingsDialSnapshot, showsTheFirstRunHint: Bool, reduceMotion: Bool) {
         self.snapshot = snapshot
         self.showsTheFirstRunHint = showsTheFirstRunHint
         self.reduceMotion = reduceMotion
     }
+}
+
+/// How the dial is leaving: the form of its close, and, for a commit, which item was picked, so the view flies that item
+/// into the center.
+struct SettingsDialClosing: Equatable {
+    let form: SettingsDialClosingForm
+    /// The item the release picked, or nil for a cancel.
+    let committedSelection: SettingsDialSelection?
 }
 
 // MARK: - Controller
@@ -65,16 +79,21 @@ final class SettingsDialController {
     /// The dial's center in AppKit screen coordinates, fixed when it opens.
     private var dialCenter: CGPoint = .zero
     private var pointerReadTimer: Timer?
+    /// Removes the window once the way the dial leaves has played.
+    private var removeThePanelTask: Task<Void, Never>?
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
     }
 
-    var isOpen: Bool { panel != nil }
+    /// A dial that is leaving is no longer open: Escape and every other check treat it as gone.
+    var isOpen: Bool { panel != nil && viewModel?.closing == nil }
 
     /// Opens the dial centered on the mouse, moved inward when a screen edge would cut it off.
     func open(snapshot: SettingsDialSnapshot) {
-        guard panel == nil, let screen = screenUnderTheMouseCursor() else { return }
+        guard let screen = screenUnderTheMouseCursor() else { return }
+        // A dial still leaving from the last release gives way to this one.
+        removeThePanel()
         let mouseLocation = NSEvent.mouseLocation
         dialCenter = SettingsDialPlacement.dialCenter(forMouseLocation: mouseLocation, visibleFrame: screen.visibleFrame)
 
@@ -110,11 +129,7 @@ final class SettingsDialController {
         panel = settingsDialPanel
         // Not makeKeyAndOrderFront, which would take the keyboard from the app under the dial.
         settingsDialPanel.orderFrontRegardless()
-        if reduceMotion {
-            viewModel.isPresented = true
-        } else {
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.78)) { viewModel.isPresented = true }
-        }
+        withAnimation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)) { viewModel.isPresented = true }
         startReadingThePointer()
     }
 
@@ -124,11 +139,39 @@ final class SettingsDialController {
         // Read the pointer once more, since it may have moved since the last timer tick.
         readThePointer()
         let choice = viewModel.flatMap { SettingsDialChoice(committing: $0.selection, fans: $0.snapshot.fans) }
-        close()
+        beginClosing(committedSelection: choice == nil ? nil : viewModel?.selection)
         return choice
     }
 
+    /// Cancels the dial: it fades out in 120 ms.
     func close() {
+        guard isOpen else { return }
+        beginClosing(committedSelection: nil)
+    }
+
+    /// Plays the way the dial leaves, then removes its window. The pointer stops mattering from here.
+    private func beginClosing(committedSelection: SettingsDialSelection?) {
+        guard let viewModel else { return }
+        pointerReadTimer?.invalidate()
+        pointerReadTimer = nil
+        let closingForm = SettingsDialClosingForm.form(committedAChoice: committedSelection != nil, reduceMotionIsOn: viewModel.reduceMotion)
+        let closing = SettingsDialClosing(form: closingForm, committedSelection: committedSelection)
+        switch closingForm {
+        case .flyTheChosenItemIntoTheCursor:
+            withAnimation(DS.Move.glide.curve.timeScaled(by: DS.Move.glideCloseTimeFactor).animation()) { viewModel.closing = closing }
+        case .fadeOut(let seconds):
+            withAnimation(.easeOut(duration: seconds)) { viewModel.closing = closing }
+        }
+        removeThePanelTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(closingForm.seconds + 0.05))
+            guard !Task.isCancelled else { return }
+            self?.removeThePanel()
+        }
+    }
+
+    private func removeThePanel() {
+        removeThePanelTask?.cancel()
+        removeThePanelTask = nil
         pointerReadTimer?.invalidate()
         pointerReadTimer = nil
         panel?.orderOut(nil)
@@ -181,34 +224,63 @@ struct SettingsDialView: View {
         viewModel.selection.openFanLayout(in: fans) == nil ? nil : viewModel.selection.slice
     }
 
+    private var centerAnchor: UnitPoint {
+        UnitPoint(x: centerInView.x / SettingsDialPlacement.panelSize.width, y: centerInView.y / SettingsDialPlacement.panelSize.height)
+    }
+
+    /// Whether the dial is flying into the cursor: it shrinks to the Glide's start scale about its center and fades with it.
+    private var isFlyingIntoTheCursor: Bool {
+        if case .flyTheChosenItemIntoTheCursor? = viewModel.closing?.form { return true }
+        return false
+    }
+
+    private var isFadingOut: Bool {
+        if case .fadeOut? = viewModel.closing?.form { return true }
+        return false
+    }
+
+    /// The dial's scale: the Glide's start scale until it opens, the same again as it flies into the cursor. With Reduce
+    /// Motion on, no scale at all.
+    private var dialScale: CGFloat {
+        guard !viewModel.reduceMotion else { return 1 }
+        if isFlyingIntoTheCursor { return DS.Move.glideStartScale }
+        return viewModel.isPresented ? 1 : 0.9
+    }
+
+    private var dialOpacity: Double {
+        if isFlyingIntoTheCursor || isFadingOut { return 0 }
+        return viewModel.isPresented ? 1 : 0
+    }
+
     var body: some View {
         ZStack {
-            dial
-                .scaleEffect(viewModel.isPresented ? 1 : 0.9, anchor: UnitPoint(
-                    x: centerInView.x / SettingsDialPlacement.panelSize.width,
-                    y: centerInView.y / SettingsDialPlacement.panelSize.height
-                ))
-                .opacity(viewModel.isPresented ? 1 : 0)
-            if let openFanSlice {
-                fan(of: openFanSlice)
+            ZStack {
+                dial
+                if let openFanSlice {
+                    fan(of: openFanSlice)
+                }
             }
+            .scaleEffect(dialScale, anchor: centerAnchor)
+            .opacity(dialOpacity)
             if viewModel.showsTheFirstRunHint {
                 hint
-                    .opacity(viewModel.isPresented ? 1 : 0)
+                    .opacity(viewModel.isPresented && viewModel.closing == nil ? 1 : 0)
             }
         }
         .frame(width: SettingsDialPlacement.panelSize.width, height: SettingsDialPlacement.panelSize.height)
-        .animation(viewModel.reduceMotion ? nil : .easeOut(duration: 0.14), value: openFanSlice)
+        .animation(DS.Move.snap.animation(reduceMotionIsOn: viewModel.reduceMotion), value: openFanSlice)
+    }
+
+    /// Where an item sits: its own place, or the dial's center once the release picked it, so it flies into the cursor.
+    private func placed(_ itemCenter: CGPoint, isTheCommittedItem: Bool) -> CGPoint {
+        isFlyingIntoTheCursor && isTheCommittedItem ? centerInView : itemCenter
     }
 
     // MARK: Plate and tokens
 
     private var dial: some View {
         ZStack {
-            Circle()
-                .fill(DS.Colors.settingsDialPlate.opacity(0.76))
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.1), lineWidth: 1))
+            plate
                 .frame(width: SettingsDialGeometry.plateRadius * 2, height: SettingsDialGeometry.plateRadius * 2)
                 .position(centerInView)
             ForEach(SettingsDialSlice.allCases, id: \.self) { slice in
@@ -217,6 +289,23 @@ struct SettingsDialView: View {
             cursorGlyph
                 .position(centerInView)
         }
+    }
+
+    /// An opaque Card disc: the Card's surface and 1 point edge, with a rim in the theme's accent that is strongest at the top,
+    /// and the Card's two-layer shadow. It is opaque, since a blurred plate read muddy over a busy video.
+    private var plate: some View {
+        Circle()
+            .fill(LinearGradient(colors: [DS.Colors.cardSurfaceTop, DS.Colors.cardSurfaceBottom], startPoint: .top, endPoint: .bottom))
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(
+                Circle().strokeBorder(
+                    LinearGradient(colors: [accentColor.opacity(0.9), accentColor.opacity(0.12)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1.5
+                )
+            )
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.45), radius: 3, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 14)
     }
 
     private func point(atAngleDegrees angleDegrees: Double, radius: CGFloat) -> CGPoint {
@@ -255,12 +344,13 @@ struct SettingsDialView: View {
                     .offset(x: 6, y: -6)
             }
         }
-        .position(tokenCenter)
+        .position(placed(tokenCenter, isTheCommittedItem: viewModel.closing?.committedSelection?.slice == slice && viewModel.closing?.committedSelection?.fanItemIndex == nil))
         .overlay {
             labelPill(labelText)
                 .position(x: tokenCenter.x, y: tokenCenter.y + labelOffsetY)
+                .opacity(isFlyingIntoTheCursor ? 0 : 1)
         }
-        .animation(viewModel.reduceMotion ? nil : .easeOut(duration: 0.1), value: isSelected)
+        .animation(DS.Move.snap.animation(reduceMotionIsOn: viewModel.reduceMotion), value: isSelected)
     }
 
     private func tokenTitle(for slice: SettingsDialSlice) -> String {
@@ -345,8 +435,8 @@ struct SettingsDialView: View {
 
     private func fanItemTransition(forItemAt itemIndex: Int) -> AnyTransition {
         guard !viewModel.reduceMotion else { return .identity }
-        return AnyTransition.scale(scale: 0.3).combined(with: .opacity)
-            .animation(.spring(response: 0.26, dampingFraction: 0.72).delay(Double(itemIndex) * 0.014))
+        return AnyTransition.scale(scale: DS.Move.popStartScale).combined(with: .opacity)
+            .animation(DS.Move.pop.animation(reduceMotionIsOn: false)?.delay(Double(itemIndex) * 0.014))
     }
 
     private var teamFan: some View {
@@ -361,10 +451,13 @@ struct SettingsDialView: View {
                     size: isEmphasized ? SettingsDialGeometry.emphasizedFanBallDiameter : SettingsDialGeometry.fanBallDiameter
                 )
                     .shadow(color: isEmphasized ? accentColor.opacity(0.7) : .clear, radius: 8)
-                    .position(fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0))
+                    .position(placed(
+                        fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0),
+                        isTheCommittedItem: viewModel.closing?.committedSelection?.fanItemIndex == itemIndex
+                    ))
                     // The enlarged ball draws over the smaller balls next to it.
                     .zIndex(isEmphasized ? 1 : 0)
-                    .animation(viewModel.reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.8), value: isEmphasized)
+                    .animation(DS.Move.snap.animation(reduceMotionIsOn: viewModel.reduceMotion), value: isEmphasized)
                     .transition(fanItemTransition(forItemAt: itemIndex))
             }
             if let emphasizedIndex, themes.indices.contains(emphasizedIndex) {
@@ -382,8 +475,10 @@ struct SettingsDialView: View {
                     ballRadius: ballRadius,
                     labelPillSize: SettingsDialLabel.pillSize(forText: labelText)
                 )
-                labelPill(labelText)
+                // The highlighted theme's name is a pill in its own accent.
+                labelPill(labelText, accentTheme: themes[emphasizedIndex])
                     .position(x: centerInView.x + labelCenterOffset.x, y: centerInView.y + labelCenterOffset.y)
+                    .opacity(isFlyingIntoTheCursor ? 0 : 1)
                     .zIndex(2)
                     .transition(.opacity)
             }
@@ -414,8 +509,11 @@ struct SettingsDialView: View {
                     .overlay(Capsule().stroke(isEmphasized ? Color.clear : Color.white.opacity(0.14), lineWidth: 1))
                     .shadow(color: isEmphasized ? accentColor.opacity(0.55) : .clear, radius: 7)
                     .scaleEffect(isEmphasized ? 1.08 : 1)
-                    .position(point(atAngleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0, radius: SettingsDialGeometry.fanRadius))
-                    .animation(viewModel.reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.8), value: isEmphasized)
+                    .position(placed(
+                        point(atAngleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0, radius: SettingsDialGeometry.fanRadius),
+                        isTheCommittedItem: viewModel.closing?.committedSelection?.fanItemIndex == itemIndex
+                    ))
+                    .animation(DS.Move.snap.animation(reduceMotionIsOn: viewModel.reduceMotion), value: isEmphasized)
                     .transition(fanItemTransition(forItemAt: itemIndex))
             }
         }
@@ -424,16 +522,17 @@ struct SettingsDialView: View {
     // MARK: Labels
 
     /// Text on its own dark pill, sized to the text, so a label never shows outside its background.
-    private func labelPill(_ text: String) -> some View {
+    /// `accentTheme` makes the pill that theme's own accent, with its contrast color for the letters.
+    private func labelPill(_ text: String, accentTheme: ClickyTheme? = nil) -> some View {
         Text(text)
             .font(.system(size: SettingsDialLabel.fontSize, weight: .semibold))
-            .foregroundColor(Color.white.opacity(0.92))
+            .foregroundColor(accentTheme?.cursorContrastColor ?? Color.white.opacity(0.92))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, SettingsDialLabel.horizontalPadding)
             .padding(.vertical, SettingsDialLabel.verticalPadding)
-            .background(Capsule().fill(DS.Colors.settingsDialPlate.opacity(0.92)))
-            .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
+            .background(Capsule().fill(accentTheme?.cursorColor ?? DS.Colors.settingsDialPlate.opacity(0.92)))
+            .overlay(Capsule().stroke(accentTheme == nil ? Color.white.opacity(0.1) : Color.clear, lineWidth: 1))
     }
 
     // MARK: Hint
