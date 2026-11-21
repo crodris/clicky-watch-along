@@ -42,6 +42,9 @@ nonisolated enum HarnessTaskEvent: Equatable, Sendable {
     case failed(reason: String)
     /// A voice command ended. spokenLine may be empty, and gaveUp says its last turn still needed the model.
     case voiceCommandFinished(spokenLine: String, gaveUp: Bool)
+    /// The brain's last turn runs on the larger model, which takes longer, so the command's wait for its next event is
+    /// longer too (`secondsToWaitForAPlanningTurn`). Only a voice command gets it.
+    case planningTurnStarted
 }
 
 /// What a tool may do, which decides whether the harness asks before running it. harness/approval.go is the other half.
@@ -89,7 +92,8 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
     case taskFinished(taskID: UUID, spokenSummary: String)
     case taskFailed(taskID: UUID, reason: String)
     case voiceCommandFinished(taskID: UUID, spokenLine: String, gaveUp: Bool)
-    case log(message: String)
+    /// `taskID` is set only on the few lines about one voice command that the app acts on, such as the planning line.
+    case log(taskID: UUID? = nil, message: String)
 
     enum ParseError: Error, Equatable {
         case notAJSONObject
@@ -150,7 +154,7 @@ nonisolated enum HarnessMessage: Equatable, Sendable {
             }
             self = .voiceCommandFinished(taskID: try requiredTaskID(), spokenLine: try requiredText("spokenLine"), gaveUp: gaveUp)
         case "log":
-            self = .log(message: try requiredText("message"))
+            self = .log(taskID: messageJSON["taskID"]?.stringValue.flatMap { taskIDText in UUID(uuidString: taskIDText) }, message: try requiredText("message"))
         default:
             throw ParseError.unknownType(messageType)
         }
@@ -276,8 +280,11 @@ final class HarnessTaskRouter {
         case .approvalRequest:
             // AgentHarness hands these to its approval desk before they reach the router.
             break
-        case .log(let logText):
+        case .log(let taskID, let logText):
             print(logText)
+            if let taskID, logText.hasPrefix(harnessPlanningLogLinePrefix) {
+                eventContinuationsByTaskID[taskID]?.yield(.planningTurnStarted)
+            }
         case .toolCall(let taskID, let toolCall):
             eventContinuationsByTaskID[taskID]?.yield(.toolCall(toolCall))
         case .taskFinished(let taskID, let spokenSummary):

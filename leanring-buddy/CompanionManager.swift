@@ -2725,7 +2725,7 @@ final class CompanionManager: ObservableObject {
                 commandLines.commandWasCancelled()
                 self?.agentHarness.endVoiceCommand(
                     taskID: commandID,
-                    lastEvent: .failed(reason: "the agent harness sent nothing for \(Int(secondsToWaitForTheNextHarnessVoiceCommandEvent)) seconds")
+                    lastEvent: .failed(reason: "the agent harness sent nothing in time")
                 )
             },
             runTool: { toolCall, approvalIDTheLearnerIsAnswering in
@@ -3182,6 +3182,9 @@ final class CompanionManager: ObservableObject {
                 case .voiceCommandFinished:
                     // Only a voice command ends this way, so a task never hears it.
                     throw TaskAgentError.harnessEndedWithNoResult
+                case .planningTurnStarted:
+                    // Only a voice command's turn plans, so a task has nothing to wait longer for.
+                    break
                 }
             }
             // The stream also ends when this task is cancelled, which is not a failure.

@@ -88,7 +88,7 @@ nonisolated final class HarnessVoiceCommandLines: Sendable {
         }
     }
 
-    /// The command's task was cancelled: by a push-to-talk press, by a new command, by the app's 10 second wait, or by
+    /// The command's task was cancelled: by a push-to-talk press, by a new command, by the app's wait for the harness, or by
     /// a hand-off starting its own reply. A hand-off's cancel answers the call as handed off, so the harness ends the
     /// command as complete. Any other cancel tells the harness to cancel it.
     func commandWasCancelled() {
@@ -152,10 +152,18 @@ nonisolated enum HarnessVoiceCommandEnding: Equatable, Sendable {
 /// falls back too. It is above the harness's own 8 second turn timeout, which ends a hung turn with task_failed first.
 nonisolated let secondsToWaitForTheNextHarnessVoiceCommandEvent: Double = 10
 
+/// The start of the log line the harness writes, with the command's ID, when the brain's last turn runs on the larger
+/// model (`brainPlanningLogLine` in harness/brain.go, "Brain: planning on <model>").
+nonisolated let harnessPlanningLogLinePrefix = "Brain: planning on "
+
+/// How long the app waits for the next event after that line. It is above the harness's own 30 second limit for the
+/// larger model's turn, which ends a hung turn with a gave-up line first.
+nonisolated let secondsToWaitForAPlanningTurn: Double = 35
+
 /// Runs one voice command's events: each tool call through `runTool`, with the approval ID the learner had seen at the
 /// press only for a call from the model's first turn, and its outcome back to the harness. It returns how the command
 /// ended. The wait for each event has a deadline, which stops while a tool runs, since a tool such as play_video's check
-/// takes its own time. When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still
+/// takes its own time, and which is 35 seconds instead of 10 after the harness says the larger model's turn started. When it passes, `whenNoEventArrivesInTime` must end the stream with a failure, and no call still
 /// queued behind the deadline runs, since the router failure fallback runs instead.
 ///
 /// A hand-off ends the command at once as finished with no spoken line, since the harness's next step after a
@@ -167,14 +175,15 @@ func runTheVoiceCommandEvents(
     lines: HarnessVoiceCommandLines,
     approvalIDWaitingWhenTheCommandStarted: String?,
     secondsToWaitForAnEvent: Double = secondsToWaitForTheNextHarnessVoiceCommandEvent,
+    secondsToWaitAfterAPlanningLine: Double = secondsToWaitForAPlanningTurn,
     whenNoEventArrivesInTime: @escaping @MainActor () -> Void,
     runTool: (_ toolCall: VoiceToolCall, _ approvalIDTheLearnerIsAnswering: String?) async -> VoiceToolOutcome
 ) async -> HarnessVoiceCommandEnding {
     let eventDeadlineRecord = HarnessVoiceCommandDeadlineRecord()
     var eventDeadline: Task<Void, Never>?
-    func startTheEventDeadline() {
+    func startTheEventDeadline(secondsToWait: Double) {
         eventDeadline = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(secondsToWaitForAnEvent))
+            try? await Task.sleep(for: .seconds(secondsToWait))
             guard !Task.isCancelled else { return }
             // An event can already sit in the stream when this runs, since the loop resumes only after it.
             eventDeadlineRecord.deadlineHasPassed = true
@@ -184,7 +193,7 @@ func runTheVoiceCommandEvents(
     defer { eventDeadline?.cancel() }
 
     return await withTaskCancellationHandler {
-        startTheEventDeadline()
+        startTheEventDeadline(secondsToWait: secondsToWaitForAnEvent)
         for await commandEvent in commandEvents {
             eventDeadline?.cancel()
             switch commandEvent {
@@ -202,7 +211,10 @@ func runTheVoiceCommandEvents(
                 if outcome == .handedOff {
                     return .finished(spokenLine: "", gaveUp: false)
                 }
-                startTheEventDeadline()
+                startTheEventDeadline(secondsToWait: secondsToWaitForAnEvent)
+            case .planningTurnStarted:
+                // The larger model's turn is under way, and the harness ends it itself within 30 seconds.
+                startTheEventDeadline(secondsToWait: secondsToWaitAfterAPlanningLine)
             case .voiceCommandFinished(let spokenLine, let gaveUp):
                 return .finished(spokenLine: spokenLine, gaveUp: gaveUp)
             case .failed(let reason):

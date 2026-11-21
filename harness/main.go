@@ -40,6 +40,9 @@ type configuration struct {
 	// benchMode is true when CLICKY_BENCH is 1. Only then does the harness take reset_session and seed_session, which
 	// let the brain evals start each case from a known session. The app's environment never carries it.
 	benchMode bool
+	// planningTurnTimeout is the time limit of the brain's Sonnet turn. Zero means brainPlanningTurnTimeout, and a test
+	// sets a short one, since waiting 30 seconds proves nothing more.
+	planningTurnTimeout time.Duration
 	// lookupEnvironment reads this process's variables, which a stdio MCP server's baseline environment copies a few of.
 	// A nil one reads the real environment.
 	lookupEnvironment func(string) string
@@ -122,7 +125,7 @@ func run(rootContext context.Context, input io.Reader, output io.Writer, harness
 	serving := &harness{
 		rootContext: rootContext,
 		runner:      &taskRunner{client: client, writer: writer, skillsDirectories: harnessConfiguration.skillsDirectories, mcp: servers, approvals: newApprovalGate()},
-		brain:       &brainRunner{client: client, writer: writer, session: newBrainSession(time.Now)},
+		brain:       &brainRunner{client: client, writer: writer, session: newBrainSession(time.Now), planningTurnTimeout: harnessConfiguration.planningTurnTimeout},
 		tasks:       map[string]*runningTask{},
 		benchMode:   harnessConfiguration.benchMode,
 	}

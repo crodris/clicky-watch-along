@@ -23,13 +23,25 @@ const (
 	brainModel     = "claude-haiku-5-5"
 	brainMaxTokens = 1024
 
-	// A lookup or a failure needs the model again, and three turns cover a lookup followed by its action.
-	mostBrainTurns = 3
+	// A lookup or a failure needs the model again, and three Haiku turns cover a lookup followed by its action.
+	mostBrainHaikuTurns = 3
 
-	// A turn with no reply by then fails the command, so the app's router failure fallback starts within this long of
-	// the turn's request, as the old path's per-request timeout gave. Haiku answers in about a second.
+	// The turn budget rule: when the last Haiku turn still needs the model, the command gets one more turn on Sonnet
+	// before the gave-up line. It has the same prompt, tools, history, settings, and sampling as a Haiku turn, and only
+	// the model and the time limit differ. It is the only turn that runs on Sonnet.
+	brainPlanningModel = "claude-sonnet-5-5"
+
+	// A Haiku turn with no reply by then fails the command, so the app's router failure fallback starts within this long
+	// of the turn's request, as the old path's per-request timeout gave. Haiku answers in about a second.
 	brainTurnTimeout = 8 * time.Second
+
+	// A Sonnet turn can take longer. The app waits 35 seconds from the planning log line, which stays above this.
+	brainPlanningTurnTimeout = 30 * time.Second
 )
+
+// brainPlanningLogLine is written when the Sonnet turn starts. The app reads it to wait 35 seconds for the turn's
+// events instead of 10 (secondsToWaitForAPlanningTurn in HarnessVoiceCommand.swift), so the two stay in step.
+const brainPlanningLogLine = "Brain: planning on " + brainPlanningModel
 
 // brainSystemPrompt is the old path's voiceCommandSystemPrompt in worker/src/voiceCommand.ts, with the three lines that
 // named recent_actions rewritten, since the brain reads earlier commands from its own conversation. The Worker's prompt
@@ -171,12 +183,13 @@ func propertiesWithConfirmationFirst(appProperties []objectMember) json.RawMessa
 	return encoded.Bytes()
 }
 
-// brainRequest is one turn's request. Thinking is off and effort is low, since a tool call needs no reasoning and the
-// learner is waiting for the screen to change. The system prompt carries its own cache breakpoint, which the old path
-// got from the Worker's withCachedSystemPrompt and the /v1/messages passthrough does not add.
-func brainRequest(messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) anthropic.MessageNewParams {
+// brainRequest is one turn's request, on Haiku or, for the extra turn, on Sonnet. Thinking is off and effort is low,
+// since a tool call needs no reasoning and the learner is waiting for the screen to change. The system prompt carries
+// its own cache breakpoint, which the old path got from the Worker's withCachedSystemPrompt and the /v1/messages
+// passthrough does not add.
+func brainRequest(model anthropic.Model, messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) anthropic.MessageNewParams {
 	return anthropic.MessageNewParams{
-		Model:        brainModel,
+		Model:        model,
 		MaxTokens:    brainMaxTokens,
 		Thinking:     anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}},
 		OutputConfig: anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow},
@@ -325,10 +338,10 @@ func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText stri
 // The model is the one that answered, which a benchmark override can change. It ends with the names of every tool the
 // turn called, in order, because the app never sees a call that is refused or comes after a hand-off, and a benchmark must
 // score what the model chose. Names only: a call's input can hold the learner's words.
-func brainUsageLine(turnNumber int, reply turn, elapsed time.Duration) string {
+func brainUsageLine(turnNumber int, requestedModel string, reply turn, elapsed time.Duration) string {
 	answeringModel := string(reply.message.Model)
 	if answeringModel == "" {
-		answeringModel = brainModel
+		answeringModel = requestedModel
 	}
 	usage := reply.message.Usage
 	return fmt.Sprintf(
