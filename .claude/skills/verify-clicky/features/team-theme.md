@@ -19,7 +19,7 @@ A school's file draws the cursor as a volleyball in the team's colors, and turns
 - `theme-icon` keeps the Clicky cursor menu bar icon under every theme.
 - `theme-tokens` shows each agent's player as a 22 point disc right of the notch, in a ring that fills clockwise in the school's color, with a green check on a finished one, a red cross on a grayscale face in a red ring on a failed one, and a "!" with a notch at 12 o'clock on one waiting for the learner's OK. No words float beside it. Inarizaki's ring is the light `#F4F4F5`.
 - `theme-player-pick` gives each new agent the team's best-known player that the agent list does not already show, so one list never shows a player twice while the roster has others.
-- `theme-chip` shows an ending agent's portrait as the chip's icon, in the plain spot under the cursor.
+- `theme-chip` shows an ending agent's portrait as the chip's icon, in the Callout's icon disc.
 - `theme-agent-list` titles each row "<name> #<jersey> · <kind>", heads the list with a square in the theme's accent, the theme's name, and "N running", borders it in the school's color, and marks a failed row's portrait with a red border.
 - `theme-off` keeps the plain look under Clicky blue: tokens ringed in each agent's own color around a triangle in that color, the "Clicky blue" header, and "N running".
 - `theme-agent-colors` gives each agent its own color under Clicky blue when it starts, so three task agents are teal, amber, and violet, not three teal tokens. The color shows on its ring, its triangle, its ending chip, and its list row, and the agent keeps it for its whole life.
@@ -45,7 +45,7 @@ Preconditions:
 - **Seeded agents.** Run `defaults write com.crodris.clicky-watch-along companionTheme bundled:school-karasuno`, then `$V app-launch "+600 thanks"`, which keeps the app idle for 10 minutes.
   Post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{"runningAgentCount":1}}}` to `http://127.0.0.1:8790/mcp`.
   It puts 1 running agent, 1 finished with its ending chip, and 1 failed straight in the agent store, with no Worker call. `runningAgentCount` is 3 by default.
-  Run `$V shot themed-ended` within 4 seconds: Hinata's running token, a finished portrait with a green check, and a grayscale failed portrait in a red ring, all right of the notch, and the "Task done · say what did you find" chip with that portrait under the cursor.
+  Run `$V shot themed-ended` within 4 seconds: Hinata's running token, a finished portrait with a green check, and a grayscale failed portrait in a red ring, all right of the notch, and the "Task done · say what did you find" chip with that portrait above the cursor.
   Run `$V shot themed-running` 5 seconds later: the failed token is gone, the other two keep their positions, and the running one's ring has filled a little.
   Post the call again with `runningAgentCount` 3 for three tokens and a "+N" disc.
 - **Agent list.** Click a token with `swift demo/scripts/mouse/mouse.swift click <x> <y>` to open the list under it with that row expanded, and click "+N" to open it with none. Or run `$V key agents-list`, then `$V shot themed-list`.

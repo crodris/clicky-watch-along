@@ -90,14 +90,8 @@ struct CustomThemeAgentTests {
         #expect(agentTokenRingColorChoice(for: failedAgent) == .failed)
     }
 
-    @Test func theChipsIconIsRoundForAThemePictureAndATileForATriangle() {
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .themePicture(themeID: "moonlit-3f9a")).iconShape == .circularPortrait)
-        #expect(VoiceToolCallChipSender.backgroundAgent(color: themeColor("#7DD3FC"), face: .triangle).iconShape == .roundedSquareTile)
-    }
-
-
-    @Test func aThemeColorsChipLettersAreHalfAsBrightAsTheColor() {
-        let chipColor = themeColor("#7DD3FC").chipTextColor
-        #expect(chipColor == Color(red: 0x7D / 255.0 * 0.5, green: 0xD3 / 255.0 * 0.5, blue: 0xFC / 255.0 * 0.5))
+    @Test func theChipsIconFillsTheDiscForAThemePictureAndIsASymbolForATriangle() {
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: .teal, face: .themePicture(themeID: "moonlit-3f9a")).iconContent == .circularPortrait)
+        #expect(VoiceToolCallChipSender.backgroundAgent(color: themeColor("#7DD3FC"), face: .triangle).iconContent == .symbolOnDisc)
     }
 }

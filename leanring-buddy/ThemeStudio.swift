@@ -295,7 +295,7 @@ nonisolated func themeStudioLineMayStart(
 
 // MARK: - What a save says
 
-/// What the chip under the cursor says when a theme is saved, by the voice tool (`save_theme`) or by a click on Save.
+/// What the chip above the cursor says when a theme is saved, by the voice tool (`save_theme`) or by a click on Save.
 nonisolated let themeSavedChipPhrase = "Theme saved"
 
 /// What the chip says when a click on Save could not write the theme. The voice tool reports the same failure to the router.

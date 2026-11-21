@@ -56,7 +56,7 @@ enum BackgroundAgentKind {
         }
     }
 
-    /// What the chip under the cursor says when the agent finishes.
+    /// What the chip above the cursor says when the agent finishes.
     var finishedChipText: String {
         switch self {
         case .studyGuide: return "Study guide ready"

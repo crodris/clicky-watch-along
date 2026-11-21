@@ -484,7 +484,7 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
         input.filter { inputKey, _ in inputKey != "confirmation" }
     }
 
-    /// What the chip next to the cursor says, in words a learner reads at a glance, such as "Turning it left".
+    /// What the chip above the cursor says, in words a learner reads at a glance, such as "Turning it left".
     /// Nil for a call whose own status line or answer follows at once, like pop_out's "Popping it out",
     /// for a call that changes nothing (a zoom factor of 1, a seek that rounds to 0 seconds), for a missing
     /// or out-of-range argument (a negative or non-finite seek time), and for a name this app does not know.
@@ -520,7 +520,8 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             // The page refuses a missing name or value, so the chip says nothing for them either.
             guard let controlName = textInput("name"), let controlValue = numberInput("value") else { return nil }
             let valueText = Int(exactly: controlValue).map(String.init) ?? String(format: "%.1f", controlValue)
-            return "Setting \(controlName) to \(valueText)"
+            // With run true the page plays the simulation right after setting, so the chip says both. A refused run fails the call, which shows no chip.
+            return input["run"]?.boolValue == true ? "Setting \(controlName) to \(valueText) and running it" : "Setting \(controlName) to \(valueText)"
         case "run_simulation":
             return "Running it"
         case "record_guess":

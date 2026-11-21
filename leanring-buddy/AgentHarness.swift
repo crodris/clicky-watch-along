@@ -397,7 +397,7 @@ final class HarnessApprovalDesk: ObservableObject {
     /// answering, since the gate takes the first answer, and a voice answer may have won over this click.
     @Published private(set) var answeringApprovalIDs: Set<String> = []
     /// A request was settled, with the answer the harness's gate took, so the owner shows the outcome. It is not called
-    /// for a request the desk's own timeout declined, since "Declined it" under the cursor would come with no context.
+    /// for a request the desk's own timeout declined, since "Declined it" above the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     /// When the approval card at the top of the open agent list first had shown the oldest request's whole summary, from
     /// top to bottom, or nil until it has: the list is closed, or a new request just became the oldest. Published so the
