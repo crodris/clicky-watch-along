@@ -50,7 +50,7 @@ nonisolated enum HarnessCapability: Equatable, Sendable {
     }
 }
 
-/// "once" covers one call. "always" covers that tool at that capability for the rest of the harness process.
+/// "once" covers one call. "always" covers that tool at that capability for the rest of the task that asked.
 nonisolated enum HarnessApprovalScope: String, Equatable, Sendable {
     case once
     case always

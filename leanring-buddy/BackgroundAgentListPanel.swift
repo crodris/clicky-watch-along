@@ -814,7 +814,8 @@ private struct ApprovalCardView: View {
                     answerApproval(approvalRequest.approvalID, false, .once)
                 }
             }
-            Text(verbatim: "Or say yes or no.")
+            // The panel is never key, so a tooltip would not show, and the card says how long Always lasts.
+            Text(verbatim: "Always lasts until this task ends. Or say yes or no.")
                 .font(.system(size: 10))
                 .foregroundColor(DS.Colors.textSecondary)
         }
