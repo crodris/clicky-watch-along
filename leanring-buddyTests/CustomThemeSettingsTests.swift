@@ -51,7 +51,7 @@ struct CustomThemeSettingsTests {
         #expect(CompanionTheme.custom(try customTheme(sounds: customSounds)).sounds == customSounds)
     }
 
-    @Test func theSettingsDialsThemeChoicesStayTheBuiltInOnes() {
+    @Test func theBuiltInChoicesHoldNoCustomTheme() {
         #expect(!CompanionTheme.allChoices.contains { choice in
             if case .custom = choice { return true }
             return false
@@ -65,6 +65,28 @@ struct CustomThemeSettingsTests {
             #expect(themeSettings.menuBarThemeChoices == CompanionTheme.allChoices)
             let savedTheme = try themeSettings.saveAndApply(try customTheme(id: "idea-1"), pictureJPEG: nil)
             #expect(themeSettings.menuBarThemeChoices == CompanionTheme.allChoices + [.custom(savedTheme)])
+        }
+    }
+
+    @Test func theDialsTeamFanListsTheNewestSavedThemesFirstWhileTheMenuBarPanelKeepsNameOrder() throws {
+        try withATemporaryThemeStore { store in
+            // A day ahead of the clock, in whole seconds, so the dates are exact and APFS leaves the creation dates alone.
+            let dayFromNow = Date().timeIntervalSinceReferenceDate.rounded() + 86_400
+            for (themeIndex, themeName) in ["Beta", "Alpha", "Gamma"].enumerated() {
+                let savedTheme = try store.save(try parsedThemeIdea(replacingField(in: goodThemeIdea, at: ["name"], with: .string(themeName))), pictureJPEG: nil)
+                // Beta is the oldest and Gamma the newest, whatever the clock said while the test saved them.
+                let themeFilePath = store.themesDirectoryURL
+                    .appendingPathComponent(savedTheme.id, isDirectory: true)
+                    .appendingPathComponent(CustomThemeStore.themeFileName).path
+                try FileManager.default.setAttributes(
+                    [.modificationDate: Date(timeIntervalSinceReferenceDate: dayFromNow + Double(themeIndex) * 3600)],
+                    ofItemAtPath: themeFilePath
+                )
+            }
+            let themeSettings = makeThemeSettings(customThemeStore: store)
+            #expect(themeSettings.menuBarThemeChoices.suffix(3).map(\.displayName) == ["Alpha", "Beta", "Gamma"])
+            let fans = SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
+            #expect(fans.teamThemes.suffix(3).map(\.displayName) == ["Gamma", "Alpha", "Beta"])
         }
     }
 

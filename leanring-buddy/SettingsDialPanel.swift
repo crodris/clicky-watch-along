@@ -22,6 +22,8 @@ struct SettingsDialSnapshot {
     let modelID: String
     let isClickyCursorEnabled: Bool
     let runningAgentCount: Int
+    /// What the Team and Model fans offer, including the saved themes the learner designed.
+    let fans: SettingsDialFans
 }
 
 @MainActor
@@ -79,7 +81,7 @@ final class SettingsDialController {
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let viewModel = SettingsDialViewModel(snapshot: snapshot, showsTheFirstRunHint: showsTheFirstRunHint, reduceMotion: reduceMotion)
         self.viewModel = viewModel
-        picker = SettingsDialPicker(pointerOffsetWhenOpened: pointerOffsetFromTheDialCenter(for: mouseLocation))
+        picker = SettingsDialPicker(pointerOffsetWhenOpened: pointerOffsetFromTheDialCenter(for: mouseLocation), fans: snapshot.fans)
 
         let panelSize = SettingsDialPlacement.panelSize
         let hostingView = NSHostingView(rootView: SettingsDialView(viewModel: viewModel))
@@ -119,7 +121,7 @@ final class SettingsDialController {
         guard isOpen else { return nil }
         // Read the pointer once more, since it may have moved since the last timer tick.
         readThePointer()
-        let choice = viewModel.flatMap { SettingsDialChoice(committing: $0.selection) }
+        let choice = viewModel.flatMap { SettingsDialChoice(committing: $0.selection, fans: $0.snapshot.fans) }
         close()
         return choice
     }
@@ -172,8 +174,9 @@ struct SettingsDialView: View {
     private var centerInView: CGPoint {
         CGPoint(x: SettingsDialPlacement.reachLeft, y: SettingsDialPlacement.reachAbove)
     }
+    private var fans: SettingsDialFans { viewModel.snapshot.fans }
     private var openFanSlice: SettingsDialSlice? {
-        viewModel.selection.openFanLayout == nil ? nil : viewModel.selection.slice
+        viewModel.selection.openFanLayout(in: fans) == nil ? nil : viewModel.selection.slice
     }
 
     var body: some View {
@@ -344,13 +347,16 @@ struct SettingsDialView: View {
     }
 
     private var teamFan: some View {
-        let themes = CompanionTheme.allChoices
-        let fanLayout = SettingsDialSlice.team.fanLayout
+        let themes = fans.teamThemes
+        let fanLayout = fans.layout(of: .team)
         let emphasizedIndex = emphasizedItemIndex(currentItemIndex: themes.firstIndex(of: theme))
         return ZStack {
             ForEach(Array(themes.enumerated()), id: \.offset) { itemIndex, itemTheme in
                 let isEmphasized = emphasizedIndex == itemIndex
-                SettingsDialThemeBall(theme: itemTheme, size: isEmphasized ? Self.emphasizedFanBallSize : Self.fanBallSize)
+                SettingsDialThemeBall(
+                    theme: itemTheme,
+                    size: isEmphasized ? SettingsDialGeometry.emphasizedFanBallDiameter : SettingsDialGeometry.fanBallDiameter
+                )
                     .shadow(color: isEmphasized ? accentColor.opacity(0.7) : .clear, radius: 8)
                     .position(fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: itemIndex) ?? 0))
                     // The enlarged ball draws over the smaller balls next to it.
@@ -359,11 +365,18 @@ struct SettingsDialView: View {
                     .transition(fanItemTransition(forItemAt: itemIndex))
             }
             if let emphasizedIndex, themes.indices.contains(emphasizedIndex) {
-                let labelText = themes[emphasizedIndex].displayName
                 let ballCenter = fanBallCenter(angleDegrees: fanLayout?.angleDegrees(ofItemAt: emphasizedIndex) ?? 0)
+                let ballCenterOffset = CGPoint(x: ballCenter.x - centerInView.x, y: ballCenter.y - centerInView.y)
+                let ballRadius = SettingsDialGeometry.emphasizedFanBallDiameter / 2
+                // A saved theme's long name is cut to fit inside the window, so the pill is never clipped at the edge.
+                let labelText = SettingsDialLabel.fanLabelText(
+                    themes[emphasizedIndex].displayName,
+                    ballCenterOffset: ballCenterOffset,
+                    ballRadius: ballRadius
+                )
                 let labelCenterOffset = SettingsDialLabel.fanLabelCenterOffset(
-                    ballCenterOffset: CGPoint(x: ballCenter.x - centerInView.x, y: ballCenter.y - centerInView.y),
-                    ballRadius: Self.emphasizedFanBallSize / 2,
+                    ballCenterOffset: ballCenterOffset,
+                    ballRadius: ballRadius,
                     labelPillSize: SettingsDialLabel.pillSize(forText: labelText)
                 )
                 labelPill(labelText)
@@ -374,16 +387,13 @@ struct SettingsDialView: View {
         }
     }
 
-    private static let fanBallSize: CGFloat = 21
-    private static let emphasizedFanBallSize: CGFloat = 30
-
     private func fanBallCenter(angleDegrees: Double) -> CGPoint {
         point(atAngleDegrees: angleDegrees, radius: SettingsDialGeometry.fanRadius)
     }
 
     private var modelFan: some View {
         let modelChoices = SettingsDialModelChoice.allCases
-        let fanLayout = SettingsDialSlice.model.fanLayout
+        let fanLayout = fans.layout(of: .model)
         let currentIndex = modelChoices.firstIndex { $0.modelID == viewModel.snapshot.modelID }
         let emphasizedIndex = emphasizedItemIndex(currentItemIndex: currentIndex)
         return ZStack {
@@ -464,7 +474,7 @@ private struct SettingsDialThemeBall: View {
                 size: size
             )
         case .custom(let customTheme):
-            // The fan lists only the built-in themes, so this is never on screen. A ball in the theme's two colors keeps the switch whole.
+            // A ball in the theme's two colors, until the fan draws the theme's own cursor.
             SettingsDialBall(
                 volleyballColors: VolleyballCursorColors(fillHex: customTheme.accentHex, outlineHex: "#1A1A1A", seamHex: customTheme.contrastHex),
                 size: size

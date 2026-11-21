@@ -814,7 +814,8 @@ final class CompanionManager: ObservableObject {
                 theme: themeSettings.shownTheme,
                 modelID: selectedModel,
                 isClickyCursorEnabled: isClickyCursorEnabled,
-                runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count
+                runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
+                fans: SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
             ))
         case .released:
             if let settingsDialChoice = settingsDialController.releaseAndReturnTheChoice() {
