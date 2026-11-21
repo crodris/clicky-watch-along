@@ -16,8 +16,8 @@ import SwiftUI
 /// Who the chip speaks for, which sets its icon and letter color.
 enum VoiceToolCallChipSender: Equatable {
     case voiceToolCall
-    /// `color` is the agent's own color, which tints the triangle and the letters. `face` is the Haikyu!! player the agent
-    /// was, or the picture of its custom theme, so the chip shows that round face instead of the triangle.
+    /// `color` is the agent's own color, which tints the triangle and the letters. `face` is the roster player the agent
+    /// was, or the picture of its theme, so the chip shows that round face instead of the triangle.
     case backgroundAgent(color: AgentPaletteColor, face: AgentFace)
 }
 
@@ -31,7 +31,7 @@ enum VoiceToolCallChipIconShape: Equatable {
 extension VoiceToolCallChipSender {
     var iconShape: VoiceToolCallChipIconShape {
         switch self {
-        case .backgroundAgent(_, face: .player), .backgroundAgent(_, face: .themePicture): return .circularPortrait
+        case .backgroundAgent(_, face: .rosterFace), .backgroundAgent(_, face: .themePicture): return .circularPortrait
         case .voiceToolCall, .backgroundAgent(_, face: .triangle): return .roundedSquareTile
         }
     }
@@ -73,8 +73,8 @@ private struct VoiceToolCallChipView: View {
     private var chipTextColor: Color {
         switch chipModel.sender {
         case .voiceToolCall: return DS.Colors.blue700
-        // Dark gray, readable inside the white outline whatever the team's color is.
-        case .backgroundAgent(_, face: .player): return DS.Colors.backgroundAgentPlayerNameText
+        // Dark gray, readable inside the white outline whatever the agent's color is.
+        case .backgroundAgent(_, face: .rosterFace): return DS.Colors.backgroundAgentPlayerNameText
         case .backgroundAgent(let agentColor, face: .themePicture), .backgroundAgent(let agentColor, face: .triangle): return agentColor.chipTextColor
         }
     }
@@ -119,10 +119,10 @@ struct VoiceToolCallChipIcon: View {
 
     @ViewBuilder private var portrait: some View {
         switch sender {
-        case .backgroundAgent(_, face: .player(let player)):
+        case .backgroundAgent(let agentColor, face: .rosterFace(let rosterFace)):
             // The ring is drawn inside the portrait's circle, and the shadow follows that circle, so nothing else shows.
-            HaikyuPortraitView(player: player, size: Self.iconSize)
-                .overlay(Circle().strokeBorder(player.school.accentColor, lineWidth: 2))
+            RosterFaceView(rosterFace: rosterFace, size: Self.iconSize)
+                .overlay(Circle().strokeBorder(agentColor.color, lineWidth: 2))
                 .shadow(color: Self.shadowColor, radius: 3, x: 0, y: 2)
         case .backgroundAgent(let agentColor, face: .themePicture(let themeID)):
             if let themePicture = CustomThemePictureCache.image(forThemeID: themeID) {

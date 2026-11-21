@@ -103,6 +103,7 @@
 				28F22CBC2F56440300A0FC59 /* Frameworks */,
 				28F22CBD2F56440300A0FC59 /* Resources */,
 				AA00BB072F6500070039DA55 /* Build Agent Harness */,
+				AA00BB082F6500080039DA55 /* Copy Bundled Themes */,
 			);
 			buildRules = (
 			);
@@ -264,6 +265,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"$SRCROOT/tools/build-agent-harness.sh\"\n";
+		};
+		AA00BB082F6500080039DA55 /* Copy Bundled Themes */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Bundled Themes";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/tools/copy-bundled-themes.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

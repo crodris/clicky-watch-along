@@ -57,7 +57,7 @@ Preconditions:
   The log shows `Companion received transcript: Let me try` (the last word may be cut), `flies`, `landed`, `waited`.
 - **Cursor display.** Move the mouse onto each display in turn (`swift demo/scripts/mouse/mouse.swift move 2600 400 0.2` for a display to the right of the main one) and record that display with `screencapture -x -V 6 -D 2`.
   The token flies on that display's strip, which starts at the display's center when it has no notch.
-- **Team theme.** Run `defaults write com.crodris.clicky-watch-along companionTheme school:karasuno` before the launch.
+- **Team theme.** Run `defaults write com.crodris.clicky-watch-along companionTheme bundled:school-karasuno` before the launch.
   The flying token is the player's portrait in a ring in the team's color.
 
 ## Gotchas

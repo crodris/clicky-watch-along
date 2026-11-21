@@ -28,15 +28,15 @@ nonisolated struct ThemeStudioPicture: Equatable, Sendable {
 nonisolated struct ThemeStudioIdeas: Equatable, Sendable {
     let title: String
     /// 1 to 3 ideas, each with a temporary id.
-    let ideas: [CustomTheme]
+    let ideas: [ClickyTheme]
     var highlightedIdeaIndex: Int
     let picture: ThemeStudioPicture?
 
-    var highlightedIdea: CustomTheme { ideas[highlightedIdeaIndex] }
+    var highlightedIdea: ClickyTheme { ideas[highlightedIdeaIndex] }
 
     /// The first idea is highlighted when ideas arrive. Nil with no ideas, and more than 3 are cut, so `ideas` is never
     /// empty and `highlightedIdeaIndex` always points at one.
-    init?(title: String, ideas: [CustomTheme], picture: ThemeStudioPicture?) {
+    init?(title: String, ideas: [ClickyTheme], picture: ThemeStudioPicture?) {
         guard !ideas.isEmpty else { return nil }
         self.title = title
         self.ideas = Array(ideas.prefix(3))
@@ -126,7 +126,7 @@ nonisolated enum ThemeStudioState: Equatable, Sendable {
 // MARK: - Tags
 
 /// What the card says about the highlighted idea, in words, as short tags: a picture cursor's look, how it moves, and the sounds.
-nonisolated func themeStudioTags(for idea: CustomTheme) -> [String] {
+nonisolated func themeStudioTags(for idea: ClickyTheme) -> [String] {
     var tags: [String] = []
     // A drawn cursor shows itself on the tile, so only a picture cursor gets a tag, since its fit and tint are easy to miss.
     if case .picture(let style) = idea.cursor {
@@ -301,6 +301,12 @@ nonisolated let themeSavedChipPhrase = "Theme saved"
 /// What the chip says when a click on Save could not write the theme. The voice tool reports the same failure to the router.
 nonisolated let themeCouldNotBeSavedChipPhrase = "Couldn't save the theme"
 
+/// The chip after a double-clicked `.clickytheme` file was installed and put on.
+nonisolated let themeAddedChipPhrase = "Theme added"
+
+/// The chip after a `.clickytheme` file was refused, such as one whose theme.json breaks a rule. The log names the rule.
+nonisolated let themeCouldNotBeAddedChipPhrase = "Couldn't add that theme"
+
 // MARK: - What the router reads
 
 /// The studio's part of the router's scene state: the idea names, which one is highlighted (counting from 1), and whether a
@@ -327,14 +333,14 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
     static let longestRequestText = 500
 
     let request: String
-    let currentIdeas: [CustomTheme]
+    let currentIdeas: [ClickyTheme]
     /// 1 to 3, the idea on the card the change applies to. Only set with `currentIdeas`.
     let basedOnIdea: Int?
     let picture: ThemeStudioPicture?
 
     /// Nil for an empty request. A request over 500 UTF-16 code units is cut, more than 3 current ideas are dropped, and a
     /// `basedOnIdea` outside the current ideas is left out.
-    init?(request requestText: String, currentIdeas: [CustomTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?) {
+    init?(request requestText: String, currentIdeas: [ClickyTheme], basedOnIdea: Int?, picture: ThemeStudioPicture?) {
         let trimmedRequest = requestText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRequest.isEmpty else { return nil }
         request = textCutToUTF16Count(trimmedRequest, longestUTF16Count: Self.longestRequestText)
@@ -350,7 +356,7 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
     var json: JSONValue {
         var fields: [String: JSONValue] = ["request": .string(request)]
         if !currentIdeas.isEmpty {
-            fields["currentIdeas"] = .array(currentIdeas.map(\.ideaJSON))
+            fields["currentIdeas"] = .array(currentIdeas.map(\.themeJSON))
         }
         if let basedOnIdea {
             fields["basedOnIdea"] = .number(Double(basedOnIdea))
@@ -367,11 +373,11 @@ nonisolated struct ThemeIdeasRequest: Equatable, Sendable {
 }
 
 /// The Worker's reply, parsed at the boundary: a title for the card, the line Clicky speaks, and the ideas, each already a
-/// checked `CustomTheme` with a temporary id.
+/// checked `ClickyTheme` with a temporary id.
 nonisolated struct ThemeIdeasReply: Equatable, Sendable {
     let title: String
     let spokenLine: String
-    let ideas: [CustomTheme]
+    let ideas: [ClickyTheme]
 
     /// `pictureWasSent` says whether the request carried a picture, since a theme that uses the picture is refused without one.
     init(responseData: Data, pictureWasSent: Bool) throws {
@@ -388,7 +394,7 @@ nonisolated struct ThemeIdeasReply: Equatable, Sendable {
         self.title = title
         self.spokenLine = spokenLine
         ideas = try ideaValues.enumerated().map { ideaIndex, ideaValue in
-            try CustomTheme.parse(idea: ideaValue, id: "idea-\(ideaIndex + 1)", pictureIsAvailable: pictureWasSent)
+            try ClickyTheme.parse(themeJSON: ideaValue, id: "idea-\(ideaIndex + 1)", pictureIsAvailable: pictureWasSent)
         }
     }
 }

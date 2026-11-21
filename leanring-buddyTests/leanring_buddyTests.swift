@@ -651,7 +651,7 @@ struct leanring_buddyTests {
                 pictureShowsDepth: pictureShowsDepth,
                 isArtwork: false
             )
-            let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
+            let popoutPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
             #expect(popoutPageHTML.contains("\"pictureShowsDepth\":\(pictureShowsDepth)"))
         }
     }
@@ -668,10 +668,10 @@ struct leanring_buddyTests {
             pictureShowsDepth: false,
             isArtwork: false
         )
-        let unthemedPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen))
-        #expect(unthemedPageHTML.contains("\"quizLabelColor\":\"#3380ff\""))
-        #expect(unthemedPageHTML.contains("\"quizLabelTextColor\":\"#ffffff\""))
-        let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: .school(.nekoma)))
+        let clickyBluePageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: clickyBlueTheme))
+        #expect(clickyBluePageHTML.contains("\"quizLabelColor\":\"#3380FF\""))
+        #expect(clickyBluePageHTML.contains("\"quizLabelTextColor\":\"#FFFFFF\""))
+        let nekomaPageHTML = try #require(framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: bundledTheme("school-nekoma")))
         #expect(nekomaPageHTML.contains("\"quizLabelColor\":\"#E0313B\""))
     }
 

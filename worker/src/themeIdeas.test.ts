@@ -11,11 +11,10 @@ function goodIdea(overrides: Partial<ModelIdea> = {}): ModelIdea {
     name: "Moonlit",
     accent: "#7DD3FC",
     contrast: "#1E1B4B",
-    agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"],
     cursor: { kind: "shapes", shapes: [{ d: goodPath, fill: "#7DD3FC", stroke: "#FFFFFF", strokeWidth: 1.4 }], picture: null },
     motion: { turnsTowardMovement: true, trailStreaks: 3, whileThinking: "spin", whileListening: "pulse" },
+    agents: { ring: "perAgent", colors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], faces: { kind: "triangle" } },
     sounds: { done: "Purr", correct: "Glass", needsYourOK: "Pop" },
-    usesPicture: false,
     ...overrides,
   };
 }
@@ -34,6 +33,16 @@ function replyWithFirstIdea(overrides: Partial<ModelIdea>): CheckedModelReply {
   return goodReply({ ideas: [goodIdea(overrides), goodIdea({ name: "Ember" }), goodIdea({ name: "Forest" })] });
 }
 
+/** The good idea's agents with other per-agent colors, as the overrides of `replyWithFirstIdea`. */
+function withAgentColors(colors: string[]): Partial<ModelIdea> {
+  return { agents: { ring: "perAgent", colors, faces: { kind: "triangle" } } };
+}
+
+/** The good idea's agents with other ring and face fields, as the overrides of `replyWithFirstIdea`. */
+function withAgents(agentsOverrides: Partial<ModelIdea["agents"]>): Partial<ModelIdea> {
+  return { agents: { ...goodIdea().agents, ...agentsOverrides } };
+}
+
 function replyWithFirstShape(shapeOverrides: Partial<ModelIdea["cursor"]["shapes"][number]>): CheckedModelReply {
   const idea = goodIdea();
   return replyWithFirstIdea({ cursor: { ...idea.cursor, shapes: [{ ...idea.cursor.shapes[0], ...shapeOverrides }] } });
@@ -46,7 +55,7 @@ const goodPictureCursor = {
 };
 
 function replyWithAPictureCursor(pictureCursorOverrides: Partial<ModelIdea["cursor"]>, ideaOverrides: Partial<ModelIdea> = {}): CheckedModelReply {
-  return replyWithFirstIdea({ cursor: { ...goodPictureCursor, ...pictureCursorOverrides }, usesPicture: true, ...ideaOverrides });
+  return replyWithFirstIdea({ cursor: { ...goodPictureCursor, ...pictureCursorOverrides }, ...ideaOverrides });
 }
 
 function replyWithPictureFields(pictureOverrides: Partial<NonNullable<ModelIdea["cursor"]["picture"]>>): CheckedModelReply {
@@ -64,7 +73,7 @@ describe("checkThemeIdeas", () => {
     const lowercaseIdea = goodIdea({
       accent: "#7dd3fc",
       contrast: "#1e1b4b",
-      agentColors: ["#7dd3fc", "#c4b5fd", "#fde68a"],
+      agents: { ring: "perAgent", colors: ["#7dd3fc", "#c4b5fd", "#fde68a"], faces: { kind: "triangle" } },
       cursor: { kind: "shapes", shapes: [{ d: goodPath, fill: "#7dd3fc", stroke: null, strokeWidth: 0 }], picture: null },
     });
     const check = checkThemeIdeas(goodReply({ ideas: [lowercaseIdea, goodIdea(), goodIdea()] }), false);
@@ -72,9 +81,10 @@ describe("checkThemeIdeas", () => {
     expect(check).toMatchObject({ accepted: true });
     if (!check.accepted) return;
     expect(check.reply.ideas[0]).toMatchObject({
+      version: 2,
       accent: "#7DD3FC",
       contrast: "#1E1B4B",
-      agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68A"],
+      agents: { ring: "perAgent", colors: ["#7DD3FC", "#C4B5FD", "#FDE68A"], faces: { kind: "triangle" } },
       cursor: { shapes: [{ fill: "#7DD3FC", stroke: null }] },
     });
   });
@@ -100,7 +110,7 @@ describe("checkThemeIdeas", () => {
   it("refuses a color that is not #RRGGBB, wherever it is", () => {
     expect(rejectionReason(replyWithFirstIdea({ accent: "blue" }))).toContain("Idea 1's accent");
     expect(rejectionReason(replyWithFirstIdea({ contrast: "#FFF" }))).toContain("Idea 1's contrast");
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#C4B5FD", "#FDE68AFF"] }))).toContain("agentColors[2]");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#C4B5FD", "#FDE68AFF"])))).toContain("agents.colors[2]");
     expect(rejectionReason(replyWithFirstShape({ stroke: "white" }))).toContain("shape 1's stroke");
   });
 
@@ -132,42 +142,42 @@ describe("checkThemeIdeas", () => {
   });
 
   it("refuses fewer than 3 and more than 6 agent colors", () => {
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#C4B5FD"] }))).toContain("must hold 3 to 6 colors, and it holds 2");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#C4B5FD"])))).toContain("must hold 3 to 6 colors, and it holds 2");
     const sevenColors = ["#7DD3FC", "#C4B5FD", "#FDE68A", "#F9A8D4", "#FDBA74", "#67E8F9", "#A5B4FC"];
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: sevenColors }))).toContain("must hold 3 to 6 colors, and it holds 7");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(sevenColors)))).toContain("must hold 3 to 6 colors, and it holds 7");
   });
 
   it("refuses an agent color with a contrast ratio under 3", () => {
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#C4B5FD", "#1E1B4B"] }))).toContain("agentColors[2] #1E1B4B has a contrast ratio");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#C4B5FD", "#1E1B4B"])))).toContain("agents.colors[2] #1E1B4B has a contrast ratio");
   });
 
   it("refuses a saturated red agent color, since red means failed", () => {
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#C4B5FD", "#F87171"] }))).toContain("agentColors[2] #F87171 is a saturated red");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#C4B5FD", "#F87171"])))).toContain("agents.colors[2] #F87171 is a saturated red");
     // Hue 340 and above counts as red, as does hue 20 and below.
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#C4B5FD", "#F43F7A"] }))).toContain("is a saturated red");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#C4B5FD", "#F43F7A"])))).toContain("is a saturated red");
   });
 
   it("refuses a saturated green agent color, since green means done", () => {
-    expect(rejectionReason(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#C4B5FD", "#4ADE80"] }))).toContain("agentColors[2] #4ADE80 is a saturated green");
+    expect(rejectionReason(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#C4B5FD", "#4ADE80"])))).toContain("agents.colors[2] #4ADE80 is a saturated green");
   });
 
   it("allows an agent color that is red or green in hue but washed out, and the oranges and teals next to them", () => {
     const washedOutAndNeighbors = ["#C9B8B8", "#B8C9B8", "#FDBA74", "#2DD4BF"];
 
-    expect(checkThemeIdeas(replyWithFirstIdea({ agentColors: washedOutAndNeighbors }), false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstIdea(withAgentColors(washedOutAndNeighbors)), false)).toMatchObject({ accepted: true });
   });
 
   it("allows a light pink agent color, which has a red hue but never reads as the failed red", () => {
     // Both colors came from real replies to "something cozy for night" on 2026-11-20, and each one failed the whole design.
     const lightPinks = ["#7DD3FC", "#F4A6C0", "#F2A0B8"];
 
-    expect(checkThemeIdeas(replyWithFirstIdea({ agentColors: lightPinks }), false)).toMatchObject({ accepted: true });
+    expect(checkThemeIdeas(replyWithFirstIdea(withAgentColors(lightPinks)), false)).toMatchObject({ accepted: true });
   });
 
   it("drops one agent color that breaks a rule when 3 good ones remain, instead of asking the model again", () => {
-    const check = checkThemeIdeas(replyWithFirstIdea({ agentColors: ["#7DD3FC", "#F87171", "#C4B5FD", "#FDE68A"] }), false);
+    const check = checkThemeIdeas(replyWithFirstIdea(withAgentColors(["#7DD3FC", "#F87171", "#C4B5FD", "#FDE68A"])), false);
 
-    expect(check.accepted && check.reply.ideas[0].agentColors).toEqual(["#7DD3FC", "#C4B5FD", "#FDE68A"]);
+    expect(check.accepted && check.reply.ideas[0].agents.colors).toEqual(["#7DD3FC", "#C4B5FD", "#FDE68A"]);
   });
 
   it("refuses a cursor with no shapes and one with 7", () => {
@@ -209,9 +219,22 @@ describe("checkThemeIdeas", () => {
     expect(rejectionReason(replyWithFirstIdea({ sounds: { ...idea.sounds, correct: "Boing" } }))).toContain('correct sound is "Boing"');
   });
 
-  it("refuses usesPicture true when the request had no picture, and allows it when it had one", () => {
-    expect(rejectionReason(replyWithFirstIdea({ usesPicture: true }), false)).toContain("sets usesPicture to true, but the request had no picture");
-    expect(checkThemeIdeas(replyWithFirstIdea({ usesPicture: true }), true)).toMatchObject({ accepted: true });
+  it("refuses picture faces when the request had no picture, and allows them when it had one", () => {
+    const pictureFaces = withAgents({ faces: { kind: "picture" } });
+    expect(rejectionReason(replyWithFirstIdea(pictureFaces), false)).toContain("agents.faces.kind is picture, but the request had no picture");
+    expect(checkThemeIdeas(replyWithFirstIdea(pictureFaces), true)).toMatchObject({ accepted: true });
+  });
+
+  it("accepts an accent ring with no colors and skips the agent color rules, since every agent wears the accent", () => {
+    const check = checkThemeIdeas(replyWithFirstIdea(withAgents({ ring: "accent", colors: [] })), false);
+    expect(check).toMatchObject({ accepted: true });
+    expect(check.accepted && check.reply.ideas[0].agents).toEqual({ ring: "accent", colors: [], faces: { kind: "triangle" } });
+  });
+
+  it("refuses an accent ring that still lists colors, a ring outside its list, and a face kind outside its list", () => {
+    expect(rejectionReason(replyWithFirstIdea(withAgents({ ring: "accent" })))).toContain("agents.ring is accent, so its agents.colors must be empty, and it holds 3");
+    expect(rejectionReason(replyWithFirstIdea(withAgents({ ring: "perKind" })))).toContain("agents.ring is \"perKind\", and it must be one of perAgent, accent");
+    expect(rejectionReason(replyWithFirstIdea(withAgents({ faces: { kind: "roster" } })))).toContain("agents.faces.kind is \"roster\", and it must be one of triangle, picture");
   });
 });
 
@@ -271,8 +294,8 @@ describe("checkThemeIdeas on a picture cursor", () => {
     expect(rejectionReason(replyWithPictureFields({ tint: "blue" }), true)).toContain("picture tint");
   });
 
-  it("refuses a picture cursor whose idea does not set usesPicture", () => {
-    expect(rejectionReason(replyWithAPictureCursor({}, { usesPicture: false }), true)).toContain("has a picture cursor, so its usesPicture must be true");
+  it("accepts a picture cursor whose agents keep the triangle face", () => {
+    expect(checkThemeIdeas(replyWithAPictureCursor({}, withAgents({ faces: { kind: "triangle" } })), true)).toMatchObject({ accepted: true });
   });
 });
 
@@ -418,7 +441,8 @@ describe("handleThemeIdeas", () => {
   });
 
   it("refuses a picture idea when the request had no picture, which retries and then answers 422", async () => {
-    stubFetch(sonnetReply(replyWithFirstIdea({ usesPicture: true })), sonnetReply(replyWithFirstIdea({ usesPicture: true })));
+    const pictureFaces = withAgents({ faces: { kind: "picture" } });
+    stubFetch(sonnetReply(replyWithFirstIdea(pictureFaces)), sonnetReply(replyWithFirstIdea(pictureFaces)));
 
     const response = await handleThemeIdeas(requestWithBody(handlerRequest), "key");
 

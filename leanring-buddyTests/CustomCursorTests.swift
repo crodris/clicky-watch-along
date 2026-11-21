@@ -111,15 +111,15 @@ struct CustomCursorMotionTests {
 
 @MainActor
 struct CustomCursorThemeTests {
-    private func customTheme(turnsTowardMovement: Bool) throws -> CompanionTheme {
+    private func customTheme(turnsTowardMovement: Bool) throws -> ClickyTheme {
         let idea = replacingField(in: goodThemeIdea, at: ["motion", "turnsTowardMovement"], with: .bool(turnsTowardMovement))
-        return .custom(try CustomTheme.parse(idea: idea, id: "idea-1", pictureIsAvailable: false))
+        return try ClickyTheme.parse(themeJSON: idea, id: "idea-1", pictureIsAvailable: false)
     }
 
     @Test func eachThemeFacesTheWayItsCursorIsMeantTo() throws {
-        #expect(CompanionTheme.clickyBlue.cursorFacing == .pointerAngle)
-        #expect(CompanionTheme.random.cursorFacing == .pointerAngle)
-        #expect(CompanionTheme.school(.karasuno).cursorFacing == .followsMouseMovement)
+        // The triangle keeps its pointer angle whatever its motion says, since it always has.
+        #expect(clickyBlueTheme.cursorFacing == .pointerAngle)
+        #expect(bundledTheme("school-karasuno").cursorFacing == .followsMouseMovement)
         #expect(try customTheme(turnsTowardMovement: true).cursorFacing == .followsMouseMovement)
         #expect(try customTheme(turnsTowardMovement: false).cursorFacing == .upright)
     }
@@ -149,7 +149,7 @@ struct CustomCursorThemeTests {
     }
 
     @Test func aShapesCursorDrawsItsStarInTheMiddleAndNothingInTheCorner() throws {
-        let theme = try CustomTheme.parse(idea: goodThemeIdea, id: "idea-1", pictureIsAvailable: false)
+        let theme = try ClickyTheme.parse(themeJSON: goodThemeIdea, id: "idea-1", pictureIsAvailable: false)
         let pixels = try #require(renderedPixels(
             of: CustomCursorView(customTheme: theme, picture: nil, streakOpacity: 0, voiceState: .idle, audioPowerLevel: 0),
             side: 24
@@ -162,7 +162,7 @@ struct CustomCursorThemeTests {
 
     @Test func anUprightCursorTurnsOnlyItsStreaksSoTheyTrailBehindItsMovement() throws {
         let idea = replacingField(in: goodThemeIdea, at: ["motion", "turnsTowardMovement"], with: .bool(false))
-        let theme = try CustomTheme.parse(idea: idea, id: "idea-1", pictureIsAvailable: false)
+        let theme = try ClickyTheme.parse(themeJSON: idea, id: "idea-1", pictureIsAvailable: false)
         func pixels(streakFacingDegrees: Double) throws -> NSBitmapImageRep {
             try #require(renderedPixels(
                 of: CustomCursorView(customTheme: theme, picture: nil, streakOpacity: 1, streakFacingDegrees: streakFacingDegrees, voiceState: .idle, audioPowerLevel: 0),
@@ -180,7 +180,7 @@ struct CustomCursorThemeTests {
     }
 
     @Test func aPictureCursorDrawsThePictureWithItsTintAndOutline() throws {
-        let theme = try CustomTheme.parse(idea: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+        let theme = try ClickyTheme.parse(themeJSON: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
         // A solid red 40 by 20 picture, so a 0.3 tint of #7DD3FC over it turns the middle visibly bluer than the red it started as.
         let picture = NSImage(size: NSSize(width: 40, height: 20), flipped: false) { drawingRect in
             NSColor(red: 1, green: 0, blue: 0, alpha: 1).setFill()
@@ -201,7 +201,7 @@ struct CustomCursorThemeTests {
     }
 
     @Test func aPictureCursorWithNoReadablePictureFallsBackToTheAccentTriangle() throws {
-        let theme = try CustomTheme.parse(idea: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+        let theme = try ClickyTheme.parse(themeJSON: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
         let pixels = try #require(renderedPixels(
             of: CustomCursorView(customTheme: theme, picture: nil, streakOpacity: 0, voiceState: .idle, audioPowerLevel: 0),
             side: 32

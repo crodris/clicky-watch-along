@@ -2,8 +2,8 @@
 //  CustomThemeSettingsTests.swift
 //  leanring-buddyTests
 //
-//  How a custom theme sits in CompanionTheme and CompanionThemeSettings: its saved form, its colors and sounds, the
-//  preview that every view reads through `shownTheme`, and saving an idea as the theme.
+//  How a saved theme sits in CompanionThemeSettings: its saved form, its colors and sounds, the preview that every view
+//  reads through `shownTheme`, saving an idea as the theme, installing a `.clickytheme` file, and renaming or deleting.
 //
 
 import Foundation
@@ -13,50 +13,42 @@ import Testing
 
 @MainActor
 struct CustomThemeSettingsTests {
-    private func customTheme(id: String = "moonlit-3f9a", sounds: CustomThemeSounds? = nil) throws -> CustomTheme {
-        let baseTheme = try CustomTheme.parse(idea: goodThemeIdea, id: id, pictureIsAvailable: false)
+    private func customTheme(id: String = "moonlit-3f9a", sounds: CustomThemeSounds? = nil) throws -> ClickyTheme {
+        let baseTheme = try ClickyTheme.parse(themeJSON: goodThemeIdea, id: id, origin: .saved(folderURL: URL(fileURLWithPath: "/tmp/\(id)")), pictureIsAvailable: false)
         guard let sounds else { return baseTheme }
-        return CustomTheme(
+        return ClickyTheme(
             id: baseTheme.id, name: baseTheme.name, accentHex: baseTheme.accentHex, contrastHex: baseTheme.contrastHex,
-            agentColorHexes: baseTheme.agentColorHexes, cursor: baseTheme.cursor, motion: baseTheme.motion,
-            sounds: sounds, usesPicture: baseTheme.usesPicture
+            cursor: baseTheme.cursor, motion: baseTheme.motion, agents: baseTheme.agents, sounds: sounds, origin: baseTheme.origin
         )
     }
 
-    @Test func aCustomThemeReadsBackFromItsRawValueAndAnUnknownIdReadsAsClickyBlue() throws {
+    @Test func aSavedThemeReadsBackFromItsSettingAndAnUnknownIdReadsAsNothing() throws {
         let savedTheme = try customTheme()
-        let theme = CompanionTheme.custom(savedTheme)
-        #expect(theme.rawValue == "custom:moonlit-3f9a")
-        #expect(CompanionTheme(rawValue: theme.rawValue, savedCustomThemes: [savedTheme]) == theme)
-        // A theme whose folder was deleted, or one saved under another id, is no longer known.
-        #expect(CompanionTheme(rawValue: theme.rawValue, savedCustomThemes: []) == .clickyBlue)
-        #expect(CompanionTheme(rawValue: "custom:other-0000", savedCustomThemes: [savedTheme]) == .clickyBlue)
-        #expect(CompanionTheme(rawValue: "custom:", savedCustomThemes: [savedTheme]) == .clickyBlue)
+        #expect(ThemeSettingValue.of(savedTheme) == "custom:moonlit-3f9a")
+        #expect(ThemeSettingValue.theme(named: "custom:moonlit-3f9a", bundledThemes: bundledThemesForTests, savedThemes: [savedTheme]) == savedTheme)
+        // A theme whose folder was deleted, or one saved under another id, is no longer known, and the settings fall back.
+        #expect(ThemeSettingValue.theme(named: "custom:moonlit-3f9a", bundledThemes: bundledThemesForTests, savedThemes: []) == nil)
+        #expect(ThemeSettingValue.theme(named: "custom:other-0000", bundledThemes: bundledThemesForTests, savedThemes: [savedTheme]) == nil)
+        #expect(ThemeSettingValue.theme(named: "custom:", bundledThemes: bundledThemesForTests, savedThemes: [savedTheme]) == nil)
+        // A bundled id is not a saved one, so the two prefixes never find each other's themes.
+        #expect(ThemeSettingValue.theme(named: "custom:clicky-blue", bundledThemes: bundledThemesForTests, savedThemes: []) == nil)
+        #expect(ThemeSettingValue.of(clickyBlueTheme) == "bundled:clicky-blue")
     }
 
-    @Test func aCustomThemeTakesItsColorsFromTheTwoColorsItSet() throws {
-        let theme = CompanionTheme.custom(try customTheme())
+    @Test func aSavedThemeTakesItsColorsFromTheTwoColorsItSet() throws {
+        let theme = try customTheme()
         #expect(theme.cursorColorHex == "#7DD3FC")
         #expect(theme.cursorContrastColorHex == "#1E1B4B")
-        #expect(theme.cursorVolleyballColors == nil)
-        #expect(theme.displayName == "Moonlit")
+        #expect(theme.name == "Moonlit")
     }
 
-    @Test func builtInThemesKeepTodaysSoundsAndACustomThemeSetsItsOwn() throws {
+    @Test func bundledThemesKeepTodaysSoundsAndASavedThemeSetsItsOwn() throws {
         let todaysSounds = CustomThemeSounds(done: .tink, correct: .glass, needsYourOK: .pop)
-        #expect(CompanionTheme.clickyBlue.sounds == todaysSounds)
-        #expect(CompanionTheme.school(.karasuno).sounds == todaysSounds)
-        #expect(CompanionTheme.random.sounds == todaysSounds)
+        for bundledTheme in bundledThemesForTests {
+            #expect(bundledTheme.sounds == todaysSounds)
+        }
         let customSounds = CustomThemeSounds(done: .purr, correct: .hero, needsYourOK: .ping)
-        #expect(CompanionTheme.custom(try customTheme(sounds: customSounds)).sounds == customSounds)
-    }
-
-    @Test func theBuiltInChoicesHoldNoCustomTheme() {
-        #expect(!CompanionTheme.allChoices.contains { choice in
-            if case .custom = choice { return true }
-            return false
-        })
-        #expect(CompanionTheme.allChoices.count == 12)
+        #expect(try customTheme(sounds: customSounds).sounds == customSounds)
     }
 
     @Test func theDialsTeamFanListsTheNewestSavedThemesFirstWhileTheSavedListKeepsNameOrder() throws {
@@ -76,75 +68,70 @@ struct CustomThemeSettingsTests {
             }
             let themeSettings = makeThemeSettings(customThemeStore: store)
             #expect(themeSettings.savedCustomThemes.map(\.name) == ["Alpha", "Beta", "Gamma"])
-            let fans = SettingsDialFans(savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
-            #expect(fans.teamThemes.suffix(3).map(\.displayName) == ["Gamma", "Alpha", "Beta"])
+            let fans = SettingsDialFans(bundledThemes: bundledThemesForTests, savedCustomThemes: themeSettings.savedCustomThemesWithSavedDates)
+            #expect(fans.teamThemes.suffix(3).map(\.name) == ["Gamma", "Alpha", "Beta"])
         }
     }
 
-    @Test func aCustomThemesAgentsAreNotPlayers() throws {
-        var randomNumberGenerator = SeededRandomNumberGenerator(seed: 1)
-        let player = nextHaikyuPlayer(
-            for: .custom(try customTheme()),
-            playersOfRunningAgents: [],
-            playersOfEndedAgentsStillListed: [],
-            randomNumberGenerator: &randomNumberGenerator
-        )
-        #expect(player == nil)
+    @Test func aSavedThemesAgentsAreTrianglesInItsOwnColorsNotPlayers() throws {
+        let look = newAgentLook(kind: .task, theme: try customTheme(), colorsInUse: [], rosterFacesOfRunningAgents: [], rosterFacesOfEndedAgentsStillListed: [])
+        #expect(look.face == .triangle)
+        #expect(look.tokenColor == .custom(try #require(ThemeRGBColor(hex: "#7DD3FC"))))
     }
 
     @Test func thePreviewShowsOverTheSavedThemeAndNeverSavesIt() throws {
-        let suiteName = "HaikyuThemeTests-Preview"
+        let suiteName = "CustomThemeSettingsTests-Preview"
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
-        let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: themeStoreWithNoSavedThemes)
-        themeSettings.theme = .school(.nekoma)
+        let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: themeStoreWithNoSavedThemes, bundledThemes: bundledThemesForTests)
+        themeSettings.theme = bundledTheme("school-nekoma")
 
         let idea = try customTheme(id: "idea-2")
         themeSettings.preview(idea, picture: nil)
-        #expect(themeSettings.shownTheme == .custom(idea))
-        #expect(themeSettings.theme == .school(.nekoma))
+        #expect(themeSettings.shownTheme == idea)
+        #expect(themeSettings.theme == bundledTheme("school-nekoma"))
         // Only the saved theme is in UserDefaults, so a relaunch during a preview comes back to the old theme.
-        #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "school:nekoma")
+        #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "bundled:school-nekoma")
 
         themeSettings.clearPreview()
-        #expect(themeSettings.shownTheme == .school(.nekoma))
+        #expect(themeSettings.shownTheme == bundledTheme("school-nekoma"))
         #expect(themeSettings.previewTheme == nil)
     }
 
     @Test func savingAnIdeaMakesItTheThemeEndsThePreviewAndSurvivesARelaunch() throws {
-        let suiteName = "HaikyuThemeTests-SaveIdea"
+        let suiteName = "CustomThemeSettingsTests-SaveIdea"
         let testDefaults = try #require(UserDefaults(suiteName: suiteName))
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
         try withATemporaryThemeStore { store in
-            let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store)
+            let themeSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store, bundledThemes: bundledThemesForTests)
             let idea = try customTheme(id: "idea-1")
             themeSettings.preview(idea, picture: nil)
 
             let savedTheme = try themeSettings.saveAndApply(idea, pictureJPEG: nil)
             #expect(savedTheme.id != "idea-1")
-            #expect(themeSettings.theme == .custom(savedTheme))
-            #expect(themeSettings.shownTheme == .custom(savedTheme))
+            #expect(themeSettings.theme == savedTheme)
+            #expect(themeSettings.shownTheme == savedTheme)
             #expect(themeSettings.previewTheme == nil)
             #expect(themeSettings.savedCustomThemes == [savedTheme])
 
-            let relaunchedSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store)
-            #expect(relaunchedSettings.theme == .custom(savedTheme))
+            let relaunchedSettings = CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store, bundledThemes: bundledThemesForTests)
+            #expect(relaunchedSettings.theme == savedTheme)
         }
     }
 
     @Test func aFailedSaveLeavesTheThemeAndThePreviewAlone() throws {
         try withATemporaryThemeStore { store in
-            let themeSettings = makeThemeSettings(startingWith: .school(.nekoma), customThemeStore: store)
-            let pictureIdea = try CustomTheme.parse(idea: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+            let themeSettings = makeThemeSettings(startingWith: bundledTheme("school-nekoma"), customThemeStore: store)
+            let pictureIdea = try ClickyTheme.parse(themeJSON: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
             themeSettings.preview(pictureIdea, picture: nil)
 
             #expect(throws: CustomThemeStoreError.themeUsesAPictureButNoneWasGiven) {
                 try themeSettings.saveAndApply(pictureIdea, pictureJPEG: nil)
             }
-            #expect(themeSettings.theme == .school(.nekoma))
-            #expect(themeSettings.shownTheme == .custom(pictureIdea))
+            #expect(themeSettings.theme == bundledTheme("school-nekoma"))
+            #expect(themeSettings.shownTheme == pictureIdea)
         }
     }
 
@@ -173,7 +160,7 @@ struct CustomThemeSettingsTests {
         testDefaults.removePersistentDomain(forName: suiteName)
         defer { testDefaults.removePersistentDomain(forName: suiteName) }
         return try withATemporaryThemeStore { store in
-            try body(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store), testDefaults, store)
+            try body(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store, bundledThemes: bundledThemesForTests), testDefaults, store)
         }
     }
 
@@ -186,10 +173,10 @@ struct CustomThemeSettingsTests {
             let renamedTheme = try #require(themeSettings.savedCustomThemes.first)
             #expect(renamedTheme.name == "Night Owl")
             #expect(renamedTheme.id == savedTheme.id)
-            #expect(themeSettings.theme == .custom(renamedTheme))
-            #expect(themeSettings.shownTheme.displayName == "Night Owl")
+            #expect(themeSettings.theme == renamedTheme)
+            #expect(themeSettings.shownTheme.name == "Night Owl")
             #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "custom:\(savedTheme.id)")
-            #expect(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store).theme == .custom(renamedTheme))
+            #expect(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store, bundledThemes: bundledThemesForTests).theme == renamedTheme)
         }
     }
 
@@ -200,7 +187,7 @@ struct CustomThemeSettingsTests {
 
             try themeSettings.renameSavedTheme(themeID: firstTheme.id, to: "Zen")
 
-            #expect(themeSettings.theme == .custom(themeInUse))
+            #expect(themeSettings.theme == themeInUse)
             #expect(themeSettings.savedCustomThemes.map(\.name) == ["Ember", "Zen"])
         }
     }
@@ -213,7 +200,7 @@ struct CustomThemeSettingsTests {
                 try themeSettings.renameSavedTheme(themeID: savedTheme.id, to: "   ")
             }
 
-            #expect(themeSettings.theme == .custom(savedTheme))
+            #expect(themeSettings.theme == savedTheme)
             #expect(themeSettings.savedCustomThemes == [savedTheme])
         }
     }
@@ -224,11 +211,11 @@ struct CustomThemeSettingsTests {
 
             try themeSettings.deleteSavedTheme(themeID: savedTheme.id)
 
-            #expect(themeSettings.theme == .clickyBlue)
-            #expect(themeSettings.shownTheme == .clickyBlue)
+            #expect(themeSettings.theme == clickyBlueTheme)
+            #expect(themeSettings.shownTheme == clickyBlueTheme)
             #expect(themeSettings.savedCustomThemes.isEmpty)
-            #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == CompanionTheme.clickyBlue.rawValue)
-            #expect(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store).theme == .clickyBlue)
+            #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "bundled:clicky-blue")
+            #expect(CompanionThemeSettings(userDefaults: testDefaults, customThemeStore: store, bundledThemes: bundledThemesForTests).theme == clickyBlueTheme)
         }
     }
 
@@ -239,7 +226,7 @@ struct CustomThemeSettingsTests {
 
             try themeSettings.deleteSavedTheme(themeID: themeToDelete.id)
 
-            #expect(themeSettings.theme == .custom(themeInUse))
+            #expect(themeSettings.theme == themeInUse)
             #expect(themeSettings.savedCustomThemes == [themeInUse])
         }
     }
@@ -247,11 +234,11 @@ struct CustomThemeSettingsTests {
     @Test func aBuiltInThemeInUseIsNotChangedByDeletingASavedTheme() throws {
         try withSettingsOnTheirOwnDefaults { themeSettings, _, _ in
             let savedTheme = try themeSettings.saveAndApply(try parsedThemeIdea(), pictureJPEG: nil)
-            themeSettings.theme = .school(.nekoma)
+            themeSettings.theme = bundledTheme("school-nekoma")
 
             try themeSettings.deleteSavedTheme(themeID: savedTheme.id)
 
-            #expect(themeSettings.theme == .school(.nekoma))
+            #expect(themeSettings.theme == bundledTheme("school-nekoma"))
         }
     }
 

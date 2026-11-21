@@ -12,8 +12,8 @@ import Testing
 
 // MARK: - Fixtures
 
-nonisolated func themeIdea(named ideaName: String, id: String = "idea-1") throws -> CustomTheme {
-    try CustomTheme.parse(idea: replacingField(in: goodThemeIdea, at: ["name"], with: .string(ideaName)), id: id, pictureIsAvailable: false)
+nonisolated func themeIdea(named ideaName: String, id: String = "idea-1") throws -> ClickyTheme {
+    try ClickyTheme.parse(themeJSON: replacingField(in: goodThemeIdea, at: ["name"], with: .string(ideaName)), id: id, pictureIsAvailable: false)
 }
 
 nonisolated let sampleStudioPicture = ThemeStudioPicture(jpegData: Data([0xFF, 0xD8, 0xFF, 0xD9]), width: 1280, height: 720)
@@ -350,7 +350,7 @@ struct ThemeIdeasRequestTests {
         let json = themeIdeasRequest.json
         #expect(json["basedOnIdea"]?.numberValue == 2)
         #expect(json["currentIdeas"]?.arrayValue?.count == 3)
-        #expect(json["currentIdeas"]?.arrayValue?[1] == ideas[1].ideaJSON)
+        #expect(json["currentIdeas"]?.arrayValue?[1] == ideas[1].themeJSON)
         #expect(json["currentIdeas"]?.arrayValue?[1]["name"]?.stringValue == "Moonlit")
     }
 
@@ -437,19 +437,19 @@ struct ThemeStudioCardTextTests {
     }
 
     @Test func aPictureCursorAndAQuietIdeaHaveTheirOwnTags() throws {
-        let pictureIdea = try CustomTheme.parse(idea: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
+        let pictureIdea = try ClickyTheme.parse(themeJSON: goodPictureCursorThemeIdea, id: "idea-1", pictureIsAvailable: true)
         #expect(themeStudioTags(for: pictureIdea).first == "cursor: your picture, tinted")
         var quietIdea = replacingField(in: goodThemeIdea, at: ["motion"], with: .object([
             "turnsTowardMovement": .bool(false), "trailStreaks": .number(2), "whileThinking": .string("none"), "whileListening": .string("none"),
         ]))
         quietIdea = replacingField(in: quietIdea, at: ["cursor", "shapes", "1"], with: .null)
-        let tags = themeStudioTags(for: try CustomTheme.parse(idea: quietIdea, id: "idea-1", pictureIsAvailable: false))
+        let tags = themeStudioTags(for: try ClickyTheme.parse(themeJSON: quietIdea, id: "idea-1", pictureIsAvailable: false))
         // A cursor that does not turn still trails streaks behind its movement, so they are listed.
         #expect(tags == ["2 trail streaks", "sounds: Purr, Glass, Pop"])
         let roundIdea = replacingField(in: goodPictureCursorThemeIdea, at: ["cursor", "picture"], with: .object([
             "fit": .string("circle"), "outline": .string("#FFFFFF"), "tint": .null, "tintStrength": .number(0),
         ]))
-        #expect(themeStudioTags(for: try CustomTheme.parse(idea: roundIdea, id: "idea-1", pictureIsAvailable: true)).first == "cursor: your picture, round")
+        #expect(themeStudioTags(for: try ClickyTheme.parse(themeJSON: roundIdea, id: "idea-1", pictureIsAvailable: true)).first == "cursor: your picture, round")
     }
 
     @Test func anIdeaCanBePickedOnlyWhileIdeasShowAndOnlyByANumberTheyHave() throws {

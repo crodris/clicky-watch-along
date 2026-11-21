@@ -158,8 +158,8 @@ func menuBarIsShowing(screenFrame: CGRect, visibleFrame: CGRect) -> Bool {
 // MARK: - Colors
 
 /// The colors an agent can have. Under Clicky blue it takes one of the fixed palette, in the order a new agent looks for a
-/// free one. Red is left out because it means failed, and so is green, which is the done check. Under a custom theme it
-/// takes one of the theme's own agent colors, which the theme parser already kept clear of red and green.
+/// free one. Red is left out because it means failed, and so is green, which is the done check. Under another theme it
+/// takes one of the theme's own agent colors, which the theme parser kept clear of red and green, or the theme's accent.
 enum AgentPaletteColor: Equatable {
     case teal
     case amber
@@ -167,7 +167,7 @@ enum AgentPaletteColor: Equatable {
     case lime
     case sky
     case pink
-    /// One of a custom theme's agent colors.
+    /// One of a theme's agent colors, or its accent.
     case custom(ThemeRGBColor)
 
     /// The fixed palette under Clicky blue, in the order a new agent looks for a free color.
@@ -222,17 +222,14 @@ func agentPaletteColorToAssign(forCustomThemeAgentColorHexes agentColorHexes: [S
 
 /// What colors a token's ring, before it becomes a SwiftUI color, so the choice is testable.
 enum AgentTokenRingColorChoice: Equatable {
-    /// An agent that is a team's player takes the team's accent color. Inarizaki's accent is already the light
-    /// `#F4F4F5`, since its near-black team color would vanish on the dark track.
-    case school(HaikyuSchool)
-    /// With Clicky blue, the ring takes the color the agent was given when it started.
+    /// The ring takes the color the agent was given when it started: its theme's accent, one of the theme's agent colors,
+    /// or Clicky's palette.
     case assigned(AgentPaletteColor)
-    /// A failed agent's ring is red, whatever the team.
+    /// A failed agent's ring is red, whatever the theme, along with its cross badge and gray face.
     case failed
 
     var color: Color {
         switch self {
-        case .school(let school): return school.accentColor
         case .assigned(let paletteColor): return paletteColor.color
         case .failed: return DS.Colors.destructive
         }
@@ -241,6 +238,69 @@ enum AgentTokenRingColorChoice: Equatable {
 
 func agentTokenRingColorChoice(for agent: BackgroundAgent) -> AgentTokenRingColorChoice {
     if agent.phase.isFailed { return .failed }
-    if let player = agent.player { return .school(player.school) }
     return .assigned(agent.displayColor)
+}
+
+// MARK: - A new agent's look
+
+extension ClickyTheme {
+    /// The colors the theme's agents take, in the order they hand them out, for swatches such as the Theme Studio's tiles.
+    var agentColorsInOrder: [AgentPaletteColor] {
+        switch agents.ring {
+        case .perKind: return AgentPaletteColor.fixedPalette
+        case .perAgent(let colorHexes): return colorHexes.compactMap(ThemeRGBColor.init(hex:)).map(AgentPaletteColor.custom)
+        case .accent: return ThemeRGBColor(hex: accentHex).map { [AgentPaletteColor.custom($0)] } ?? []
+        }
+    }
+}
+
+/// The color and the face an agent takes when it starts, kept for its whole life.
+struct NewAgentLook: Equatable {
+    let tokenColor: AgentPaletteColor
+    let face: AgentFace
+}
+
+/// The look a new agent takes from `theme`, the theme it starts under (the saved theme, or with Shuffle on, one picked at
+/// random). `colorsInUse` is one entry for each other running agent, and each agent whose result waits, that has a color.
+/// The roster faces are the faces of the agents the list still shows, so a roster hands out a player no one shows first.
+func newAgentLook(
+    kind agentKind: BackgroundAgentKind,
+    theme: ClickyTheme,
+    colorsInUse: [AgentPaletteColor],
+    rosterFacesOfRunningAgents: [AgentRosterFace],
+    rosterFacesOfEndedAgentsStillListed: [AgentRosterFace]
+) -> NewAgentLook {
+    let tokenColor: AgentPaletteColor
+    switch theme.agents.ring {
+    case .perKind:
+        tokenColor = agentPaletteColorToAssign(forKind: agentKind, colorsInUse: colorsInUse)
+    case .perAgent(let colorHexes):
+        tokenColor = agentPaletteColorToAssign(forCustomThemeAgentColorHexes: colorHexes, colorsInUse: colorsInUse)
+    case .accent:
+        tokenColor = ThemeRGBColor(hex: theme.accentHex).map(AgentPaletteColor.custom) ?? agentKind.preferredPaletteColor
+    }
+
+    let face: AgentFace
+    switch theme.agents.faces {
+    case .triangle:
+        face = .triangle
+    case .picture:
+        // Only a saved theme has a picture.jpg to show, so an idea's agents keep the triangle.
+        if case .saved = theme.origin {
+            face = .themePicture(themeID: theme.id)
+        } else {
+            face = .triangle
+        }
+    case .roster(let players):
+        let playersOfThisTheme = { (rosterFaces: [AgentRosterFace]) in
+            rosterFaces.filter { $0.themeID == theme.id }.map(\.player)
+        }
+        let player = rosterPlayerForANewAgent(
+            roster: players,
+            playersOfRunningAgents: playersOfThisTheme(rosterFacesOfRunningAgents),
+            playersOfEndedAgentsStillListed: playersOfThisTheme(rosterFacesOfEndedAgentsStillListed)
+        )
+        face = player.map { .rosterFace(AgentRosterFace(player: $0, of: theme)) } ?? .triangle
+    }
+    return NewAgentLook(tokenColor: tokenColor, face: face)
 }
