@@ -7,7 +7,8 @@ With no slot for the agent, or no room for discs on the mouse's display, nothing
 
 ## Sub-features
 
-- `serve-fly` flies the token from the cursor glyph (35 points right and 25 below the mouse) to the next open slot along a curved arc, in 0.5 seconds, under Clicky blue and under a team theme.
+- `serve-fly` flies the token from the cursor glyph (35 points right and 25 below the mouse) to the next open slot along a curved arc, in 0.5 seconds, on the shared carrier panel, under Clicky blue and under a team theme.
+- `serve-tether` draws a 1 point line in the cursor's color from the cursor glyph to the flying token, which fades out within 0.25 seconds of the landing, and no carrier window (level 1002) stays on screen afterward.
   The disc looks the same in flight and in the dock, and the cursor stays with the mouse.
 - `serve-open-slot` shows a dashed outline at the slot from the start of the flight, and the token replaces it on landing.
 - `serve-confirmation-waits` plays the spoken line after the landing.
@@ -40,7 +41,7 @@ Preconditions:
 - **Flight with no model call.** Run `$V app-launch "+600 thanks"`, then `swift demo/scripts/mouse/mouse.swift move 700 520 0.2`.
   Start `screencapture -x -V 6 -D 1 "$RUN/serve.mov" &` (`-D 1` is the main display), wait 2 seconds, then post `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_seed_agents","arguments":{"kinds":["task"],"serveTheToken":true}}}` to `http://127.0.0.1:8790/mcp`.
   The log shows `the token flies to its slot in 0.5 s` and, half a second later, `the token landed in its slot`.
-  `ffmpeg -ss 1.5 -t 1.5 -i "$RUN/serve.mov" -vf "fps=30,crop=1000:1240:1200:0,scale=300:-1,tile=9x3" -frames:v 1 "$RUN/sheet.png"` shows a dashed circle beside the notch, then the token moving from the cursor up to it along an arc, then the token in its place.
+  `ffmpeg -ss 1.5 -t 1.5 -i "$RUN/serve.mov" -vf "fps=30,crop=1000:1240:1200:0,scale=300:-1,tile=9x3" -frames:v 1 "$RUN/sheet.png"` shows a dashed circle beside the notch, then the token moving from the cursor up to it along an arc with a thin line in the cursor's color behind it, then the token in its place and the line gone.
   Seed one kind per call, since a serve in flight lands at once when the next starts.
 - **Confirmation after landing.** Put the mouse on the main display, then run `$V app-launch "+8 let me try it"`, and record as above 2 seconds after launch.
   The log shows `flies`, `landed`, then `the spoken line waited 230 to 270 ms for the token to land` (the build's Chrome reads use the rest of the half second), then `ElevenLabs TTS: playing streamed audio`.
