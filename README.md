@@ -108,7 +108,7 @@ Sonnet then builds the 3D models for about $0.04 each, instead of about $0.37 wi
 
 Speech uses Apple's speech recognition in this fork, so you don't need an AssemblyAI key.
 Release builds won't compile until you set your own https Worker URL in `CompanionManager.swift`.
-The Notion routes and the `/v1/messages` route need an app secret, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
+The Notion routes and the `/v1/messages` route need an app secret, which the voice command brain and the task agents use, but the other routes have no authentication or rate limits yet, and the 3D Tiles route spends your Maps key for anyone who calls it, so I wouldn't deploy it publicly as is.
 
 Everything below is the original Clicky README, with the setup, architecture, and project structure updated for this fork.
 
@@ -197,7 +197,9 @@ pnpm wrangler secret put GOOGLE_MAPS_API_KEY
 # Optional, for Notion study guides and task agent pages
 pnpm wrangler secret put NOTION_API_KEY
 # A random string, such as from openssl rand -hex 32, that the app also holds. The Notion routes and
-# /v1/messages refuse requests without it. Set it in the app with:
+# /v1/messages refuse requests without it, and /v1/messages carries the voice command brain and the task agents,
+# so an app with no secret keeps its voice commands on the old /voice-command route and its task agents fail.
+# Set it in the app with:
 # defaults write com.crodris.clicky-watch-along clickyAppSecret <the same string>
 pnpm wrangler secret put CLICKY_APP_SECRET
 ```
@@ -318,7 +320,7 @@ worker/                  # Cloudflare Worker proxy
   src/mapTiles.ts           # Forwards Google 3D Tiles requests with the Maps key
   src/studyGuide.ts         # Writes the study guide and checks a saved guide's page
   src/notionPage.ts         # The task agent's Notion page
-  src/appSecret.ts          # The app secret the Notion routes and /v1/messages require
+  src/appSecret.ts          # The app secret the Notion routes and /v1/messages (the voice command brain and the task agents) require
 demo/                    # The Remotion demo videos and the scripts that record them
 CLAUDE.md                # Full architecture doc (agents read this)
 ```
