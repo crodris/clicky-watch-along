@@ -59,6 +59,7 @@ Preconditions:
 - **The brain keeps a session.** Run `$V app-launch --brain --harness-brain "pop this out|turn it to the left|turn it to the left|zoom in a bit|zoom in a bit|turn it up|reset the zoom|undo the first turn"`.
   The last step turns the model right, and the `Brain: turn` lines show `cache read` growing with the history from the second command on.
   The first command's request has no history, so its `cache read` covers only the tools and the system prompt.
+  After a pause of 5 minutes the session folds the older commands into one block of at most the newest 40, so a cold request stays small however many commands came before.
 - **The brain's evals on both backends.** With `$V worker-up 8797` ready, run `node bench/brainEvals.ts run --label harness-parity --backend both --runs 3 --port 8797`.
   It builds the harness, runs every case in `bench/fixtures/brain-evals.json` on the Worker's `/voice-command` and on the harness brain, one after the other, and prints a table for each backend and the parity gate.
   The gate passes when every harness run passes, its p50 to the first `tool_call` is within 100 ms of the Worker's, and its first-turn cost per call is within 1.5 times the Worker's.

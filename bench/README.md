@@ -151,6 +151,9 @@ A case that needs earlier commands lists them in `earlierCommands`, each a `say`
 `interruptedBefore` lists the action lines of a command the learner cut short, which the harness reports to the next command in an `interrupted_before` tag.
 `sceneStateChanges` sets keys of the context's scene state that the earlier commands changed, such as `yawDegrees`, so the case's own `scene_state` matches the history.
 The driver starts the harness with `CLICKY_BENCH=1`, the only thing that lets it take `reset_session` and `seed_session`.
+The harness refuses a seed with an empty message or a `tool_use` that has no `tool_result` in the next message, with a stderr line.
+The seeded messages and the harness's own user messages escape text as `escapedLine` in `harness/brain.go` does (`<` as `‹`, a backslash doubled, each line break character as `\n`), and a test pins the bench's copy.
+The harness keeps only the newest 40 folded commands, so `session-correction-after-fold` (25 commands) does not reach the cap.
 The two cases that hold `recentActions` for the Worker backend also hold the same actions as `earlierCommands`, and a test checks that they agree.
 
 `fixtures/brain-sessions.json` holds the cases that need the session, which only the harness backend runs and which the parity gate counts apart from the 60 cases both backends run:

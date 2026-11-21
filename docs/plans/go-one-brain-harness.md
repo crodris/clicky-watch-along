@@ -393,6 +393,7 @@ Each command appends to it, so "undo the first turn" or "go back to where we wer
   When a brain tool first returns one, the session keeps only the newest image and replaces each older one with a one-line text note, such as "Screenshot of the YouTube tab, replaced", and that PR adds the test.
 - **Cancel rolls back.** A cancelled command removes its messages from the session, back to where it started, since a turn whose tool calls never got results cannot go back to Anthropic.
   The action lines of the calls that did finish go into the next command's user message as one "Interrupted before:" line, so the brain still knows what changed on screen.
+  A call that finished in the app right before the press counts: the app sends its result before `cancel_task`.
 - **Hand-off stays.** A command that handed off stays in the session, with a result such as "Handed off: Clicky answers out loud".
   A hand-off stops the turn's calls (`CompanionManager.swift:2554`), so calls after it in the same reply never run.
   The session adds a "Not run: the request was handed off" result for each of them, because Anthropic refuses a request with a `tool_use` block that has no matching `tool_result`, and every later command would fail.
@@ -401,6 +402,7 @@ Each command appends to it, so "undo the first turn" or "go back to where we wer
 - **Caching.** The tools and the system prompt keep their breakpoints from PR 4, and a third breakpoint sits on the last message of the previous command, so the next command reads the whole history from the cache.
 - **Compaction (no model call).** Before a command, when the cache is already cold (no request in the last 5 minutes) or the session holds more than 24 commands, the harness folds every command except the last 6 into one text block at the start: per command, the learner's words and its action lines, with the old scene states dropped.
   Folding only while the cache is cold, or at the hard cap, means a fold almost never throws away a warm cache.
+  The block lists only the newest 40 folded commands and says how many older ones it dropped, so it stays small however long the process runs.
   A model-written summary is deferred until an eval case needs one.
 - **Where it lives.** In the harness process's memory only, never on disk.
   A new app launch, or a harness relaunch after a crash, starts an empty session.
