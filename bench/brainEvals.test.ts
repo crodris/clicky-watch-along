@@ -37,6 +37,7 @@ import {
   scoreApprovalCase,
   scoreBrainCase,
   scoreToolCalls,
+  scoreWholeCommand,
   skillInputDescription,
   skillInstructionSentence,
   standInToolResult,
@@ -427,6 +428,58 @@ describe("the tool catalog", () => {
 // ---------- The harness backend ----------
 
 const fixtureCase = (caseId: string) => evalFile.cases.find((brainCase) => brainCase.id === caseId) as BrainCase;
+
+describe("the words an input must hold or omit", () => {
+  const seekCase = fixtureCase("planning-find-seek-pop-out");
+  const wholeCommand = (query: unknown) => [
+    { name: "seek_to_moment", input: { query } },
+    { name: "pop_out", input: {} },
+  ];
+
+  it("passes a query that holds the subject words and none of the framing words, in any wording", () => {
+    assert.equal(scoreWholeCommand(wholeCommand("swim bladder"), seekCase), "pass");
+    assert.equal(scoreWholeCommand(wholeCommand("He explains the Swim Bladder."), seekCase), "pass");
+  });
+
+  it("fails an empty query, a missing query, and a query without every subject word", () => {
+    for (const badQuery of ["", undefined, 5, "bladder", "swim"]) {
+      assert.equal(scoreWholeCommand(wholeCommand(badQuery), seekCase), "wrongInput", String(badQuery));
+    }
+  });
+
+  it("fails a query that repeats the request around the subject", () => {
+    assert.equal(scoreWholeCommand(wholeCommand("swim bladder and pop it out"), seekCase), "wrongInput");
+  });
+
+  it("counts whole words, so a framing word inside another word is not found", () => {
+    assert.equal(scoreWholeCommand(wholeCommand("popular swim bladder outline"), seekCase), "pass");
+  });
+
+  it("scores a first-turn case the same way, and never passes a call whose input is unknown", () => {
+    const firstTurnCase = fixtureCase("video-seek-to-moment");
+    assert.equal(scoreBrainCase([{ name: "seek_to_moment", input: { query: "the swim bladder" } }], firstTurnCase), "pass");
+    assert.equal(scoreBrainCase([{ name: "seek_to_moment", input: { query: "go back to where he explains the swim bladder" } }], firstTurnCase), "wrongInput");
+    assert.equal(scoreBrainCase([{ name: "seek_to_moment", input: {}, inputIsUnknown: true }], firstTurnCase), "wrongInput");
+  });
+
+  it("is checked by the fixture validator: only a tool an accepted answer calls, with lower case words", () => {
+    const validCase: BrainCase = { id: "new-case", context: "video", say: "go to the gills", why: "x", accept: ["seek_to_moment"] };
+    const withCase = (brainCase: BrainCase): BrainEvalFile => ({ ...evalFile, cases: [...evalFile.cases, brainCase] });
+    validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: ["gills"] } } }), toolCatalog);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { pause_video: { query: ["gills"] } } }), toolCatalog), /no accepted answer calls/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputOmits: { seek_to_moment: { query: ["Pop"] } } }), toolCatalog), /not lower case/);
+    assert.throws(() => validateBrainEvals(withCase({ ...validCase, inputContains: { seek_to_moment: { query: [] } } }), toolCatalog), /empty or not lower case/);
+  });
+
+  it("is listed on every case that accepts seek_to_moment, so a wording change that sends the whole request or nothing is caught", () => {
+    const seekCases = evalFile.cases.filter((brainCase) => acceptedAnswersOf(brainCase).flat().includes("seek_to_moment"));
+    assert.ok(seekCases.length >= 5);
+    for (const brainCase of seekCases) {
+      assert.ok((brainCase.inputContains?.seek_to_moment?.query?.length ?? 0) > 0, `${brainCase.id} lists no words its query must hold`);
+      assert.ok((brainCase.inputOmits?.seek_to_moment?.query?.length ?? 0) > 0, `${brainCase.id} lists no words its query must omit`);
+    }
+  });
+});
 // Copied from the format string in harness/brain.go's brainUsageLine, with numbers filled in.
 const brainGoTurnLine = "Brain: turn 2 on claude-haiku-5-5 stopped for tool_use, tokens in 1200, cache read 3400, cache write 56, out 789, 640 ms, calls design_theme,pick_theme_idea";
 

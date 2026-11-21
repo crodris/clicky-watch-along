@@ -273,6 +273,10 @@ A case may also hold `input`, a map from a tool name to the input that tool's ca
 Each listed key must equal the call's value, and `null` means the key must be absent, so `{ "skill": null }` checks that no skill was passed.
 Keys not listed are not checked, and every call of that tool must match.
 A tool named in `input` must be one an accepted answer calls.
+An input the learner's words fill in, such as the `query` of `seek_to_moment`, has no one correct value, so a case checks its words with `inputContains` and `inputOmits`, such as `{ "seek_to_moment": { "query": ["swim", "bladder"] } }`.
+Every listed word must be a whole word of the input (`inputContains`), or must not be one (`inputOmits`), compared in lower case, and every call of that tool must pass.
+`inputContains` fails an empty or missing query, and `inputOmits` fails a query that repeats the whole request, such as "swim bladder and pop it out".
+Both are lists of lower case words, and the tool must be one an accepted answer calls.
 A case about a correction, such as "no, the other way", also holds `recentActions`, the router's recent tool call lines as the app writes them, which only the Worker backend reads, and the same actions as `earlierCommands` for the harness backend.
 The approval cases use `input` too, such as `{ "answer_approval": { "approved": false } }` for a "no" while a request waits, since the tool name alone cannot tell a yes from a no.
 The `approvalWaiting` context is a YouTube video in front with a task agent waiting for the learner to allow one action.
