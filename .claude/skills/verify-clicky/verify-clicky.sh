@@ -47,6 +47,9 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   scroll <points>           Post one real scroll wheel event at the mouse, in pixels, positive to scroll down (a whole number of up to 6 digits).
                             A large value jumps, as dragging a scroll bar to the end does, and several small ones scroll through.
                             Park the mouse over the scroll area first, such as the approval card's summary.
+  menu-icon <status|click>  status prints the app log's line that says where the menu bar icon is and whether macOS shows it.
+                            click clicks the icon through the Debug tool server (debug_click_menu_bar_icon), which opens the panel even when the icon sits
+                            behind the notch, where its window is not in the window list. Needs a running app from app-launch.
   grant                     Open System Settings at Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch
                             launches in Finder, so Chris can turn its switch on or drag that exact app into the list. app-launch says when it is needed.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
@@ -827,6 +830,19 @@ command_scroll() {
   echo "scrolled $points points"
 }
 
+command_menu_icon() {
+  case "$1" in
+    status)
+      grep 'Menu bar icon:' "$(current_run_dir)/app.log" | tail -1 || echo "no Menu bar icon line in the app log yet, the app logs it a second after launch" ;;
+    click)
+      # The status item's window can be missing from CGWindowList beside the notch, so the app clicks its own button.
+      curl -s -X POST http://127.0.0.1:8790/mcp -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"debug_click_menu_bar_icon","arguments":{}}}' >/dev/null \
+        && echo "clicked the menu bar icon" ;;
+    *) echo "menu-icon takes status or click" >&2; exit 1 ;;
+  esac
+}
+
 command_shot() {
   local shot_name="$1"
   local run_dir
@@ -861,6 +877,7 @@ main() {
     app-quit) command_app_quit ;;
     shot) command_shot "${1:?shot name}" ;;
     scroll) command_scroll "${1:?points}" ;;
+    menu-icon) command_menu_icon "${1:?status or click}" ;;
     key) command_key "${1:?key name}" ;;
     grant) command_grant ;;
     cleanup) command_app_quit; command_worker_down ;;

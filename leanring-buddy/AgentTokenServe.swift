@@ -42,6 +42,10 @@ func agentTokenServePlan(
     return .fly(agentTokenServePath(from: cursorPoint, to: slotPoint))
 }
 
+/// How long the still ring a Reduce Motion serve leaves around the new disc stays before it fades. The move's Reduce Motion
+/// form is a fade in at the target that leaves a still ring there (`DS.Move.send.reduceMotionForm`).
+let agentTokenServeStillRingSeconds: TimeInterval = 1
+
 // MARK: - Arc
 
 /// A quadratic bezier arc from the cursor to a slot, shaped like the one the cursor flies when it points at something.

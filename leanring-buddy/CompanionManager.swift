@@ -254,7 +254,15 @@ final class CompanionManager: ObservableObject {
         )
     )
     /// The discs floating beside the notch, one per running agent or waiting result. A click opens the agent list under it.
-    private lazy var agentTokenDockController = AgentTokenDockController(store: backgroundAgentStore, themeSettings: themeSettings) { [weak self] click in
+    private lazy var agentTokenDockController = AgentTokenDockController(
+        store: backgroundAgentStore,
+        themeSettings: themeSettings,
+        menuActions: AgentDiscMenuActions(
+            cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
+            showReadyScene: { [weak self] in self?.startShowingTheReadyBackgroundScene() },
+            hearTaskAnswer: { [weak self] in self?.startSpeakingTheTaskAnswer() }
+        )
+    ) { [weak self] click in
         self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
@@ -3396,7 +3404,9 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            }
         }
     }
 
@@ -3527,6 +3537,8 @@ final class CompanionManager: ObservableObject {
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
     private func syncTheApprovalWaitingState(_ waitingRequests: [HarnessApprovalRequest]) {
         backgroundAgentStore.agentIDsWaitingForApproval = Set(waitingRequests.map(\.taskID))
+        // The oldest request of an agent speaks for it, and the requests arrive oldest first.
+        backgroundAgentStore.approvalCapabilitiesByAgentID = Dictionary(waitingRequests.map { ($0.taskID, $0.capability) }, uniquingKeysWith: { oldestCapability, _ in oldestCapability })
         if let previousChipText = approvalWaitingChipPrimaryText {
             VoiceToolCallChip.shared.hide(ifShowing: previousChipText)
             approvalWaitingChipPrimaryText = nil
@@ -3673,11 +3685,13 @@ final class CompanionManager: ObservableObject {
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
-            VoiceToolCallChip.shared.show(
-                "Couldn't build the \(agentKind.builtThingName)",
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    "Couldn't build the \(agentKind.builtThingName)",
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         }
     }
 
@@ -3983,11 +3997,13 @@ final class CompanionManager: ObservableObject {
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
-            VoiceToolCallChip.shared.show(
-                studyGuideFailureLine(for: error),
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    studyGuideFailureLine(for: error),
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
             return false
         }
     }
@@ -4021,21 +4037,25 @@ final class CompanionManager: ObservableObject {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
                 secondaryChipText = "· opened in a new tab"
             }
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: secondaryChipText,
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: secondaryChipText,
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         case .readyScene:
             themeSettings.shownTheme.sounds.done.play()
             let sceneRisesNow = aReadyBackgroundSceneMayRiseNow
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: sceneRisesNow ? nil : "· say \(agentKind.waitingPhrase)",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
             if sceneRisesNow {
                 startShowingTheReadyBackgroundScene()
             } else {
@@ -4047,13 +4067,22 @@ final class CompanionManager: ObservableObject {
             if let pageURL, let openedChromeTabID = videoQuizSession.openInABackgroundChromeTab(pageURL) {
                 notionPageChromeTabIDsByPageURL[pageURL] = openedChromeTabID
             }
-            VoiceToolCallChip.shared.show(
-                agentKind.finishedChipText,
-                sender: chipSender(forAgent: agentID, kind: agentKind),
-                secondaryChipText: "· say what did you find",
-                secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-            )
+            bringBackTheEndingChip(ofAgent: agentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    agentKind.finishedChipText,
+                    sender: chipSender(forAgent: agentID, kind: agentKind),
+                    secondaryChipText: "· say what did you find",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
         }
+    }
+
+    /// Shows an agent's ending chip after the spark carries it from the agent's disc to the cursor (Bring back), so the chip pops
+    /// where the spark lands. An agent with no disc to leave from shows the chip at once.
+    private func bringBackTheEndingChip(ofAgent agentID: UUID, showTheChip: @escaping () -> Void) {
+        let agentColor = backgroundAgentStore.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary
+        agentTokenDockController.bringBack(agentID: agentID, in: agentColor, showTheChip: showTheChip)
     }
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
@@ -4093,8 +4122,14 @@ final class CompanionManager: ObservableObject {
 
     /// Not listed by tools/list, since it is for screenshots and demo takes, not for the model.
     private static let debugSeedAgentsToolName = "debug_seed_agents"
+    /// Clicks the menu bar icon, as the learner does, since a status item can sit where no script can find its window.
+    private static let debugClickMenuBarIconToolName = "debug_click_menu_bar_icon"
 
     private func runVoiceToolFromTheDebugServer(toolName: String, toolInput: [String: JSONValue]) async -> VoiceToolOutcome {
+        if toolName == Self.debugClickMenuBarIconToolName {
+            NotificationCenter.default.post(name: .clickyClickMenuBarIcon, object: nil)
+            return .changed(state: nil)
+        }
         if toolName == Self.debugSeedAgentsToolName {
             if let kindNames = toolInput["kinds"]?.arrayValue {
                 // Running agents of the kinds named, in order, with no finished or failed ones.
@@ -4107,6 +4142,12 @@ final class CompanionManager: ObservableObject {
                     for seededAgentID in seededAgentIDs {
                         agentTokenDockController.startServingTheToken(of: seededAgentID)
                     }
+                }
+                // "waitingForApproval": true puts the seeded agents in the waiting state the approval desk gives them, so their
+                // discs show the "!" face, the notch, the pulse, and the peek card's capability line.
+                if toolInput["waitingForApproval"]?.boolValue == true {
+                    backgroundAgentStore.agentIDsWaitingForApproval.formUnion(seededAgentIDs)
+                    for seededAgentID in seededAgentIDs { backgroundAgentStore.approvalCapabilitiesByAgentID[seededAgentID] = .sends }
                 }
             } else {
                 seedBackgroundAgentsForScreenshots(runningAgentCount: toolInput["runningAgentCount"]?.numberValue.map { Int(min(max($0, 0), 3)) } ?? 3)
@@ -4130,12 +4171,18 @@ final class CompanionManager: ObservableObject {
         let finishedAgentID = backgroundAgentStore.seedAgentsForScreenshots(runningAgentCount: runningAgentCount)
         // The seeded task's answer waits to be heard like a real one, so its list row's Hear answer button speaks it.
         holdTheTaskAnswerUntilItIsHeard("Karasuno won 2 sets to 1.", forAgent: finishedAgentID)
-        VoiceToolCallChip.shared.show(
-            BackgroundAgentKind.task.finishedChipText,
-            sender: chipSender(forAgent: finishedAgentID, kind: .task),
-            secondaryChipText: "· say what did you find",
-            secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
-        )
+        // The agent is new to the dock, which makes its disc on the next turn of the run loop. A real agent has had its disc
+        // since it started, so this waits for the disc that Bring back leaves from.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
+            bringBackTheEndingChip(ofAgent: finishedAgentID) { [self] in
+                VoiceToolCallChip.shared.show(
+                    BackgroundAgentKind.task.finishedChipText,
+                    sender: chipSender(forAgent: finishedAgentID, kind: .task),
+                    secondaryChipText: "· say what did you find",
+                    secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
+                )
+            }
+        }
     }
     #endif
 
