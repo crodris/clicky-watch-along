@@ -140,8 +140,11 @@ type sessionRun struct {
 	interruptedBefore []string
 	own               []anthropic.MessageParam
 	actionLines       []string
-	// changes is the session's record of applied changes as this command sees it: a copy that the command's own calls
-	// update, which replaces the session's when the command ends, whole or cancelled.
+	// scene is what the command saw on screen, which each change it makes is recorded against (brainundo.go).
+	scene sceneIdentity
+	// changes is the session's record of applied changes as this command sees it, minus the ones that no longer match the
+	// scene (changesThatStillApply): a copy that the command's own calls update, which replaces the session's when the
+	// command ends, whole or cancelled.
 	changes []appliedChange
 }
 
@@ -170,6 +173,7 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 	}
 
 	interruptedBefore := slices.Clone(session.interruptedActionLines)
+	scene := sceneIdentityOf(sceneState)
 	return &sessionRun{
 		session:           session,
 		generation:        session.generation,
@@ -178,7 +182,8 @@ func (session *brainSession) begin(transcript string, sceneState json.RawMessage
 		transcript:        transcript,
 		interruptedBefore: interruptedBefore,
 		own:               []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(brainUserMessageText(transcript, sceneState, interruptedBefore)))},
-		changes:           slices.Clone(session.appliedChanges),
+		scene:             scene,
+		changes:           changesThatStillApply(session.appliedChanges, scene),
 	}
 }
 

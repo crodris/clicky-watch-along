@@ -40,12 +40,112 @@ var undoLastChangeOffer = voiceToolOffer{
 }
 
 // appliedChange is one call that changed what the learner sees: its tool and the exact input the app ran, without the
-// brain's confirmation. A hand-off counts too. No inverse reverses a pop-out, but it stands between "undo that" and an
-// older change, so the older change is not undone by mistake. A lookup changed nothing and a failed call changed nothing,
-// so neither is recorded.
+// brain's confirmation, and the scene the command saw when it ran it (scene). A hand-off counts too. No inverse reverses a
+// pop-out, but it stands between "undo that" and an older change, so the older change is not undone by mistake. A lookup
+// changed nothing and a failed call changed nothing, so neither is recorded.
+//
+// scene is nil only for a change a seeded session implied (bench only), which has no scene state of its own. The next
+// command adopts it as its own scene, so a seeded record is read as one that matches what that command sees.
 type appliedChange struct {
 	tool  toolName
 	input json.RawMessage
+	scene *sceneIdentity
+}
+
+// sceneIdentity is what a change was made to, read from the scene_state JSON the app sends with each voice command. The
+// Escape key and a tab switch change the screen outside the harness, so the record cannot learn of them from its own calls,
+// and an inverse run on a different scene or video would move the wrong thing: it would turn a new pop-out back by an old
+// pop-out's rotation. Each part is a string made of the scene state's own fields, empty when there is nothing on screen:
+//
+//   - page is the scene the page tools act on: the state's "page" (framePopout, landmark, simulation, generated3DScene)
+//     and "sceneNumber", which the app adds and counts up each time a scene starts to show. The number is what tells two
+//     pop-outs of the same video apart, since their page and labels look the same. An app that sends no number leaves
+//     the page name as the identity.
+//   - video is the video the video tools act on: the state's video "title" and "durationSeconds". A different tab means a
+//     different title or length. A title that changes inside one video, such as a notification count in front of it,
+//     reads as a different video, which only costs an undo the harness refuses, never one it runs on the wrong video.
+type sceneIdentity struct {
+	page  string
+	video string
+}
+
+// sceneIdentityOf reads the identity from a command's scene state. A state that is not a JSON object, or a field of the
+// wrong type, reads as nothing on screen.
+func sceneIdentityOf(sceneState json.RawMessage) sceneIdentity {
+	fields, isAnObject := decodedToolInput(sceneState)
+	if !isAnObject {
+		return sceneIdentity{}
+	}
+	var identity sceneIdentity
+	if pageName, hasAPage := fields["page"].(string); hasAPage && pageName != "none" {
+		identity.page = fmt.Sprintf("%s#%v", pageName, fields["sceneNumber"])
+	}
+	if video, hasAVideo := fields["video"].(map[string]any); hasAVideo {
+		identity.video = fmt.Sprintf("%v|%v", video["title"], video["durationSeconds"])
+	}
+	return identity
+}
+
+// changeTarget says which part of the identity a tool's change depends on.
+type changeTarget int
+
+const (
+	// targetsNothingInParticular is every tool not listed below: a hand-off, an answered approval, a theme change. Such a
+	// change stands between "undo that" and an older change for as long as the record keeps it, and never goes stale by
+	// itself, because it is what changes the scene or the video.
+	targetsNothingInParticular changeTarget = iota
+	// targetsThePage is a camera, cutaway, or simulation change, which belongs to the scene on screen.
+	targetsThePage
+	// targetsTheVideo is a seek, pause, or speed change, which belongs to the video in front.
+	targetsTheVideo
+)
+
+var changeTargets = map[toolName]changeTarget{
+	"rotate_model":    targetsThePage,
+	"zoom":            targetsThePage,
+	"zoom_to_part":    targetsThePage,
+	"reset_view":      targetsThePage,
+	"explode_view":    targetsThePage,
+	"set_inside_view": targetsThePage,
+	"set_labels":      targetsThePage,
+	"set_control":     targetsThePage,
+	"run_simulation":  targetsThePage,
+	"pause_video":     targetsTheVideo,
+	"play_video":      targetsTheVideo,
+	"seek_relative":   targetsTheVideo,
+	"seek_to_time":    targetsTheVideo,
+	"set_speed":       targetsTheVideo,
+}
+
+// isStale is true when the scene or video the change was made to is not the one the command sees.
+func (change appliedChange) isStale(current sceneIdentity) bool {
+	switch changeTargets[change.tool] {
+	case targetsThePage:
+		return change.scene.page != current.page
+	case targetsTheVideo:
+		return change.scene.video != current.video
+	default:
+		return false
+	}
+}
+
+// changesThatStillApply is the record a command reads: the changes up to the newest stale one. That change and every
+// change older than it are dropped for good, since the newest thing the learner did is gone from the screen, so "undo
+// that" has no target in the record, and an older change must not take its place. A seeded change with no scene takes the
+// current one.
+func changesThatStillApply(recordedNewestFirst []appliedChange, current sceneIdentity) []appliedChange {
+	kept := make([]appliedChange, 0, len(recordedNewestFirst))
+	for _, change := range recordedNewestFirst {
+		if change.scene == nil {
+			adopted := current
+			change.scene = &adopted
+		}
+		if change.isStale(current) {
+			break
+		}
+		kept = append(kept, change)
+	}
+	return kept
 }
 
 // inverseCall is the call that reverses a change.
@@ -183,8 +283,11 @@ func inverseIsACallWithNoInput(pairedTool toolName) inverseBuilder {
 	}
 }
 
-// noteChange puts a change at the front of the run's record and drops the oldest past the limit.
+// noteChange puts a change at the front of the run's record, made to the scene the command saw, and drops the oldest past
+// the limit.
 func (run *sessionRun) noteChange(change appliedChange) {
+	sceneSeen := run.scene
+	change.scene = &sceneSeen
 	run.changes = slices.Insert(run.changes, 0, change)
 	if len(run.changes) > mostAppliedChangesKept {
 		run.changes = run.changes[:mostAppliedChangesKept]

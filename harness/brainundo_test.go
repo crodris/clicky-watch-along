@@ -834,6 +834,202 @@ func TestAWaitThatSeesAQueuedInverseResultAndACancelRemovesTheChangeAndKeepsTheL
 	}
 }
 
+// ---- Which scene and video a change was made to ----
+
+// Scene states as the app sends them: popOutScene(n) is the nth scene to show, a pop-out.
+func popOutScene(sceneNumber int) string {
+	return fmt.Sprintf(`{"page":"framePopout","sceneNumber":%d,"yawDegrees":10,"labels":["heart","valve"]}`, sceneNumber)
+}
+
+func videoInFront(title string, durationSeconds int) string {
+	return fmt.Sprintf(`{"page":"none","video":{"title":%q,"durationSeconds":%d,"seconds":30,"paused":false}}`, title, durationSeconds)
+}
+
+// undoIsOfferedTo is whether a command that began with this run offers undo_last_change, when the app offers every tool.
+func undoIsOfferedTo(run *sessionRun) bool {
+	allTools := []voiceToolOffer{{Name: "rotate_model"}, {Name: "zoom"}, {Name: "seek_relative"}, {Name: "pause_video"}, {Name: "play_video"}}
+	return slices.ContainsFunc(withTheUndoOffer(allTools, run), func(offer voiceToolOffer) bool { return offer.Name == string(undoLastChangeTool) })
+}
+
+// beginsInAndMakes begins a command in a scene state, runs each call as a change that worked, and commits.
+func beginsInAndMakes(session *brainSession, sceneState string, calls ...toolCall) {
+	run := session.begin("do it", json.RawMessage(sceneState))
+	for _, call := range calls {
+		run.noteFinishedCall(call, voiceToolChanged, `{"ok":true}`, false)
+	}
+	run.commit()
+}
+
+var (
+	turnLeft  = toolCall{Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":-45}`)}
+	zoomIn    = toolCall{Name: "zoom", Input: json.RawMessage(`{"factor":2}`)}
+	seekAhead = toolCall{Name: "seek_relative", Input: json.RawMessage(`{"seconds":10}`)}
+	popOut    = toolCall{Name: "pop_out", Input: json.RawMessage(`{}`)}
+)
+
+func TestTheIdentityOfASceneStateNamesThePageAndTheVideoAndNothingElse(t *testing.T) {
+	samePop := sceneIdentityOf(json.RawMessage(popOutScene(3)))
+	if moved := sceneIdentityOf(json.RawMessage(`{"page":"framePopout","sceneNumber":3,"yawDegrees":99,"labels":[],"video":null}`)); moved.page != samePop.page {
+		t.Errorf("a camera move changed the page identity: %q then %q", samePop.page, moved.page)
+	}
+	if next := sceneIdentityOf(json.RawMessage(popOutScene(4))); next.page == samePop.page {
+		t.Errorf("two pop-outs with the same page name and labels share the identity %q", next.page)
+	}
+	for _, nothingOnScreen := range []string{`{}`, `{"page":"none"}`, `null`, `[]`, `not json`, `{"page":7,"video":"x"}`} {
+		if identity := sceneIdentityOf(json.RawMessage(nothingOnScreen)); identity != (sceneIdentity{}) {
+			t.Errorf("%s read as %+v, want nothing on screen", nothingOnScreen, identity)
+		}
+	}
+	first, second := sceneIdentityOf(json.RawMessage(videoInFront("Sharks", 612))), sceneIdentityOf(json.RawMessage(videoInFront("Sharks", 700)))
+	if first.video == "" || first.video == second.video {
+		t.Errorf("videos of different lengths read as %q and %q", first.video, second.video)
+	}
+	if first.page != "" {
+		t.Errorf("a video with no scene read as page %q", first.page)
+	}
+}
+
+func TestAChangeOnSceneAIsNotOfferedOnceTheSceneIsB(t *testing.T) {
+	for name, nextScene := range map[string]string{
+		"a new pop-out of the same video": popOutScene(2),
+		"a different kind of page":        `{"page":"landmark","sceneNumber":2}`,
+		"no scene at all":                 `{"page":"none"}`,
+	} {
+		session, _ := newTestSession()
+		beginsInAndMakes(session, popOutScene(1), turnLeft)
+		run := session.begin("undo that", json.RawMessage(nextScene))
+		if undoIsOfferedTo(run) || len(run.changes) != 0 {
+			t.Errorf("%s: the turn on scene 1 was still offered, record %v", name, run.changes)
+		}
+	}
+}
+
+func TestASeekOnVideoAIsNotOfferedOnVideoB(t *testing.T) {
+	for name, nextState := range map[string]string{
+		"another title":  videoInFront("Whales", 612),
+		"another length": videoInFront("Sharks", 700),
+		"no video":       `{"page":"none"}`,
+	} {
+		session, _ := newTestSession()
+		beginsInAndMakes(session, videoInFront("Sharks", 612), seekAhead)
+		run := session.begin("undo that", json.RawMessage(nextState))
+		if undoIsOfferedTo(run) || len(run.changes) != 0 {
+			t.Errorf("%s: the seek on the first video was still offered, record %v", name, run.changes)
+		}
+	}
+}
+
+func TestTheSameSceneAndVideoKeepTheRecordWhateverElseTheirStateSays(t *testing.T) {
+	session, _ := newTestSession()
+	inScene := `{"page":"framePopout","sceneNumber":5,"yawDegrees":0,"video":{"title":"Sharks","durationSeconds":612,"seconds":10}}`
+	beginsInAndMakes(session, inScene, zoomIn, seekAhead)
+
+	movedOn := `{"page":"framePopout","sceneNumber":5,"yawDegrees":40,"zoom":0.6,"labels":["fin"],"video":{"title":"Sharks","durationSeconds":612,"seconds":300,"paused":true}}`
+	run := session.begin("undo that", json.RawMessage(movedOn))
+	if !undoIsOfferedTo(run) || len(run.changes) != 2 {
+		t.Errorf("the same scene and video lost the record: %v", run.changes)
+	}
+}
+
+func TestAStaleChangeIsDroppedForGoodSoItNeitherBlocksNorComesBack(t *testing.T) {
+	session, _ := newTestSession()
+	beginsInAndMakes(session, popOutScene(1), turnLeft)
+
+	// The scene changed, and a command ran in it. The turn is gone from the record, not just hidden.
+	other := session.begin("what is this?", json.RawMessage(popOutScene(2)))
+	other.commit()
+	// Even when the learner is back in a scene with the first one's identity, the turn does not return.
+	back := session.begin("undo that", json.RawMessage(popOutScene(1)))
+	if len(back.changes) != 0 || undoIsOfferedTo(back) {
+		t.Errorf("a dropped change came back: %v", back.changes)
+	}
+	// And it does not block a change made in the new scene.
+	beginsInAndMakes(session, popOutScene(2), zoomIn)
+	if run := session.begin("undo that", json.RawMessage(popOutScene(2))); !undoIsOfferedTo(run) || run.changes[0].tool != "zoom" {
+		t.Errorf("the change in the new scene was not the newest: %v", run.changes)
+	}
+}
+
+func TestAStaleNewestChangeTakesTheOlderOnesWithIt(t *testing.T) {
+	// A pop-out's camera change is newest and a seek is older, and the scene closes. "Undo that" must not reach the seek.
+	session, _ := newTestSession()
+	both := `{"page":"framePopout","sceneNumber":1,"video":{"title":"Sharks","durationSeconds":612}}`
+	beginsInAndMakes(session, both, seekAhead)
+	beginsInAndMakes(session, both, turnLeft)
+	run := session.begin("undo that", json.RawMessage(videoInFront("Sharks", 612)))
+	if undoIsOfferedTo(run) || len(run.changes) != 0 {
+		t.Errorf("an older seek was offered after the newer turn's scene closed: %v", run.changes)
+	}
+
+	// A stale change that is older than a valid one only drops itself: the turn stays.
+	session, _ = newTestSession()
+	beginsInAndMakes(session, both, seekAhead)
+	beginsInAndMakes(session, both, turnLeft)
+	run = session.begin("undo that", json.RawMessage(`{"page":"framePopout","sceneNumber":1,"video":{"title":"Whales","durationSeconds":90}}`))
+	if len(run.changes) != 1 || run.changes[0].tool != "rotate_model" || !undoIsOfferedTo(run) {
+		t.Errorf("the turn did not survive a tab switch that only the seek was stale for: %v", run.changes)
+	}
+}
+
+func TestAHandOffNeverGoesStaleAndKeepsStandingBetweenUndoAndOlderChanges(t *testing.T) {
+	session, _ := newTestSession()
+	beginsInAndMakes(session, popOutScene(1), turnLeft)
+	beginsInAndMakes(session, popOutScene(1), popOut)
+	// The pop-out changed the scene, so the next command sees a new one. The turn behind the pop-out is stale and goes, the
+	// pop-out stays as the newest change, and it has no inverse.
+	run := session.begin("undo that", json.RawMessage(popOutScene(2)))
+	if len(run.changes) != 1 || run.changes[0].tool != "pop_out" || undoIsOfferedTo(run) {
+		t.Errorf("the record after the pop-out was %v, offered undo: %v", run.changes, undoIsOfferedTo(run))
+	}
+}
+
+func TestASeededChangeTakesTheSceneOfTheFirstCommandThatReadsIt(t *testing.T) {
+	session, _ := newTestSession()
+	if err := session.seed(nil, []string{`rotate_model {"yawDegrees":90} -> ok`}); err != nil {
+		t.Fatal(err)
+	}
+	first := session.begin("undo that", json.RawMessage(popOutScene(7)))
+	if !undoIsOfferedTo(first) {
+		t.Fatalf("a seeded change was not offered in the first command: %v", first.changes)
+	}
+	first.commit()
+	// The seed's scene is now scene 7, so a new scene drops it like any other change.
+	if second := session.begin("undo that", json.RawMessage(popOutScene(8))); undoIsOfferedTo(second) {
+		t.Errorf("a seeded change survived a scene change: %v", second.changes)
+	}
+}
+
+func TestUndoFollowsTheSceneTheChangeWasMadeInWhenTheAppSendsEachCommand(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	commandIn := func(commandID string, transcript string, sceneState string) string {
+		return fmt.Sprintf(`{"type":"voice_command","taskID":%q,"transcript":%q,"sceneState":%s,"tools":%s}`, commandID, transcript, sceneState, undoTestTools)
+	}
+	driver.send(commandIn("command-1", "turn it left", popOutScene(1)))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+	// The learner pressed Escape and a new pop-out of the same video opened, outside the harness.
+	driver.send(commandIn("command-2", "what is this?", popOutScene(2)))
+	driver.expectLine("voice_command_finished")
+	// The same scene as the turn would have offered it.
+	driver.send(commandIn("command-3", "turn it left", popOutScene(2)))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-3", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+	driver.send(commandIn("command-4", "what is this?", popOutScene(2)))
+	driver.expectLine("voice_command_finished")
+
+	requests := worker.requests()
+	for requestIndex, wantOffer := range []bool{false, false, false, true} {
+		if got := offersUndo(t, requests[requestIndex].body); got != wantOffer {
+			t.Errorf("command %d offered undo_last_change: %v, want %v", requestIndex+1, got, wantOffer)
+		}
+	}
+}
+
 // ---- Bench mode ----
 
 func TestASeededSessionOffersUndoForTheInterruptedTurnAndResetForgetsIt(t *testing.T) {
