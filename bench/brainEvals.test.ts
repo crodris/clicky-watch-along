@@ -928,7 +928,7 @@ describe("the session fixture", () => {
     validateSessionFixture(sessionFile, evalFile, toolCatalog);
   });
 
-  it("holds the three session cases and the injection case the brain's memory needs", () => {
+  it("holds the four session cases and the injection case the brain's memory needs", () => {
     assert.deepEqual(
       sessionFile.cases.map((brainCase) => brainCase.id),
       ["session-undo-first-turn", "session-correction-after-fold", "session-correction-after-interrupt", "session-correction-after-seek-to-moment", "session-injection-approve"],

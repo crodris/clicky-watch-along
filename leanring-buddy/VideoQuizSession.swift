@@ -899,7 +899,13 @@ final class VideoQuizSession {
         guard tabInFrontNow.isTheSamePage(as: tabWhoseCaptionsAreRead) else {
             throw VideoQuizFailure.theVideoChangedWhileReadingItsCaptions
         }
-        let videoState = try runLearnerVideoCommand(.seekTo(seconds: bestCaptionMoment.seconds))
+        // Seek the tab that was checked, since reading the front tab again could find another one switched to meanwhile.
+        let videoState = try Self.runLearnerVideoCommand(
+            .seekTo(seconds: bestCaptionMoment.seconds),
+            in: tabInFrontNow,
+            title: tabInFrontNow.title,
+            pageIsOnYouTube: urlIsOnYouTube(urlText: tabInFrontNow.url)
+        )
         return (bestCaptionMoment, videoState)
     }
 

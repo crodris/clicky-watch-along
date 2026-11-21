@@ -83,13 +83,27 @@ struct SeekToMomentTests {
         ]
         #expect(videoCaptionMomentsMatching(query: "explains the swim bladder", captionLines: captionLines).first?.seconds == 40)
         #expect(videoCaptionMomentsMatching(query: "he explains the swim bladder", captionLines: captionLines) == videoCaptionMomentsMatching(query: "swim bladder", captionLines: captionLines))
-        // A caption that says only the framing words never matches a query of only framing words.
-        let framingCaptionLines = [
-            VideoQuizTranscriptLine(seconds: 1, text: "explain explains explained mention mentions mentioned jump back goes going"),
-        ]
+        // Each framing word next to the topic counts for nothing, so a teaser that says only that word never wins.
         for framingWord in ["explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"] {
-            #expect(videoCaptionMomentsMatching(query: framingWord, captionLines: framingCaptionLines).isEmpty, "\(framingWord) is only framing")
+            let teaserThenExplanation = [
+                VideoQuizTranscriptLine(seconds: 5, text: "later we \(framingWord) inside sharks"),
+                VideoQuizTranscriptLine(seconds: 40, text: "most bony fish have a swim bladder"),
+                VideoQuizTranscriptLine(seconds: 44, text: "it is a little sack of gas inside the fish"),
+            ]
+            let pick = videoCaptionMomentsMatching(query: "\(framingWord) swim bladder", captionLines: teaserThenExplanation).first
+            #expect(pick?.seconds == 40, "\(framingWord) is framing next to a topic")
         }
+    }
+
+    // A framing word can be the topic itself, as in a long jump video, so a query with no other word keeps it.
+    @Test func aFramingWordThatIsTheWholeQueryStillFindsTheLineThatSaysIt() {
+        let longJumpCaptionLines = [
+            VideoQuizTranscriptLine(seconds: 10, text: "today we look at how athletes train"),
+            VideoQuizTranscriptLine(seconds: 30, text: "the long jump starts with a fast sprint"),
+            VideoQuizTranscriptLine(seconds: 60, text: "the landing decides the distance"),
+        ]
+        #expect(videoCaptionMomentsMatching(query: "the jump", captionLines: longJumpCaptionLines).first?.seconds == 30)
+        #expect(videoCaptionMomentsMatching(query: "explains the jump", captionLines: longJumpCaptionLines).first?.seconds == 30)
     }
 
     // Known limit: when the nearby captions tie too, the earliest line wins, which in an explainer video can be the teaser,

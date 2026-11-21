@@ -1082,13 +1082,18 @@ nonisolated let secondsAroundALineThatBreakATie: Double = 30
 /// say the query's words, since an explanation repeats its terms across nearby lines and an intro teaser does not.
 /// Only when that ties too does the earliest line come first.
 nonisolated func videoCaptionMomentsMatching(query: String, captionLines: [VideoQuizTranscriptLine], limit: Int = 3) -> [VideoCaptionMoment] {
-    let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says", "explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"]
+    let wordsThatSayNothing: Set<String> = ["the", "and", "for", "that", "this", "with", "where", "when", "what", "they", "was", "are", "about", "part", "talk", "talks", "said", "says"]
+    // Words from how the learner framed the request, as in "go back to where she explains the crater". They are dropped
+    // from the query only while other words are left, since "jump" or "back" can be the topic itself, as in "the jump".
+    let framingWordsOfTheRequest: Set<String> = ["explain", "explains", "explained", "mention", "mentions", "mentioned", "jump", "back", "goes", "going"]
     func words(in text: String) -> Set<String> {
         Set(text.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count > 2 && !wordsThatSayNothing.contains($0) })
     }
-    let queryWords = words(in: query)
+    let queryWordsWithTheFraming = words(in: query)
+    let queryWordsWithoutTheFraming = queryWordsWithTheFraming.subtracting(framingWordsOfTheRequest)
+    let queryWords = queryWordsWithoutTheFraming.isEmpty ? queryWordsWithTheFraming : queryWordsWithoutTheFraming
     guard !queryWords.isEmpty else { return [] }
     struct ScoredMoment {
         let score: Int
