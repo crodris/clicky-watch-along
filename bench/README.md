@@ -117,7 +117,8 @@ The Worker backend scores every `tool_use` block of the reply.
 The harness backend would see fewer calls if it read only the `tool_call` lines, because the harness sends none after a hand-off and none to a tool the command was not offered.
 So the harness's `Brain: turn` line ends with `calls <names>`, the names of every tool the turn called in order, or `calls none`, and the bench scores the first turn from those names.
 A call with a `tool_call` line keeps its input.
-A name with no `tool_call` line is scored as a call with no known input, so `[design_theme, pick_theme_idea]` is a wrong tool on both backends, and a hidden call fails a case that checks that tool's `input`.
+A name with no `tool_call` line is scored as a call with no known input, so `[design_theme, pick_theme_idea]` is a wrong tool on both backends for a case that does not accept it, and a hidden call fails a case that checks that tool's `input`.
+A call after a hand-off tool never runs, so its `input` is not checked on either backend, and only its name counts (`callsThatRan`).
 The line holds names only, since a call's input can hold the learner's words.
 A harness that writes the older line with no `calls` field reads as a command with no turns, which the bench records as an error.
 The harness backend adds a second set of numbers for the whole command:
@@ -244,8 +245,10 @@ The two rows marked "after" come from `results/seek-to-moment-brain-evals-a1b20c
 The `seek_to_moment` change is measured in `results/seek-before-brain-evals-a1b20c9711fa.json` (before), `results/seek-after5-brain-evals-a1b20c9711fa.json` (5 runs of the cases it changes), and `results/seek-to-moment-brain-evals-a1b20c9711fa.json` (the full parity run).
 The review fixes are measured in `results/seek-fixes-brain-evals-30873937aaa4.json` (the planning cases, 3 runs, 18 of 18 on the six cases that carry `seek_to_moment`, `find_moment`, or the failed seek), `results/seek-fixes-parity-brain-evals-30873937aaa4.json` (the full parity run, which failed the gate at 181 of 183 on `theme-refine-sound` and `theme-refine-use-picture`), and `results/seek-fixes-theme-check-brain-evals-30873937aaa4.json` (those two cases, 5 runs).
 `theme-refine-sound` fails 1 to 2 of 5 harness runs on the commit before the fixes too, while the Worker backend passes it, so it is not caused by them.
-The cause was the case, not the harness: for "one, but with a softer sound" Haiku 5.5 sometimes also calls `pick_theme_idea` for the number, before or after `design_theme`, which is harmless (a design hands off, so a pick after it never runs).
-A 10 run check on 2026-11-21 saw it once on each backend (`theme-refine-sound` on the harness, `theme-refine-cursor-shape` on the Worker), and `theme-refine-sound` and `theme-refine-cursor-shape` now accept the design with or without a pick of the same idea (`results/theme-refine-before-brain-evals-e44553854e1f.json`, `results/theme-refine-after-brain-evals-e44553854e1f.json`, 20 of 20 on each backend after).
+The cause was the case, not the harness: for "one, but with a softer sound" Haiku 5.5 sometimes also calls `pick_theme_idea` for the number, before or after `design_theme`.
+A pick before the design is harmless (it moves the highlight and the cursor preview to that idea), and a pick after it never runs, because a design hands off.
+A 10 run check on 2026-11-21 saw the extra pick once on each backend (`theme-refine-sound` on the harness, `theme-refine-cursor-shape` on the Worker), and `theme-refine-sound` and `theme-refine-cursor-shape` now accept the design with or without a pick of the same idea (`results/theme-refine-before-brain-evals-e44553854e1f.json`, `results/theme-refine-after-brain-evals-e44553854e1f.json`, 20 of 20 on each backend after).
+The harness still scored a recorded design then pick as `wrongInput`, because the pick never reached the app and its input read as unknown, so a call after a hand-off is no longer input checked, and `results/theme-refine-fixed-brain-evals-22149d9cf191.json` (10 runs, 20 of 20 on each backend, with one harness run that called the design then a pick) measures it.
 The first wording of the `seek_to_moment` description after the fixes ("not a particular mention") sent "the last time he mentions the liver" to `seek_to_moment` first and failed `planning-find-last-mention` 0 of 3, so the description says it cannot pick the first, the last, or another particular mention.
 
 ### What each score means

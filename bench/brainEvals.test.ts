@@ -1183,6 +1183,34 @@ describe("a number with a change on the Theme Studio card", () => {
     }
   });
 
+  it("passes the design then a pick as the harness records it, since a pick after a hand-off never runs", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      // The recorded flake: the harness sent a tool_call line for the design only, so the pick is known by its name.
+      const { record } = replay(brainCase, [
+        [turn1Line("design_theme,pick_theme_idea"), 410],
+        [toolCallLine("call-1", "design_theme", { request: "x", basedOnIdea: ideaNumber }, 0), 412],
+        [finishedLine(""), 430],
+      ]);
+
+      assert.deepEqual(firstTurnToolCalls(record).at(-1), { name: "pick_theme_idea", input: {}, inputIsUnknown: true });
+      assert.equal(sampleFromHarnessRecord(brainCase, 0, record).outcome, "pass", brainCase.id);
+    }
+  });
+
+  it("still checks the input of a call that ran before the hand-off, and the name of one after it", () => {
+    for (const brainCase of refineCases) {
+      const ideaNumber = ideaNumberOf(brainCase);
+      const otherIdeaNumber = ideaNumber === 1 ? 3 : 1;
+      const hiddenPick = { name: "pick_theme_idea", input: {}, inputIsUnknown: true };
+      const design = { name: "design_theme", input: { request: "x", basedOnIdea: ideaNumber } };
+      assert.equal(scoreBrainCase([design, hiddenPick], brainCase), "pass", brainCase.id);
+      assert.equal(scoreBrainCase([hiddenPick, design], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([{ ...design, input: { request: "x", basedOnIdea: otherIdeaNumber } }, hiddenPick], brainCase), "wrongInput", brainCase.id);
+      assert.equal(scoreBrainCase([design, { name: "pause_video", input: {}, inputIsUnknown: true }], brainCase), "wrongTool", brainCase.id);
+    }
+  });
+
   it("fails a pick of another idea, a pick alone, and a design of another idea", () => {
     for (const brainCase of refineCases) {
       const ideaNumber = ideaNumberOf(brainCase);

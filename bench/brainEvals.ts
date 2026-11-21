@@ -460,7 +460,8 @@ export type Outcome =
 
 /**
  * One tool call. `inputIsUnknown` marks a call the harness backend knows only by its name, from the turn's log line: the app
- * never saw it, because a hand-off ended the turn before it or the brain refused it, so a case's input check cannot pass it.
+ * never saw it, because a hand-off ended the turn before it or the brain refused it. A refused call fails a case's input check
+ * for its tool. A call after a hand-off is not checked, since it never ran (`callsThatRan`).
  */
 export type ToolCall = { name: string; input: Record<string, unknown>; inputIsUnknown?: boolean };
 
@@ -503,10 +504,21 @@ function inputMatches(callInput: Record<string, unknown>, expectedInput: Record<
   );
 }
 
-/** Whether every call of each listed tool holds that tool's expected input. A call with an unknown input never does. */
+/**
+ * The calls that ran. A hand-off ends the command, so a call after one, in the same turn or a later one, never runs: the app
+ * answers `Not run` and the harness never sends it, which is why the harness backend knows it only by name. Its name still
+ * counts for the tool set, and its input is not checked on either backend, since a call that never ran changes nothing.
+ */
+function callsThatRan(toolCalls: ToolCall[]): ToolCall[] {
+  const handOffPosition = toolCalls.findIndex((toolCall) => handOffToolNames.has(toolCall.name));
+  return handOffPosition === -1 ? toolCalls : toolCalls.slice(0, handOffPosition + 1);
+}
+
+/** Whether every call that ran, of each listed tool, holds that tool's expected input. A call with an unknown input never does. */
 function everyCallHoldsExpectedInput(toolCalls: ToolCall[], expectedInputByToolName: Record<string, Record<string, unknown>>): boolean {
+  const callsThatRanInOrder = callsThatRan(toolCalls);
   return Object.entries(expectedInputByToolName).every(([toolName, expectedInput]) =>
-    toolCalls.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
+    callsThatRanInOrder.filter((toolCall) => toolCall.name === toolName).every((toolCall) => toolCall.inputIsUnknown !== true && inputMatches(toolCall.input, expectedInput)),
   );
 }
 
@@ -941,7 +953,7 @@ export class HarnessCommandRecorder {
  * The first turn's calls as the Worker backend would score them. The turn's log line names every call the model made,
  * in order, but the app hears only the calls the harness sent as `tool_call` lines: it sends none after a hand-off and
  * none to a tool the command was not offered. A name with no `tool_call` line is a call with no known input, which still
- * counts as a wrong or spurious tool, and fails a case that checks that tool's input, as the Worker would score the call.
+ * counts as a wrong or spurious tool. It fails a case that checks that tool's input, unless it follows a hand-off and never ran.
  */
 export function firstTurnToolCalls(record: HarnessCommandRecord): ToolCall[] {
   return toolCallsOfTurn(record, 0);
