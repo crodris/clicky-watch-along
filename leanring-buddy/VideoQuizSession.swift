@@ -752,6 +752,13 @@ final class VideoQuizSession {
     /// and holds it paused for the pop-out. Clearing the pop-out resumes the video, as for a pop-out the learner asked for.
     func goBackToTheMissedQuestion(_ missedQuestion: VideoQuizMissedQuestion) -> GoingBackToAMissedQuestion {
         guard let quizVideoTab = currentVideoTab else { return .couldNotGoBack }
+        // The go-back takes over Clicky's one pause, whether or not it finds the quiz video. A video it held paused on another
+        // tab stays paused, since pressing play on it could play two videos at once, and Clicky forgets that pause, as it does
+        // a learner's.
+        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: quizVideoTab) {
+            videoPausedByClicky = nil
+            print("Video quiz: let go of the pause it held on another tab, which stays paused")
+        }
         // The learner may have closed the tab or moved it to another video since the quiz ended, and seeking that one
         // to the old time would lift the old frame over a different video.
         guard (try? ChromeVideoTab.bringTabForward(tabID: quizVideoTab.tabId)) == true,
@@ -759,12 +766,6 @@ final class VideoQuizSession {
               frontVideoTab.isTheSamePage(as: quizVideoTab) else {
             print("Video quiz: the quiz video is no longer in its tab, so it cannot go back to \(missedQuestion.timestampText)")
             return .couldNotGoBack
-        }
-        // The go-back takes over Clicky's one pause. A video it held paused on another tab stays paused behind the quiz tab,
-        // since pressing play on it would play two videos at once, and Clicky forgets that pause, as it does a learner's.
-        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: quizVideoTab) {
-            videoPausedByClicky = nil
-            print("Video quiz: let go of the pause it held on another tab, which stays paused behind the quiz video")
         }
         guard var framePopout = questionPopoutsByAskedSeconds[missedQuestion.askedAtSeconds] else {
             do {

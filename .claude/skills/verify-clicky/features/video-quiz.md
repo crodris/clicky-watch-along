@@ -14,7 +14,7 @@ Saying "stop the quiz" ends it.
 - `quiz-stop` stops on "stop the quiz", "stop watching", or "can we stop".
   During a question it clears the pop-out first, and the video plays once the pop-out has landed in its frame.
 - `quiz-skip` skips the current question on Escape, which `$V key escape` sends.
-- `quiz-summary` shows a Card over the video when the quiz ends with a question finished: the score and each missed or skipped question with its timestamp. A click on a question goes back to it and shows its pop-out again, or plays from 10 seconds before a question asked by voice alone. When the quiz video is no longer in its tab, Clicky says "Sorry, I couldn't go back to that question."
+- `quiz-summary` shows a Card over the video when the quiz ends with a question finished: the score and each missed or skipped question with its timestamp. A click on a question goes back to it and shows its pop-out again, or plays from 10 seconds before a question asked by voice alone. When the quiz video is no longer in its tab, Clicky says "Sorry, I couldn't go back to that question." A video Clicky held paused on another tab, such as under a pop-out there, stays paused, and the log says `Video quiz: let go of the pause it held on another tab, which stays paused`.
 
 ## How to get to it (user POV)
 

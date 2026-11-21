@@ -2691,8 +2691,6 @@ final class CompanionManager: ObservableObject {
         case .playsFromBeforeIt:
             return
         case .couldNotGoBack:
-            // No scene follows, so a pause the cleared or cancelled scene held on the tab in front is let go here.
-            videoQuizSession.resumeVideoAfterRequestedScene()
             currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
             return
         }
