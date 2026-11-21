@@ -404,6 +404,15 @@
       "accept": [
         "find_moment"
       ],
+      "toolResults": {
+        "find_moment": {
+          "outcome": "lookedUp",
+          "result": [
+            { "seconds": 98.4, "captions": "so the swim bladder is a gas filled organ that sharks simply do not have" },
+            { "seconds": 131.2, "captions": "bony fish use the swim bladder to hover at any depth" }
+          ]
+        }
+      },
       "why": "A lookup, since the router cannot know the time without the captions."
     },
     {
