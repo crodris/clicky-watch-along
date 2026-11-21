@@ -258,6 +258,7 @@
 				"$(SRCROOT)/harness/brain.go",
 				"$(SRCROOT)/harness/brainloop.go",
 				"$(SRCROOT)/harness/brainsession.go",
+				"$(SRCROOT)/harness/brainundo.go",
 				"$(SRCROOT)/harness/go.mod",
 				"$(SRCROOT)/harness/go.sum",
 				"$(SRCROOT)/harness/loop.go",

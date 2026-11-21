@@ -1,0 +1,861 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"math"
+	"net/http"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/anthropics/anthropic-sdk-go"
+)
+
+// ---- The inverse table ----
+
+func inverseOf(tool toolName, inputJSON string) (inverseCall, bool) {
+	return appliedChange{tool: tool, input: json.RawMessage(inputJSON)}.inverse()
+}
+
+func TestEachChangeInTheInverseTableHasTheCallThatReversesItsOwnInput(t *testing.T) {
+	cases := []struct {
+		name        string
+		tool        toolName
+		input       string
+		wantTool    toolName
+		wantInput   string
+		wantInverse bool
+	}{
+		{name: "a left turn turns right", tool: "rotate_model", input: `{"yawDegrees":-45}`, wantTool: "rotate_model", wantInput: `{"yawDegrees":45}`, wantInverse: true},
+		{name: "a turn that also tilted tilts back", tool: "rotate_model", input: `{"yawDegrees":90,"pitchDegrees":30}`, wantTool: "rotate_model", wantInput: `{"pitchDegrees":-30,"yawDegrees":-90}`, wantInverse: true},
+		{name: "a tilt alone with no turn", tool: "rotate_model", input: `{"yawDegrees":0,"pitchDegrees":30}`, wantTool: "rotate_model", wantInput: `{"pitchDegrees":-30,"yawDegrees":0}`, wantInverse: true},
+		{name: "a turn of zero writes 0 and never -0", tool: "rotate_model", input: `{"yawDegrees":0}`, wantTool: "rotate_model", wantInput: `{"yawDegrees":0}`, wantInverse: true},
+		{name: "a turn past the page's limit reverses by the same amount, which clamps the same way", tool: "rotate_model", input: `{"yawDegrees":400}`, wantTool: "rotate_model", wantInput: `{"yawDegrees":-400}`, wantInverse: true},
+		{name: "a zoom in by 2 zooms out by a half", tool: "zoom", input: `{"factor":2}`, wantTool: "zoom", wantInput: `{"factor":0.5}`, wantInverse: true},
+		{name: "a zoom out by a half zooms in by 2", tool: "zoom", input: `{"factor":0.5}`, wantTool: "zoom", wantInput: `{"factor":2}`, wantInverse: true},
+		{name: "a zoom in by 1.3 zooms by its reciprocal", tool: "zoom", input: `{"factor":1.3}`, wantTool: "zoom", wantInput: `{"factor":0.7692307692307692}`, wantInverse: true},
+		{name: "a zoom past the page's limit reverses what the page applied, which is 3", tool: "zoom", input: `{"factor":5}`, wantTool: "zoom", wantInput: `{"factor":0.3333333333333333}`, wantInverse: true},
+		{name: "a zoom out by a third is the farthest a single call can reverse", tool: "zoom", input: `{"factor":0.3333333333333333}`, wantTool: "zoom", wantInput: `{"factor":3}`, wantInverse: true},
+		{name: "a zoom out past a third has an inverse bigger than one call can make", tool: "zoom", input: `{"factor":0.3}`},
+		{name: "a zoom that failed on a factor of zero has none", tool: "zoom", input: `{"factor":0}`},
+		{name: "a skip ahead skips back", tool: "seek_relative", input: `{"seconds":30}`, wantTool: "seek_relative", wantInput: `{"seconds":-30}`, wantInverse: true},
+		{name: "a skip back skips ahead", tool: "seek_relative", input: `{"seconds":-10.5}`, wantTool: "seek_relative", wantInput: `{"seconds":10.5}`, wantInverse: true},
+		{name: "showing labels hides them", tool: "set_labels", input: `{"visible":true}`, wantTool: "set_labels", wantInput: `{"visible":false}`, wantInverse: true},
+		{name: "hiding labels shows them", tool: "set_labels", input: `{"visible":false}`, wantTool: "set_labels", wantInput: `{"visible":true}`, wantInverse: true},
+		{name: "opening the cutaway closes it", tool: "set_inside_view", input: `{"open":true}`, wantTool: "set_inside_view", wantInput: `{"open":false}`, wantInverse: true},
+		{name: "closing the cutaway opens it", tool: "set_inside_view", input: `{"open":false}`, wantTool: "set_inside_view", wantInput: `{"open":true}`, wantInverse: true},
+		{name: "a pause plays", tool: "pause_video", input: `{}`, wantTool: "play_video", wantInput: `{}`, wantInverse: true},
+		{name: "a play pauses", tool: "play_video", input: `{}`, wantTool: "pause_video", wantInput: `{}`, wantInverse: true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			inverse, hasAnInverse := inverseOf(testCase.tool, testCase.input)
+			if hasAnInverse != testCase.wantInverse {
+				t.Fatalf("has an inverse: got %v, want %v (inverse %s %s)", hasAnInverse, testCase.wantInverse, inverse.tool, inverse.input)
+			}
+			if !hasAnInverse {
+				return
+			}
+			if inverse.tool != testCase.wantTool || string(inverse.input) != testCase.wantInput {
+				t.Errorf("inverse of %s %s:\n got %s %s\nwant %s %s", testCase.tool, testCase.input, inverse.tool, inverse.input, testCase.wantTool, testCase.wantInput)
+			}
+		})
+	}
+}
+
+// A change and its inverse undo each other: the inverse of the inverse is the change, for every tool with a numeric or
+// boolean input. The floats are compared with a tolerance, since 1 / (1 / 1.3) is not exactly 1.3.
+func TestTheInverseOfAnInverseIsTheChangeItself(t *testing.T) {
+	changes := []appliedChange{
+		{tool: "rotate_model", input: json.RawMessage(`{"yawDegrees":-45,"pitchDegrees":12.5}`)},
+		{tool: "zoom", input: json.RawMessage(`{"factor":1.3}`)},
+		{tool: "zoom", input: json.RawMessage(`{"factor":0.77}`)},
+		{tool: "seek_relative", input: json.RawMessage(`{"seconds":-30}`)},
+		{tool: "set_labels", input: json.RawMessage(`{"visible":true}`)},
+		{tool: "set_inside_view", input: json.RawMessage(`{"open":false}`)},
+		{tool: "pause_video", input: json.RawMessage(`{}`)},
+		{tool: "play_video", input: json.RawMessage(`{}`)},
+	}
+	for _, change := range changes {
+		inverse, found := change.inverse()
+		if !found {
+			t.Fatalf("%s %s has no inverse", change.tool, change.input)
+		}
+		backAgain, found := appliedChange{tool: inverse.tool, input: inverse.input}.inverse()
+		if !found {
+			t.Fatalf("the inverse %s %s has no inverse", inverse.tool, inverse.input)
+		}
+		if backAgain.tool != change.tool || !jsonNumbersAreClose(t, string(backAgain.input), string(change.input)) {
+			t.Errorf("%s %s came back as %s %s", change.tool, change.input, backAgain.tool, backAgain.input)
+		}
+	}
+}
+
+func jsonNumbersAreClose(t *testing.T, gotJSON string, wantJSON string) bool {
+	t.Helper()
+	var got, want map[string]any
+	if json.Unmarshal([]byte(gotJSON), &got) != nil || json.Unmarshal([]byte(wantJSON), &want) != nil || len(got) != len(want) {
+		return false
+	}
+	for key, wantValue := range want {
+		gotNumber, gotIsANumber := got[key].(float64)
+		wantNumber, wantIsANumber := wantValue.(float64)
+		if gotIsANumber != wantIsANumber || (gotIsANumber && math.Abs(gotNumber-wantNumber) > 1e-9) || (!gotIsANumber && got[key] != wantValue) {
+			return false
+		}
+	}
+	return true
+}
+
+// Each of these is left out of the table, because its inverse needs state the input does not hold or has no opposite.
+func TestAToolWhoseInverseNeedsStateItsInputLacksHasNoInverse(t *testing.T) {
+	for _, change := range []appliedChange{
+		{tool: "explode_view", input: json.RawMessage(`{"amount":1}`)},
+		{tool: "set_speed", input: json.RawMessage(`{"rate":2}`)},
+		{tool: "seek_to_time", input: json.RawMessage(`{"seconds":95}`)},
+		{tool: "zoom_to_part", input: json.RawMessage(`{"label":"piston"}`)},
+		{tool: "reset_view", input: json.RawMessage(`{}`)},
+		{tool: "set_control", input: json.RawMessage(`{"name":"angle","value":45}`)},
+		{tool: "run_simulation", input: json.RawMessage(`{}`)},
+		{tool: "close_scene", input: json.RawMessage(`{}`)},
+		{tool: "pop_out", input: json.RawMessage(`{}`)},
+		{tool: "answer_approval", input: json.RawMessage(`{"approved":true}`)},
+	} {
+		if inverse, hasAnInverse := change.inverse(); hasAnInverse {
+			t.Errorf("%s has an inverse, %s %s, though its input does not say what it replaced", change.tool, inverse.tool, inverse.input)
+		}
+	}
+}
+
+// An input the page would treat differently from the number or boolean the inverse assumes has no inverse, so a
+// malformed recorded call never produces a guess.
+func TestAnInputThatIsNotWhatTheInverseNeedsHasNoInverse(t *testing.T) {
+	for _, badChange := range []appliedChange{
+		{tool: "rotate_model", input: json.RawMessage(`{"yawDegrees":"45"}`)},
+		{tool: "rotate_model", input: json.RawMessage(`{"pitchDegrees":30}`)},
+		{tool: "rotate_model", input: json.RawMessage(`{"yawDegrees":45,"pitchDegrees":null}`)},
+		{tool: "rotate_model", input: json.RawMessage(`{"yawDegrees":1e999}`)},
+		{tool: "zoom", input: json.RawMessage(`{"factor":"2"}`)},
+		{tool: "seek_relative", input: json.RawMessage(`{}`)},
+		{tool: "set_labels", input: json.RawMessage(`{"visible":"true"}`)},
+		{tool: "set_labels", input: json.RawMessage(`{}`)},
+		{tool: "set_inside_view", input: json.RawMessage(`{"open":1}`)},
+		{tool: "rotate_model", input: json.RawMessage(`[1]`)},
+		{tool: "rotate_model", input: json.RawMessage(`not json`)},
+	} {
+		if inverse, hasAnInverse := badChange.inverse(); hasAnInverse {
+			t.Errorf("%s %s has the inverse %s %s", badChange.tool, badChange.input, inverse.tool, inverse.input)
+		}
+	}
+}
+
+// ---- The record ----
+
+func TestTheRecordKeepsTheNewestChangesFirstAndDropsTheOldestPastTheLimit(t *testing.T) {
+	session, _ := newTestSession()
+	run := session.begin("turn it", json.RawMessage(`{}`))
+	for changeNumber := 1; changeNumber <= mostAppliedChangesKept+3; changeNumber++ {
+		run.noteChange(appliedChange{tool: "seek_relative", input: mustMarshal(map[string]any{"seconds": changeNumber})})
+	}
+	run.commit()
+
+	next := session.begin("undo that", json.RawMessage(`{}`))
+	if len(next.changes) != mostAppliedChangesKept {
+		t.Fatalf("the record holds %d changes, want %d", len(next.changes), mostAppliedChangesKept)
+	}
+	if got, want := string(next.changes[0].input), fmt.Sprintf(`{"seconds":%d}`, mostAppliedChangesKept+3); got != want {
+		t.Errorf("the newest change is %s, want %s", got, want)
+	}
+	if got, want := string(next.changes[len(next.changes)-1].input), `{"seconds":4}`; got != want {
+		t.Errorf("the oldest change kept is %s, want %s", got, want)
+	}
+}
+
+func TestACancelledCommandStillAddsItsFinishedCallsToTheRecordAndAFailedCallAddsNothing(t *testing.T) {
+	session, _ := newTestSession()
+	run := session.begin("turn and zoom", json.RawMessage(`{}`))
+	run.noteFinishedCall(toolCall{ID: "a", Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":45,"confirmation":"turned"}`)}, voiceToolChanged, `{"ok":true}`, false)
+	run.noteFinishedCall(toolCall{ID: "b", Name: "zoom", Input: json.RawMessage(`{"factor":2}`)}, voiceToolFailed, `{"ok":false,"error":"still loading"}`, false)
+	run.noteFinishedCall(toolCall{ID: "c", Name: "find_moment", Input: json.RawMessage(`{"query":"x"}`)}, voiceToolLookedUp, `{"ok":true}`, false)
+	run.abandon()
+
+	next := session.begin("undo that", json.RawMessage(`{}`))
+	if len(next.changes) != 1 || next.changes[0].tool != "rotate_model" || string(next.changes[0].input) != `{"yawDegrees":45}` {
+		t.Errorf("the record after the cancel was %v, want the one rotate_model call with no confirmation", next.changes)
+	}
+}
+
+func TestAnUndoThatChangedTheScreenRemovesTheChangeItReversedAndRecordsNothingOfItsOwn(t *testing.T) {
+	session, _ := newTestSession()
+	first := session.begin("zoom in", json.RawMessage(`{}`))
+	first.noteFinishedCall(toolCall{Name: "zoom", Input: json.RawMessage(`{"factor":2}`)}, voiceToolChanged, `{"ok":true}`, false)
+	first.noteFinishedCall(toolCall{Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":45}`)}, voiceToolChanged, `{"ok":true}`, false)
+	first.commit()
+
+	undo := session.begin("undo that", json.RawMessage(`{}`))
+	undo.noteFinishedCall(toolCall{Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":-45}`)}, voiceToolChanged, `{"ok":true}`, true)
+	if len(undo.changes) != 1 || undo.changes[0].tool != "zoom" {
+		t.Fatalf("after the undo the newest change should be the zoom, got %v", undo.changes)
+	}
+	if want := []string{`rotate_model {"yawDegrees":-45} -> ok`}; !slices.Equal(undo.actionLines, want) {
+		t.Errorf("the undo's action line is the inverse call that ran: got %q, want %q", undo.actionLines, want)
+	}
+	undo.commit()
+
+	if next := session.begin("again", json.RawMessage(`{}`)); len(next.changes) != 1 || next.changes[0].tool != "zoom" {
+		t.Errorf("the committed record is %v, want only the zoom", next.changes)
+	}
+}
+
+func TestAnUndoThatFailedLeavesTheChangeToUndoAgain(t *testing.T) {
+	session, _ := newTestSession()
+	first := session.begin("turn", json.RawMessage(`{}`))
+	first.noteFinishedCall(toolCall{Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":45}`)}, voiceToolChanged, `{"ok":true}`, false)
+	first.commit()
+
+	undo := session.begin("undo that", json.RawMessage(`{}`))
+	undo.noteFinishedCall(toolCall{Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":-45}`)}, voiceToolFailed, `{"ok":false,"error":"still loading"}`, true)
+	undo.commit()
+
+	if next := session.begin("again", json.RawMessage(`{}`)); len(next.changes) != 1 || next.changes[0].tool != "rotate_model" {
+		t.Errorf("a failed undo changed the record: %v", next.changes)
+	}
+}
+
+func TestAResetClearsTheRecordAndACommandThatBeganBeforeItWritesNothingBack(t *testing.T) {
+	session, _ := newTestSession()
+	run := session.begin("turn", json.RawMessage(`{}`))
+	run.noteFinishedCall(toolCall{Name: "rotate_model", Input: json.RawMessage(`{"yawDegrees":45}`)}, voiceToolChanged, `{"ok":true}`, false)
+	session.reset()
+	run.commit()
+
+	if next := session.begin("undo that", json.RawMessage(`{}`)); len(next.changes) != 0 {
+		t.Errorf("the record after a reset held %v", next.changes)
+	}
+}
+
+// ---- A seeded session ----
+
+func seededMessagesOfCalls(calls ...[3]string) []anthropic.MessageParam {
+	// Each call is {id, name, inputJSON}. Every command is one user message, one assistant turn, and one result message.
+	var messages []anthropic.MessageParam
+	for commandIndex, call := range calls {
+		var input map[string]any
+		_ = json.Unmarshal([]byte(call[2]), &input)
+		input["confirmation"] = "done"
+		messages = append(messages,
+			anthropic.NewUserMessage(anthropic.NewTextBlock(fmt.Sprintf("<learner_words>command %d</learner_words>", commandIndex+1))),
+			anthropic.NewAssistantMessage(anthropic.NewToolUseBlock(call[0], input, call[1])),
+			anthropic.NewUserMessage(anthropic.NewToolResultBlock(call[0], `{"ok":true,"state":null}`, false)),
+		)
+	}
+	return messages
+}
+
+func TestASeededSessionStartsWithTheRecordItsMessagesAndInterruptedLinesImply(t *testing.T) {
+	session, _ := newTestSession()
+	messages := seededMessagesOfCalls(
+		[3]string{"toolu_1", "zoom", `{"factor":1.3}`},
+		[3]string{"toolu_2", "rotate_model", `{"yawDegrees":-45}`},
+	)
+	// A call whose result was an error changed nothing.
+	messages = append(messages,
+		anthropic.NewUserMessage(anthropic.NewTextBlock("<learner_words>command 3</learner_words>")),
+		anthropic.NewAssistantMessage(anthropic.NewToolUseBlock("toolu_3", map[string]any{"factor": 2}, "zoom")),
+		anthropic.NewUserMessage(anthropic.NewToolResultBlock("toolu_3", `{"ok":false}`, true)),
+	)
+	if err := session.seed(messages, []string{`rotate_model {"yawDegrees":90} -> ok`, `zoom {"factor":9} -> failed: still loading`}); err != nil {
+		t.Fatal(err)
+	}
+
+	changes := session.begin("undo that", json.RawMessage(`{}`)).changes
+	var got []string
+	for _, change := range changes {
+		got = append(got, string(change.tool)+" "+string(change.input))
+	}
+	// Newest first: the interrupted turn, then the messages' calls from the newest, with no confirmation and no failed call.
+	want := []string{`rotate_model {"yawDegrees":90}`, `rotate_model {"yawDegrees":-45}`, `zoom {"factor":1.3}`}
+	if !slices.Equal(got, want) {
+		t.Errorf("the seeded record:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestAnActionLineReadsBackIntoTheCallItDescribes(t *testing.T) {
+	change, callDidNotFail := appliedChangeOfActionLine(`rotate_model {"yawDegrees":90,"pitchDegrees":-5} -> ok`)
+	if !callDidNotFail || change.tool != "rotate_model" || string(change.input) != `{"yawDegrees":90,"pitchDegrees":-5}` {
+		t.Errorf("read %s %s (%v)", change.tool, change.input, callDidNotFail)
+	}
+	// The input is read as one JSON value, so text with an arrow in it does not end it early.
+	change, callDidNotFail = appliedChangeOfActionLine(`find_moment {"query":"a -> ok"} -> ok`)
+	if !callDidNotFail || string(change.input) != `{"query":"a -> ok"}` {
+		t.Errorf("an arrow inside a string ended the input early: %s (%v)", change.input, callDidNotFail)
+	}
+	for _, unreadable := range []string{
+		`zoom {"factor":9} -> failed: still loading`,
+		`zoom {"factor":9}`,
+		`zoom`,
+		`zoom not-json -> ok`,
+		`zoom {"factor":9} -> ok and then some`,
+		``,
+	} {
+		if change, callDidNotFail := appliedChangeOfActionLine(unreadable); callDidNotFail {
+			t.Errorf("%q was read as %s %s", unreadable, change.tool, change.input)
+		}
+	}
+}
+
+// ---- Which tools are offered ----
+
+// undoTestTools are the tools a command offers in these tests, in the app's wire shape.
+const undoTestTools = `[` +
+	`{"name":"rotate_model","description":"Turns the model.","inputSchema":{"properties":{"yawDegrees":{"type":"number"},"pitchDegrees":{"type":"number"}},"required":["yawDegrees"],"type":"object"},"readOnly":false},` +
+	`{"name":"zoom","description":"Zooms.","inputSchema":{"properties":{"factor":{"type":"number"}},"required":["factor"],"type":"object"},"readOnly":false},` +
+	`{"name":"explode_view","description":"Pulls the parts apart.","inputSchema":{"properties":{"amount":{"type":"number"}},"required":["amount"],"type":"object"},"readOnly":false},` +
+	`{"name":"pause_video","description":"Pauses.","inputSchema":{"properties":{},"type":"object"},"readOnly":false},` +
+	`{"name":"play_video","description":"Plays.","inputSchema":{"properties":{},"type":"object"},"readOnly":false},` +
+	`{"name":"find_moment","description":"Finds a moment.","inputSchema":{"properties":{"query":{"type":"string"}},"required":["query"],"type":"object"},"readOnly":true},` +
+	`{"name":"pop_out","description":"Pops out.","inputSchema":{"properties":{},"type":"object"},"readOnly":false}` +
+	`]`
+
+func voiceCommandLineWithTools(commandID string, transcript string, toolsJSON string) string {
+	return fmt.Sprintf(`{"type":"voice_command","taskID":%q,"transcript":%q,"sceneState":{"page":"framePopout"},"tools":%s}`, commandID, transcript, toolsJSON)
+}
+
+func undoCommandLine(commandID string, transcript string) string {
+	return voiceCommandLineWithTools(commandID, transcript, undoTestTools)
+}
+
+func offersUndo(t *testing.T, requestBody map[string]any) bool {
+	t.Helper()
+	return slices.Contains(offeredToolNamesOf(t, requestBody), string(undoLastChangeTool))
+}
+
+// A fake Worker that answers by what the learner just said, so a test reads as a script of commands.
+func workerThatAnswersByWords(t *testing.T, answers map[string][]string) *fakeWorker {
+	t.Helper()
+	return newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, _ int) {
+		learnerWords := lastUserText(t, recorded.body)
+		for words, blocks := range answers {
+			if strings.Contains(learnerWords, "<learner_words>"+words+"</learner_words>") {
+				writeBrainReply(writer, "tool_use", blocks...)
+				return
+			}
+		}
+		writeBrainReply(writer, "end_turn", `{"type":"text","text":"Okay."}`)
+	})
+}
+
+func TestUndoIsOfferedOnlyWhileTheNewestChangeHasAnInverseTheCommandOffers(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned it"}`)},
+		"explode it":   {brainToolUse("toolu_explode", "explode_view", `{"amount":1,"confirmation":"pulled it apart"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	runCommand := func(commandID string, transcript string, toolUseID string, result string) {
+		driver.send(undoCommandLine(commandID, transcript))
+		if toolUseID != "" {
+			driver.expectLine("tool_call")
+			driver.send(voiceToolResultLine(commandID, toolUseID, voiceToolChanged, result))
+		}
+		driver.expectLine("voice_command_finished")
+	}
+
+	// No change yet.
+	runCommand("command-1", "what is this?", "", "")
+	// A left turn has an inverse, and rotate_model is offered.
+	runCommand("command-2", "turn it left", "toolu_turn", `{"ok":true,"state":null}`)
+	// An explode has none, so it stands between "undo that" and the turn.
+	runCommand("command-3", "explode it", "toolu_explode", `{"ok":true,"state":null}`)
+	runCommand("command-4", "what is this?", "", "")
+
+	// The commands carry the record as it was when each began, so command 3 is the only one whose record has the turn on top.
+	wantOffers := []bool{false, false, true, false}
+	requests := worker.requests()
+	if len(requests) != 4 {
+		t.Fatalf("the Worker got %d requests, want 4", len(requests))
+	}
+	for requestIndex, wantOffer := range wantOffers {
+		if got := offersUndo(t, requests[requestIndex].body); got != wantOffer {
+			t.Errorf("command %d offered undo_last_change: %v, want %v (tools %v)", requestIndex+1, got, wantOffer, offeredToolNamesOf(t, requests[requestIndex].body))
+		}
+	}
+	// It comes last, so the app's own tools keep their positions.
+	if names := offeredToolNamesOf(t, requests[2].body); names[len(names)-1] != string(undoLastChangeTool) || len(names) != 8 {
+		t.Errorf("command 3's tools were %v, want the app's 7 and undo_last_change last", names)
+	}
+}
+
+func TestUndoIsNotOfferedWhenTheToolThatReversesTheChangeIsNotOffered(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned it"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true,"state":null}`))
+	driver.expectLine("voice_command_finished")
+
+	// The scene closed meanwhile, so the app no longer offers rotate_model.
+	driver.send(voiceCommandLineWithTools("command-2", "what is this?", `[{"name":"zoom","description":"Zooms.","inputSchema":{"properties":{"factor":{"type":"number"}},"required":["factor"],"type":"object"},"readOnly":false}]`))
+	driver.expectLine("voice_command_finished")
+
+	if offersUndo(t, worker.requests()[1].body) {
+		t.Errorf("undo_last_change was offered with no rotate_model to reverse the turn: %v", offeredToolNamesOf(t, worker.requests()[1].body))
+	}
+}
+
+func TestAnAppToolNamedUndoLastChangeIsDroppedSinceTheHarnessOwnsThatName(t *testing.T) {
+	session, _ := newTestSession()
+	run := session.begin("undo that", json.RawMessage(`{}`))
+	appOffers := []voiceToolOffer{{Name: "undo_last_change", Description: "The app's own."}, {Name: "zoom"}}
+
+	for _, offer := range withTheUndoOffer(appOffers, run) {
+		if offer.Name == "undo_last_change" {
+			t.Errorf("an app tool called undo_last_change reached the model: %s", offer.Description)
+		}
+	}
+}
+
+func TestUndoLastChangeHasTheSameDescriptionInEveryCommand(t *testing.T) {
+	session, _ := newTestSession()
+	run := session.begin("turn", json.RawMessage(`{}`))
+	run.noteChange(appliedChange{tool: "rotate_model", input: json.RawMessage(`{"yawDegrees":45}`)})
+	offers := withTheUndoOffer([]voiceToolOffer{{Name: "rotate_model"}}, run)
+
+	// A description that named the change would change with every command and throw away the cached tool list.
+	if last := offers[len(offers)-1]; last.Description != undoLastChangeOffer.Description || strings.Contains(last.Description, "45") {
+		t.Errorf("the offer's description changed with the change: %s", last.Description)
+	}
+	if undoLastChangeOffer.ReadOnly {
+		t.Error("undo_last_change changes the screen, so it is not read only and needs a confirmation")
+	}
+}
+
+// ---- The call ----
+
+func TestUndoLastChangeReachesTheAppAsTheInverseOfTheNewestChangeAndItsConfirmationIsSpoken(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"pitchDegrees":10,"confirmation":"turned it left"}`)},
+		"undo that":    {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true,"state":{"yawDegrees":-45}}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "undo that"))
+	// The app gets the opposite of the turn as an ordinary call, under the model's ID plus a suffix, from turn 0.
+	if got, want := driver.expectLine("tool_call"), `{"type":"tool_call","taskID":"command-2","toolUseID":"toolu_undo-undo","name":"rotate_model","input":{"pitchDegrees":-10,"yawDegrees":45},"turnIndex":0}`; got != want {
+		t.Fatalf("the inverse call:\n got %s\nwant %s", got, want)
+	}
+	driver.send(voiceToolResultLine("command-2", "toolu_undo-undo", voiceToolChanged, `{"ok":true,"state":{"yawDegrees":0}}`))
+	if got, want := driver.expectLine("voice_command_finished"), `{"type":"voice_command_finished","taskID":"command-2","spokenLine":"undid it","gaveUp":false}`; got != want {
+		t.Fatalf("finished:\n got %s\nwant %s", got, want)
+	}
+	// The log names the model's call, and never the inverse's input.
+	if !driver.logsContainLineEndingWith("Brain: turn 1 ", " ms, calls undo_last_change") {
+		t.Errorf("the turn line did not name the model's call: %v", driver.logs)
+	}
+
+	// The same change cannot be undone twice: the third command's tools no longer hold undo_last_change, and the session
+	// shows the model the undo's tool_use under its own ID with a result that says what ran.
+	driver.send(undoCommandLine("command-3", "what is this?"))
+	driver.expectLine("voice_command_finished")
+	third := worker.requests()[2].body
+	if offersUndo(t, third) {
+		t.Errorf("the undone change is offered for undo again: %v", offeredToolNamesOf(t, third))
+	}
+	requestText := string(mustMarshal(third))
+	for _, want := range []string{`"id":"toolu_undo"`, `"name":"undo_last_change"`, `"tool_use_id":"toolu_undo"`, `Undid the newest change by running rotate_model {\"pitchDegrees\":-10,\"yawDegrees\":45}. The app said:`} {
+		if !strings.Contains(requestText, want) {
+			t.Errorf("the next request lacks %s: %s", want, requestText)
+		}
+	}
+	if strings.Contains(requestText, `toolu_undo-undo`) {
+		t.Errorf("the inverse call's own ID leaked into the model's history: %s", requestText)
+	}
+	everyToolUseHasItsResult(t, third)
+}
+
+func TestUndoRevealsTheChangeBeforeIt(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"zoom in":      {brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed"}`)},
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"undo that":    {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	for step, command := range []struct{ words, toolUseID string }{{"zoom in", "toolu_zoom"}, {"turn it left", "toolu_turn"}} {
+		commandID := fmt.Sprintf("command-%d", step+1)
+		driver.send(undoCommandLine(commandID, command.words))
+		driver.expectLine("tool_call")
+		driver.send(voiceToolResultLine(commandID, command.toolUseID, voiceToolChanged, `{"ok":true}`))
+		driver.expectLine("voice_command_finished")
+	}
+
+	// The first undo turns back, and the second reaches the zoom: the stack is popped once per undo.
+	driver.send(undoCommandLine("command-3", "undo that"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"name":"rotate_model","input":{"yawDegrees":45}`) {
+		t.Fatalf("the first undo was %s", got)
+	}
+	driver.send(voiceToolResultLine("command-3", "toolu_undo-undo", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+	driver.send(undoCommandLine("command-4", "undo that"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"name":"zoom","input":{"factor":0.5}`) {
+		t.Fatalf("the second undo was %s", got)
+	}
+	driver.send(voiceToolResultLine("command-4", "toolu_undo-undo", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	// Nothing is left to undo.
+	driver.send(undoCommandLine("command-5", "what is this?"))
+	driver.expectLine("voice_command_finished")
+	requests := worker.requests()
+	if offersUndo(t, requests[len(requests)-1].body) {
+		t.Errorf("undo_last_change was offered after both changes were undone")
+	}
+}
+
+func TestACommandThatDidNotOfferUndoRefusesACallToItWithoutAskingTheApp(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		if requestNumber == 1 {
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`))
+			return
+		}
+		writeBrainReply(writer, "end_turn", `{"type":"text","text":"There is nothing to undo."}`)
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	driver.send(undoCommandLine("command-1", "undo that"))
+	if got, want := driver.expectLine("voice_command_finished"), `{"type":"voice_command_finished","taskID":"command-1","spokenLine":"There is nothing to undo.","gaveUp":false}`; got != want {
+		t.Fatalf("finished:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestAnUndoFollowedByAnotherCallRunsBothInOrderAndTheSecondChangeIsTheNewest(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left":       {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"undo that and zoom": {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`), brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed in"}`)},
+		"undo that":          {brainToolUse("toolu_undo_again", "undo_last_change", `{"confirmation":"undid it"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "undo that and zoom"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"toolUseID":"toolu_undo-undo","name":"rotate_model","input":{"yawDegrees":45}`) {
+		t.Fatalf("the first call was %s", got)
+	}
+	driver.send(voiceToolResultLine("command-2", "toolu_undo-undo", voiceToolChanged, `{"ok":true}`))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"toolUseID":"toolu_zoom","name":"zoom","input":{"factor":2}`) {
+		t.Fatalf("the second call was %s", got)
+	}
+	driver.send(voiceToolResultLine("command-2", "toolu_zoom", voiceToolChanged, `{"ok":true}`))
+	if got := driver.expectLine("voice_command_finished"); !strings.Contains(got, `"spokenLine":"undid it zoomed in"`) {
+		t.Fatalf("finished: %s", got)
+	}
+
+	// The turn is gone from the record and the zoom is the newest change.
+	driver.send(undoCommandLine("command-3", "undo that"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"name":"zoom","input":{"factor":0.5}`) {
+		t.Fatalf("the next undo should reverse the zoom, got %s", got)
+	}
+}
+
+// ---- Failures, cancels, and hand-offs ----
+
+func TestAnInverseThatFailedGoesBackToTheModelAndLeavesTheChangeToUndoAgain(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`))
+		case 2:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`))
+		case 3:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"The scene is still loading."}`)
+		default:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_undo_again", "undo_last_change", `{"confirmation":"undid it"}`))
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "undo that"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_undo-undo", voiceToolFailed, `{"ok":false,"error":"The scene is still loading","state":null}`))
+	if got := driver.expectLine("voice_command_finished"); !strings.Contains(got, `"spokenLine":"The scene is still loading."`) {
+		t.Fatalf("finished: %s", got)
+	}
+	// The model read the failure under its own call's ID, as an error.
+	failedResult := jsonValueAt(t, worker.requests()[2].body, "messages", 4, "content", 0)
+	if jsonValueAt(t, failedResult, "tool_use_id") != "toolu_undo" || jsonValueAt(t, failedResult, "is_error") != true {
+		t.Errorf("the failed undo's result was %v", failedResult)
+	}
+
+	driver.send(undoCommandLine("command-3", "undo that"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"name":"rotate_model","input":{"yawDegrees":45}`) {
+		t.Fatalf("the change was not offered again after a failed undo: %s", got)
+	}
+}
+
+func TestAHandOffStandsBetweenUndoAndAnOlderChange(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"pop it out":   {brainToolUse("toolu_pop", "pop_out", `{"confirmation":"popping it out"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+	driver.send(undoCommandLine("command-2", "pop it out"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_pop", voiceToolHandedOff, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-3", "undo that"))
+	driver.expectLine("voice_command_finished")
+
+	requests := worker.requests()
+	if !offersUndo(t, requests[1].body) {
+		t.Errorf("undo_last_change was not offered before the pop-out")
+	}
+	if offersUndo(t, requests[2].body) {
+		t.Errorf("undo_last_change was offered behind a pop-out, so it would turn the model back past it: %v", offeredToolNamesOf(t, requests[2].body))
+	}
+}
+
+func TestALookupAndAFailedCallChangeNothingSoTheEarlierChangeStaysTheNewest(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`))
+		case 2:
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_find", "find_moment", `{"query":"engine"}`),
+				brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed"}`))
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"It did not work."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "find the engine and zoom"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_find", voiceToolLookedUp, `{"ok":true,"result":[]}`))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_zoom", voiceToolFailed, `{"ok":false,"error":"still loading"}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-3", "what is this?"))
+	driver.expectLine("voice_command_finished")
+	if !offersUndo(t, worker.requests()[3].body) {
+		t.Errorf("a lookup and a failed call hid the turn from undo: %v", offeredToolNamesOf(t, worker.requests()[3].body))
+	}
+}
+
+// The newest change can change inside one command. This turn calls explode_view, which has no inverse, and then
+// undo_last_change, which was offered because the turn on top of the record at the start was a rotate. The undo must fail
+// and turn nothing back, since the explode is now the newest change.
+func TestAnUndoAfterAnExplodeInTheSameCommandFailsAndNeverReachesTheApp(t *testing.T) {
+	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, _ recordedRequest, requestNumber int) {
+		switch requestNumber {
+		case 1:
+			writeBrainReply(writer, "tool_use", brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`))
+		case 2:
+			writeBrainReply(writer, "tool_use",
+				brainToolUse("toolu_explode", "explode_view", `{"amount":1,"confirmation":"pulled it apart"}`),
+				brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`))
+		default:
+			writeBrainReply(writer, "end_turn", `{"type":"text","text":"I can't undo that exactly."}`)
+		}
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(undoCommandLine("command-2", "explode it and undo that"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-2", "toolu_explode", voiceToolChanged, `{"ok":true}`))
+	// The next line is the end: the undo was refused here, with no tool_call for the inverse of the turn.
+	if got := driver.expectLine("voice_command_finished"); !strings.Contains(got, `"spokenLine":"I can't undo that exactly."`) {
+		t.Fatalf("finished: %s", got)
+	}
+	refusal := jsonValueAt(t, worker.requests()[2].body, "messages", 4, "content", 1)
+	if jsonValueAt(t, refusal, "tool_use_id") != "toolu_undo" || jsonValueAt(t, refusal, "is_error") != true {
+		t.Errorf("the refused undo's result was %v", refusal)
+	}
+}
+
+// An answered approval changes what the learner sees and has no inverse, so it stands between "undo that" and an older
+// change, as a hand-off does.
+func TestAnAnsweredApprovalStandsBetweenUndoAndAnOlderChange(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left": {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"yes":          {brainToolUse("toolu_yes", "answer_approval", `{"approved":true,"always":false,"confirmation":"allowed it"}`)},
+	})
+	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, appSecret: "test-secret", benchMode: true})
+	driver.send(voiceCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(seedApprovalRequestLine("approval-waiting", "sends"))
+	driver.send(approvalVoiceCommandLine("command-2", "yes", "approval-waiting"))
+	driver.expectLine("voice_command_finished")
+	driver.send(voiceCommandLine("command-3", "undo that"))
+	driver.expectLine("voice_command_finished")
+
+	requests := worker.requests()
+	if !slices.Contains(offeredToolNamesOf(t, requests[1].body), "answer_approval") {
+		t.Fatal("the approval was not answered by a voice command, so this test checks nothing")
+	}
+	if offersUndo(t, requests[2].body) {
+		t.Errorf("undo_last_change was offered behind an answered approval: %v", offeredToolNamesOf(t, requests[2].body))
+	}
+}
+
+// A finished call and a cancel in the app's order (the result, then cancel_task) leave the call's change in the record, so
+// "undo that" after the interrupted command reverses it. The turn has a second call, so the command cannot finish first.
+func TestAnInterruptedCommandsFinishedCallCanBeUndone(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn and zoom": {
+			brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":90,"confirmation":"turned"}`),
+			brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed"}`),
+		},
+		"undo that": {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+
+	for run := 1; run <= 20; run++ {
+		cancelledID := fmt.Sprintf("command-%d-cancelled", run)
+		driver.send(undoCommandLine(cancelledID, "turn and zoom"))
+		driver.expectLine("tool_call")
+		driver.send(voiceToolResultLine(cancelledID, "toolu_turn", voiceToolChanged, `{"ok":true}`) + "\n" + cancelTaskLine(cancelledID))
+
+		undoID := fmt.Sprintf("command-%d-undo", run)
+		driver.send(undoCommandLine(undoID, "undo that"))
+		line := driver.expectLineContaining(`"taskID":"` + undoID + `","toolUseID":"toolu_undo-undo"`)
+		if !strings.Contains(line, `"name":"rotate_model","input":{"yawDegrees":-90}`) {
+			t.Fatalf("run %d: the undo after an interrupted turn was %s", run, line)
+		}
+		driver.send(voiceToolResultLine(undoID, "toolu_undo-undo", voiceToolChanged, `{"ok":true}`))
+		driver.expectLineContaining(`"type":"voice_command_finished","taskID":"` + undoID + `"`)
+		// Undone once, and the zoom the cancel cut off never ran, so nothing is left.
+		requests := worker.requests()
+		if lastRequest := requests[len(requests)-1].body; !offersUndo(t, lastRequest) {
+			t.Fatalf("run %d: the undo was not offered after the interrupted command: %v", run, offeredToolNamesOf(t, lastRequest))
+		}
+		driver.send(undoCommandLine(fmt.Sprintf("command-%d-after", run), "what is this?"))
+		driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-` + fmt.Sprint(run) + `-after"`)
+		requests = worker.requests()
+		if offersUndo(t, requests[len(requests)-1].body) {
+			t.Fatalf("run %d: the interrupted turn was offered for undo again after it was undone", run)
+		}
+	}
+}
+
+// The press that cancels an undo can arrive before the app answered. The app writes a finished call's result before its
+// cancel_task, so a result that did not arrive means the call may not have run: the change stays, and a second undo is
+// offered. A result that did arrive first means the change is reversed, so it leaves the record and the inverse's line
+// goes to the next command. The second undo carries a second call, so the command cannot finish before the cancel.
+func TestACancelDuringAnUndoKeepsTheChangeButOneAfterTheInverseFinishedRemovesIt(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"turn it left":       {brainToolUse("toolu_turn", "rotate_model", `{"yawDegrees":-45,"confirmation":"turned"}`)},
+		"undo that":          {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
+		"undo that and zoom": {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`), brainToolUse("toolu_zoom", "zoom", `{"factor":2,"confirmation":"zoomed"}`)},
+	})
+	driver := startHarness(t, worker.server.URL)
+	driver.send(undoCommandLine("command-1", "turn it left"))
+	driver.expectLine("tool_call")
+	driver.send(voiceToolResultLine("command-1", "toolu_turn", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	// The press arrives while the inverse is still running in the app.
+	driver.send(undoCommandLine("command-2", "undo that"))
+	driver.expectLine("tool_call")
+	driver.send(cancelTaskLine("command-2"))
+	driver.send(undoCommandLine("command-3", "undo that and zoom"))
+	if got := driver.expectLineContaining(`"taskID":"command-3","toolUseID":"toolu_undo-undo"`); !strings.Contains(got, `"input":{"yawDegrees":45}`) {
+		t.Fatalf("the change was not offered again after a cancel with no result: %s", got)
+	}
+
+	// This time the inverse finished first.
+	driver.send(voiceToolResultLine("command-3", "toolu_undo-undo", voiceToolChanged, `{"ok":true}`) + "\n" + cancelTaskLine("command-3"))
+	driver.send(undoCommandLine("command-4", "what is this?"))
+	driver.expectLineContaining(`"type":"voice_command_finished","taskID":"command-4"`)
+
+	requests := worker.requests()
+	last := requests[len(requests)-1].body
+	if offersUndo(t, last) {
+		t.Errorf("the change was offered after the inverse finished and the command was cancelled")
+	}
+	if got := lastUserText(t, last); !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":45} -> ok</interrupted_before>`) {
+		t.Errorf("the next command was not told the inverse ran: %s", got)
+	}
+}
+
+// The same rule without the timing: the inverse's result is queued and the context is already cancelled, so the wait sees
+// both ready. Whichever it picks, the inverse call's change must come out of the record and its line must be kept.
+func TestAWaitThatSeesAQueuedInverseResultAndACancelRemovesTheChangeAndKeepsTheLine(t *testing.T) {
+	undoCall := toolCall{ID: "toolu_undo", Name: undoLastChangeTool, Input: json.RawMessage(`{"confirmation":"undid it"}`)}
+	for attempt := 1; attempt <= 50; attempt++ {
+		session, _ := newTestSession()
+		brain := &brainRunner{session: session}
+		commandContext, cancel := context.WithCancel(context.Background())
+		cancel()
+		command := &runningTask{toolResults: make(chan toolResultMessage, 32)}
+		command.toolResults <- toolResultMessage{ToolUseID: "toolu_undo-undo", Content: mustMarshal(`{"ok":true,"state":null}`), Outcome: voiceToolChanged}
+		run := session.begin("undo that", json.RawMessage(`{}`))
+		run.noteChange(appliedChange{tool: "rotate_model", input: json.RawMessage(`{"yawDegrees":45}`)})
+
+		_, _, err := brain.runToolCalls(commandContext, command, voiceCommandMessage{TaskID: "command-1"}, []toolCall{undoCall}, map[toolName]bool{"rotate_model": true, undoLastChangeTool: true}, approvalOffer{}, 0, run)
+
+		if want := []string{`rotate_model {"yawDegrees":-45} -> ok`}; !slices.Equal(run.actionLines, want) {
+			t.Fatalf("attempt %d (error %v): the action lines were %q, want %q", attempt, err, run.actionLines, want)
+		}
+		if len(run.changes) != 0 {
+			t.Fatalf("attempt %d (error %v): the reversed change is still in the record: %v", attempt, err, run.changes)
+		}
+	}
+}
+
+// ---- Bench mode ----
+
+func TestASeededSessionOffersUndoForTheInterruptedTurnAndResetForgetsIt(t *testing.T) {
+	worker := workerThatAnswersByWords(t, map[string][]string{
+		"undo that": {brainToolUse("toolu_undo", "undo_last_change", `{"confirmation":"undid it"}`)},
+	})
+	driver := startHarnessWith(t, configuration{workerBaseURL: worker.server.URL, appSecret: "test-secret", benchMode: true})
+
+	driver.send(`{"type":"reset_session"}`)
+	driver.send(`{"type":"seed_session","interruptedBefore":["rotate_model {\"yawDegrees\":90} -> ok"],"messages":` + string(mustMarshal(seededMessagesOfCalls([3]string{"toolu_seed", "zoom", `{"factor":1.3}`}))) + `}`)
+	driver.send(undoCommandLine("command-1", "undo that"))
+	if got := driver.expectLine("tool_call"); !strings.Contains(got, `"name":"rotate_model","input":{"yawDegrees":-90}`) {
+		t.Fatalf("the undo of the interrupted turn was %s", got)
+	}
+	driver.send(voiceToolResultLine("command-1", "toolu_undo-undo", voiceToolChanged, `{"ok":true}`))
+	driver.expectLine("voice_command_finished")
+
+	driver.send(`{"type":"reset_session"}`)
+	driver.send(undoCommandLine("command-2", "what is this?"))
+	driver.expectLine("voice_command_finished")
+	requests := worker.requests()
+	if offersUndo(t, requests[len(requests)-1].body) {
+		t.Errorf("a reset left the record behind")
+	}
+}
