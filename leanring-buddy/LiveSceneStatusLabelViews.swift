@@ -1,11 +1,9 @@
 //
 //  LiveSceneStatusLabelViews.swift
-//  leanring-buddy
 //
-//  Draws one status line: an animated icon on a white tile, then the line's
-//  letters in its own style. Every view here takes the seconds since the line
-//  appeared, so a TimelineView above it drives the loop and nothing animates
-//  once the label leaves the screen.
+//  Draws one status line as a Callout: the line's animated icon in ink on the accent disc, then its words in the voice
+//  type, each letter rising 6 points into place once. Every view here takes the seconds since the line appeared, so a
+//  TimelineView above it drives the loop and nothing animates once the label leaves the screen.
 //
 
 import AppKit
@@ -14,19 +12,16 @@ import SwiftUI
 struct LiveSceneStatusLabelContent: View {
     let statusLine: LiveSceneStatusLine
     let elapsedSeconds: Double
-    /// Near a screen's right edge the letters come first, so the icon stays on the triangle's spot.
-    let textSide: StatusLabelTextSide
+    /// With Reduce Motion on the letters are already in place, so only the icon's still moment shows.
+    let lettersAreStill: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            if textSide == .leftOfIcon {
-                StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
-            }
-            StatusIconTile(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
-            if textSide == .rightOfIcon {
-                StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
-            }
+        TetherCallout(accent: statusLine.calloutAccent, rim: .speech) {
+            StatusIcon(statusLine: statusLine, elapsedSeconds: elapsedSeconds)
+        } content: {
+            StatusLetters(statusLine: statusLine, elapsedSeconds: elapsedSeconds, lettersAreStill: lettersAreStill)
         }
+        .fixedSize()
     }
 }
 
@@ -35,103 +30,32 @@ struct LiveSceneStatusLabelContent: View {
 private struct StatusLetters: View {
     let statusLine: LiveSceneStatusLine
     let elapsedSeconds: Double
+    let lettersAreStill: Bool
 
     var body: some View {
-        let characters = Array(statusLine.displayedText)
-        HStack(spacing: statusLine == .readingYourScreen ? 0.8 : 0) {
-            ForEach(characters.indices, id: \.self) { letterIndex in
-                StatusLetter(
-                    character: String(characters[letterIndex]),
-                    statusLine: statusLine,
-                    pose: statusLine.letterPose(letterIndex: letterIndex, letterCount: characters.count, elapsedSeconds: elapsedSeconds)
-                )
+        let characters = Array(statusLine.text)
+        // Once the last letter has settled the line is one piece of text again, which sets it with its own kerning.
+        if lettersAreStill || elapsedSeconds >= StatusLineLetterRise.secondsUntilEveryLetterHasSettled(letterCount: characters.count) {
+            Text(statusLine.text).lineLimit(1).fixedSize()
+        } else {
+            HStack(spacing: 0) {
+                ForEach(characters.indices, id: \.self) { letterIndex in
+                    let letterPose = StatusLineLetterRise.pose(letterIndex: letterIndex, elapsedSeconds: elapsedSeconds)
+                    Text(String(characters[letterIndex]))
+                        .offset(y: letterPose.offsetY)
+                        .opacity(letterPose.opacity)
+                }
             }
+            .fixedSize()
         }
-        .scaleEffect(statusLine.wordScale(elapsedSeconds: elapsedSeconds), anchor: .leading)
     }
 }
 
-private struct StatusLetter: View {
-    let character: String
-    let statusLine: LiveSceneStatusLine
-    let pose: StatusLetterPose
+// MARK: - Icon
 
-    /// A white outline lets colored letters read on light and dark pages without a pill behind them.
-    private var outlineOffsets: [CGSize] {
-        let outlineWidth: CGFloat = statusLine == .poppingItOut ? 2 : 1.5
-        let diagonal = outlineWidth * 0.75
-        return [
-            CGSize(width: outlineWidth, height: 0), CGSize(width: -outlineWidth, height: 0),
-            CGSize(width: 0, height: outlineWidth), CGSize(width: 0, height: -outlineWidth),
-            CGSize(width: diagonal, height: diagonal), CGSize(width: -diagonal, height: diagonal),
-            CGSize(width: diagonal, height: -diagonal), CGSize(width: -diagonal, height: -diagonal),
-        ]
-    }
-
-    private var letterFont: Font {
-        switch statusLine {
-        case .poppingItOut, .buildingYourScene: return .system(size: 19, weight: .black, design: .rounded)
-        case .animatingIt: return .system(size: 19, weight: .heavy, design: .rounded).italic()
-        case .readingYourScreen: return .system(size: 16, weight: .heavy, design: .monospaced)
-        case .almostThere: return .system(size: 19, weight: .black).italic()
-        case .readingTheTranscript: return .system(size: 18, weight: .bold, design: .serif)
-        case .pickingQuizSpots: return .system(size: 17, weight: .bold)
-        }
-    }
-
-    var body: some View {
-        let palette = statusLine.palette
-        let glyph = Text(character).font(letterFont)
-        ZStack {
-            // A darker copy under the outline gives the letters depth: a deep 3D extrude for the
-            // scene being built, a soft drop for the pop-out.
-            if statusLine == .buildingYourScene {
-                glyph.foregroundColor(.black.opacity(0.25)).offset(x: 4, y: 4)
-                glyph.foregroundColor(palette.textColor).offset(x: 3, y: 3)
-                glyph.foregroundColor(palette.textColor).offset(x: 2, y: 2)
-            } else if statusLine == .poppingItOut {
-                glyph.foregroundColor(DS.Colors.blue900.opacity(0.3)).offset(y: 4)
-            }
-            ForEach(outlineOffsets.indices, id: \.self) { outlineIndex in
-                glyph.foregroundColor(.white).offset(outlineOffsets[outlineIndex])
-            }
-            glyph.foregroundColor(palette.textColor)
-            // macOS 14 has no Color.mix, so the highlight is a second copy faded in on top.
-            if pose.highlightAmount > 0 {
-                glyph.foregroundColor(palette.highlightColor).opacity(pose.highlightAmount)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if pose.showsCaret {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(palette.textColor)
-                    .frame(width: 2.5)
-                    .padding(.vertical, 3)
-                    .overlay(RoundedRectangle(cornerRadius: 1).stroke(Color.white, lineWidth: 1))
-                    .offset(x: 2.5)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if pose.spotDotScale > 0 {
-                Circle()
-                    .fill(palette.iconColor)
-                    .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
-                    .frame(width: 5, height: 5)
-                    .scaleEffect(pose.spotDotScale)
-                    .offset(y: 7)
-            }
-        }
-        .scaleEffect(x: pose.scale, y: pose.scale * pose.extraVerticalScale)
-        .rotationEffect(.degrees(pose.rotationDegrees))
-        .offset(y: pose.offsetY)
-        .opacity(pose.opacity)
-    }
-}
-
-// MARK: - Icon tile
-
-/// The line's icon, drawn on a 26-point grid inside a white 32-point tile.
-private struct StatusIconTile: View {
+/// The line's icon, drawn on a 26-point grid and scaled to fit inside the Callout's 26 point accent disc with room at its
+/// edge, in ink.
+private struct StatusIcon: View {
     let statusLine: LiveSceneStatusLine
     let elapsedSeconds: Double
 
@@ -140,7 +64,7 @@ private struct StatusIconTile: View {
             context.scaleBy(x: size.width / 26, y: size.height / 26)
             let palette = statusLine.palette
             switch statusLine {
-            case .poppingItOut: StatusIconDrawing.drawPopOutCube(in: &context, elapsedSeconds: elapsedSeconds)
+            case .poppingItOut: StatusIconDrawing.drawPopOutCube(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .animatingIt: StatusIconDrawing.drawFlowingStreams(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .readingYourScreen: StatusIconDrawing.drawScanningScreen(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
             case .buildingYourScene: StatusIconDrawing.drawAssemblingCube(in: &context, palette: palette, elapsedSeconds: elapsedSeconds)
@@ -150,12 +74,8 @@ private struct StatusIconTile: View {
             }
         }
         .frame(width: 26, height: 26)
-        .frame(width: 32, height: 32)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white)
-                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
-        )
+        .scaleEffect(0.84)
+        .frame(width: TetherCallout<EmptyView, EmptyView>.iconDiscDiameter, height: TetherCallout<EmptyView, EmptyView>.iconDiscDiameter)
     }
 }
 
@@ -166,7 +86,8 @@ private enum StatusIconDrawing {
     private struct CubeFace {
         /// Corners as seen from outside the face: top left, top right, bottom right, bottom left.
         let corners: [CubePoint]
-        let color: Color
+        /// How much of the ink color the face takes, from the face the viewer sees (1) to the faces turned away.
+        let strength: Double
         let isFront: Bool
     }
 
@@ -194,7 +115,7 @@ private enum StatusIconDrawing {
                 CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: 1),
                 CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: 1),
             ],
-            color: DS.Colors.blue600, isFront: true
+            strength: 1, isFront: true
         ),
         CubeFace(
             corners: [
@@ -203,7 +124,7 @@ private enum StatusIconDrawing {
                 CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: -1),
                 CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: -1),
             ],
-            color: DS.Colors.blue700, isFront: false
+            strength: 0.55, isFront: false
         ),
         CubeFace(
             corners: [
@@ -212,7 +133,7 @@ private enum StatusIconDrawing {
                 CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: -1),
                 CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: 1),
             ],
-            color: DS.Colors.blue800, isFront: false
+            strength: 0.8, isFront: false
         ),
         CubeFace(
             corners: [
@@ -221,7 +142,7 @@ private enum StatusIconDrawing {
                 CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: 1),
                 CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: -1),
             ],
-            color: DS.Colors.blue400, isFront: false
+            strength: 0.65, isFront: false
         ),
         CubeFace(
             corners: [
@@ -230,7 +151,7 @@ private enum StatusIconDrawing {
                 CubePoint(horizontalPosition: 1, verticalPosition: -1, depthTowardViewer: 1),
                 CubePoint(horizontalPosition: -1, verticalPosition: -1, depthTowardViewer: 1),
             ],
-            color: DS.Colors.blue200, isFront: false
+            strength: 0.4, isFront: false
         ),
         CubeFace(
             corners: [
@@ -239,11 +160,11 @@ private enum StatusIconDrawing {
                 CubePoint(horizontalPosition: 1, verticalPosition: 1, depthTowardViewer: -1),
                 CubePoint(horizontalPosition: -1, verticalPosition: 1, depthTowardViewer: -1),
             ],
-            color: DS.Colors.blue900, isFront: false
+            strength: 0.9, isFront: false
         ),
     ]
 
-    static func drawPopOutCube(in context: inout GraphicsContext, elapsedSeconds: Double) {
+    static func drawPopOutCube(in context: inout GraphicsContext, palette: StatusLabelPalette, elapsedSeconds: Double) {
         let cubePose = PopOutCubePose.at(elapsedSeconds: elapsedSeconds)
         let halfEdge = 8.0
         let perspectiveDistance = 110.0
@@ -254,7 +175,7 @@ private enum StatusIconDrawing {
         let shadowWidth = 16 * (0.6 + 0.4 * cubePose.depth)
         context.fill(
             Path(ellipseIn: CGRect(x: 13 - shadowWidth / 2, y: 23, width: shadowWidth, height: 3)),
-            with: .color(DS.Colors.blue900.opacity(0.3 * cubePose.depth))
+            with: .color(palette.textColor.opacity(0.3 * cubePose.depth))
         )
 
         // Scale, turn about the vertical axis, tilt about the horizontal one, then lift.
@@ -307,10 +228,10 @@ private enum StatusIconDrawing {
             var facePath = Path()
             facePath.addLines(faceToDraw.placedCorners.map(projected))
             facePath.closeSubpath()
-            context.fill(facePath, with: .color(faceToDraw.face.color))
+            context.fill(facePath, with: .color(palette.textColor.opacity(faceToDraw.face.strength)))
 
             if faceToDraw.face.isFront {
-                // The picture on the front face: a small white mountain range.
+                // The picture on the front face: a small mountain range cut out of the ink, so the disc shows through it.
                 let topLeft = faceToDraw.placedCorners[0]
                 let topRight = faceToDraw.placedCorners[1]
                 let bottomLeft = faceToDraw.placedCorners[3]
@@ -339,7 +260,7 @@ private enum StatusIconDrawing {
                     )
                 })
                 mountainPath.closeSubpath()
-                context.fill(mountainPath, with: .color(.white))
+                context.fill(mountainPath, with: .color(palette.discColor))
             }
         }
     }
@@ -449,7 +370,7 @@ private enum StatusIconDrawing {
 
     static func drawHighlightedPage(in context: inout GraphicsContext, palette: StatusLabelPalette, elapsedSeconds: Double) {
         let page = Path(roundedRect: CGRect(x: 5.5, y: 2.5, width: 15, height: 21), cornerRadius: 2.5)
-        context.fill(page, with: .color(.white))
+        context.fill(page, with: .color(palette.discColor))
         context.stroke(page, with: .color(palette.lightColor), lineWidth: 1.4)
         for (lineIndex, lineTop) in [7.5, 11.5, 15.5, 19.5].enumerated() {
             let isLastLine = lineIndex == 3

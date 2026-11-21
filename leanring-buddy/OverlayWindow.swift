@@ -75,36 +75,6 @@ struct Triangle: Shape {
     }
 }
 
-// PreferenceKey for tracking bubble size
-struct SizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
-struct NavigationBubbleSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
-/// A narration puts a whole spoken sentence in the pointing bubble, so a phrase wider than this
-/// wraps onto more lines instead of running across the screen.
-let navigationBubbleMaximumTextWidth: CGFloat = 240
-
-/// The bubble's text size, shared by the view and the wrap width so the two measure the same text.
-let navigationBubbleFontSize: CGFloat = 11
-
-/// The width the bubble text wraps at, or nil when the phrase fits on one line and the bubble grows
-/// with it as it types.
-func navigationBubbleWrapWidth(forPhrase phrase: String) -> CGFloat? {
-    let bubbleFont = NSFont.systemFont(ofSize: navigationBubbleFontSize, weight: .medium)
-    let phraseWidthOnOneLine = (phrase as NSString).size(withAttributes: [.font: bubbleFont]).width
-    return phraseWidthOnOneLine > navigationBubbleMaximumTextWidth ? navigationBubbleMaximumTextWidth : nil
-}
-
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode {
@@ -162,17 +132,8 @@ struct BlueCursorView: View {
     /// The loop around the video or image Clicky is looking at. It is the thinking light while it shows, so it is
     /// observed here to redraw the ring and the loop together.
     @ObservedObject private var cursorLoopController: CursorLoopController
-    /// While a status line shows, its icon stands in for the triangle, and the ring hides.
+    /// A status line shows as a Callout above the cursor, so the ring hides under it. The triangle stays.
     @ObservedObject private var statusLabelModel = LiveSceneStatusLabel.shared.statusLabelModel
-
-    /// True when the status icon takes the triangle's spot: the label shows, the screen's edge did not
-    /// push it off the cursor, and the buddy follows the cursor. While the buddy flies to or points at
-    /// a target it is somewhere else, so it stays visible.
-    private var statusIconReplacesTheBuddy: Bool {
-        statusLabelModel.isVisible
-            && statusLabelModel.iconSitsOnTheTrianglesSpot
-            && buddyNavigationMode == .followingCursor
-    }
 
     @State private var cursorPosition: CGPoint
     @State private var isCursorOnThisScreen: Bool
@@ -196,6 +157,7 @@ struct BlueCursorView: View {
     @State private var welcomeText: String = ""
     @State private var showWelcome: Bool = true
     @State private var bubbleSize: CGSize = .zero
+    @State private var onboardingPromptBubbleSize: CGSize = .zero
     @State private var bubbleOpacity: Double = 1.0
     @State private var cursorOpacity: Double = 0.0
     /// Multiplies the cursor's and the ring's opacity. Reduce Motion's flight fades it to 0 at the start and back to 1
@@ -216,8 +178,8 @@ struct BlueCursorView: View {
     @State private var navigationBubbleText: String = ""
     @State private var navigationBubbleOpacity: Double = 0.0
     @State private var navigationBubbleSize: CGSize = .zero
-    /// Set from the whole phrase before it types, so a long sentence wraps at a steady width.
-    @State private var navigationBubbleTextWrapWidth: CGFloat?
+    /// The whole sentence the bubble speaks. `navigationBubbleText` is the part of it the voice has reached.
+    @State private var navigationBubblePhrase: String = ""
     /// Counts each phrase the bubble starts typing, so typing that a newer phrase replaced stops.
     @State private var navigationBubbleTypingGeneration = 0
 
@@ -271,10 +233,6 @@ struct BlueCursorView: View {
             : (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
     }
 
-    /// Scale factor for the navigation speech bubble's pop-in entrance.
-    /// Starts at 0.5 and springs to 1.0 when the first character appears.
-    @State private var navigationBubbleScale: CGFloat = 1.0
-
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
     @State private var isReturningToCursor: Bool = false
@@ -305,37 +263,35 @@ struct BlueCursorView: View {
         "found it!"
     ]
 
+    /// Whether each speech Callout is on screen, which drives its Pop in and its leave.
+    private var navigationBubbleIsShowing: Bool {
+        buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty && navigationBubbleOpacity > 0
+    }
+    private var welcomeBubbleIsShowing: Bool {
+        isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty
+    }
+    private var onboardingPromptBubbleIsShowing: Bool {
+        isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty
+    }
+
     var body: some View {
         ZStack {
             // Nearly transparent background (helps with compositing)
             Color.black.opacity(0.001)
 
             // Welcome speech bubble (first launch only)
-            if isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty {
-                Text(welcomeText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(themeSettings.shownTheme.cursorContrastColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(themeSettings.shownTheme.cursorColor)
-                            .shadow(color: themeSettings.shownTheme.cursorColor.opacity(0.5), radius: 6, x: 0, y: 0)
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: SizePreferenceKey.self, value: geo.size)
-                        }
-                    )
+            if welcomeBubbleIsShowing {
+                SpeechCalloutView(sentence: welcomeText, revealedCharacterCount: welcomeText.count, accent: themeSettings.shownTheme.cursorColor)
+                    .onGeometryChange(for: CGSize.self) { calloutGeometry in
+                        calloutGeometry.size
+                    } action: { measuredCalloutSize in
+                        bubbleSize = measuredCalloutSize
+                    }
                     .opacity(bubbleOpacity)
-                    .position(x: cursorPosition.x + 10 + (bubbleSize.width / 2), y: cursorPosition.y + 18)
+                    .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: bubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.5), value: bubbleOpacity)
-                    .onPreferenceChange(SizePreferenceKey.self) { newSize in
-                        bubbleSize = newSize
-                    }
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: bubbleSize, screenSize: screenFrame.size)))
             }
 
             // Onboarding video — always in the view tree so opacity animation works
@@ -355,72 +311,41 @@ struct BlueCursorView: View {
                 .allowsHitTesting(false)
 
             // Onboarding prompt — "press control + option and say hi" streamed after video ends
-            if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
-                Text(companionManager.onboardingPromptText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(themeSettings.shownTheme.cursorContrastColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(themeSettings.shownTheme.cursorColor)
-                            .shadow(color: themeSettings.shownTheme.cursorColor.opacity(0.5), radius: 6, x: 0, y: 0)
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: SizePreferenceKey.self, value: geo.size)
-                        }
-                    )
+            if onboardingPromptBubbleIsShowing {
+                SpeechCalloutView(
+                    sentence: companionManager.onboardingPromptText,
+                    revealedCharacterCount: companionManager.onboardingPromptText.count,
+                    accent: themeSettings.shownTheme.cursorColor
+                )
+                    .onGeometryChange(for: CGSize.self) { calloutGeometry in
+                        calloutGeometry.size
+                    } action: { measuredCalloutSize in
+                        onboardingPromptBubbleSize = measuredCalloutSize
+                    }
                     .opacity(companionManager.onboardingPromptOpacity)
-                    .position(x: cursorPosition.x + 10 + (bubbleSize.width / 2), y: cursorPosition.y + 18)
+                    .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: onboardingPromptBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
                     .animation(.easeOut(duration: 0.4), value: companionManager.onboardingPromptOpacity)
-                    .onPreferenceChange(SizePreferenceKey.self) { newSize in
-                        bubbleSize = newSize
-                    }
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: onboardingPromptBubbleSize, screenSize: screenFrame.size)))
             }
 
-            // Navigation pointer bubble — shown when buddy arrives at a detected element.
-            // Pops in with a scale-bounce (0.5x → 1.0x spring) and a bright initial
-            // glow that settles, creating a "materializing" effect.
-            if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
-                Text(navigationBubbleText)
-                    .font(.system(size: navigationBubbleFontSize, weight: .medium))
-                    .foregroundColor(themeSettings.shownTheme.cursorContrastColor)
-                    .multilineTextAlignment(.leading)
-                    // A nil width leaves a short phrase on one line, as before.
-                    .frame(width: navigationBubbleTextWrapWidth, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(themeSettings.shownTheme.cursorColor)
-                            .shadow(
-                                color: themeSettings.shownTheme.cursorColor.opacity(0.5 + (1.0 - navigationBubbleScale) * 1.0),
-                                radius: 6 + (1.0 - navigationBubbleScale) * 16,
-                                x: 0, y: 0
-                            )
-                    )
-                    .fixedSize()
-                    .overlay(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: NavigationBubbleSizePreferenceKey.self, value: geo.size)
-                        }
-                    )
-                    .scaleEffect(navigationBubbleScale)
-                    .opacity(navigationBubbleOpacity)
-                    // The top edge stays 7 points below the cursor, so extra wrapped lines grow downward
-                    // instead of covering the triangle. A one-line bubble sits where it always has.
-                    .position(x: navigationBubbleCenterX, y: cursorPosition.y + 7 + (navigationBubbleSize.height / 2))
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.6), value: navigationBubbleScale)
-                    .animation(.easeOut(duration: 0.5), value: navigationBubbleOpacity)
-                    .onPreferenceChange(NavigationBubbleSizePreferenceKey.self) { newSize in
-                        navigationBubbleSize = newSize
+            // Navigation pointer bubble - shown when buddy arrives at a detected element, and while a narration
+            // speaks. A Callout above the cursor whose tail points at the triangle: it pops out of the tail's tip,
+            // its words brighten as the voice reaches them, and it leaves with a fade and a 6 point rise.
+            if navigationBubbleIsShowing {
+                SpeechCalloutView(
+                    sentence: navigationBubblePhrase,
+                    revealedCharacterCount: navigationBubbleText.count,
+                    accent: themeSettings.shownTheme.cursorColor
+                )
+                    .onGeometryChange(for: CGSize.self) { calloutGeometry in
+                        calloutGeometry.size
+                    } action: { measuredCalloutSize in
+                        navigationBubbleSize = measuredCalloutSize
                     }
+                    .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size))
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
+                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size)))
             }
 
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.
@@ -446,7 +371,7 @@ struct BlueCursorView: View {
                 .rotationEffect(.degrees(buddyRotationDegrees))
                 .shadow(color: themeSettings.shownTheme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
                 .scaleEffect(buddyFlightScale)
-                .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy ? cursorOpacity * flightFadeOpacity : 0)
+                .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity * flightFadeOpacity : 0)
                 .position(cursorPosition)
                 .animation(
                     buddyNavigationMode == .followingCursor
@@ -454,7 +379,6 @@ struct BlueCursorView: View {
                         : nil,
                     value: cursorPosition
                 )
-                .animation(.easeOut(duration: 0.2), value: statusIconReplacesTheBuddy)
                 .animation(
                     buddyNavigationMode == .navigatingToTarget ? nil : .easeInOut(duration: 0.3),
                     value: triangleRotationDegrees
@@ -480,6 +404,10 @@ struct BlueCursorView: View {
                     value: cursorPosition
                 )
         }
+        // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`).
+        .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
+        .animation(tetherCalloutAnimation(isAppearing: welcomeBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: welcomeBubbleIsShowing)
+        .animation(tetherCalloutAnimation(isAppearing: onboardingPromptBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: onboardingPromptBubbleIsShowing)
         .frame(width: screenFrame.width, height: screenFrame.height)
         .ignoresSafeArea()
         .onAppear {
@@ -783,12 +711,10 @@ struct BlueCursorView: View {
         // Rotate back to default pointer angle now that we've arrived
         triangleRotationDegrees = -35.0
 
-        // Reset navigation bubble state — start small for the scale-bounce entrance
+        // Reset navigation bubble state. The bubble pops in when its first letters appear.
         navigationBubbleText = ""
         navigationBubbleOpacity = 1.0
         navigationBubbleSize = .zero
-        // Reduce Motion skips the pop-in: the bubble starts at full size, so only its opacity fades in.
-        navigationBubbleScale = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1.0 : 0.5
 
         // Use custom bubble text from the companion manager (the onboarding demo's comment, or the
         // sentence a narration is speaking) if available, otherwise fall back to a random pointer phrase
@@ -800,7 +726,7 @@ struct BlueCursorView: View {
 
     /// Types the phrase into the bubble. A target that is not held flies back 3.5 seconds after the last character.
     private func typeNavigationBubble(phrase: String) {
-        navigationBubbleTextWrapWidth = navigationBubbleWrapWidth(forPhrase: phrase)
+        navigationBubblePhrase = phrase
         navigationBubbleTypingGeneration += 1
         let typingGeneration = navigationBubbleTypingGeneration
 
@@ -818,7 +744,7 @@ struct BlueCursorView: View {
                 }
             }
         }
-        // A phrase Clicky is speaking types along with the voice. Any other phrase types at its own pace.
+        // A phrase Clicky is speaking brightens along with the voice. Any other phrase types at its own pace.
         if companionManager.spokenFractionOfTheLine(phrase) != nil {
             followTheVoiceInTheNavigationBubble(phrase: phrase, typingGeneration: typingGeneration, onComplete: onTypingComplete)
         } else {
@@ -835,10 +761,6 @@ struct BlueCursorView: View {
         let spokenFraction = companionManager.spokenFractionOfTheLine(phrase) ?? 1
         let revealedCharacterCount = SpokenLineProgress.revealedCharacterCount(phraseLength: phrase.count, spokenFraction: spokenFraction)
         if navigationBubbleText.count != revealedCharacterCount {
-            // The scale-bounce entrance plays when the first letters appear.
-            if navigationBubbleText.isEmpty && revealedCharacterCount > 0 {
-                navigationBubbleScale = 1.0
-            }
             navigationBubbleText = String(phrase.prefix(revealedCharacterCount))
         }
         guard revealedCharacterCount < phrase.count else {
@@ -850,13 +772,9 @@ struct BlueCursorView: View {
         }
     }
 
-    /// The bubble sits right of the cursor, or left of it when a wrapped sentence would run off this screen's right edge.
-    private var navigationBubbleCenterX: CGFloat {
-        let bubbleRightEdgeWhenRightOfCursor = cursorPosition.x + 10 + navigationBubbleSize.width
-        if bubbleRightEdgeWhenRightOfCursor > screenFrame.width {
-            return cursorPosition.x - 10 - (navigationBubbleSize.width / 2)
-        }
-        return cursorPosition.x + 10 + (navigationBubbleSize.width / 2)
+    /// Whether the learner has Reduce Motion on, read when the bubble animates, since the setting can change while it runs.
+    private var reduceMotionIsOn: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     /// An instant replay that ends stops the buddy where it is, mid-flight included, with no ease: the flight timer stops,
@@ -904,11 +822,6 @@ struct BlueCursorView: View {
         let charIndex = phrase.index(phrase.startIndex, offsetBy: characterIndex)
         navigationBubbleText.append(phrase[charIndex])
 
-        // On the first character, trigger the scale-bounce entrance
-        if characterIndex == 0 {
-            navigationBubbleScale = 1.0
-        }
-
         let characterDelay = Double.random(in: 0.03...0.06)
         DispatchQueue.main.asyncAfter(deadline: .now() + characterDelay) {
             self.streamNavigationBubbleCharacter(
@@ -942,7 +855,6 @@ struct BlueCursorView: View {
         navigationAnimationTimer = nil
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        navigationBubbleScale = 1.0
         buddyFlightScale = 1.0
         flightFadeOpacity = 1.0
         finishNavigationAndResumeFollowing()
@@ -964,7 +876,6 @@ struct BlueCursorView: View {
         flightFadeOpacity = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        navigationBubbleScale = 1.0
         companionManager.clearDetectedElementLocation()
     }
 

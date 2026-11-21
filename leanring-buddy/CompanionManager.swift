@@ -296,7 +296,13 @@ final class CompanionManager: ObservableObject {
         return ThemeStudioController(
             themeSettings: themeSettings,
             environment: ThemeStudioController.Environment(
-                speak: { [weak self] line in self?.speakAThemeStudioLine(line) },
+                speak: { [weak self] line in
+                    // A failed design is also a red Callout, so the failure never rests on the voice alone.
+                    if line == ThemeStudioController.couldNotDesignLine {
+                        VoiceToolCallChip.shared.show("Couldn't design that one", sender: .failure)
+                    }
+                    self?.speakAThemeStudioLine(line)
+                },
                 stopSpeaking: { [weak self] in self?.stopTheThemeStudioSpeech() },
                 playSound: { sound in sound.play() },
                 captureThePicture: { [weak self] in await self?.captureThePictureForTheThemeStudio() },
@@ -305,7 +311,9 @@ final class CompanionManager: ObservableObject {
             cardPresenter: ThemeStudioPanelController(onSaveClicked: { saveOutcome in
                 // The voice tool's chip comes from the router, so only a click on Save needs its own.
                 guard let chipPhrase = saveOutcome.chipPhraseAfterAClickOnSave else { return }
-                VoiceToolCallChip.shared.show(chipPhrase)
+                let chipSender: VoiceToolCallChipSender
+                if case .failed = saveOutcome { chipSender = .failure } else { chipSender = .voiceToolCall }
+                VoiceToolCallChip.shared.show(chipPhrase, sender: chipSender)
             })
         )
     }()
@@ -468,6 +476,10 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         LiveSceneOverlay.shared.mapTilesWorkerBaseURL = Self.workerBaseURL
+        // A voice tool call's chip takes the accent of the theme on screen, preview included.
+        VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
+        }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
         if voiceCommandBackend.runsInTheHarness {
@@ -950,6 +962,7 @@ final class CompanionManager: ObservableObject {
             forgetTheVoiceCommandScreenRead()
             // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             cursorLoopController.pushToTalkWasPressed()
 
             showTheCursorOverlayForThisInteraction()
@@ -1144,6 +1157,7 @@ final class CompanionManager: ObservableObject {
             // A push-to-talk press hides the label before a transcript goes out, so the rehearsal does
             // the same, and a line the previous step left up cannot stay on screen.
             LiveSceneStatusLabel.shared.hide()
+            VoiceToolCallChip.shared.recall()
             pushToTalkPressCount += 1
             approvalIDTheLearnerHadSeenAtThePress = agentHarness.approvalDesk.oldestRequestIDTheLearnerHasSeen(at: Date())
             // The same goes for the loop: a press ends the last request's, and the release starts the media rect read.
@@ -1803,6 +1817,7 @@ final class CompanionManager: ObservableObject {
         // A tap while waiting cancels this task, and a line spoken now would cut off the tap's own narration.
         guard !Task.isCancelled else { return }
         if let spokenLine = pictureFlowsOutcome?.spokenLineWhenNotShowing {
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
             await speakLiveSceneLine(spokenLine)
         }
         voiceState = .idle
@@ -1839,6 +1854,7 @@ final class CompanionManager: ObservableObject {
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
         voiceState = .idle
         if let spokenLine = pictureFlowsOutcome.spokenLineWhenNotShowing {
+            if pictureFlowsOutcome == .failed { VoiceToolCallChip.shared.show("Couldn't animate that one", sender: .failure) }
             await speakLiveSceneLine(spokenLine)
         }
         guard !Task.isCancelled else { return }
@@ -2595,6 +2611,7 @@ final class CompanionManager: ObservableObject {
     /// No scene is on screen, so nothing else will resume a video paused for it.
     private func sayTheSceneCouldNotBeBuilt() async {
         liveScenePhase = .idle
+        VoiceToolCallChip.shared.show("Couldn't build that one", sender: .failure)
         await speakLiveSceneLine("Sorry, I couldn't build that one.")
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
@@ -2914,7 +2931,7 @@ final class CompanionManager: ObservableObject {
         }
         guard !Task.isCancelled else { return }
         if theTurnsRanOut {
-            if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+            if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
         }
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -3016,7 +3033,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !Task.isCancelled else { return false }
             if gaveUp {
-                if await speakLiveSceneLine(voiceCommandGaveUpLine) { timing.mark(\.firstLineAudioStartedAt) }
+                if await speakTheGaveUpLine() { timing.mark(\.firstLineAudioStartedAt) }
             }
             guard !Task.isCancelled else { return false }
             voiceState = .idle
@@ -3066,7 +3083,7 @@ final class CompanionManager: ObservableObject {
         // so handing it back would loop between the two on every failure.
         if liveScenePhaseIsWaitingForAQuizAnswer {
             print("Voice command: the router failed during a quiz question: \(failureDescription)")
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3079,7 +3096,7 @@ final class CompanionManager: ObservableObject {
             themeStudioIsOpen: themeStudioController.isOpen
         ) {
         case .giveUp:
-            await speakLiveSceneLine(voiceCommandGaveUpLine)
+            await speakTheGaveUpLine()
             guard !Task.isCancelled else { return }
             voiceState = .idle
             scheduleTransientHideIfNeeded()
@@ -3466,7 +3483,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
-            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
+            VoiceToolCallChip.shared.show("Couldn't finish the task", sender: .failure, secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
         }
     }
 
@@ -3578,10 +3595,10 @@ final class CompanionManager: ObservableObject {
             installedTheme.sounds.done.play()
         } catch let parseError as CustomThemeParseError {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(parseError.reason)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         } catch {
             print("Themes: refused \(themePackageURL.lastPathComponent): \(error)")
-            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase)
+            VoiceToolCallChip.shared.show(themeCouldNotBeAddedChipPhrase, sender: .failure)
         }
     }
 
@@ -3609,6 +3626,7 @@ final class CompanionManager: ObservableObject {
             chipTexts.primary,
             sender: chipSender(forAgent: waitingAgent.id, kind: waitingAgent.kind),
             secondaryChipText: chipTexts.secondary,
+            survivesARecall: true,
             secondsOnScreen: HarnessApprovalDesk.defaultTimeoutSeconds
         )
     }
@@ -3745,7 +3763,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             VoiceToolCallChip.shared.show(
                 "Couldn't build the \(agentKind.builtThingName)",
-                sender: chipSender(forAgent: agentID, kind: agentKind),
+                sender: .failure,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
         }
@@ -3983,7 +4001,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Nothing is spoken when the guide ends, because the learner is watching a video. The token beside the notch,
-    /// the chip under it, and the page in a background tab say it instead. Returns whether the guide was written.
+    /// the chip above the cursor, and the page in a background tab say it instead. Returns whether the guide was written.
     @discardableResult
     private func writeTheStudyGuide(_ studyGuideJob: StudyGuideJob, agentID: UUID) async -> Bool {
         let startedAt = Date()
@@ -4055,7 +4073,7 @@ final class CompanionManager: ObservableObject {
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
             VoiceToolCallChip.shared.show(
                 studyGuideFailureLine(for: error),
-                sender: chipSender(forAgent: agentID, kind: agentKind),
+                sender: .failure,
                 secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen
             )
             return false
@@ -4330,9 +4348,16 @@ final class CompanionManager: ObservableObject {
     }
 
     /// How far through `text` Clicky's voice is, from 0 to 1, or nil when Clicky is not speaking that line.
-    /// The pointing bubble types along with it.
+    /// The speech Callout brightens its words along with it.
     func spokenFractionOfTheLine(_ text: String) -> Double? {
         elevenLabsTTSClient.spokenFraction(ofLine: text)
+    }
+
+    /// Says that a command did not work, with the red failure chip above the cursor, so the failure never rests on the voice alone.
+    @discardableResult
+    private func speakTheGaveUpLine() async -> Bool {
+        VoiceToolCallChip.shared.show("Couldn't do that one", sender: .failure)
+        return await speakLiveSceneLine(voiceCommandGaveUpLine)
     }
 
     /// Returns true once the line's own audio has started, and false on a cancel or when the credits fallback plays instead.
@@ -4548,7 +4573,7 @@ final class CompanionManager: ObservableObject {
         detectedElementScreenLocation = partScreenPoint.globalPoint
     }
 
-    /// The blue cursor flies to the quiz's "?" label and its bubble shows the question, typed along with the voice, so a
+    /// The blue cursor flies to the quiz's "?" label and its speech Callout shows the question, brightening its words along with the voice, so a
     /// learner can read a long question again while answering. It stays until the question is answered, or the scene
     /// clears, which releases any held pointing.
     private func pointTheBuddyAtTheQuizQuestion(_ quiz: LiveSceneQuiz, labelScreenPoints: [LiveScenePartScreenPoint]) {
