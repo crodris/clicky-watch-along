@@ -56,7 +56,7 @@ private final class StudioHarness {
     var workerReplies: [() async throws -> ThemeIdeasReply] = []
     private(set) var studio: ThemeStudioController!
 
-    init(themeSettings suppliedThemeSettings: CompanionThemeSettings? = nil) {
+    init(themeSettings suppliedThemeSettings: CompanionThemeSettings? = nil, secondsBetweenPreviewSounds: Double = 0) {
         themeSettings = suppliedThemeSettings ?? makeThemeSettings()
         studio = ThemeStudioController(
             themeSettings: themeSettings,
@@ -71,7 +71,8 @@ private final class StudioHarness {
                     return try await self.workerReplies.removeFirst()()
                 }
             ),
-            cardPresenter: presenter
+            cardPresenter: presenter,
+            secondsBetweenPreviewSounds: secondsBetweenPreviewSounds
         )
     }
 }
@@ -367,5 +368,108 @@ struct ThemeStudioControllerTests {
         #expect(ideas.ideas.map(\.name) == ["New one", "New two", "New three"])
         #expect(harness.spokenLines == ["New line."])
         #expect(harness.presenter.showCount == 1)
+    }
+}
+
+// MARK: - Tether: sound preview, the stamp, the failed notice, and how the card closes
+
+@MainActor
+struct ThemeStudioTetherTests {
+    @Test func theSoundPreviewPlansTheDoneCorrectAndNeedsYourOKSoundsInARow() {
+        let idea = try! reply(names: ["Sample"]).ideas[0]
+        let plan = themeSoundPreviewPlan(for: idea, secondsBetweenSounds: 0.7)
+        #expect(plan.map(\.sound) == [idea.sounds.done, idea.sounds.correct, idea.sounds.needsYourOK])
+        #expect(plan.map(\.secondsAfterTheStart) == [0, 0.7, 1.4])
+    }
+
+    @Test func thePreviewPlaysTheHighlightedIdeasThreeSoundsInOrderAndOnlyWhileIdeasShow() async throws {
+        let harness = StudioHarness()
+        // Nothing plays before ideas show.
+        harness.studio.playTheHighlightedIdeasSounds()
+        await harness.studio.waitForTheSoundPreview()
+        #expect(harness.playedSounds.isEmpty)
+
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        guard case .showingIdeas(let ideas) = harness.studio.state else { Issue.record("no ideas"); return }
+        harness.studio.playTheHighlightedIdeasSounds()
+        await harness.studio.waitForTheSoundPreview()
+        let sounds = ideas.highlightedIdea.sounds
+        #expect(harness.playedSounds == [sounds.done, sounds.correct, sounds.needsYourOK])
+    }
+
+    @Test func aNewDesignStopsASoundPreviewThatIsStillPlaying() async throws {
+        let harness = StudioHarness(secondsBetweenPreviewSounds: 30)
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        harness.studio.playTheHighlightedIdeasSounds()
+        // The first sound plays at once, and the second is 30 seconds away.
+        while harness.playedSounds.isEmpty { await Task.yield() }
+        // A new design ends the preview before its first ideas arrive, so the sounds never play over the new ones.
+        harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        await harness.studio.waitForTheSoundPreview()
+        #expect(harness.playedSounds.count == 1)
+        await harness.studio.waitForTheDesign()
+    }
+
+    @Test func aSaveClosesTheCardForASaveAndStampsTheTile() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        guard case .showingIdeas(let ideas) = harness.studio.state else { Issue.record("no ideas"); return }
+        #expect(!harness.studio.isStampingTheSavedIdea)
+
+        #expect(harness.studio.saveTheHighlightedIdea() == .saved(themeName: ideas.highlightedIdea.name))
+        #expect(harness.studio.isStampingTheSavedIdea)
+        #expect(harness.presenter.lastClosingReason == .saved(idea: ideas.highlightedIdea, pictureJPEG: nil))
+        // The card draws its last open state while it closes on the carrier.
+        #expect(harness.studio.lastOpenState == .showingIdeas(ideas))
+    }
+
+    @Test func everyCloseThatIsNotASaveClosesTheCardAsDismissed() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        harness.studio.close()
+        #expect(harness.presenter.lastClosingReason == .dismissed)
+        #expect(!harness.studio.isStampingTheSavedIdea)
+    }
+
+    @Test func aFailedRefinementShowsTheFailedNoticeUntilTheNextPickOrDesign() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { throw WorkerFailure() }, { try reply(names: ["A", "B", "C"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        #expect(!harness.studio.showsTheDesignFailedNotice)
+
+        harness.studio.design(request: "more", basedOnIdea: 1, pictureChoice: .keepTheCardsPicture)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.studio.showsTheDesignFailedNotice)
+        harness.studio.pickIdea(number: 2)
+        #expect(!harness.studio.showsTheDesignFailedNotice)
+    }
+
+    @Test func aFirstDesignThatFailsClosesTheCardWithNoNotice() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ throw WorkerFailure() }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.studio.state == .closed)
+        #expect(!harness.studio.showsTheDesignFailedNotice)
+    }
+
+    @Test func eachArrivalOfIdeasCountsSoTheTilesLandAgain() async throws {
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }, { try reply(names: ["A", "B", "C"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.studio.ideasArrivalCount == 1)
+        harness.studio.design(request: "again", basedOnIdea: nil, pictureChoice: .keepTheCardsPicture)
+        await harness.studio.waitForTheDesign()
+        #expect(harness.studio.ideasArrivalCount == 2)
     }
 }

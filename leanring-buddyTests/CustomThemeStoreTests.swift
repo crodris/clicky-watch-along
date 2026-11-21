@@ -524,3 +524,27 @@ struct CustomThemeStoreRenameAndDeleteTests {
         #expect(bundledThemes.first?.origin == .bundled(imagesFolderURL: bundledFolderURL))
     }
 }
+
+// MARK: - Previewing a package before it installs
+
+extension CustomThemeStoreRenameAndDeleteTests {
+    @Test func previewingAPackageReadsItsThemeAndWritesNothing() throws {
+        try withATemporaryThemeStore { store in
+            let packageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let preview = try store.previewPackage(at: packageURL)
+            #expect(preview.theme.name == "Moonlit")
+            #expect(preview.pictureJPEG == nil)
+            #expect(store.loadSavedThemes().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
+    }
+
+    @Test func previewingRefusesEveryPackageThatInstallingRefuses() throws {
+        try withATemporaryThemeStore { store in
+            let darkAccentPackage = try makeThemePackage(themeJSON: replacingField(in: goodVersion2ThemeJSON, at: ["accent"], with: .string("#101010")))
+            #expect(throws: CustomThemeParseError.self) { try store.previewPackage(at: darkAccentPackage) }
+            let notAPackage = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-missing-\(UUID().uuidString).clickytheme")
+            #expect(throws: CustomThemeStoreError.packageIsNotAThemeFolder) { try store.previewPackage(at: notAPackage) }
+        }
+    }
+}
