@@ -225,18 +225,29 @@ struct BlueCursorView: View {
     /// if the user moves the cursor enough to cancel the navigation.
     @State private var cursorPositionWhenNavigationStarted: CGPoint = .zero
 
+    /// Where the ring goes when the buddy lands on the target it is flying to: the element itself, not the spot beside it.
+    @State private var pointedTargetCenter: CGPoint = .zero
+
     /// Timer driving the frame-by-frame bezier arc flight animation.
     /// Invalidated when the flight completes, is canceled, or the view disappears.
     @State private var navigationAnimationTimer: Timer?
 
-    /// Scale factor applied to the buddy during flight. Grows to ~1.3x
-    /// at the midpoint of the arc and shrinks back to 1.0x on landing, creating
-    /// an energetic "swooping" feel.
-    @State private var buddyFlightScale: CGFloat = 1.0
+    /// How fast the buddy flies, from 0 at the ends of a flight to 1 at its middle (`CursorPointFlight.speedShare`). The
+    /// Point move stretches the cursor along its flight by it, a theme's streaks show by it, and the glow grows with it.
+    @State private var buddyFlightSpeedShare: Double = 0
 
-    /// How much bigger the buddy is at the middle of a flight. The volleyball's streaks
-    /// divide by it, so they show fully at the middle and fade out as the ball lands.
-    private let buddyFlightPeakExtraScale: CGFloat = 0.3
+    /// The direction of the current or last flight, in the convention of `triangleRotationDegrees`. The Point move stretches
+    /// the cursor along it and squashes it along it on landing, whichever way the cursor itself faces.
+    @State private var buddyFlightDirectionDegrees: Double = 0
+
+    /// When the buddy last landed, which starts the Point move's landing squash.
+    @State private var buddyLandedAt: Date?
+
+    /// The ring on the target the buddy is pointing at, which stays until the buddy leaves it.
+    @State private var landingRing: CursorLandingRing?
+
+    /// The emote that is playing (a nod, a shake, or a hop), started by `CompanionManager.playCursorEmote`.
+    @State private var playingEmote: PlayingCursorEmote?
 
     /// While a cursor that turns toward movement, such as a school theme's volleyball, follows the mouse, it turns toward
     /// the mouse's movement and shows streaks at speed. It advances under every theme, so switching themes never shows an
@@ -268,7 +279,7 @@ struct BlueCursorView: View {
     private var cursorStreakOpacity: Double {
         buddyNavigationMode == .followingCursor
             ? cursorFollowMotion.streakStrength
-            : (buddyFlightScale - 1.0) / buddyFlightPeakExtraScale
+            : buddyFlightSpeedShare
     }
 
     /// Scale factor for the navigation speech bubble's pop-in entrance.
@@ -417,6 +428,13 @@ struct BlueCursorView: View {
                     }
             }
 
+            // The ring on the target the buddy landed on, under the cursor so the triangle stays on top.
+            if let landingRing {
+                CursorLandingRingView(landingRing: landingRing, color: themeSettings.shownTheme.cursorColor)
+                    .position(landingRing.center)
+                    .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity : 0)
+            }
+
             // The loop around the video or image Clicky is looking at, under the cursor so the triangle stays on top.
             if let loopToDraw = cursorLoopController.loopToDraw(onScreenWithFrame: screenFrame) {
                 CursorLoopView(loop: loopToDraw, cursorPosition: cursorPosition, color: themeSettings.shownTheme.cursorColor)
@@ -429,17 +447,22 @@ struct BlueCursorView: View {
             // During cursor following: fast spring animation for snappy tracking.
             // During navigation: NO implicit animation — the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
-            CustomCursorView(
-                customTheme: themeSettings.shownTheme,
-                picture: themeSettings.shownThemePicture,
-                streakOpacity: cursorStreakOpacity,
-                streakFacingDegrees: themeSettings.shownTheme.cursorFacing == .upright ? directionOfTravelDegrees : 0,
-                voiceState: companionManager.voiceState,
-                audioPowerLevel: companionManager.currentAudioPowerLevel
+            CursorBodyLanguageView(
+                glyph: CustomCursorView(
+                    customTheme: themeSettings.shownTheme,
+                    picture: themeSettings.shownThemePicture,
+                    streakOpacity: cursorStreakOpacity,
+                    streakFacingDegrees: themeSettings.shownTheme.cursorFacing == .upright ? directionOfTravelDegrees : 0,
+                    voiceState: companionManager.voiceState,
+                    audioPowerLevel: companionManager.currentAudioPowerLevel
+                )
+                .rotationEffect(.degrees(buddyRotationDegrees)),
+                glowColor: themeSettings.shownTheme.cursorColor,
+                flightSpeedShare: buddyFlightSpeedShare,
+                flightDirectionDegrees: buddyFlightDirectionDegrees,
+                playingEmote: playingEmote,
+                landedAt: buddyLandedAt
             )
-                .rotationEffect(.degrees(buddyRotationDegrees))
-                .shadow(color: themeSettings.shownTheme.cursorColor, radius: 8 + (buddyFlightScale - 1.0) * 20, x: 0, y: 0)
-                .scaleEffect(buddyFlightScale)
                 .opacity(buddyIsVisibleOnThisScreen && !statusIconReplacesTheBuddy ? cursorOpacity * flightFadeOpacity : 0)
                 .position(cursorPosition)
                 .animation(
@@ -504,6 +527,10 @@ struct BlueCursorView: View {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
             companionManager.tearDownOnboardingVideo()
+        }
+        .onChange(of: companionManager.cursorEmoteRequest) { newEmoteRequest in
+            guard let newEmoteRequest else { return }
+            playingEmote = PlayingCursorEmote(emote: newEmoteRequest.emote, startedAt: Date())
         }
         .onChange(of: companionManager.detectedElementBubbleText) { newBubbleText in
             // A narration holds the buddy on a part and changes the text for each sentence it speaks there.
@@ -642,6 +669,8 @@ struct BlueCursorView: View {
         // Enter navigation mode — stop cursor following
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = false
+        endTheLandingRing()
+        pointedTargetCenter = CGPoint(x: clampedTarget.x - 8, y: clampedTarget.y - 12)
         currentTargetHoldsUntilReleased = companionManager.detectedElementPointingHold.holdsUntilReleased
 
         animateBezierFlightArc(to: clampedTarget) {
@@ -667,6 +696,7 @@ struct BlueCursorView: View {
             return
         }
         flightFadeOpacity = 1.0
+        buddyLandedAt = nil
 
         let startPosition = cursorPosition
         let endPosition = destination
@@ -676,8 +706,9 @@ struct BlueCursorView: View {
         let distance = hypot(deltaX, deltaY)
 
         // Flight duration scales with distance: short hops are quick, long
-        // flights are more dramatic. Clamped to 0.6s–1.4s.
-        let flightDurationSeconds = min(max(distance / 800.0, 0.6), 1.4)
+        // flights are more dramatic (the Point move, clamped to 0.6s–1.4s).
+        let pointMoveCurve = DS.Move.point.curve
+        let flightDurationSeconds = pointMoveCurve.seconds(travelingPoints: distance)
         let frameInterval: Double = 1.0 / 60.0
         let totalFrames = Int(flightDurationSeconds / frameInterval)
         var currentFrame = 0
@@ -698,7 +729,10 @@ struct BlueCursorView: View {
                 self.navigationAnimationTimer?.invalidate()
                 self.navigationAnimationTimer = nil
                 self.cursorPosition = endPosition
-                self.buddyFlightScale = 1.0
+                self.buddyFlightSpeedShare = 0
+                // The landing squash starts here; it is a Point move form that Reduce Motion never reaches, since its
+                // flight is the fade.
+                self.buddyLandedAt = Date()
                 onComplete()
                 return
             }
@@ -706,8 +740,8 @@ struct BlueCursorView: View {
             // Linear progress 0→1 over the flight duration
             let linearProgress = Double(currentFrame) / Double(totalFrames)
 
-            // Smoothstep easeInOut: 3t² - 2t³ (Hermite interpolation)
-            let t = linearProgress * linearProgress * (3.0 - 2.0 * linearProgress)
+            // The Point move's easing, smoothstep: 3t² - 2t³ (Hermite interpolation)
+            let t = pointMoveCurve.progress(atSeconds: linearProgress * flightDurationSeconds, travelingPoints: distance)
 
             // Quadratic bezier: B(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
             let oneMinusT = 1.0 - t
@@ -729,11 +763,10 @@ struct BlueCursorView: View {
             // +90° offset because the triangle's "tip" points up at 0° rotation,
             // and atan2 returns 0° for rightward movement
             self.triangleRotationDegrees = atan2(tangentY, tangentX) * (180.0 / .pi) + 90.0
+            self.buddyFlightDirectionDegrees = self.triangleRotationDegrees
 
-            // Scale pulse: sin curve peaks at midpoint of the flight.
-            // Buddy grows to ~1.3x at the apex, then shrinks back to 1.0x on landing.
-            let scalePulse = sin(linearProgress * .pi)
-            self.buddyFlightScale = 1.0 + scalePulse * self.buddyFlightPeakExtraScale
+            // The cursor stretches along its flight, most at the middle, and the streaks and glow follow the same speed.
+            self.buddyFlightSpeedShare = CursorPointFlight.speedShare(linearProgress: linearProgress)
         }
     }
 
@@ -759,6 +792,8 @@ struct BlueCursorView: View {
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
         buddyNavigationMode = .pointingAtTarget
+        // Marks the target for the whole time the buddy points at it. Reduce Motion fades it in and leaves it still.
+        landingRing = CursorLandingRing(center: pointedTargetCenter, landedAt: Date(), endedAt: nil)
 
         // Rotate back to default pointer angle now that we've arrived
         triangleRotationDegrees = -35.0
@@ -894,10 +929,18 @@ struct BlueCursorView: View {
 
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = true
+        endTheLandingRing()
 
         animateBezierFlightArc(to: cursorWithTrackingOffset) {
             self.finishNavigationAndResumeFollowing()
         }
+    }
+
+    /// The ring on the target fades out when the buddy leaves it.
+    private func endTheLandingRing() {
+        guard var ring = landingRing, ring.endedAt == nil else { return }
+        ring.endedAt = Date()
+        landingRing = ring
     }
 
     /// Cancels an in-progress navigation because the user moved the cursor.
@@ -907,7 +950,7 @@ struct BlueCursorView: View {
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
         navigationBubbleScale = 1.0
-        buddyFlightScale = 1.0
+        buddyFlightSpeedShare = 0
         flightFadeOpacity = 1.0
         finishNavigationAndResumeFollowing()
     }
@@ -923,7 +966,8 @@ struct BlueCursorView: View {
         // The follow motion froze before the flight. Starting it at rest lets the ball ease to the
         // pointer angle like the triangle, instead of spinning back to an old facing with old streaks.
         cursorFollowMotion = .atRest
-        buddyFlightScale = 1.0
+        buddyFlightSpeedShare = 0
+        endTheLandingRing()
         flightFadeOpacity = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0

@@ -7,6 +7,9 @@
 //  ring, because the response bubble types with the voice. While a loop shows around the media Clicky is
 //  looking at, the loop's spark is the thinking light instead, and the dots stay away.
 //
+//  The cues hand off to one another instead of cutting: on release the ticks shrink into the dots (0.3 s), and when speech
+//  starts the dots fly into the speech bubble's tail (0.38 s). Reduce Motion crossfades every cue change.
+//
 
 import CoreGraphics
 import SwiftUI
@@ -96,26 +99,221 @@ enum CursorRingGeometry {
     }
 }
 
-/// The ring, centered on the point it is given. It shows only for the two cues that use it, and fades between them.
+/// One mark of the ring while it hands off: a rounded bar at an angle (clockwise from straight up) and a distance from
+/// the cursor's center. A tick is a long thin one, and a dot is a short, fat one.
+struct CursorRingMark: Equatable {
+    var angleDegrees: Double
+    /// Distance from the cursor's center to the middle of the mark.
+    var centerRadiusInPoints: CGFloat
+    /// The mark's size along the radius.
+    var radialLengthInPoints: CGFloat
+    /// The mark's size across the radius.
+    var thicknessInPoints: CGFloat
+    var opacity: Double
+}
+
+/// How one cue hands its marks to the next.
+enum CursorRingHandoff: Equatable {
+    /// On release: the ticks shrink into the three dots.
+    case ticksIntoDots
+    /// When speech starts: the dots fly into the speech bubble's tail.
+    case dotsIntoSpeech
+
+    static let ticksIntoDotsSeconds: TimeInterval = 0.3
+    static let dotsIntoSpeechSeconds: TimeInterval = 0.38
+
+    /// Where the speech bubble's tail touches, from the cursor's center. It is the top left corner of the bubble Clicky shows
+    /// beside the cursor today, and the speech bubble sets its own tail point when it replaces that bubble.
+    static let defaultSpeechTailOffset = CGPoint(x: 10, y: 7)
+
+    var seconds: TimeInterval {
+        switch self {
+        case .ticksIntoDots: return Self.ticksIntoDotsSeconds
+        case .dotsIntoSpeech: return Self.dotsIntoSpeechSeconds
+        }
+    }
+
+    /// The handoff a change of cue plays. Nil for every other change, which crossfades, and for all of them under Reduce Motion.
+    static func playedByAChange(from previousCue: CursorCue, to newCue: CursorCue, reduceMotionIsOn: Bool) -> CursorRingHandoff? {
+        guard !reduceMotionIsOn else { return nil }
+        switch (previousCue, newCue) {
+        case (.listening, .thinkingWithDots): return .ticksIntoDots
+        case (.thinkingWithDots, .speaking): return .dotsIntoSpeech
+        default: return nil
+        }
+    }
+}
+
+extension CursorRingGeometry {
+    /// The marks of the ticks while they shrink into the dots, `progress` of the way from 0 to 1. The ticks at 0, 120, and 240
+    /// degrees become the three dots, and each other tick slides to its nearest dot while it shrinks and fades out, so at 1
+    /// the ring is exactly the dots' first frame (`dotPlacements(secondsSinceTheOrbitBegan: 0)`).
+    static func tickMarksTurningIntoDots(tickLengths: [CGFloat], progress: Double) -> [CursorRingMark] {
+        let easedProgress = MoveBezier.smoothstep.progress(atLinearProgress: progress)
+        let ticksPerDot = tickCount / dotCount
+        return tickLengths.enumerated().map { tickIndex, tickLength in
+            let nearestDotNumber = Int((Double(tickIndex) / Double(ticksPerDot)).rounded())
+            let startAngle = 360 * Double(tickIndex) / Double(tickCount)
+            // The last ticks are nearest the first dot a full turn on, so the angle is not wrapped back to 0.
+            let endAngle = 360 * Double(nearestDotNumber * ticksPerDot) / Double(tickCount)
+            let isTheTickThatBecomesADot = tickIndex % ticksPerDot == 0
+            let dotOpacity = dotOpacities[(tickIndex / ticksPerDot) % dotCount]
+            let startOpacity = 1.0
+            let endOpacity = isTheTickThatBecomesADot ? dotOpacity : 0
+            let startCenterRadius = tickInnerRadiusInPoints + tickLength / 2
+            return CursorRingMark(
+                angleDegrees: startAngle + (endAngle - startAngle) * easedProgress,
+                centerRadiusInPoints: startCenterRadius + (dotOrbitRadiusInPoints - startCenterRadius) * easedProgress,
+                radialLengthInPoints: tickLength + (dotDiameterInPoints - tickLength) * easedProgress,
+                thicknessInPoints: tickWidthInPoints + (dotDiameterInPoints - tickWidthInPoints) * easedProgress,
+                opacity: startOpacity + (endOpacity - startOpacity) * easedProgress
+            )
+        }
+    }
+
+    /// Where the dots are while they fly from their orbit into the speech bubble's tail, `progress` of the way from 0 to 1.
+    /// They start where the orbit had them (`secondsSinceTheOrbitBegan`), shrink to half their size, and fade out at the tail,
+    /// where the bubble pops in.
+    static func dotsFlyingIntoTheSpeechTail(
+        secondsSinceTheOrbitBegan: TimeInterval,
+        speechTailOffset: CGPoint,
+        progress: Double
+    ) -> [(offset: CGPoint, diameter: CGFloat, opacity: Double)] {
+        let easedProgress = MoveBezier.smoothstep.progress(atLinearProgress: progress)
+        return dotPlacements(secondsSinceTheOrbitBegan: secondsSinceTheOrbitBegan).map { orbitPlacement in
+            (
+                offset: CGPoint(
+                    x: orbitPlacement.offset.x + (speechTailOffset.x - orbitPlacement.offset.x) * easedProgress,
+                    y: orbitPlacement.offset.y + (speechTailOffset.y - orbitPlacement.offset.y) * easedProgress
+                ),
+                diameter: dotDiameterInPoints * (1 - 0.5 * easedProgress),
+                opacity: orbitPlacement.opacity * (1 - easedProgress * easedProgress)
+            )
+        }
+    }
+}
+
+/// The ring, centered on the point it is given. It shows only for the two cues that use it. A change between cues crossfades,
+/// except the two handoffs of `CursorRingHandoff`, which move the marks from one cue to the next.
 struct CursorRingView: View {
     let cue: CursorCue
     let audioPowerLevel: CGFloat
     let color: Color
+    /// Where the dots fly when speech starts, from the cursor's center.
+    var speechTailOffset: CGPoint = CursorRingHandoff.defaultSpeechTailOffset
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The handoff that is playing, and what it needs from the cue it replaced.
+    @State private var playingHandoff: PlayingRingHandoff?
+    /// When the dots began to orbit, so a handoff out of them starts where the orbit is.
+    @State private var dotsBeganOrbitingAt = Date()
 
     var body: some View {
         ZStack {
+            if let playingHandoff {
+                CursorRingHandoffView(playingHandoff: playingHandoff, speechTailOffset: speechTailOffset, color: color)
+            }
             if cue == .listening {
                 ListeningTicksView(audioPowerLevel: audioPowerLevel, color: color)
                     .transition(.opacity)
             }
-            if cue == .thinkingWithDots {
-                ThinkingDotsView(color: color)
-                    .transition(.opacity)
+            if cue == .thinkingWithDots, playingHandoff == nil {
+                ThinkingDotsView(color: color, orbitBeganAt: dotsBeganOrbitingAt)
+                    // After the ticks turned into the dots, the dots are already on screen, so they do not fade in again.
+                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .identity, removal: .opacity))
             }
         }
         .frame(width: CursorRingGeometry.outerRadiusInPoints * 2, height: CursorRingGeometry.outerRadiusInPoints * 2)
-        .animation(.easeOut(duration: 0.15), value: cue)
+        .animation(.easeOut(duration: DS.Move.fadeSeconds), value: cue)
         .allowsHitTesting(false)
+        .onChange(of: cue) { previousCue, newCue in
+            beginAHandoffIfTheChangePlaysOne(from: previousCue, to: newCue)
+        }
+    }
+
+    private func beginAHandoffIfTheChangePlaysOne(from previousCue: CursorCue, to newCue: CursorCue) {
+        let now = Date()
+        guard let handoff = CursorRingHandoff.playedByAChange(from: previousCue, to: newCue, reduceMotionIsOn: reduceMotion) else {
+            playingHandoff = nil
+            if newCue == .thinkingWithDots { dotsBeganOrbitingAt = now }
+            return
+        }
+        let handoffToPlay = PlayingRingHandoff(
+            handoff: handoff,
+            startedAt: now,
+            // The ticks keep the lengths they had at the release, so the voice dying away does not shrink them early.
+            tickLengthsAtTheStart: CursorRingGeometry.tickLengths(
+                audioPowerLevel: audioPowerLevel,
+                shimmerPhase: now.timeIntervalSinceReferenceDate * 5
+            ),
+            secondsTheDotsHadOrbitedAtTheStart: now.timeIntervalSince(dotsBeganOrbitingAt)
+        )
+        playingHandoff = handoffToPlay
+        // The dots start orbiting at the top where the ticks left them.
+        if handoff == .ticksIntoDots { dotsBeganOrbitingAt = now.addingTimeInterval(handoff.seconds) }
+        Task {
+            try? await Task.sleep(for: .seconds(handoff.seconds))
+            // A newer cue change replaced this handoff, so it clears the state itself.
+            if playingHandoff?.startedAt == handoffToPlay.startedAt { playingHandoff = nil }
+        }
+    }
+}
+
+/// One handoff in progress.
+private struct PlayingRingHandoff: Equatable {
+    let handoff: CursorRingHandoff
+    let startedAt: Date
+    let tickLengthsAtTheStart: [CGFloat]
+    let secondsTheDotsHadOrbitedAtTheStart: TimeInterval
+}
+
+/// Draws a handoff frame by frame, from its start to its end.
+private struct CursorRingHandoffView: View {
+    let playingHandoff: PlayingRingHandoff
+    let speechTailOffset: CGPoint
+    let color: Color
+
+    var body: some View {
+        TimelineView(.explicit(cursorMotionFrameDates(startingAt: playingHandoff.startedAt, forSeconds: playingHandoff.handoff.seconds))) { timelineContext in
+            let progress = min(max(timelineContext.date.timeIntervalSince(playingHandoff.startedAt) / playingHandoff.handoff.seconds, 0), 1)
+            Canvas { context, size in
+                let ringCenter = CGPoint(x: size.width / 2, y: size.height / 2)
+                switch playingHandoff.handoff {
+                case .ticksIntoDots:
+                    for mark in CursorRingGeometry.tickMarksTurningIntoDots(tickLengths: playingHandoff.tickLengthsAtTheStart, progress: progress) {
+                        var turnedContext = context
+                        turnedContext.translateBy(x: ringCenter.x, y: ringCenter.y)
+                        turnedContext.rotate(by: .degrees(mark.angleDegrees))
+                        // The mark is drawn pointing up from the center, then turned around it, as a tick is.
+                        let markRect = CGRect(
+                            x: -mark.thicknessInPoints / 2,
+                            y: -(mark.centerRadiusInPoints + mark.radialLengthInPoints / 2),
+                            width: mark.thicknessInPoints,
+                            height: mark.radialLengthInPoints
+                        )
+                        turnedContext.fill(
+                            Path(roundedRect: markRect, cornerRadius: min(markRect.width, markRect.height) / 2),
+                            with: .color(color.opacity(mark.opacity))
+                        )
+                    }
+                case .dotsIntoSpeech:
+                    for dot in CursorRingGeometry.dotsFlyingIntoTheSpeechTail(
+                        secondsSinceTheOrbitBegan: playingHandoff.secondsTheDotsHadOrbitedAtTheStart,
+                        speechTailOffset: speechTailOffset,
+                        progress: progress
+                    ) {
+                        let dotRect = CGRect(
+                            x: ringCenter.x + dot.offset.x - dot.diameter / 2,
+                            y: ringCenter.y + dot.offset.y - dot.diameter / 2,
+                            width: dot.diameter,
+                            height: dot.diameter
+                        )
+                        context.fill(Path(ellipseIn: dotRect), with: .color(color.opacity(dot.opacity)))
+                    }
+                }
+            }
+            .shadow(color: color.opacity(0.55), radius: 5)
+        }
     }
 }
 
@@ -162,13 +360,14 @@ private struct ListeningTicksView: View {
 /// Three dots orbiting the cursor once every 1.2 seconds. With Reduce Motion they stay put and breathe.
 private struct ThinkingDotsView: View {
     let color: Color
+    /// The orbit and the breath both count from here, so they always start at the top. It is the moment the dots appear, or
+    /// the moment the ticks finished turning into them.
+    let orbitBeganAt: Date
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The orbit and the breath both count from the moment the dots appear, so they always start at the top.
-    @State private var appearedAt = Date()
 
     var body: some View {
         TimelineView(.animation(minimumInterval: reduceMotion ? 1.0 / 10.0 : 1.0 / 36.0)) { timelineContext in
-            let secondsSinceAppearing = timelineContext.date.timeIntervalSince(appearedAt)
+            let secondsSinceAppearing = max(timelineContext.date.timeIntervalSince(orbitBeganAt), 0)
             let dotPlacements = CursorRingGeometry.dotPlacements(secondsSinceTheOrbitBegan: reduceMotion ? 0 : secondsSinceAppearing)
             let breathShare = reduceMotion ? CursorRingGeometry.stillDotBrightness(secondsSinceTheBreathBegan: secondsSinceAppearing) : 1
             Canvas { context, size in

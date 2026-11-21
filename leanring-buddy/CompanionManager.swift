@@ -105,6 +105,8 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
     /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
     @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
+    /// The cursor's latest nod, shake, or hop, which BlueCursorView plays. Set only through `playCursorEmote`.
+    @Published private(set) var cursorEmoteRequest: CursorEmoteRequest?
 
     // MARK: - Onboarding Video State (shared across all screen overlays)
 
@@ -578,6 +580,11 @@ final class CompanionManager: ObservableObject {
                 self?.onboardingMusicFadeTimer = nil
             }
         }
+    }
+
+    /// Asks the cursor to nod (a command was heard), shake (a failure or a first wrong answer), or hop (a right answer).
+    func playCursorEmote(_ emote: CursorEmote) {
+        cursorEmoteRequest = CursorEmoteRequest(emote: emote, sequenceNumber: (cursorEmoteRequest?.sequenceNumber ?? 0) + 1)
     }
 
     func clearDetectedElementLocation() {
@@ -1197,6 +1204,8 @@ final class CompanionManager: ObservableObject {
     /// the buddy to fly to that element on screen.
     private func sendTranscriptToClaudeWithScreenshot(transcript: String, pushToTalkPressCount pressCountOfTheTranscript: Int) {
         let transcriptReadyAt = Date()
+        // A transcript with words is a command Clicky heard.
+        playCursorEmote(.nod)
         // This transcript takes the read of its own press before any branch below returns, so no later transcript can use it,
         // and a press that gets a transcript leaves no read behind. The read is dropped when the page it describes is gone.
         let screenReadAtRelease = screenReadForTheTranscript(
@@ -2025,6 +2034,7 @@ final class CompanionManager: ObservableObject {
                 if case .hit = challengeOutcome {
                     self.simulationLesson?.challengeIsRunning = false
                     self.themeSettings.shownTheme.sounds.correct.play()
+                    self.playCursorEmote(.hop)
                 }
                 await self.speakSimulationLine(simulationChallengeSpokenLine(for: challengeOutcome))
             } else {
@@ -2305,6 +2315,7 @@ final class CompanionManager: ObservableObject {
     ) -> String {
         let revealOutcome = LiveSceneRevealOutcome(grade: grade, wrongAnswerCount: wrongAnswerCount)
         LiveSceneOverlay.shared.revealQuizLabel(outcome: revealOutcome, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
+        if let emoteForTheAnswer = cursorEmote(forAnswerOutcome: revealOutcome) { playCursorEmote(emoteForTheAnswer) }
         // After a first wrong answer the question is still open, so its bubble stays for the learner to read again.
         if !(grade == .wrong && wrongAnswerCount == 0) {
             releaseTheBuddyFromTheQuizQuestion()
@@ -3396,6 +3407,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
+            playCursorEmote(.shake)
             VoiceToolCallChip.shared.show("Couldn't finish the task", sender: chipSender(forAgent: agentID, kind: .task), secondsOnScreen: Self.backgroundAgentChipSecondsOnScreen)
         }
     }
@@ -3673,6 +3685,7 @@ final class CompanionManager: ObservableObject {
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
+            playCursorEmote(.shake)
             VoiceToolCallChip.shared.show(
                 "Couldn't build the \(agentKind.builtThingName)",
                 sender: chipSender(forAgent: agentID, kind: agentKind),
@@ -3983,6 +3996,7 @@ final class CompanionManager: ObservableObject {
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
+            playCursorEmote(.shake)
             VoiceToolCallChip.shared.show(
                 studyGuideFailureLine(for: error),
                 sender: chipSender(forAgent: agentID, kind: agentKind),
@@ -4271,6 +4285,8 @@ final class CompanionManager: ObservableObject {
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
     private func speakLiveSceneLineAndReturnItsToken(_ line: String) async -> SpokenLineToken? {
+        // Every line Clicky speaks about something that went wrong starts with "Sorry", so the cursor shakes with it.
+        if spokenLineIsAFailure(line) { playCursorEmote(.shake) }
         do {
             let lineToken = try await elevenLabsTTSClient.speakText(line)
             voiceState = .responding
