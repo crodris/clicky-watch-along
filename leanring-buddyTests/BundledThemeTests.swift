@@ -110,7 +110,9 @@ struct BundledThemeTests {
         // The acceptance test for the version 2 parser: every folder the learner's Themes folder holds with a theme.json,
         // version 1 files from before theme files included, still loads. A Mac with no saved themes passes at once.
         let savedThemesStore = CustomThemeStore.standard()
+        // A folder whose name is not a theme id, such as one made by hand, is skipped by design, so it is left out here too.
         let folderNamesWithAThemeFile = ((try? FileManager.default.contentsOfDirectory(atPath: savedThemesStore.themesDirectoryURL.path)) ?? [])
+            .filter(CustomThemeStore.isAValidThemeID)
             .filter { folderName in
                 FileManager.default.fileExists(atPath: savedThemesStore.folderURL(forThemeID: folderName).appendingPathComponent(CustomThemeStore.themeFileName).path)
             }
@@ -222,9 +224,14 @@ struct BundledThemeTests {
             #expect(randomSettings.shufflesAgentThemes)
             #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "random")
 
+            // Picking a theme with Shuffle on from an old `random` keeps Shuffle on after a relaunch.
+            randomSettings.theme = bundledTheme("school-nekoma")
+            #expect(launch().shufflesAgentThemes)
+            #expect(launch().theme == bundledTheme("school-nekoma"))
+
             // Turning Shuffle off writes today's form of the theme too, so the old `random` cannot turn it back on.
             randomSettings.shufflesAgentThemes = false
-            #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "bundled:clicky-blue")
+            #expect(testDefaults.string(forKey: CompanionThemeSettings.userDefaultsKey) == "bundled:school-nekoma")
             #expect(!launch().shufflesAgentThemes)
 
             // Picking a theme writes today's form.

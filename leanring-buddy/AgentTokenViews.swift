@@ -294,7 +294,6 @@ struct AgentTriangleFill: Shape {
     }
 }
 
-/// A white check on a green dot, at the base of a finished agent's token or triangle.
 /// The badge at a token's lower right, which says the agent's state by its shape, so no ring color has to.
 enum AgentTokenBadge: Equatable {
     case done
@@ -337,6 +336,7 @@ struct AgentTokenBadgeView: View {
     }
 }
 
+/// A white check on a green dot, at the base of a finished agent's token or triangle.
 struct FinishedCheckMark: View {
     let size: CGFloat
 

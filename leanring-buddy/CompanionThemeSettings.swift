@@ -129,7 +129,12 @@ final class CompanionThemeSettings: ObservableObject {
     static let shuffleUserDefaultsKey = "shufflesAgentThemes"
 
     @Published var theme: ClickyTheme {
-        didSet { userDefaults.set(ThemeSettingValue.of(theme), forKey: Self.userDefaultsKey) }
+        didSet {
+            userDefaults.set(ThemeSettingValue.of(theme), forKey: Self.userDefaultsKey)
+            // An old `random` read as Shuffle on without writing the switch, so the switch is written with the theme, or
+            // the Shuffle that `random` turned on would be gone once the old value is replaced.
+            userDefaults.set(shufflesAgentThemes, forKey: Self.shuffleUserDefaultsKey)
+        }
     }
 
     /// Whether each new agent takes the look of a theme picked at random from every installed theme, instead of the

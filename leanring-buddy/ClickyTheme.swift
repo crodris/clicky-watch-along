@@ -395,9 +395,15 @@ nonisolated extension ClickyTheme {
                 throw CustomThemeParseError(reason: "agents.faces.order must be firstUnused")
             }
             let playerValues = try facesReader.array("players", counts: 1...mostRosterPlayers)
-            faces = .roster(try playerValues.enumerated().map { playerIndex, playerValue in
+            let players = try playerValues.enumerated().map { playerIndex, playerValue in
                 try parseRosterPlayer(IdeaReader(playerValue, location: "agents.faces.players[\(playerIndex)]"))
-            })
+            }
+            // The agent list tells agents apart by their player's name, so two players of one name would look like one.
+            var namesSeen: Set<String> = []
+            for (playerIndex, player) in players.enumerated() where !namesSeen.insert(player.name).inserted {
+                throw CustomThemeParseError(reason: "agents.faces.players[\(playerIndex)].name \(player.name) is already a player's name")
+            }
+            faces = .roster(players)
         default:
             throw CustomThemeParseError(reason: "agents.faces.kind must be triangle, picture, or roster")
         }

@@ -228,7 +228,7 @@ final class CompanionManager: ObservableObject {
     /// How many refreshes are checking their page in Notion before their guide agent starts, so a rehearsal step that
     /// waits for the agents does not run in between. A count, since refreshes for two videos can check at once.
     private var studyGuideRefreshesBeingChecked = 0
-    /// The Haikyu!! team theme the learner picked in the menu bar panel or the settings dial, the one source of truth for it.
+    /// The theme the learner picked in the menu bar panel or the settings dial, the one source of truth for it.
     let themeSettings = CompanionThemeSettings()
     /// The loop around the video or image a request looks at, which the cursor overlay draws.
     let cursorLoopController = CursorLoopController()

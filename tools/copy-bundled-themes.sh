@@ -6,9 +6,15 @@
 # leanring-buddy/HaikyuPortraits, which Xcode copies to the top of Resources, where a bundled roster looks them up.
 set -eu
 
-themes_source="$SRCROOT/themes"
-themes_destination="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Themes"
+themes_source="${SRCROOT:?}/themes"
+themes_destination="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/Themes"
 
+# The folder is deleted and made again on each build, so the guard names what the delete may touch: the app's own Themes
+# folder, and nothing an empty build setting could turn the path into.
+case "$themes_destination" in
+  *.app/Contents/Resources/Themes) ;;
+  *) echo "copy-bundled-themes: refusing to replace $themes_destination, which is not an app's Contents/Resources/Themes" >&2; exit 1 ;;
+esac
 rm -rf "$themes_destination"
 /bin/mkdir -p "$themes_destination"
 for theme_package in "$themes_source"/*.clickytheme; do

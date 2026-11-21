@@ -439,6 +439,52 @@ struct CustomThemeStoreRenameAndDeleteTests {
         }
     }
 
+    @Test func aSymbolicLinkInAPackageIsRefusedAndNothingIsWrittenWhereItPoints() throws {
+        try withATemporaryThemeStore { store in
+            // A downloaded zip that holds the package and a folder the package's portraits folder links to, such as
+            // ~/Library/LaunchAgents. Install must never write through that link.
+            let attackFolderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-attack-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: attackFolderURL) }
+            let outsideFolderURL = attackFolderURL.appendingPathComponent("LaunchAgents", isDirectory: true)
+            try FileManager.default.createDirectory(at: outsideFolderURL, withIntermediateDirectories: true)
+            try Data("plist".utf8).write(to: outsideFolderURL.appendingPathComponent("evil.plist"))
+            let rosterJSON = replacingField(in: goodVersion2ThemeJSON, at: ["agents"], with: .object([
+                "ring": .string("accent"),
+                "faces": .object(["kind": .string("roster"), "players": .array([
+                    .object(["name": .string("Link"), "portrait": .string("L")]),
+                    .object(["name": .string("Evil"), "portrait": .string("L/evil.plist")]),
+                ])]),
+            ]))
+            let packageURL = try makeThemePackage(themeJSON: rosterJSON)
+            try FileManager.default.createSymbolicLink(at: packageURL.appendingPathComponent("L"), withDestinationURL: outsideFolderURL)
+
+            #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("L")) { try store.install(packageAt: packageURL) }
+            #expect(store.loadSavedThemes().isEmpty)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: outsideFolderURL.path) == ["evil.plist"])
+
+            // A theme.json that is a link, such as one to /dev/zero, is refused before it is read.
+            let linkedThemeFilePackageURL = try makeThemePackage(themeJSON: goodVersion2ThemeJSON)
+            let themeFileURL = linkedThemeFilePackageURL.appendingPathComponent(CustomThemeStore.themeFileName)
+            try FileManager.default.moveItem(at: themeFileURL, to: attackFolderURL.appendingPathComponent("real-theme.json"))
+            try FileManager.default.createSymbolicLink(at: themeFileURL, withDestinationURL: attackFolderURL.appendingPathComponent("real-theme.json"))
+            #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile(CustomThemeStore.themeFileName)) {
+                try store.install(packageAt: linkedThemeFilePackageURL)
+            }
+        }
+    }
+
+    @Test func aPortraitOverItsSizeCapIsRefusedAndNothingIsInstalled() throws {
+        try withATemporaryThemeStore { store in
+            let rosterJSON = replacingField(in: goodVersion2ThemeJSON, at: ["agents"], with: .object([
+                "ring": .string("accent"),
+                "faces": .object(["kind": .string("roster"), "players": .array([.object(["name": .string("Big"), "portrait": .string("big.jpg")])])]),
+            ]))
+            let packageURL = try makeThemePackage(themeJSON: rosterJSON, extraFiles: ["big.jpg": Data(count: CustomThemeStore.mostPortraitBytes + 1)])
+            #expect(throws: CustomThemeStoreError.packageFileIsTooLarge("big.jpg")) { try store.install(packageAt: packageURL) }
+            #expect(!FileManager.default.fileExists(atPath: store.themesDirectoryURL.path))
+        }
+    }
+
     @Test func theBundledLoaderSkipsAPackageWithoutAnIdAndKeepsFolderNameOrder() throws {
         let bundledFolderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-bundled-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundledFolderURL) }

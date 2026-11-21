@@ -23,6 +23,11 @@ nonisolated enum CustomThemeStoreError: Error, Equatable {
     case themeNameIsNotValid
     /// An opened file is not a `.clickytheme` folder with a theme.json in it.
     case packageIsNotAThemeFolder
+    /// A file the package names is a symbolic link, a folder, or something else that is not a regular file, or a folder on
+    /// its path is a symbolic link. A downloaded package could use one to make install read or write outside it.
+    case packageFileIsNotAPlainFile(String)
+    /// A file the package names is over the size install accepts for it.
+    case packageFileIsTooLarge(String)
 }
 
 /// A theme read back from the Themes folder, with when it was saved.
@@ -40,6 +45,11 @@ nonisolated struct CustomThemeStore: Sendable {
     static let themeFileName = "theme.json"
     static let pictureFileName = "picture.jpg"
     static let packageExtension = "clickytheme"
+    /// The most bytes install reads for each file of a package. A roster of 60 players with 6 long paths is about 20 KB of
+    /// theme.json, and a picture or portrait is a JPEG.
+    static let mostThemeFileBytes = 256 * 1024
+    static let mostPictureBytes = 8 * 1024 * 1024
+    static let mostPortraitBytes = 1024 * 1024
 
     /// ~/Library/Application Support/Clicky/Themes, next to the learner's skills and mcp.json.
     static func standard() -> CustomThemeStore {
@@ -140,50 +150,72 @@ nonisolated struct CustomThemeStore: Sendable {
     // MARK: - Installing a package
 
     /// Parses a `.clickytheme` package the learner opened and copies it in as a new saved theme with an id of its own,
-    /// which it returns. Only theme.json, picture.jpg when the theme uses it, and the roster's portrait files are copied,
-    /// so nothing else in the package reaches the Themes folder. A theme.json that does not parse throws its
+    /// which it returns. Only theme.json, picture.jpg when the theme uses it, and the roster's portrait files are read, each
+    /// only as a regular file under its size cap with no symbolic link on its path (`plainFileData`), and their bytes are
+    /// written into a folder this call creates, so a package someone sent can never make install read or write outside it.
+    /// Every file is read before anything is written, and a theme.json that does not parse throws its
     /// `CustomThemeParseError` before any folder is made. A portrait the roster names but the package lacks is left out,
     /// and that face shows its initials.
     @discardableResult
     func install(packageAt packageURL: URL) throws -> ClickyTheme {
-        let fileManager = FileManager.default
         var packageIsAFolder: ObjCBool = false
-        let packageThemeFileURL = packageURL.appendingPathComponent(Self.themeFileName)
-        guard fileManager.fileExists(atPath: packageURL.path, isDirectory: &packageIsAFolder), packageIsAFolder.boolValue,
-              fileManager.fileExists(atPath: packageThemeFileURL.path) else {
+        guard FileManager.default.fileExists(atPath: packageURL.path, isDirectory: &packageIsAFolder), packageIsAFolder.boolValue,
+              let themeFileData = try Self.plainFileData(atRelativePath: Self.themeFileName, inPackageAt: packageURL, mostBytes: Self.mostThemeFileBytes) else {
             throw CustomThemeStoreError.packageIsNotAThemeFolder
         }
-        let packageThemeJSON = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: packageThemeFileURL))
-        let packagePictureURL = packageURL.appendingPathComponent(Self.pictureFileName)
+        let pictureJPEG = try Self.plainFileData(atRelativePath: Self.pictureFileName, inPackageAt: packageURL, mostBytes: Self.mostPictureBytes)
         let packagedTheme = try ClickyTheme.parse(
-            themeJSON: packageThemeJSON,
+            themeJSON: try JSONDecoder().decode(JSONValue.self, from: themeFileData),
             id: "installing",
             origin: .saved(folderURL: packageURL),
-            pictureIsAvailable: fileManager.fileExists(atPath: packagePictureURL.path)
+            pictureIsAvailable: pictureJPEG != nil
         )
+        var portraitDataByFileName: [String: Data] = [:]
+        if case .roster(let players) = packagedTheme.agents.faces {
+            for portraitFileName in players.compactMap(\.portraitFileName) where portraitDataByFileName[portraitFileName] == nil {
+                portraitDataByFileName[portraitFileName] = try Self.plainFileData(atRelativePath: portraitFileName, inPackageAt: packageURL, mostBytes: Self.mostPortraitBytes)
+            }
+        }
 
         let themeID = try freeThemeID(forName: packagedTheme.name)
         let installedFolderURL = folderURL(forThemeID: themeID)
         let installedTheme = packagedTheme.with(id: themeID, origin: .saved(folderURL: installedFolderURL))
-        let pictureJPEG = installedTheme.usesPicture ? try Data(contentsOf: packagePictureURL) : nil
-        try write(installedTheme, pictureJPEG: pictureJPEG)
-        if case .roster(let players) = installedTheme.agents.faces {
-            do {
-                for portraitFileName in Set(players.compactMap(\.portraitFileName)) {
-                    // The parser kept each name to a path below the theme's folder, so neither end leaves its folder.
-                    let packagedPortraitURL = packageURL.appendingPathComponent(portraitFileName)
-                    guard fileManager.fileExists(atPath: packagedPortraitURL.path) else { continue }
-                    let installedPortraitURL = installedFolderURL.appendingPathComponent(portraitFileName)
-                    try fileManager.createDirectory(at: installedPortraitURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try fileManager.copyItem(at: packagedPortraitURL, to: installedPortraitURL)
-                }
-            } catch {
-                // A theme that is only half there would show up in the panel, so a failed copy takes the folder back out.
-                try? fileManager.removeItem(at: installedFolderURL)
-                throw error
+        try write(installedTheme, pictureJPEG: installedTheme.usesPicture ? pictureJPEG : nil)
+        do {
+            // The folder is new and holds only what `write` made, so every folder and file below it is one this call made.
+            for (portraitFileName, portraitData) in portraitDataByFileName.sorted(by: { $0.key < $1.key }) {
+                let installedPortraitURL = installedFolderURL.appendingPathComponent(portraitFileName)
+                try FileManager.default.createDirectory(at: installedPortraitURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try portraitData.write(to: installedPortraitURL, options: .withoutOverwriting)
             }
+        } catch {
+            // A theme that is only half there would show up in the panel, so a failed write takes the folder back out.
+            try? FileManager.default.removeItem(at: installedFolderURL)
+            throw error
         }
         return installedTheme
+    }
+
+    /// The bytes of the file at `relativePath` inside a package, or nil when nothing is there. Every part of the path is
+    /// checked without following links: each folder must be a real folder and the file a regular file of at most
+    /// `mostBytes`, so a symbolic link, a named pipe, or a device file throws instead of being read.
+    static func plainFileData(atRelativePath relativePath: String, inPackageAt packageURL: URL, mostBytes: Int) throws -> Data? {
+        let pathParts = relativePath.split(separator: "/").map(String.init)
+        var currentURL = packageURL
+        for (pathPartIndex, pathPart) in pathParts.enumerated() {
+            currentURL = currentURL.appendingPathComponent(pathPart)
+            // `attributesOfItem` reads the item itself, not what a symbolic link points to.
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: currentURL.path) else { return nil }
+            let fileType = attributes[.type] as? FileAttributeType
+            let isTheFile = pathPartIndex == pathParts.count - 1
+            guard fileType == (isTheFile ? .typeRegular : .typeDirectory) else {
+                throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+            }
+            if isTheFile, let fileSize = attributes[.size] as? NSNumber, fileSize.intValue > mostBytes {
+                throw CustomThemeStoreError.packageFileIsTooLarge(relativePath)
+            }
+        }
+        return try Data(contentsOf: currentURL)
     }
 
     // MARK: - Bundled themes

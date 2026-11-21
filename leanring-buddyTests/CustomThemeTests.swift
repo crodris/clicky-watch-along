@@ -597,6 +597,8 @@ struct CustomThemeParserTests {
         }
         #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: [])))?.contains("players") == true)
         #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: players, order: .string("random"))))?.contains("firstUnused") == true)
+        let twoHinatas = [players[0], .object(["name": .string("Hinata"), "number": .number(21)])]
+        #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: twoHinatas)))?.contains("players[1].name Hinata is already") == true)
         let badNumber: JSONValue = .object(["name": .string("Half"), "number": .number(1.5)])
         #expect(reasonAThemeIdeaIsRefused(version2(changing: ["agents"], to: rosterAgents(players: [badNumber])))?.contains("whole number") == true)
     }
