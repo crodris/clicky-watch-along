@@ -792,7 +792,9 @@ Each push to main runs in its own concurrency group, since GitHub cancels a pend
 A newer push to a pull request still cancels that pull request's older run.
 Pushes and same-repo pull requests run it on the self-hosted Mac runners, every one labeled `clicky-mac`, because GitHub's macOS queue can take over 10 minutes.
 Each runner takes one job at a time, so the Mac has several runner processes, and the jobs run side by side.
-The runners all run as one separate macOS user and build into the job's temp folder, so jobs that run at the same time are not isolated from each other.
+The runners all run as one separate macOS user, so jobs that run at the same time are not isolated from each other.
+Each Mac runner keeps its DerivedData between jobs in `~/Library/Caches/clicky-ci-derived-data/<runner name>-<Xcode build version>`, so Xcode compiles only what a change touches, and test results go to the job's temp folder.
+To make one runner build from scratch, delete its folder there as the `clicky-ci` user. GitHub's runner for fork pull requests builds in the job's temp folder.
 The developer's Screen Recording and Accessibility grants belong to the `Clicky.app` their Xcode builds, and CI never replaces that app.
 The test host only checks those permissions and never requests them.
 macOS keeps one Accessibility grant per bundle ID for the whole Mac, across users, and an unsigned app with that ID that checks it resets the grant, so CI builds with `CLICKY_BUNDLE_ID_SUFFIX=.ci-<runner name>`, with each character other than a letter or digit turned into `-`, and the app of the runner named `clicky-mac-2` is `com.crodris.clicky-watch-along.ci-clicky-mac-2`.

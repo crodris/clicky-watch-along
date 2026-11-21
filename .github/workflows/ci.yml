@@ -152,15 +152,26 @@ jobs:
       # CLICKY_BUNDLE_ID_SUFFIX gives the unsigned CI app its own bundle ID. macOS keeps one Accessibility grant per bundle
       # ID for the whole Mac, so a test host under the developer's ID reset the developer's grant on 2026-11-20.
       # The suffix names the runner, so test hosts that run at the same time on the Mac's runners never share an app's defaults.
-      - run: echo "CLICKY_BUNDLE_ID_SUFFIX=.ci-$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9' '-')" >> "$GITHUB_ENV"
-      # Build into the job's temp folder, which the runner empties after each job, so the Mac runner starts clean like a GitHub VM.
+      # Each Mac runner keeps its own DerivedData between jobs, so Xcode compiles only what a change touches instead of all
+      # of the app and its tests, which took about 4 minutes of every job. The folder is named after the runner, since one
+      # runner runs one job at a time, and after the Xcode build, so an Xcode update starts from scratch.
+      # GitHub's runner for fork pull requests starts empty anyway, so it builds in the job's temp folder.
+      - run: |
+          runner_name_for_ids="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9' '-')"
+          echo "CLICKY_BUNDLE_ID_SUFFIX=.ci-$runner_name_for_ids" >> "$GITHUB_ENV"
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then
+            xcode_build_version="$(xcodebuild -version | awk '/Build version/ { print $3 }')"
+            echo "CLICKY_DERIVED_DATA=$HOME/Library/Caches/clicky-ci-derived-data/$runner_name_for_ids-$xcode_build_version" >> "$GITHUB_ENV"
+          else
+            echo "CLICKY_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
+          fi
       - run: >
           xcodebuild build
           -project leanring-buddy.xcodeproj
           -scheme leanring-buddy
           -configuration Debug
           -destination 'platform=macOS'
-          -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -derivedDataPath "$CLICKY_DERIVED_DATA"
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
       - run: >
@@ -169,7 +180,8 @@ jobs:
           -scheme leanring-buddy
           -configuration Debug
           -destination 'platform=macOS'
-          -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          -derivedDataPath "$CLICKY_DERIVED_DATA"
           -only-testing:leanring-buddyTests
+          -resultBundlePath "$RUNNER_TEMP/TestResults.xcresult"
           CODE_SIGNING_ALLOWED=NO
           CLICKY_BUNDLE_ID_SUFFIX="$CLICKY_BUNDLE_ID_SUFFIX"
