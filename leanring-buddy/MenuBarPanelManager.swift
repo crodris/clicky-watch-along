@@ -32,6 +32,9 @@ final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
+    /// A global monitor never sees a click the window server delivers to this app's own window, so a click on the
+    /// shadow around the card needs this local one to count as outside.
+    private var clickOnShadowMarginMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
     private var savedThemesSubscription: AnyCancellable?
@@ -67,6 +70,9 @@ final class MenuBarPanelManager: NSObject {
 
     deinit {
         if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = clickOnShadowMarginMonitor {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = dismissPanelObserver {
@@ -241,6 +247,17 @@ final class MenuBarPanelManager: NSObject {
     private func installClickOutsideMonitor() {
         removeClickOutsideMonitor()
 
+        clickOnShadowMarginMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self, let panel = self.panel, event.window === panel else { return event }
+            let cardFrame = Self.cardFrame(inWindowFrame: panel.frame, shadowMargin: self.shadowMargin)
+            if !cardFrame.contains(NSEvent.mouseLocation) {
+                self.hidePanel()
+            }
+            return event
+        }
+
         clickOutsideMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
@@ -248,12 +265,7 @@ final class MenuBarPanelManager: NSObject {
 
             // A click on the card keeps the panel open. The transparent shadow margin around the card does not count.
             let clickLocation = NSEvent.mouseLocation
-            let cardFrame = NSRect(
-                x: panel.frame.minX + self.shadowMargin.leading,
-                y: panel.frame.minY + self.shadowMargin.bottom,
-                width: self.panelWidth,
-                height: panel.frame.height - self.shadowMargin.top - self.shadowMargin.bottom
-            )
+            let cardFrame = Self.cardFrame(inWindowFrame: panel.frame, shadowMargin: self.shadowMargin)
             if cardFrame.contains(clickLocation) {
                 return
             }
@@ -279,5 +291,19 @@ final class MenuBarPanelManager: NSObject {
             NSEvent.removeMonitor(monitor)
             clickOutsideMonitor = nil
         }
+        if let monitor = clickOnShadowMarginMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickOnShadowMarginMonitor = nil
+        }
+    }
+
+    /// The card's frame inside the panel window, which is larger than the card by the shadow margin.
+    static func cardFrame(inWindowFrame windowFrame: NSRect, shadowMargin: EdgeInsets) -> NSRect {
+        NSRect(
+            x: windowFrame.minX + shadowMargin.leading,
+            y: windowFrame.minY + shadowMargin.bottom,
+            width: windowFrame.width - shadowMargin.leading - shadowMargin.trailing,
+            height: windowFrame.height - shadowMargin.top - shadowMargin.bottom
+        )
     }
 }

@@ -177,7 +177,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Clicky captures a screenshot of every connected display only when you ask a question by holding the shortcut. It sends the screenshots through Clicky's server to the AI model.")
+                Text("Clicky captures a screenshot of every connected display when you ask a question by holding the shortcut, and again when a quiz or a build you asked for needs a fresh look. It sends the screenshots through Clicky's server to the AI model.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
