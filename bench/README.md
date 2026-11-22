@@ -637,6 +637,31 @@ One guess, not tested, is a headless Chrome left over from the earlier judge run
 
 The bakeoff cost about $29.60: $25.68 in renders, about $0.30 in Sonnet fallbacks, $0.10 in two credit checks, and $3.53 in three judge runs.
 
+### Framing and label rules
+
+The kernel bakeoff's judges rewarded two things the kernel did, so the `page` prompt now asks for them as plain rules (`worker/src/liveScene.ts`).
+A 3D model labels at most 10 parts, placed so none overlap or crowd an edge, and its view crops no part of the subject at the end of the tour or after a half turn.
+An experiment keeps nothing it needs cropped, and the equipment a readout depends on stays large in frame.
+
+On 2026-11-22 this prompt ran against main's, interleaved, on GPT-6.1 Sol and GPT-6.2 Sol Ultrafast.
+The baseline Worker ran this branch with a temporary switch that dropped the three rules, and its prompt was checked byte for byte against main's before any render; the switch was never committed.
+Round one ran the heart, the engine, the bicycle, the cannon, and the lever once each (`results/fr1-*`), and round two ran the bicycle and the cannon again (`results/fr2-*`), to stay inside an $8 budget.
+Every render ran on the intended GPT model, and none fell back.
+
+| 7 pairs | Main's prompt | With the rules |
+|---|---|---|
+| p50 | 24.6 s | 26.0 s |
+| p95 | 41.1 s | 33.3 s |
+| Cost a render | $0.50 | $0.47 |
+| Output tokens | 7,810 | 7,478 |
+
+The blind judge picked the rules 7 times and main's prompt 6 times, with 1 pair undecided (`results/framing-judge/summary.json`).
+3D models went 6 to 2 for the rules, on the heart and both bicycles, where main's bicycle was cropped and carried about 26 crowded labels.
+Experiments went 1 to 4 for main's prompt, with 1 undecided, and the reasons named what each page built, such as a lever that balances, more than its framing.
+The rules ship, since they do not lose the judge and the p50 is within 15% of main's.
+The experiment side is small enough to be noise, but it is the first place to look if experiments get worse.
+It cost $7.26: $6.79 in renders, $0.05 in a credit check, and $0.42 for the judge.
+
 ### Task agent
 
 The task agent is the one model call `bench.ts` does not cover, because its loop runs in the Go harness, which talks to the Worker's `POST /v1/messages` passthrough.
