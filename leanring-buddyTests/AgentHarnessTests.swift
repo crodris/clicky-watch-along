@@ -418,9 +418,10 @@ struct AgentHarnessTests {
         #expect(answers.isEmpty, "a request waits before the timeout")
         #expect(desk.answer(approvalID: "approval-1", approved: true, scope: .always))
 
-        // A loaded runner can start the timeout task late, so wait until the request is declined, with a deadline far past the
-        // timeout, instead of sleeping for a guessed time.
-        let deadline = Date().addingTimeInterval(10)
+        // The timeout task runs on the main actor, behind every other main actor test queued at the start of a full run, which
+        // kept it busy for 11 seconds on 2026-11-21. So wait until the request is declined, with a deadline just under the
+        // test's time limit, instead of sleeping for a guessed time. The waits below follow the same rule.
+        let deadline = Date().addingTimeInterval(50)
         while answers.count < 2, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -440,7 +441,7 @@ struct AgentHarnessTests {
         desk.receive(anApprovalRequest("approval-answered"))
         #expect(desk.answer(approvalID: "approval-answered", approved: false, scope: .once))
 
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(50)
         while desk.answeringApprovalIDs.count < 3, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -468,7 +469,7 @@ struct AgentHarnessTests {
         #expect(desk.answer(approvalID: "approval-stuck", approved: true, scope: .once))
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-stuck", "approval-next"], "the card waits through the grace period")
 
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(50)
         while desk.waitingRequests.count > 1, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -580,7 +581,7 @@ struct AgentHarnessTests {
         desk.settle(approvalID: "approval-2", approved: true, scope: .always)
         #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .ended(.allowed(.always)))
 
-        let deadline = Date().addingTimeInterval(10)
+        let deadline = Date().addingTimeInterval(50)
         while desk.cardToShow(on: .agentList, at: now) != nil, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
