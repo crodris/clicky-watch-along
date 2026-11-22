@@ -169,9 +169,18 @@ nonisolated struct ShirtSmallFrame: Sendable {
     /// Where the learner's neck meets their own shirt: the first row below the chin, on the center column, whose color is
     /// within 45 (of 255, in RGB) of the old shirt's and whose hue, its share of each linear channel, is within 0.1 of the
     /// old shirt's. The neck in the chin's shadow is as dark as a navy shirt, and only its warmer hue tells them apart.
-    /// Looked for from 45 percent of a shoulder width above the shoulder line to 20 percent below it, and averaged over
-    /// three columns, since the small frame is sharper than the spike's blurred one.
+    /// Below `leastLinearLuminanceWithAHue`, as on a black shirt, the hue is noise and only the color counts. Looked for from
+    /// 45 percent of a shoulder width above the shoulder line to 20 percent below it, and averaged over three columns, since
+    /// the small frame is sharper than the spike's blurred one.
+    /// The least linear luminance at which a pixel's hue is read: about 20 of 255 in a gray. A navy shirt is above it, and
+    /// a black one below it.
+    static let leastLinearLuminanceWithAHue: Float = 0.006
+
     func bodyNeckRow(oldShirtColor: SIMD3<Float>) -> Double? {
+        func linearLuminance(_ color: SIMD3<Float>) -> Float {
+            let linear = SIMD3(ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(color.x))], ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(color.y))], ShirtColorMath.linearValueOfEachByte[Int(ShirtColorMath.byte(color.z))])
+            return 0.2126 * linear.x + 0.7152 * linear.y + 0.0722 * linear.z
+        }
         let shoulderWidth = torso.shoulderWidth
         let centerColumn = Int(torso.shoulderMidpoint.x.rounded())
         let firstRow = max(0, Int((torso.shoulderMidpoint.y - 0.45 * shoulderWidth).rounded()))
@@ -182,8 +191,10 @@ nonisolated struct ShirtSmallFrame: Sendable {
             let averageColor = (color(atColumn: centerColumn - 1, row: row) + color(atColumn: centerColumn, row: row) + color(atColumn: centerColumn + 1, row: row)) / 3
             let difference = averageColor - oldShirtColor
             guard (difference * difference).sum().squareRoot() < 45 else { continue }
+            // A near-black pixel's hue is mostly noise, so below a floor of light only the color decides.
+            let hueIsMeaningful = linearLuminance(averageColor) >= Self.leastLinearLuminanceWithAHue && linearLuminance(oldShirtColor) >= Self.leastLinearLuminanceWithAHue
             let hue = ShirtColorMath.chromaticity(red: ShirtColorMath.byte(averageColor.x), green: ShirtColorMath.byte(averageColor.y), blue: ShirtColorMath.byte(averageColor.z))
-            if let hue, let oldShirtHue, simd_distance(hue, oldShirtHue) >= ShirtColorMath.oldShirtChromaticityDistanceLimitForTheShading { continue }
+            if hueIsMeaningful, let hue, let oldShirtHue, simd_distance(hue, oldShirtHue) >= ShirtColorMath.oldShirtChromaticityDistanceLimitForTheShading { continue }
             return Double(row)
         }
         return nil

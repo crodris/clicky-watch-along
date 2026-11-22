@@ -729,9 +729,9 @@ nonisolated struct ShirtNeckOpening: Equatable, Sendable {
         for row in 0..<regionHeight {
             for column in 0..<regionWidth {
                 var sum = SIMD3<Float>.zero, count: Float = 0
-                for dy in -1...1 {
-                    for dx in -1...1 {
-                        let imageRow = regionTop + row + dy, imageColumn = regionLeft + column + dx
+                for neighborRowOffset in -1...1 {
+                    for neighborColumnOffset in -1...1 {
+                        let imageRow = regionTop + row + neighborRowOffset, imageColumn = regionLeft + column + neighborColumnOffset
                         guard imageRow >= 0, imageRow < height, imageColumn >= 0, imageColumn < width else { continue }
                         let index = (imageRow * width + imageColumn) * 4
                         sum += SIMD3(Float(photoPixels[index]), Float(photoPixels[index + 1]), Float(photoPixels[index + 2]))
@@ -936,11 +936,13 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         var garmentChannelSum = 0.0
         var garmentLuminances: [Float] = []
         var backgroundChannels: [[UInt8]] = [[], [], []]
+        // The background is what lies outside the whole cutout, so the inside of the back left out at the neck is not read
+        // as the photo's white.
         for pixelIndex in cutoutMask.pixels.indices {
             if cutoutMask.pixels[pixelIndex] != 0 {
                 for channel in 0..<3 { garmentChannelSum += Double(photoPixels[pixelIndex * 4 + channel]) }
                 garmentLuminances.append(linearLuminance(of: photoPixels, at: pixelIndex))
-            } else {
+            } else if wholeMask.pixels[pixelIndex] == 0 {
                 for channel in 0..<3 { backgroundChannels[channel].append(photoPixels[pixelIndex * 4 + channel]) }
             }
         }
@@ -958,7 +960,9 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         // The drawn garment's edge is the cutout pulled in and softened (`featheredEdgeAlpha`), and its outer pixels take the
         // colors of the clean cloth just inside them, so the photo's background never shows as a light fringe.
         let edgeAlpha = cutoutMask.featheredEdgeAlpha()
-        let cleanedPixels = cutoutMask.colorsWithTheBackgroundBleedRemoved(from: photoPixels)
+        // The background bleeds in only along the whole cutout's outline. The collar ring around the neck opening keeps its own
+        // colors, since a ring narrower than the cleaned band would take the body's.
+        let cleanedPixels = wholeMask.colorsWithTheBackgroundBleedRemoved(from: photoPixels)
         guard let cutoutImage = premultipliedImage(colors: cleanedPixels, alpha: edgeAlpha, width: width, height: height) else { return nil }
 
         // The sleeves apart from the torso, when the cutout has both. Each sleeve keeps a narrow strip of the torso along its
