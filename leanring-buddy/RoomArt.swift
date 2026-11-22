@@ -24,11 +24,24 @@ import simd
 // MARK: - The picture and the page
 
 /// A JPEG of the largest picture in Chrome's front tab, the page's image file or a screen capture of it
-/// (`RoomArtPictureSource`). The page's corners are in its pixels.
+/// (`RoomArtPictureSource`). The page's corners are in its pixels, except a garment's, which are in the picture its front
+/// is in (`RoomArtClothingReading.frontPictureIndex`).
 nonisolated struct RoomArtPicture: Equatable, Sendable {
+    /// The Worker reads at most this many other pictures besides the main one.
+    static let mostOtherPictures = 3
+
     let jpegData: Data
     let width: Int
     let height: Int
+    /// The page's other large product photos, in the page's order, which the page reader may find a garment's front in,
+    /// since a gallery can show the back of a shirt as large as its front. Empty for a screen capture or a single photo.
+    var otherPictures: [RoomArtPicture] = []
+
+    /// The picture a reading's number names: 0 is this one, and 1 and up are `otherPictures`. Nil for a number past them.
+    func picture(numbered pictureNumber: Int) -> RoomArtPicture? {
+        if pictureNumber == 0 { return self }
+        return otherPictures.indices.contains(pictureNumber - 1) ? otherPictures[pictureNumber - 1] : nil
+    }
 }
 
 /// What Clicky sends `POST /try-it-item`: the page, its picture, and the learner's words.
@@ -59,16 +72,23 @@ nonisolated struct RoomArtPageRequest: Equatable, Sendable {
             "pageURL": .string(pageURL),
             "pageTitle": .string(pageTitle),
             "pageText": .string(pageText),
-            "picture": .object([
-                "jpegBase64": .string(picture.jpegData.base64EncodedString()),
-                "width": .number(Double(picture.width)),
-                "height": .number(Double(picture.height)),
-            ]),
+            "picture": Self.json(of: picture),
         ]
+        if !picture.otherPictures.isEmpty {
+            fields["otherPictures"] = .array(picture.otherPictures.prefix(RoomArtPicture.mostOtherPictures).map(Self.json(of:)))
+        }
         if !learnerRequest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fields["learnerRequest"] = .string(learnerRequest)
         }
         return .object(fields)
+    }
+
+    private static func json(of picture: RoomArtPicture) -> JSONValue {
+        .object([
+            "jpegBase64": .string(picture.jpegData.base64EncodedString()),
+            "width": .number(Double(picture.width)),
+            "height": .number(Double(picture.height)),
+        ])
     }
 }
 
@@ -176,8 +196,11 @@ nonisolated struct RoomArtClothingReading: Equatable, Sendable {
     /// What the print on the garment looks like, empty for a plain garment. Page-derived text, so it is only logged.
     let printDescription: String
     let whyThisSize: String
-    /// Where the garment sits in the picture, clamped into it.
+    /// Where the garment sits in the picture its front is in, clamped into it.
     let itemCorners: RoomArtCorners
+    /// Which picture shows the garment's front, the one the try-on cuts it out of: 0 is the main picture, and 1 and up are
+    /// its `otherPictures`.
+    var frontPictureIndex = 0
 }
 
 nonisolated struct RoomArtReplyError: Error, Equatable {
@@ -236,6 +259,8 @@ nonisolated private struct RoomArtClothingReply: Decodable {
     let chosenSizeLabel: String
     let photoShows: RoomArtGarmentPhoto
     let printDescription: String
+    /// Absent from a Worker that predates it, which read the main picture only.
+    let frontPictureIndex: Int?
 }
 
 /// The reply's `item`: its kind and the one object that kind names. A kind this app does not know fails to decode.
@@ -274,19 +299,21 @@ extension RoomArtPageReading {
     /// corner can land a pixel or two outside. Sizes that are not sensible are dropped from the other sizes. Wall art whose
     /// page states no size needs neither, since nothing is hung. Furniture and clothing keep what was read, with their
     /// corners clamped into the picture, since a later PR places them.
-    nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int) throws {
+    /// `otherPictureSizes` are the sizes of the other pictures the request sent, in order. A garment's front must be in one of
+    /// the pictures sent, and its corners are clamped into that picture.
+    nonisolated init(responseData: Data, pictureWidth: Int, pictureHeight: Int, otherPictureSizes: [(width: Int, height: Int)] = []) throws {
         let reply: RoomArtTryItReply
         do {
             reply = try JSONDecoder().decode(RoomArtTryItReply.self, from: responseData)
         } catch {
             throw RoomArtReplyError(reason: "the reply is not the try-it-item shape")
         }
-        func pointInThePicture(_ pointReply: RoomArtPointReply) throws -> CGPoint {
-            guard pointReply.x.isFinite, pointReply.y.isFinite else { throw RoomArtReplyError(reason: "a corner is not a number") }
-            return CGPoint(x: min(max(pointReply.x, 0), Double(pictureWidth)), y: min(max(pointReply.y, 0), Double(pictureHeight)))
-        }
-        func itemCornersInThePicture() throws -> RoomArtCorners {
-            RoomArtCorners(
+        func itemCornersInThePicture(width: Int = pictureWidth, height: Int = pictureHeight) throws -> RoomArtCorners {
+            func pointInThePicture(_ pointReply: RoomArtPointReply) throws -> CGPoint {
+                guard pointReply.x.isFinite, pointReply.y.isFinite else { throw RoomArtReplyError(reason: "a corner is not a number") }
+                return CGPoint(x: min(max(pointReply.x, 0), Double(width)), y: min(max(pointReply.y, 0), Double(height)))
+            }
+            return RoomArtCorners(
                 topLeft: try pointInThePicture(reply.itemCorners.topLeft),
                 topRight: try pointInThePicture(reply.itemCorners.topRight),
                 bottomRight: try pointInThePicture(reply.itemCorners.bottomRight),
@@ -298,6 +325,11 @@ extension RoomArtPageReading {
         case .other:
             self = .other(title: reply.title)
         case .clothing(let clothingReply):
+            let frontPictureIndex = clothingReply.frontPictureIndex ?? 0
+            guard frontPictureIndex >= 0, frontPictureIndex <= otherPictureSizes.count else {
+                throw RoomArtReplyError(reason: "clothing.frontPictureIndex names a picture that was not sent")
+            }
+            let frontPictureSize = frontPictureIndex == 0 ? (width: pictureWidth, height: pictureHeight) : otherPictureSizes[frontPictureIndex - 1]
             self = .clothing(RoomArtClothingReading(
                 title: reply.title,
                 garment: clothingReply.garment,
@@ -306,7 +338,8 @@ extension RoomArtPageReading {
                 photoShows: clothingReply.photoShows,
                 printDescription: clothingReply.printDescription,
                 whyThisSize: reply.whyThisSize,
-                itemCorners: try itemCornersInThePicture()
+                itemCorners: try itemCornersInThePicture(width: frontPictureSize.width, height: frontPictureSize.height),
+                frontPictureIndex: frontPictureIndex
             ))
         case .furniture(let furnitureReply):
             let sizeReply = furnitureReply.size
@@ -1321,7 +1354,10 @@ final class RoomArtClient {
         guard statusCode == 200 else {
             throw RoomArtWorkerError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
         }
-        return try RoomArtPageReading(responseData: responseData, pictureWidth: pageRequest.picture.width, pictureHeight: pageRequest.picture.height)
+        return try RoomArtPageReading(
+            responseData: responseData, pictureWidth: pageRequest.picture.width, pictureHeight: pageRequest.picture.height,
+            otherPictureSizes: pageRequest.picture.otherPictures.prefix(RoomArtPicture.mostOtherPictures).map { ($0.width, $0.height) }
+        )
     }
 
     func measureTheWall(_ wallRequest: RoomWallRequest) async throws -> WallPlane {

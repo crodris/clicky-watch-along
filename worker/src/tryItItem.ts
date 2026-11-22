@@ -1,10 +1,13 @@
 /**
  * POST /try-it-item.
  *
- * The app sends a store page's text and its main product photo, and optionally the learner's words, for something the
- * learner wants to try: wall art on their wall, furniture on their floor, or a shirt on their own body.
- * Sonnet reads both and returns the kind of item, its real size or the garment's details, and the item's four outer
- * corners in the photo, so the app can cut the item out of the photo and show it in the learner's live camera view.
+ * The app sends a store page's text and its main product photo, and optionally the learner's words and up to
+ * `maximumOtherPictureCount` other large product photos from the page, for something the learner wants to try: wall art on
+ * their wall, furniture on their floor, or a shirt on their own body.
+ * Sonnet reads them and returns the kind of item, its real size or the garment's details, and the item's four outer
+ * corners in a photo, so the app can cut the item out of the photo and show it in the learner's live camera view.
+ * For clothing, Sonnet also picks the photo that shows the garment's front (`frontPictureIndex`), since a gallery can show
+ * the back of a shirt as large as its front, and the corners are in that photo. Wall art and furniture use the main photo.
  *
  * The reply carries exactly one per-kind object, named for its kind. The model's JSON schema makes that a union of four
  * shapes, one per kind, so a reply cannot mix them, and the parser below refuses a reply that does anyway.
@@ -31,6 +34,16 @@ const maximumJPEGBase64Length = 4_000_000;
 /** An item that fills less of the photo than this is too small to cut out into a usable image. */
 const minimumCornerAreaShare = 0.04;
 const maximumAttemptCount = 2;
+/** The other product photos a request may carry besides the main one, so the front of a garment can be found among them. */
+const maximumOtherPictureCount = 3;
+
+const pictureSchema = z.object({
+  jpegBase64: z.string().min(1).max(maximumJPEGBase64Length),
+  width: z.number().int().min(1).max(maximumPictureSide),
+  height: z.number().int().min(1).max(maximumPictureSide),
+});
+
+type PictureSize = { width: number; height: number };
 
 const tryItItemRequestSchema = z.object({
   // The https check starts with the scheme, so it never parses a string the url() check already refused.
@@ -43,11 +56,9 @@ const tryItItemRequestSchema = z.object({
   pageText: z.string().max(maximumPageTextLength),
   // The learner's own words, which say which item they mean when the page shows several.
   learnerRequest: z.string().max(maximumLearnerRequestLength).optional(),
-  picture: z.object({
-    jpegBase64: z.string().min(1).max(maximumJPEGBase64Length),
-    width: z.number().int().min(1).max(maximumPictureSide),
-    height: z.number().int().min(1).max(maximumPictureSide),
-  }),
+  picture: pictureSchema,
+  // The page's other large product photos, in the page's order, which a garment's front may be in.
+  otherPictures: z.array(pictureSchema).max(maximumOtherPictureCount).optional(),
 });
 
 type TryItItemRequest = z.infer<typeof tryItItemRequestSchema>;
@@ -100,6 +111,7 @@ const clothingItemSchema = z
       chosenSizeLabel: z.string(),
       photoShows: z.enum(photoShowsKinds),
       printDescription: z.string(),
+      frontPictureIndex: z.number().int(),
     }),
   })
   .strict();
@@ -178,6 +190,7 @@ const tryItItemJSONSchema = objectJSONSchema({
           chosenSizeLabel: { type: "string" },
           photoShows: { type: "string", enum: [...photoShowsKinds] },
           printDescription: { type: "string" },
+          frontPictureIndex: { type: "integer" },
         }),
       }),
       itemVariantJSONSchema("other", {}),
@@ -186,7 +199,8 @@ const tryItItemJSONSchema = objectJSONSchema({
 });
 
 const tryItItemSystemPrompt = [
-  "You read a store page and its main product photo for something the learner wants to try in their own space: art on their wall, furniture on their floor, or a shirt on their body.",
+  "You read a store page and its product photos for something the learner wants to try in their own space: art on their wall, furniture on their floor, or a shirt on their body.",
+  "Picture 0 is the page's largest product photo. Pictures 1 and up, when there are any, are the page's other large product photos, in the page's order.",
   "Reply with JSON only.",
   "item.kind is wallArt for something that hangs on a wall, furniture for something that stands on the floor, clothing for something worn on the body, and other for anything else, such as a lamp, a rug, or a phone case.",
   "For kind other, item holds only the kind, and the reply still needs title, whyThisSize, and itemCorners.",
@@ -203,7 +217,9 @@ const tryItItemSystemPrompt = [
   "For clothing, garment is the type of garment and sleeves is none, short, or long.",
   "chosenSizeLabel is the size the page shows as selected, else the first size it lists, written as the page writes it, such as M or 42.",
   "photoShows says whether the photo shows the garment flat, on a model, on a hanger, or in some other way.",
-  `printDescription says in at most ${maximumPrintDescriptionLength} characters what the print or graphic on the garment looks like and where it sits, such as "large Great Wave print across the chest", and is empty when the garment is plain.`,
+  `printDescription says in at most ${maximumPrintDescriptionLength} characters what the print or graphic on the front of the garment looks like and where it sits, such as "large Great Wave print across the chest", and is empty when the front is plain.`,
+  "frontPictureIndex is the number of the picture that shows the garment's front, with the print or graphic the page describes when it has one. A picture of the garment's back, a close-up of the fabric, a label, or a detail is never the front, even when it is picture 0. When several pictures show the front, choose the one that shows the whole garment largest. With only picture 0, frontPictureIndex is 0.",
+  "For clothing, photoShows, garment, sleeves, and itemCorners describe the picture frontPictureIndex names. For wallArt and furniture, itemCorners are in picture 0.",
   "itemCorners are the four outer corners of the item in the photo, in the photo's pixels, with the origin at the top left and y growing down.",
   "For wallArt, include the frame and leave out any wall, shadow, or room around it.",
   "For furniture and clothing, itemCorners are the corners of the tightest box around the item alone, leaving out any floor, room, hanger, or person around it.",
@@ -338,14 +354,33 @@ function pageStatesNoSize(item: Item): boolean {
 export type CheckedTryItItem = { accepted: true; reply: TryItItem } | { accepted: false; reason: string };
 
 /**
- * Clamps the corners into the picture and checks the rules the app relies on: the size range of the kind (wall art 5 to
+ * Clamps the corners into the picture they are in (a garment's front picture, else the main one) and checks the rules the
+ * app relies on: a garment's front picture is one that was sent, the size range of the kind (wall art 5 to
  * 1000 centimeters, furniture 10 to 600 in width and height and 1 to 600 in depth), short labels and print text, and corners that form a convex
  * quadrilateral covering at least 4 percent of the picture, since the app cuts that quadrilateral out of the photo.
  * An item of kind other, and wall art or furniture whose page states no size (`sizeFoundOnPage` false), pass with their
  * corners clamped and no other rule, because the app only says so and never places them. Wall art and furniture whose
  * page does state a size need a size label that is not empty, since the app refuses an empty one.
  */
-export function checkTryItItem(modelReply: ModelReply, pictureWidth: number, pictureHeight: number): CheckedTryItItem {
+export function checkTryItItem(
+  modelReply: ModelReply,
+  pictureWidth: number,
+  pictureHeight: number,
+  otherPictureSizes: PictureSize[] = [],
+): CheckedTryItItem {
+  // A garment's corners are in the picture its front is in, which must be one of the pictures sent.
+  if (modelReply.item.kind === "clothing") {
+    const frontPictureIndex = modelReply.item.clothing.frontPictureIndex;
+    if (frontPictureIndex < 0 || frontPictureIndex > otherPictureSizes.length) {
+      return {
+        accepted: false,
+        reason: `clothing.frontPictureIndex must be a picture's number, from 0 to ${otherPictureSizes.length}.`,
+      };
+    }
+    if (frontPictureIndex > 0) {
+      ({ width: pictureWidth, height: pictureHeight } = otherPictureSizes[frontPictureIndex - 1]);
+    }
+  }
   const clampedCorner = (corner: Corner): Corner => ({
     x: clamp(Math.round(corner.x), 0, pictureWidth - 1),
     y: clamp(Math.round(corner.y), 0, pictureHeight - 1),
@@ -391,8 +426,11 @@ function untrustedTextInTag(tagName: string, untrustedText: string): string {
 
 function tryItItemRequestBody(tryItItemRequest: TryItItemRequest, previousProblem: string | undefined) {
   const { picture, learnerRequest } = tryItItemRequest;
+  const pictures = [picture, ...(tryItItemRequest.otherPictures ?? [])];
   const textLines = [
-    `The photo is ${picture.width} x ${picture.height} pixels.`,
+    pictures.length === 1
+      ? `There is one picture, picture 0, ${picture.width} x ${picture.height} pixels.`
+      : `There are ${pictures.length} pictures, each after its number: ${pictures.map((eachPicture, index) => `picture ${index} is ${eachPicture.width} x ${eachPicture.height} pixels`).join(", ")}.`,
     untrustedTextInTag("page_title", tryItItemRequest.pageTitle),
     untrustedTextInTag("page_text", tryItItemRequest.pageText),
   ];
@@ -412,7 +450,10 @@ function tryItItemRequestBody(tryItItemRequest: TryItItemRequest, previousProble
       {
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: picture.jpegBase64 } },
+          ...pictures.flatMap((eachPicture, index) => [
+            { type: "text", text: `Picture ${index}:` },
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: eachPicture.jpegBase64 } },
+          ]),
           { type: "text", text: textLines.join("\n") },
         ],
       },
@@ -440,7 +481,12 @@ export async function handleTryItItem(request: Request, anthropicAPIKey: string)
       console.error(`[/try-it-item] reply failed validation: ${anthropicReply.replyJSON === undefined ? lastProblem : zodIssuesOnOneLine(parsedReply.error)}`);
       continue;
     }
-    const checkedReply = checkTryItItem(parsedReply.data, tryItItemRequest.picture.width, tryItItemRequest.picture.height);
+    const checkedReply = checkTryItItem(
+      parsedReply.data,
+      tryItItemRequest.picture.width,
+      tryItItemRequest.picture.height,
+      tryItItemRequest.otherPictures ?? [],
+    );
     if (checkedReply.accepted) {
       return jsonResponse(checkedReply.reply, 200);
     }

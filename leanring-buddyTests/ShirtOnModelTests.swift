@@ -176,6 +176,18 @@ struct ShirtModelPartTests {
         #expect(label(20, 20) == nil)
     }
 
+    @Test func aPartNeverReachesWhereItMayNot() {
+        let model = DrawnModel()
+        let isPerson = model.personMask.map { $0 >= 128 }
+        let seeds = ShirtModelPartSeeds(pose: model.pose, rgba: model.photo.bytes, isPerson: isPerson, width: 400, height: 500)
+        let costs = ShirtModelPartLabels.pathCosts(rgba: model.photo.bytes, isPerson: isPerson, seeds: seeds)
+        // The chest is out of the head's and the arms' reach, however cheap the path to it.
+        let chest = 300 * 400 + 200
+        #expect(costs[ShirtModelPart.head.rawValue][chest] == .infinity)
+        #expect(costs[ShirtModelPart.arms.rawValue][chest] == .infinity)
+        #expect(costs[ShirtModelPart.shirt.rawValue][chest].isFinite)
+    }
+
     @Test func roundingTakesOffASpeckAndTheCornersOfABlock() {
         var flags = [Bool](repeating: false, count: 20 * 20)
         flags[2 * 20 + 2] = true
@@ -220,6 +232,18 @@ struct ShirtOnModelGeometryTests {
         #expect(garment.modelPose == DrawnModel().pose)
     }
 
+    @Test func aHemFarNarrowerThanTheChestLeavesTheSidesRunningStraightDown() throws {
+        // A hem pulled in at both ends leaves only its middle, 70 pixels of the chest's 139, which is no T-shirt's cut.
+        var model = DrawnModel()
+        for columns in [130..<165, 235..<270] {
+            model.photo.fill(columns: columns, rows: 300..<340, color: (240, 240, 240))
+            for row in 300..<340 { for column in columns { model.personMask[row * 400 + column] = 0 } }
+        }
+        let garment = try #require(model.garment())
+        let corners = garment.torsoCorners
+        #expect(abs(corners.bottomLeft.x - corners.topLeft.x) < 2 && abs(corners.bottomRight.x - corners.topRight.x) < 2)
+    }
+
     @Test func theCutoutLeavesTheHeadTheArmsAndTheTrousersOut() throws {
         let garment = try #require(DrawnModel().garment())
         #expect(alpha(of: garment.cutout, column: 200, row: 235) == 255)
@@ -229,6 +253,16 @@ struct ShirtOnModelGeometryTests {
         #expect(alpha(of: garment.cutout, column: 114, row: 300) == 0)
         #expect(alpha(of: garment.cutout, column: 200, row: 420) == 0)
         // The photo's white is read from the backdrop, not from the skin or the trousers left out of the cutout.
+        #expect(garment.photoWhite.x > 0.8 && garment.photoWhite.y > 0.8)
+    }
+
+    @Test func thePhotosWhiteIsTheBackdropEvenWhenTrousersFillMostOfWhatIsNotShirt() throws {
+        // Trousers across the whole bottom of the photo outnumber the backdrop's pixels, so a white read from everything that
+        // is not shirt would come out dark.
+        var model = DrawnModel()
+        model.draw(columns: 0..<400, rows: 340..<500, color: trousers)
+        model.draw(columns: 0..<400, rows: 0..<60, color: trousers)
+        let garment = try #require(model.garment())
         #expect(garment.photoWhite.x > 0.8 && garment.photoWhite.y > 0.8)
     }
 
@@ -315,6 +349,53 @@ struct ShirtOnModelSleeveLandingTests {
 }
 
 struct ShirtOnModelRendererTests {
+    /// The drawn model as the learner, in a 400 by 500 frame, wearing a sleeveless blue top as the old shirt, so no old
+    /// sleeve moves the new sleeve's opening, with the learner's arms at `torso`'s elbows.
+    private func learnerFrame(_ model: DrawnModel) -> (frame: CIImage, personMask: CIImage) {
+        var learnerModel = model
+        learnerModel.draw(columns: 95..<125, rows: 145..<215, color: skin)
+        learnerModel.draw(columns: 275..<305, rows: 145..<215, color: skin)
+        var personCanvas = ShirtTestCanvas(width: 400, height: 500, color: (0, 0, 0))
+        for index in learnerModel.personMask.indices where learnerModel.personMask[index] != 0 {
+            personCanvas.fill(columns: (index % 400)..<(index % 400 + 1), rows: (index / 400)..<(index / 400 + 1), color: (255, 255, 255))
+        }
+        let personMask = CIImage(bitmapData: Data(personCanvas.bytes), bytesPerRow: 400 * 4, size: CGSize(width: 400, height: 500), format: .RGBA8, colorSpace: nil)
+        return (learnerModel.photo.ciImage, personMask)
+    }
+
+    @Test func eachSleevesOpeningLandsWhereTheModelsArmHeldIt() throws {
+        let model = DrawnModel()
+        let garment = try #require(model.garment())
+        let (frame, personMask) = learnerFrame(model)
+        let composition = try #require(ShirtTryOnRenderer(ciContext: CIContext(), analysisRunsInTheBackground: false).composition(
+            frame: frame, personMask: personMask, torso: model.pose.torso, garment: garment
+        ))
+        // On the model's own arms each opening lands where it lay in the photo, which no map through the torso does.
+        for drawnSleeve in composition.sleeves {
+            let sleeve = try #require(garment.sleeves.first { $0.geometry.side == drawnSleeve.side })
+            #expect(hypot(drawnSleeve.landing[1].x - sleeve.geometry.openingOuter.x, drawnSleeve.landing[1].y - sleeve.geometry.openingOuter.y) < 1e-6)
+            #expect(hypot(drawnSleeve.landing[2].x - sleeve.geometry.openingInner.x, drawnSleeve.landing[2].y - sleeve.geometry.openingInner.y) < 1e-6)
+        }
+    }
+
+    @Test func anOnModelSleeveIsNeverMarkedAsLaidAlongItsArmEvenWithTheArmRaised() throws {
+        let model = DrawnModel()
+        let garment = try #require(model.garment())
+        let (frame, personMask) = learnerFrame(model)
+        // The learner's arms raised well out from the body, past where a flat lay's sleeves would be laid along them.
+        let modelTorso = model.pose.torso
+        let raisedArms = BodyTorso(
+            imageLeftShoulder: modelTorso.imageLeftShoulder, imageRightShoulder: modelTorso.imageRightShoulder, imageLeftHip: modelTorso.imageLeftHip,
+            imageRightHip: modelTorso.imageRightHip, hipsWereEstimated: true, shouldersAreSeen: true,
+            imageLeftElbow: CGPoint(x: 50, y: 220), imageRightElbow: CGPoint(x: 350, y: 220)
+        )
+        let composition = try #require(ShirtTryOnRenderer(ciContext: CIContext(), analysisRunsInTheBackground: false).composition(
+            frame: frame, personMask: personMask, torso: raisedArms, garment: garment
+        ))
+        #expect(composition.sleeves.count == 2)
+        #expect(composition.sleeves.allSatisfy { !$0.liesAlongTheArm })
+    }
+
     @Test func theRendererCarriesEachSleeveFromTheModelsArm() throws {
         let model = DrawnModel()
         let garment = try #require(model.garment())

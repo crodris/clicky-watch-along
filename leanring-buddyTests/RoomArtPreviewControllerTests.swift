@@ -208,10 +208,10 @@ private let sideTableReading = RoomArtPageReading.furniture(RoomArtFurnitureRead
     itemCorners: pictureCorners
 ))
 
-private func shirtReading(photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtPageReading {
+private func shirtReading(photoShows: RoomArtGarmentPhoto = .flatLay, frontPictureIndex: Int = 0) -> RoomArtPageReading {
     .clothing(RoomArtClothingReading(
         title: "Linen shirt", garment: .shirt, sleeves: .short, chosenSizeLabel: "M", photoShows: photoShows,
-        printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners
+        printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners, frontPictureIndex: frontPictureIndex
     ))
 }
 
@@ -310,15 +310,18 @@ private final class CutoutStub {
     private(set) var garmentsAsked = 0
     /// How the product photo showed the garment, for each garment asked.
     private(set) var garmentPhotosAsked: [RoomArtGarmentPhoto] = []
+    /// The width of the picture each garment was cut out of.
+    private(set) var garmentPictureWidthsAsked: [Int] = []
 
     func cutOutTheFurniture() -> CGImage? {
         furnitureCutoutsAsked += 1
         return furnitureCutout
     }
 
-    func makeTheGarment(photoShows: RoomArtGarmentPhoto) async -> ShirtGarment? {
+    func makeTheGarment(photoShows: RoomArtGarmentPhoto, pictureWidth: Int) async -> ShirtGarment? {
         garmentsAsked += 1
         garmentPhotosAsked.append(photoShows)
+        garmentPictureWidthsAsked.append(pictureWidth)
         if secondsBeforeTheGarmentIsReady > 0 { try? await Task.sleep(for: .seconds(secondsBeforeTheGarmentIsReady)) }
         return garment
     }
@@ -415,15 +418,15 @@ private func waitFor(_ whatShouldHappen: String, seconds: Double = 120, _ condit
     }
 }
 
-private func pictureJPEG() -> RoomArtPicture {
-    let context = CGContext(data: nil, width: 400, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+private func pictureJPEG(width: Int = 400, height: Int = 500) -> RoomArtPicture {
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.7, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 400, height: 500))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     let jpegData = NSMutableData()
     let destination = CGImageDestinationCreateWithData(jpegData, UTType.jpeg.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(destination, context.makeImage()!, nil)
     CGImageDestinationFinalize(destination)
-    return RoomArtPicture(jpegData: jpegData as Data, width: 400, height: 500)
+    return RoomArtPicture(jpegData: jpegData as Data, width: width, height: height)
 }
 
 /// What the learner said, which reaches the Worker so it knows which item on the page they mean.
@@ -481,7 +484,7 @@ private struct RoomArtHarness {
                 measureTheWall: { wallRequest in try await worker.measureTheWall(wallRequest) },
                 measureTheFloor: { floorRequest in try await worker.measureTheFloor(floorRequest) },
                 cutOutTheFurniture: { _, _ in cutouts.cutOutTheFurniture() },
-                makeTheShirtGarment: { _, _, photoShows in await cutouts.makeTheGarment(photoShows: photoShows) },
+                makeTheShirtGarment: { picture, _, photoShows in await cutouts.makeTheGarment(photoShows: photoShows, pictureWidth: picture.width) },
                 makeFrameSource: { camera },
                 clearTheLiveScene: { recorder.timesTheSceneWasClearedBeforeThePanel.append(panel.timesShown) },
                 speak: { line, isAFailure in
@@ -1287,6 +1290,35 @@ struct RoomArtPreviewControllerTests {
         try await waitFor("the shirt to show on the learner") { harness.controller.phase == .showingTheShirt(title: "Linen shirt") }
         #expect(harness.cutouts.garmentPhotosAsked == [.onModel])
         #expect(harness.spokenLines() == ["Here it is on you."])
+        harness.controller.close()
+    }
+
+    @Test func theGarmentIsCutOutOfThePictureThatShowsItsFront() async throws {
+        // The page's largest photo is the back of the shirt, and the reader found the front in the second photo, 300 wide.
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading(photoShows: .onModel, frontPictureIndex: 1))
+        var picture = pictureJPEG()
+        picture.otherPictures = [pictureJPEG(width: 300, height: 600)]
+        let harness = RoomArtHarness(picture: picture, worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the garment to be made") { harness.cutouts.garmentsAsked == 1 }
+
+        #expect(harness.cutouts.garmentPictureWidthsAsked == [300])
+        // The reader saw both photos.
+        #expect(worker.pageRequests.last?.picture.otherPictures.count == 1)
+        harness.controller.close()
+    }
+
+    @Test func aFrontPictureTheRequestDidNotHoldMakesNoGarment() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(shirtReading(photoShows: .onModel, frontPictureIndex: 2))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "could I see this shirt on me")
+        try await waitFor("the panel to fail") { harness.controller.phase == .failed(.garmentNotCutOut) }
+
+        #expect(harness.cutouts.garmentsAsked == 0)
         harness.controller.close()
     }
 

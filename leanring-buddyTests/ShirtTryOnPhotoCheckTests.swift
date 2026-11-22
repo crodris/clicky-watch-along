@@ -88,6 +88,27 @@ struct ShirtTryOnPhotoCheckTests {
     @Test(.enabled(if: photoCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"] != nil, "Set SHIRT_TRYON_PHOTOS_DIR"))
     func oneCompositeOfA1280By720FrameIsTimed() throws {
         let photosFolder = URL(fileURLWithPath: try #require(photoCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"]))
+        let flatLayName = try #require(try FileManager.default.contentsOfDirectory(atPath: photosFolder.path).filter { $0.hasPrefix("uE") && $0.hasSuffix(".jpg") }.sorted().first)
+        let productPhoto = try loadImage(at: photosFolder.appendingPathComponent(flatLayName))
+        let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: RoomArtCorners(
+            topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0), bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height))))
+        try timeOneCompositeOfA1280By720Frame(photosFolder: photosFolder, garment: garment, garmentName: "a flat lay")
+    }
+
+    /// The same frame with a shirt from a photo on a model (`on-model/model-*.jpg`), whose sleeves are mapped from the
+    /// model's arms.
+    @Test(.enabled(if: photoCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"] != nil, "Set SHIRT_TRYON_PHOTOS_DIR"))
+    func oneCompositeOfA1280By720FrameWithAShirtOnAModelIsTimed() throws {
+        let photosFolder = URL(fileURLWithPath: try #require(photoCheckEnvironment["SHIRT_TRYON_PHOTOS_DIR"]))
+        let onModelFolder = photosFolder.appendingPathComponent("on-model")
+        let photoName = try #require(try FileManager.default.contentsOfDirectory(atPath: onModelFolder.path).filter { $0.hasPrefix("model-") && $0.hasSuffix(".jpg") }.sorted().first)
+        let productPhoto = try loadImage(at: onModelFolder.appendingPathComponent(photoName))
+        let garment = try #require(ShirtGarment.make(onModelPhoto: productPhoto, itemCorners: RoomArtCorners(
+            topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0), bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height))))
+        try timeOneCompositeOfA1280By720Frame(photosFolder: photosFolder, garment: garment, garmentName: "a shirt on a model")
+    }
+
+    private func timeOneCompositeOfA1280By720Frame(photosFolder: URL, garment: ShirtGarment, garmentName: String) throws {
         let context = CIContext()
         let standingPhoto = try loadImage(at: photosFolder.appendingPathComponent("standing.jpg"))
         // The top 1280 by 720 of the photo, which keeps the head and the chest.
@@ -100,10 +121,6 @@ struct ShirtTryOnPhotoCheckTests {
         segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
         try VNImageRequestHandler(cvPixelBuffer: frameBuffer, orientation: .up).perform([segmentation])
         let personMask = CIImage(cvPixelBuffer: try #require(segmentation.results?.first?.pixelBuffer), options: [.colorSpace: NSNull()])
-        let flatLayName = try #require(try FileManager.default.contentsOfDirectory(atPath: photosFolder.path).filter { $0.hasPrefix("uE") && $0.hasSuffix(".jpg") }.sorted().first)
-        let productPhoto = try loadImage(at: photosFolder.appendingPathComponent(flatLayName))
-        let garment = try #require(ShirtGarment.make(productPhoto: productPhoto, itemCorners: RoomArtCorners(
-            topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0), bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height))))
 
         // The panel's way: the analysis runs on its own queue, so the first frames are drawn without the garment until it is in.
         let renderer = ShirtTryOnRenderer(ciContext: context)
@@ -130,7 +147,7 @@ struct ShirtTryOnPhotoCheckTests {
             Thread.sleep(forTimeInterval: max(0, 1.0 / 30 - frameSeconds))
         }
         let averageMilliseconds = timedSeconds / Double(drawnFrames) * 1000
-        print("Shirt try-on photo check: a 1280x720 frame takes \(String(format: "%.1f", averageMilliseconds)) ms on average and \(String(format: "%.1f", slowestMilliseconds)) ms at most over \(drawnFrames) frames")
+        print("Shirt try-on photo check: a 1280x720 frame with \(garmentName) takes \(String(format: "%.1f", averageMilliseconds)) ms on average and \(String(format: "%.1f", slowestMilliseconds)) ms at most over \(drawnFrames) frames")
         // The panel must hold 20 frames a second even in the unoptimized Debug build.
         #expect(averageMilliseconds < 50)
     }

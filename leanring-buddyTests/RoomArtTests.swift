@@ -74,7 +74,7 @@ private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": 
 }
 
 /// The fixture the Worker's tests read too: `POST /try-it-item` responses shaped as the Worker returns them, one for each
-/// kind plus wall art and furniture whose page states no size.
+/// kind plus wall art and furniture whose page states no size, and a garment whose front is the second picture.
 private struct TryItItemRepliesFixture: Decodable {
     struct PictureSize: Decodable {
         let width: Int
@@ -88,6 +88,8 @@ private struct TryItItemRepliesFixture: Decodable {
     }
 
     let picture: PictureSize
+    /// The one other picture each request carries, which a garment's front may be in.
+    let otherPicture: PictureSize
     let cases: [Case]
 
     static func load() throws -> TryItItemRepliesFixture {
@@ -138,6 +140,18 @@ private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPage
             whyThisSize: "The page has size M selected.",
             itemCorners: pictureCorners(30, 60, 370, 440)
         ))
+    case "clothing whose front is the second picture":
+        return .clothing(RoomArtClothingReading(
+            title: "Sasquatch tee",
+            garment: .tshirt,
+            sleeves: .short,
+            chosenSizeLabel: "M",
+            photoShows: .onModel,
+            printDescription: "large sasquatch graphic across the chest",
+            whyThisSize: "The page has size M selected.",
+            itemCorners: pictureCorners(20, 80, 280, 560),
+            frontPictureIndex: 1
+        ))
     case "other":
         return .other(title: "Brass lamp")
     default:
@@ -152,7 +166,10 @@ struct RoomArtTryItReplyFixtureTests {
 
         for fixtureCase in fixture.cases {
             let responseData = try JSONEncoder().encode(fixtureCase.response)
-            let reading = try RoomArtPageReading(responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height)
+            let reading = try RoomArtPageReading(
+                responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height,
+                otherPictureSizes: [(fixture.otherPicture.width, fixture.otherPicture.height)]
+            )
 
             #expect(reading == expectedReading(ofFixtureCaseNamed: fixtureCase.name), "the \(fixtureCase.name) reply read as \(reading)")
         }

@@ -1491,6 +1491,9 @@ struct ChromeVideoTab {
     /// with the capture. Any visible image also returns its file's URL (`imageFileURL`), cropped or partly scrolled out of
     /// view, since room art wants the whole file and not what the screen shows of it (a cookie banner over a product photo).
     /// Only a short https URL comes back, so a large data: URL never travels through AppleScript.
+    /// It also returns the files of up to 4 visible images at least half the largest one's visible area, in the page's order
+    /// (`imageCandidateFileURLs`), since a product gallery can show the back of a shirt as large as its front, and room art
+    /// lets the page reader choose among them.
     /// A video the page has not started can sit above the player that shows its thumbnail, with only a thin slice of the
     /// element in the viewport. When under half of a video is visible and a close ancestor of about its size is almost
     /// wholly visible, that ancestor's box is the media, so the loop goes around the player the learner sees. The page measures in CSS pixels and the window in
@@ -1498,7 +1501,7 @@ struct ChromeVideoTab {
     /// accessibility web area when it can, and the page zoom and the screen Chrome is on when it cannot.
     static let largestVisibleMediaJavaScript = [
         "(function () {",
-        "var best = null; var bestScore = 0;",
+        "var best = null; var bestScore = 0; var images = [];",
         "function visibleShare(box) {",
         "var visibleLeft = Math.max(box.left, 0); var visibleTop = Math.max(box.top, 0); var visibleRight = Math.min(box.right, window.innerWidth); var visibleBottom = Math.min(box.bottom, window.innerHeight);",
         "if (visibleRight <= visibleLeft || visibleBottom <= visibleTop || !box.width || !box.height) { return 0; }",
@@ -1533,10 +1536,14 @@ struct ChromeVideoTab {
         "var isWhollyVisible = rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight;",
         "var imageSourceURL = !isVideo && isWhollyVisible && style.objectFit === 'fill' && /^https:/i.test(element.currentSrc) && element.currentSrc.length < 2048 ? element.currentSrc : null;",
         "var imageFileURL = !isVideo && /^https:/i.test(element.currentSrc) && element.currentSrc.length < 2048 ? element.currentSrc : null;",
+        "if (imageFileURL) { images.push({ visibleArea: visibleArea, fileURL: imageFileURL }); }",
         "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea, imageSourceURL: imageSourceURL, imageFileURL: imageFileURL }; }",
         "}",
+        "var largestImageArea = images.reduce(function (largest, image) { return Math.max(largest, image.visibleArea); }, 0);",
+        "var imageCandidateFileURLs = [];",
+        "images.forEach(function (image) { if (image.visibleArea >= largestImageArea / 2 && imageCandidateFileURLs.indexOf(image.fileURL) < 0 && imageCandidateFileURLs.length < 4) { imageCandidateFileURLs.push(image.fileURL); } });",
         "if (!best || best.visibleArea < 160 * 90) { return 'none'; }",
-        "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL, imageFileURL: best.imageFileURL });",
+        "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL, imageFileURL: best.imageFileURL, imageCandidateFileURLs: imageCandidateFileURLs });",
         "})()",
     ].joined(separator: " ")
 

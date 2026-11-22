@@ -1227,7 +1227,16 @@ final class RoomArtPreviewController: ObservableObject {
                     self.theShirtFramingSettled(on: settledKind)
                 }
             })
-            let garment = await environment.makeTheShirtGarment(pictureImage, clothingReading.itemCorners, clothingReading.photoShows)
+            // The garment is cut out of the picture that shows its front, which the page reader chose from the page's photos.
+            let frontPicture = clothingReading.frontPictureIndex == 0 ? pictureImage : pageRequest.picture.picture(numbered: clothingReading.frontPictureIndex).flatMap { picture in
+                CGImageSourceCreateWithData(picture.jpegData as CFData, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+            }
+            guard let frontPicture else {
+                apply(phase.afterTheGarmentFailed())
+                return
+            }
+            print("Room art: the garment's front is picture \(clothingReading.frontPictureIndex) of \(1 + pageRequest.picture.otherPictures.count)")
+            let garment = await environment.makeTheShirtGarment(frontPicture, clothingReading.itemCorners, clothingReading.photoShows)
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             guard let garment else {
                 apply(phase.afterTheGarmentFailed())
