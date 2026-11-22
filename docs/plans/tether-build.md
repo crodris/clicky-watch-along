@@ -101,12 +101,12 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 7 Menu bar | Merged: [#86](https://github.com/crodris/clicky-watch-along/pull/86) |
 | 5 Approval card | Merged: [#84](https://github.com/crodris/clicky-watch-along/pull/84) |
 | 9 Cursor and ring | Merged: [#83](https://github.com/crodris/clicky-watch-along/pull/83) |
-| 10 Quiz, scenes, edges | Open: [#85](https://github.com/crodris/clicky-watch-along/pull/85) |
+| 10 Quiz, scenes, edges | Merged: [#85](https://github.com/crodris/clicky-watch-along/pull/85). The quiz states and the summary Card are not yet seen in the app, since Chrome's "Allow JavaScript from Apple Events" was off. |
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
 | 8 Panel, onboarding, keyboard | Building |
 | 13 Theme Studio designs motion | Building |
 | 14 The loop carries background work | Building |
-| 15 End-of-video recap | Starts when PR 10 merges |
+| 15 End-of-video recap | Building |
 | 16 Pause every agent by voice | Building |
 | 17 Scrub by voice | Starts when PR 11 merges |
 | 18 Share themes as files | Starts when PR 8 merges, since it drags the panel's theme cards |
@@ -127,3 +127,4 @@ Left open by PR 6, for PR 19: the disc right-click menu has no "Try again" item,
 
 Left open by PR 5, for PR 19: the approval card should glide back into its agent disc when answered, and the disc's "!" should turn into a check.
 Left open by PR 9, for PR 19: a ring dot crosses about 3 points into a status line's Callout at the top of its orbit, the shake, hop, and Reduce Motion tints are checked only on rendered frames, and the failure flag `isAFailure` defaults to false, so make it required once the parallel PRs have merged.
+Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19, Escape during the summary Card's 0.42 second glide-in shows the whole Card for 0.05 seconds (needs a carrier option), a video pause stays held when a scene build is cancelled on the quiz tab and a jump back to a question then fails, and an experiment built on the Sonnet scene model took 63 seconds, past the app's 60 second wait. The flaky test PR takes the two timing tests that failed under load.
