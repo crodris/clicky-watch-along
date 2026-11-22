@@ -198,7 +198,7 @@ struct AgentOpenSlotView: View {
     }
 }
 
-private extension View {
+extension View {
     /// A 1.5 point dark edge outside the disc and a soft shadow, so the disc reads on a light menu bar and a bright
     /// wallpaper whatever its face color. Hovering grows the disc a little, which tells the learner it takes a click.
     func agentTokenEdgeAndShadow(isHovered: Bool, edgeWidth: CGFloat) -> some View {
@@ -418,6 +418,8 @@ struct AgentProgressView<Content: View>: View {
                 followTheProgress()
             }
             .onChange(of: agent.phase) { followTheProgress() }
+            // A pause stops the ring where it is, and a resume heads it on from there.
+            .onChange(of: agent.pausedAt) { followTheProgress() }
     }
 
     private func followTheProgress() {

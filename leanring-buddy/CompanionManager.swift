@@ -1602,6 +1602,8 @@ final class CompanionManager: ObservableObject {
             taskAnswerIsReady: taskAnswerWaitsToBeHeard,
             approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             themeStudioIsOpen: themeStudioController.isOpen,
+            backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
+            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused,
             phaseIsWaitingForAQuizAnswer: phaseIsWaitingForAQuizAnswer,
             sceneIsBuilding: sceneIsBuilding,
             brainTakesEveryRequest: brainTakesEveryRequest
@@ -3253,7 +3255,9 @@ final class CompanionManager: ObservableObject {
             simulationIsOnScreen: simulationIsOnScreen(pageOnScreen: liveScenePageOnScreen, overlayIsShowingAScene: LiveSceneOverlay.shared.isShowingAScene),
             approvalIsWaiting: approvalAtThePressStillWaiting != nil,
             themeStudioIsOpen: themeStudioController.isOpen,
-            themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas
+            themeStudioShowsIdeas: themeStudioController.state.isShowingIdeas,
+            backgroundAgentIsRunning: backgroundAgentStore.anAgentIsRunning,
+            backgroundAgentsArePaused: backgroundAgentStore.agentsArePaused
         )
     }
 
@@ -3727,6 +3731,10 @@ final class CompanionManager: ObservableObject {
             return .outcome(startTheTaskAgent(goal: String(goal.prefix(longestTaskAgentGoal)), skillName: skillChoice.name, learnerWords: transcript))
         case .hearTaskAnswer:
             return .handOff { self.startSpeakingTheTaskAnswer() }
+        case .pauseAgents:
+            return .outcome(setEveryAgentIsPaused(true))
+        case .resumeAgents:
+            return .outcome(setEveryAgentIsPaused(false))
         case .recordGuess:
             return .outcome(await recordTheSimulationGuess(input["guess"]?.stringValue ?? ""))
         case .answerApproval:
@@ -3981,19 +3989,31 @@ final class CompanionManager: ObservableObject {
         let frontTab = videoQuizSession.frontTabTitleAndURLOfTheFrontWindow()
         var writtenPageURL: URL?
         do {
-            let taskEvents = try agentHarness.startTask(taskID: agentID, goal: goal, frontTabTitle: frontTab?.title, frontTabURL: frontTab?.url, skill: skillName)
+            let taskEvents = try agentHarness.startTask(
+                taskID: agentID,
+                goal: goal,
+                frontTabTitle: frontTab?.title,
+                frontTabURL: frontTab?.url,
+                skill: skillName,
+                startsPaused: backgroundAgentStore.agentsArePaused
+            )
             for await taskEvent in taskEvents {
                 try Task.checkCancellation()
                 switch taskEvent {
                 case .toolCall(let toolCall):
+                    // A call the harness sent just before its pause_task arrived still waits for "go ahead", since an
+                    // app tool such as open_url changes the Mac.
+                    try await holdWhileEveryAgentIsPaused("the task agent's \(toolCall.toolName) call")
                     let toolRun = await runTaskAgentTool(toolCall, agentID: agentID, pageAlreadyWritten: writtenPageURL != nil)
                     writtenPageURL = toolRun.writtenPageURL ?? writtenPageURL
                     try Task.checkCancellation()
                     agentHarness.sendToolResult(taskID: agentID, toolUseID: toolCall.toolUseID, content: toolRun.content, isError: toolRun.isError, sourceURL: toolRun.sourceURL)
                 case .finished(let spokenSummary):
+                    try await holdWhileEveryAgentIsPaused("the task agent's answer")
                     finishTheTaskAgent(agentID, spokenSummary: spokenSummary, pageURL: writtenPageURL)
                     return
                 case .failed(let reason):
+                    try await holdWhileEveryAgentIsPaused("the task agent's failure")
                     throw TaskAgentError.harnessReportedFailure(reason: reason)
                 case .voiceCommandFinished:
                     // Only a voice command ends this way, so a task never hears it.
@@ -4013,6 +4033,10 @@ final class CompanionManager: ObservableObject {
                 return
             }
             print("Task agent: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            guard await holdWhileEveryAgentIsPausedUnlessCancelled("the task agent's failure") else {
+                agentHarness.cancelTask(taskID: agentID)
+                return
+            }
             backgroundAgentStore.fail(agentID, reason: "The task could not be finished. Ask again to try once more.")
             playCursorEmote(.shake)
             bringBackTheEndingChip(ofAgent: agentID) {
@@ -4164,6 +4188,8 @@ final class CompanionManager: ObservableObject {
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
     /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row, unless the
     /// menu bar panel is open on its home, whose banner shows the card.
+    /// A request the harness sent just before its pause_task shows at once too, like one that was already waiting when the
+    /// learner paused, since "go ahead" answers it before it resumes the agents and a hidden card could not be answered.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
         themeSettings.shownTheme.sounds.needsYourOK.play()
         // The panel's banner already shows the card, so the list does not open over it.
@@ -4223,6 +4249,44 @@ final class CompanionManager: ObservableObject {
         return .changed(state: .object(["approval": .string(learnerAnswer.approved ? "allowed" : "declined")]))
     }
 
+    // MARK: - Pausing every agent
+
+    /// "Hold on" and "go ahead". The Swift agents read the Mac at once and wait before their Worker call and their ending
+    /// (`waitWhileAgentsArePaused`). Each running task agent's harness task gets `pause_task` or `resume_task`, so no model
+    /// turn or tool call starts for it. Push-to-talk and the voice brain never pause.
+    private func setEveryAgentIsPaused(_ agentsArePaused: Bool) -> VoiceToolOutcome {
+        let pauseChanged = agentsArePaused ? backgroundAgentStore.pauseEveryAgent() : backgroundAgentStore.resumeEveryAgent()
+        guard pauseChanged else {
+            return .failed(error: agentsArePaused ? "The agents are already paused" : "No agent is paused", state: nil)
+        }
+        let runningAgents = backgroundAgentStore.agents.filter(\.isRunning)
+        for runningTaskAgent in runningAgents where runningTaskAgent.kind == .task {
+            agentHarness.setTaskIsPaused(agentsArePaused, taskID: runningTaskAgent.id)
+        }
+        print("Agents: \(agentsArePaused ? "paused" : "resumed") \(runningAgents.count) running \(runningAgents.count == 1 ? "agent" : "agents")")
+        return .changed(state: .object(["backgroundAgents": .string(agentsArePaused ? "paused" : "running")]))
+    }
+
+    /// Holds an agent's Worker call, a task agent's tool call, or an ending while every agent is paused, and throws once
+    /// the agent was cancelled.
+    /// `heldStep` names what waits, for the log.
+    private func holdWhileEveryAgentIsPaused(_ heldStep: String) async throws {
+        await waitWhileEveryAgentIsPaused(heldStep)
+        try Task.checkCancellation()
+    }
+
+    /// The same, for a failure's ending: false when the agent was cancelled during the pause, so it shows nothing.
+    private func holdWhileEveryAgentIsPausedUnlessCancelled(_ heldStep: String) async -> Bool {
+        await waitWhileEveryAgentIsPaused(heldStep)
+        return !Task.isCancelled
+    }
+
+    private func waitWhileEveryAgentIsPaused(_ heldStep: String) async {
+        guard backgroundAgentStore.agentsArePaused else { return }
+        print("Agents: holding \(heldStep) until the learner resumes")
+        await backgroundAgentStore.waitWhileAgentsArePaused()
+    }
+
     // MARK: - Background Scene Agents (3D model and experiment)
 
     /// "Let me try it" starts the experiment agent and says one line, so the video keeps playing while it builds.
@@ -4241,7 +4305,7 @@ final class CompanionManager: ObservableObject {
             spokenLine = "Your experiment is still building."
         case .startBuilding:
             _ = startBuildingASceneInTheBackground(whatToBuild: transcript, agentKind: .experiment)
-            spokenLine = "Sure, I'll build that while you watch."
+            spokenLine = experimentStartedSpokenLine(agentsArePaused: backgroundAgentStore.agentsArePaused)
         }
         currentResponseTask = Task {
             // The experiment agent serves its token from the cursor first, and the line plays after it lands.
@@ -4298,8 +4362,13 @@ final class CompanionManager: ObservableObject {
             try Task.checkCancellation()
             backgroundAgentStore.setSubject(whatToBuild, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
+            // The frame, tab, and words above are read at once, even during a pause, so the build is of what the learner
+            // asked about. Only the Worker call waits for "go ahead".
+            try await holdWhileEveryAgentIsPaused("the \(agentKind.builtThingName)'s build")
             let sceneQuestion = heardText.isEmpty ? whatToBuild : "\(whatToBuild) The video just said: \(heardText)"
             let liveScene = try await liveSceneClient.requestLiveScene(question: sceneQuestion, cursorScreenJPEGData: videoScreenJPEGData, sceneKind: sceneKind)
+            // A reply that arrives during a pause waits with the agent, and never rises over what the learner held still for.
+            try await holdWhileEveryAgentIsPaused("the finished \(agentKind.builtThingName)")
             // A scene cancelled from the agent list never shows, even when the Worker had already replied.
             try Task.checkCancellation()
             print("\(agentKind.displayName): built \"\(whatToBuild)\" in \(Int(Date().timeIntervalSince(startedAt))) s")
@@ -4326,6 +4395,8 @@ final class CompanionManager: ObservableObject {
                 return
             }
             print("\(agentKind.displayName): failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            // A failure's chip waits through a pause like a result, and a cancel during it shows nothing.
+            guard await holdWhileEveryAgentIsPausedUnlessCancelled("the \(agentKind.builtThingName)'s failure") else { return }
             backgroundAgentStore.fail(agentID, reason: "The \(agentKind.builtThingName) could not be built. Ask again to try once more.")
             playCursorEmote(.shake)
             bringBackTheEndingChip(ofAgent: agentID) {
@@ -4587,6 +4658,8 @@ final class CompanionManager: ObservableObject {
         let startedAt = Date()
         let agentKind = studyGuideJob.agentKind
         do {
+            // The captions are read at once, even during a pause, so the guide is written for the video the learner
+            // asked about. Only the Worker call below waits for "go ahead".
             let video = try await videoQuizSession.frontVideoForStudyGuide()
             backgroundAgentStore.setSubject(video.title, for: agentID)
             backgroundAgentStore.completeStep(for: agentID)
@@ -4616,6 +4689,7 @@ final class CompanionManager: ObservableObject {
                 // go along with the ones logged since launch.
                 quizResultsForTheGuide = studyGuideQuizResults(saved: previousRecord.quizResults, logged: video.quizResults)
             }
+            try await holdWhileEveryAgentIsPaused("the study guide's writing")
             var studyGuideRecord = try await studyGuideClient.writeStudyGuide(StudyGuideRequest(
                 videoTitle: video.title,
                 videoURL: video.url,
@@ -4625,6 +4699,9 @@ final class CompanionManager: ObservableObject {
                 revision: studyGuideRevision
             ))
             studyGuideRecord.quizResults = quizResultsForTheGuide
+            // A guide written during a pause waits to be saved and opened. A cancel meanwhile takes the cancelled path below,
+            // which still keeps a revision whose old page the Worker already trashed.
+            await waitWhileEveryAgentIsPaused("the written study guide")
             let agentWasCancelled = Task.isCancelled
             guard !agentWasCancelled || studyGuideJob.replyIsSavedEvenWhenCancelled else { throw CancellationError() }
             // Filed under the video the guide was written for, not whichever tab is in front now.
@@ -4651,6 +4728,7 @@ final class CompanionManager: ObservableObject {
                 return false
             }
             print("Study guide: failed after \(Int(Date().timeIntervalSince(startedAt))) s: \(error)")
+            guard await holdWhileEveryAgentIsPausedUnlessCancelled("the study guide's failure") else { return false }
             backgroundAgentStore.fail(agentID, reason: studyGuideFailureReason(for: error))
             playCursorEmote(.shake)
             bringBackTheEndingChip(ofAgent: agentID) {
@@ -4927,6 +5005,12 @@ final class CompanionManager: ObservableObject {
         }
         if let themeStudioState = voiceCommandThemeStudioState(themeStudioController.state) {
             sceneStateFields["themeStudio"] = themeStudioState
+        }
+        if let backgroundAgentsState = backgroundAgentsStateText(
+            runningAgentCount: backgroundAgentStore.agents.filter(\.isRunning).count,
+            agentsArePaused: backgroundAgentStore.agentsArePaused
+        ) {
+            sceneStateFields["backgroundAgents"] = .string(backgroundAgentsState)
         }
         if let readyBackgroundScene {
             sceneStateFields["readyToShow"] = .string(readyToShowStateText(

@@ -198,6 +198,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case showReadyModel = "show_ready_model"
     case startBackgroundTask = "start_background_task"
     case hearTaskAnswer = "hear_task_answer"
+    case pauseAgents = "pause_agents"
+    case resumeAgents = "resume_agents"
     case recordGuess = "record_guess"
     case answerApproval = "answer_approval"
     case designTheme = "design_theme"
@@ -243,6 +245,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var themeStudioIsOpen = false
         /// The Theme Studio card shows ideas, so one can be picked and the highlighted one saved.
         var themeStudioShowsIdeas = false
+        /// A background agent is running, so "hold on" can pause every agent.
+        var backgroundAgentIsRunning = false
+        /// The learner paused every agent, so "go ahead" lets them go on (`BackgroundAgentStore.agentsArePaused`).
+        var backgroundAgentsArePaused = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -286,6 +292,13 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return !context.quizQuestionIsOpen
             case .hearTaskAnswer:
                 return context.taskAnswerIsReady && !context.quizQuestionIsOpen
+            // Pausing holds the agents and never the learner, so it works whatever is on screen.
+            case .pauseAgents:
+                return context.backgroundAgentIsRunning && !context.backgroundAgentsArePaused
+            // While a request the learner can answer by voice waits, "go ahead" is its yes, so the agents go on only after
+            // the learner answers it, and a resume never doubles as an approval.
+            case .resumeAgents:
+                return context.backgroundAgentsArePaused && !context.approvalIsWaiting
             case .recordGuess:
                 return context.simulationIsWaitingForAGuess && !context.quizQuestionIsOpen
             // Offered only while a request waits, so a "yes" with nothing to allow never reaches it. A quiz question
@@ -391,6 +404,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Hand a task to a background agent that works on its own for a minute or two while the learner keeps watching. It can search the web, read this video's captions, look at the video, and write a Notion page. Use it when the learner asks you to find out, look up, research, compare, check, or collect something that needs more than a quick answer from the screen, such as \"find out how this compares to the first booster catch\". Use make_study_guide for a study guide of this video, and build_model_in_background for a 3D model. Put the task in goal, in the learner's words, with what this or that refers to on screen. Your confirmation is a few plain words that it has started, such as \"looking into it\", never that it is done."
         case .hearTaskAnswer:
             return "Say what the background task agent found. Use it when the learner asks what it found, what the answer was, or to hear the result."
+        case .pauseAgents:
+            return "Pause every background agent, the ones in the scene state's backgroundAgents: none starts its next step or shows its result until the learner says go ahead, and their discs fold into one paused disc. Use it when the learner says hold on, hold on a second, pause the agents, or hold everything. A bare hold on means the agents, never the video, even while a video plays. Do not use it when hold on only starts a question or another command, such as \"hold on, what is that\", which is that question or command, and use pause_video to pause the video. Your confirmation is a few plain words, such as \"holding them\"."
+        case .resumeAgents:
+            return "Let every paused background agent go on from where it stopped, and send their discs back to their places. Use it when the learner says go ahead, keep going, carry on, continue, or resume the agents. When go ahead only starts another command, such as \"go ahead and pop this out\", use that command's tool instead. Your confirmation is a few plain words, such as \"back to work\"."
         case .answerApproval:
             return "Answer the request a background agent is waiting on, which asks the learner to allow one action. The scene state's approvalWaiting names the kind of action, never the action itself. Use it only when the learner answers that request: yes, sure, go ahead, or do it allows it (approved true), and no, don't, stop, or cancel declines it (approved false). Set always true only when they say always or always allow it. Do not use it for any other command. Your confirmation is two plain words, such as \"allowed it\" or \"declined it\"."
         case .designTheme:
@@ -462,7 +479,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return objectSchema([:], required: [])
         case .reviseStudyGuide:
             return objectSchema(["instruction": .object(["type": .string("string"), "description": .string("What to change about the guide, in the learner's words.")])], required: ["instruction"])
-        case .openStudyGuide, .showReadyModel, .hearTaskAnswer:
+        case .openStudyGuide, .showReadyModel, .hearTaskAnswer, .pauseAgents, .resumeAgents:
             return objectSchema([:], required: [])
         case .startBackgroundTask:
             return objectSchema(["goal": .object(["type": .string("string"), "description": .string("The task in the learner's words, with what it refers to on screen.")])], required: ["goal"])
@@ -579,6 +596,10 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Starting your experiment"
         case "start_background_task":
             return "Starting a task"
+        case "pause_agents":
+            return "Holding every agent"
+        case "resume_agents":
+            return "Back to work"
         default:
             // pop_out, animate_picture, build_new_scene, answer_with_screen, show_ready_model, hear_task_answer, and
             // show_art_in_my_room hand off to a path with its own status line, thinking dots, rising scene, panel, or
@@ -859,6 +880,15 @@ nonisolated func readyToShowStateText(isExperiment: Bool, whatToBuild: String) -
     return trimmedRequest.isEmpty ? "\(kindText), built and waiting" : "\(kindText) of \"\(trimmedRequest)\", built and waiting"
 }
 
+/// What the router's scene state says about the background agents, such as "2 running", so "hold on" and "go ahead" read as
+/// being about them. During a pause it also says a new agent waits, so a confirmation for one started then says when it
+/// starts. Nil when no agent runs, which leaves the field out.
+nonisolated func backgroundAgentsStateText(runningAgentCount: Int, agentsArePaused: Bool) -> String? {
+    guard runningAgentCount > 0 else { return nil }
+    guard agentsArePaused else { return "\(runningAgentCount) running" }
+    return "\(runningAgentCount) paused, and a new agent waits for go ahead too"
+}
+
 /// Page text and captions sit inside tags the model is told never to obey, so a "<" in them could close the tag early.
 nonisolated func voiceCommandUserMessageText(transcript: String, sceneState: JSONValue, recentActionLines: [String]) -> String {
     let stateText = sceneState.compactJSONText.replacingOccurrences(of: "<", with: " ")
@@ -888,6 +918,8 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     taskAnswerIsReady: Bool = false,
     approvalIsWaiting: Bool = false,
     themeStudioIsOpen: Bool = false,
+    backgroundAgentIsRunning: Bool = false,
+    backgroundAgentsArePaused: Bool = false,
     phaseIsWaitingForAQuizAnswer: Bool,
     sceneIsBuilding: Bool,
     brainTakesEveryRequest: Bool = false
@@ -896,7 +928,9 @@ nonisolated func voiceCommandRouterTakesTheTranscript(
     if themeStudioIsOpen { return true }
     if sceneIsBuilding { return false }
     if brainTakesEveryRequest { return true }
+    // While an agent runs or waits paused, "hold on" and "go ahead" reach the router with nothing on screen.
     return sceneIsOnScreen || videoIsInFront || backgroundSceneIsReady || taskAnswerIsReady || approvalIsWaiting
+        || backgroundAgentIsRunning || backgroundAgentsArePaused
 }
 
 /// The "one brain" switch. With it on, the voice command model picks the action for every first utterance, instead of

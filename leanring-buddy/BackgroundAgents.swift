@@ -177,8 +177,16 @@ struct BackgroundAgent: Identifiable, Equatable {
     /// guide agents at once. Nil for every other kind.
     let studyGuideVideoKey: String?
     let startedAt: Date
-    /// When the step that runs now began, which times its share of the progress.
+    /// When the step that runs now began, which times its share of the progress. A resume moves it later by the length of
+    /// the pause, so a paused step's progress picks up where it stopped.
     var currentStepStartedAt: Date
+    /// When the learner paused every agent, while this agent is paused, so its progress stops there. Nil while it runs.
+    var pausedAt: Date? = nil
+    /// When the pause that holds this agent began, for its elapsed time. Unlike `pausedAt`, a step that finishes during
+    /// the pause never moves it, so the time stops once, where the pause began. Nil while it runs.
+    var elapsedTimeStoppedAt: Date? = nil
+    /// The seconds this agent spent in pauses that have ended, which its elapsed time leaves out.
+    var secondsSpentPaused: TimeInterval = 0
     var endedAt: Date?
     var phase: BackgroundAgentPhase
     /// The learner's own push-to-talk transcript that started a task agent, which its approval card shows as "You said".
@@ -243,15 +251,15 @@ struct BackgroundAgent: Identifiable, Equatable {
         guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else {
             return filledFraction
         }
-        let secondsIntoTheStep = max(0, now.timeIntervalSince(currentStepStartedAt))
+        let secondsIntoTheStep = max(0, min(now, pausedAt ?? now).timeIntervalSince(currentStepStartedAt))
         let shareOfTheStepDone = min(1, secondsIntoTheStep / kind.steps[completedStepCount].expectedSeconds)
         return (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough * shareOfTheStepDone) / Double(kind.steps.count)
     }
 
     /// Where the progress heads while the current step runs, and how many seconds until it gets there.
-    /// Nil once the agent has ended.
+    /// Nil once the agent has ended, and while it is paused, since its progress stands still then.
     func progressHeading(at now: Date) -> (fraction: Double, secondsToGetThere: TimeInterval)? {
-        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount) else { return nil }
+        guard case .running(let completedStepCount) = phase, kind.steps.indices.contains(completedStepCount), pausedAt == nil else { return nil }
         let stepEndsAt = currentStepStartedAt.addingTimeInterval(kind.steps[completedStepCount].expectedSeconds)
         return (
             fraction: (Double(completedStepCount) + Self.shareOfAStepTheProgressMovesThrough) / Double(kind.steps.count),
@@ -294,9 +302,18 @@ struct BackgroundAgent: Identifiable, Equatable {
         }
     }
 
+    /// Adds the pause that just ended, by a resume or by the agent ending, to the time its elapsed time leaves out.
+    mutating func endThePauseOfItsElapsedTime(at now: Date) {
+        guard let elapsedTimeStoppedAt else { return }
+        secondsSpentPaused += max(0, now.timeIntervalSince(elapsedTimeStoppedAt))
+        self.elapsedTimeStoppedAt = nil
+    }
+
     /// Seconds from start to the end, or to `now` while it runs.
+    /// A paused agent's time stops where the pause began and goes on from there after the resume, so no pause counts as
+    /// working time, during it or after it.
     func elapsedSeconds(at now: Date) -> TimeInterval {
-        max(0, (endedAt ?? now).timeIntervalSince(startedAt))
+        max(0, (endedAt ?? min(now, elapsedTimeStoppedAt ?? now)).timeIntervalSince(startedAt) - secondsSpentPaused)
     }
 }
 
@@ -368,6 +385,13 @@ final class BackgroundAgentStore: ObservableObject {
     /// The capability of each waiting agent's oldest request, which the disc's peek card names. It never holds the request's
     /// summary, since a page or a server may have written that.
     @Published var approvalCapabilitiesByAgentID: [UUID: HarnessCapability] = [:]
+
+    /// True while the learner has paused every agent ("hold on"), until they say "go ahead". No agent starts a model request
+    /// or a tool call, or delivers its result, meanwhile (`waitWhileAgentsArePaused`). An agent still reads the Mac at once,
+    /// such as the frame it builds from. An agent that starts during the pause starts paused, and the discs beside the notch
+    /// fold into one paused disc. A step already in flight finishes. The pause ends by itself once no agent is running,
+    /// since nothing is left to hold.
+    @Published private(set) var agentsArePaused = false
 
     /// Read when an agent starts, to pick its color and face. Changing the theme later never changes a running agent.
     private let themeSettings: CompanionThemeSettings
@@ -481,6 +505,8 @@ final class BackgroundAgentStore: ObservableObject {
             studyGuideVideoKey: studyGuideVideoKey,
             startedAt: startedAt,
             currentStepStartedAt: startedAt,
+            pausedAt: agentsArePaused ? startedAt : nil,
+            elapsedTimeStoppedAt: agentsArePaused ? startedAt : nil,
             endedAt: nil,
             phase: .running(completedStepCount: 0),
             tokenColor: look.tokenColor,
@@ -562,6 +588,48 @@ final class BackgroundAgentStore: ObservableObject {
                   completedStepCount < agent.kind.stepNames.count - 1 else { return }
             agent.phase = .running(completedStepCount: completedStepCount + 1)
             agent.currentStepStartedAt = Date()
+            // A step that finished in flight during a pause starts the next one paused, at no progress.
+            if agent.pausedAt != nil { agent.pausedAt = agent.currentStepStartedAt }
+        }
+    }
+
+    // MARK: Pausing every agent
+
+    var anAgentIsRunning: Bool {
+        agents.contains(where: \.isRunning)
+    }
+
+    /// "Hold on": every running agent stops where it is. Returns false when they were already paused.
+    @discardableResult
+    func pauseEveryAgent(at now: Date = Date()) -> Bool {
+        guard !agentsArePaused else { return false }
+        agentsArePaused = true
+        for agentIndex in agents.indices where agents[agentIndex].isRunning {
+            agents[agentIndex].pausedAt = now
+            agents[agentIndex].elapsedTimeStoppedAt = now
+        }
+        return true
+    }
+
+    /// "Go ahead": every paused agent goes on, its progress from where it stopped. Returns false when none were paused.
+    @discardableResult
+    func resumeEveryAgent(at now: Date = Date()) -> Bool {
+        guard agentsArePaused else { return false }
+        agentsArePaused = false
+        for agentIndex in agents.indices {
+            guard let pausedAt = agents[agentIndex].pausedAt else { continue }
+            agents[agentIndex].currentStepStartedAt += max(0, now.timeIntervalSince(pausedAt))
+            agents[agentIndex].pausedAt = nil
+            agents[agentIndex].endThePauseOfItsElapsedTime(at: now)
+        }
+        return true
+    }
+
+    /// Returns at once while the agents run. While they are paused, it returns once they resume, or once the calling task
+    /// is cancelled, such as an agent cancelled from the list, so the caller checks for cancellation after it.
+    func waitWhileAgentsArePaused() async {
+        for await agentsArePaused in $agentsArePaused.values where !agentsArePaused {
+            return
         }
     }
 
@@ -591,8 +659,8 @@ final class BackgroundAgentStore: ObservableObject {
         endRunningAgent(agentID, in: .failed(reason: reason))
     }
 
-    func cancel(_ agentID: UUID) {
-        endRunningAgent(agentID, in: .cancelled)
+    func cancel(_ agentID: UUID, at now: Date = Date()) {
+        endRunningAgent(agentID, in: .cancelled, at: now)
     }
 
     /// Only a running agent changes. A step, a result, or a cancel that arrives after the agent ended does nothing.
@@ -604,12 +672,16 @@ final class BackgroundAgentStore: ObservableObject {
         return true
     }
 
-    private func endRunningAgent(_ agentID: UUID, in endPhase: BackgroundAgentPhase) {
+    private func endRunningAgent(_ agentID: UUID, in endPhase: BackgroundAgentPhase, at endedAt: Date = Date()) {
         let agentEnded = updateRunningAgent(agentID) { agent in
             agent.phase = endPhase
-            agent.endedAt = Date()
+            agent.endedAt = endedAt
+            agent.pausedAt = nil
+            agent.endThePauseOfItsElapsedTime(at: endedAt)
         }
         guard agentEnded else { return }
+        // The learner cancelled every paused agent from the list, so no paused disc or "go ahead" is left to explain.
+        if agentsArePaused, !anAgentIsRunning { resumeEveryAgent() }
         // The token of a finished or failed agent leaves on its own, so the views that show it need one more refresh then.
         Task {
             try? await Task.sleep(for: .seconds(BackgroundAgent.secondsAnEndedAgentsTokenStays + 0.05))

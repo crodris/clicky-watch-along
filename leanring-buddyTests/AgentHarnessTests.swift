@@ -90,6 +90,19 @@ struct AgentHarnessTests {
         #expect(try decodedJSON(of: startWithNoTab.line)["frontTabTitle"] == .null)
         #expect(try decodedJSON(of: startWithNoTab.line)["frontTabURL"] == .null)
         #expect(try decodedJSON(of: startWithNoTab.line)["skill"] == .string("flashcards"))
+        #expect(try decodedJSON(of: startWithNoTab.line)["startsPaused"] == nil)
+
+        // A task started while the learner paused every agent waits for resume_task, and the two lines name the task.
+        let startPaused = HarnessCommand.startTask(taskID: firstTaskID, goal: "compare", frontTabTitle: nil, frontTabURL: nil, skill: nil, startsPaused: true)
+        #expect(try decodedJSON(of: startPaused.line)["startsPaused"] == .bool(true))
+        #expect(try decodedJSON(of: HarnessCommand.pauseTask(taskID: firstTaskID).line) == .object([
+            "type": .string("pause_task"),
+            "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),
+        ]))
+        #expect(try decodedJSON(of: HarnessCommand.resumeTask(taskID: firstTaskID).line) == .object([
+            "type": .string("resume_task"),
+            "taskID": .string("E621E1F8-C36C-495A-93FC-0C247A3E6E5F"),
+        ]))
 
         let textResult = HarnessCommand.toolResult(taskID: firstTaskID, toolUseID: "toolu_report", content: .string("shown"), isError: false)
         #expect(try decodedJSON(of: textResult.line) == .object([
