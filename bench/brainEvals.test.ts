@@ -20,6 +20,8 @@ import {
   validateSessionFixture,
   appToolDescriptionsIn,
   appToolStepKindsIn,
+  appToolsListedAsMayHandOffIn,
+  appToolsWhoseStepMayHandOffIn,
   costOfUsageLines,
   descriptionsInAppSource,
   exitCodeOfGate,
@@ -585,6 +587,16 @@ describe("standInToolResult", () => {
 
     assert.deepEqual([...handOffToolNames].sort(), stepKinds.handOffToolNames.sort());
     assert.deepEqual([...lookupToolNames].sort(), stepKinds.lookupToolNames.sort());
+  });
+
+  it("lists in AppVoiceTool.mayHandOff exactly the tools whose appVoiceToolStep branch can hand off, so a new hand-off tool without it fails here", () => {
+    const appCheckout = join(benchDirectory, "..");
+    const managerSource = readFileSync(join(appCheckout, "leanring-buddy/CompanionManager.swift"), "utf8");
+    const toolsSource = readFileSync(join(appCheckout, "leanring-buddy/VoiceCommandTools.swift"), "utf8");
+
+    const listedAsMayHandOff = appToolsListedAsMayHandOffIn(toolsSource).sort();
+    assert.ok(listedAsMayHandOff.length > 0);
+    assert.deepEqual(listedAsMayHandOff, appToolsWhoseStepMayHandOffIn(managerSource, toolsSource).sort());
   });
 
   it("reads a branch's kind from the Swift step: a hand-off, a hand-off behind a failing guard, a lookup, and a tool that ends in an outcome after a hand-off as neither", () => {

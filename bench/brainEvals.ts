@@ -772,18 +772,9 @@ function appToolNamesByCaseIn(swiftSource: string): Record<string, string> {
  * so it is in neither list, as in `handOffToolNames`.
  */
 export function appToolStepKindsIn(managerSource: string, voiceCommandToolsSource: string): { handOffToolNames: string[]; lookupToolNames: string[] } {
-  const toolNameOfCase = appToolNamesByCaseIn(voiceCommandToolsSource);
-  const stepStart = managerSource.indexOf("private func appVoiceToolStep(");
-  const stepSource = managerSource.slice(stepStart, managerSource.indexOf("// MARK:", stepStart));
-  // The tool branches are the `case .name:` lines at the switch's own indent, 8 spaces, so a nested switch's cases do not split one.
-  const branches = stepSource.split(/^ {8}case \./m).slice(1);
   const handOffToolNames: string[] = [];
   const lookupToolNames: string[] = [];
-  for (const branch of branches) {
-    const toolName = toolNameOfCase[branch.slice(0, branch.indexOf(":"))];
-    if (toolName === undefined) {
-      continue;
-    }
+  for (const { toolName, branch } of appToolBranchesIn(managerSource, voiceCommandToolsSource)) {
     // A guard may fail with an outcome before the branch hands off, so the branch's last return says what it does.
     const lastReturn = [...branch.matchAll(/return \.(handOff|outcome)/g)].at(-1)?.[1];
     if (lastReturn === "handOff") {
@@ -794,6 +785,41 @@ export function appToolStepKindsIn(managerSource: string, voiceCommandToolsSourc
     }
   }
   return { handOffToolNames, lookupToolNames };
+}
+
+/** Each app tool's branch of `appVoiceToolStep` in CompanionManager.swift, with the tool's wire name. */
+function appToolBranchesIn(managerSource: string, voiceCommandToolsSource: string): { toolName: string; branch: string }[] {
+  const toolNameOfCase = appToolNamesByCaseIn(voiceCommandToolsSource);
+  const stepStart = managerSource.indexOf("private func appVoiceToolStep(");
+  const stepSource = managerSource.slice(stepStart, managerSource.indexOf("// MARK:", stepStart));
+  // The tool branches are the `case .name:` lines at the switch's own indent, 8 spaces, so a nested switch's cases do not split one.
+  const branches = stepSource.split(/^ {8}case \./m).slice(1);
+  return branches.flatMap((branch) => {
+    const toolName = toolNameOfCase[branch.slice(0, branch.indexOf(":"))];
+    return toolName === undefined ? [] : [{ toolName, branch }];
+  });
+}
+
+/**
+ * The tools whose `appVoiceToolStep` branch can return `.handOff` at all, even only some of the time as `build_simulation`'s
+ * does. `AppVoiceTool.mayHandOff` in VoiceCommandTools.swift must list exactly these, since the voice command skips the
+ * early spoken line for them.
+ */
+export function appToolsWhoseStepMayHandOffIn(managerSource: string, voiceCommandToolsSource: string): string[] {
+  return appToolBranchesIn(managerSource, voiceCommandToolsSource)
+    .filter(({ branch }) => branch.includes("return .handOff"))
+    .map(({ toolName }) => toolName);
+}
+
+/** The tools `AppVoiceTool.mayHandOff` in VoiceCommandTools.swift lists, by their wire names. */
+export function appToolsListedAsMayHandOffIn(voiceCommandToolsSource: string): string[] {
+  const toolNameOfCase = appToolNamesByCaseIn(voiceCommandToolsSource);
+  const propertyStart = voiceCommandToolsSource.indexOf("var mayHandOff: Bool");
+  const listedCases = voiceCommandToolsSource.slice(propertyStart, voiceCommandToolsSource.indexOf("default:", propertyStart));
+  return [...listedCases.matchAll(/\.(\w+)/g)].flatMap((caseMatch) => {
+    const toolName = toolNameOfCase[caseMatch[1]];
+    return toolName === undefined ? [] : [toolName];
+  });
 }
 
 /** The description of each app tool in VoiceCommandTools.swift's `toolDescription`, by the tool's name. */
