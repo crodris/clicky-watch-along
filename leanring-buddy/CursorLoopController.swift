@@ -41,7 +41,7 @@ final class CursorLoopController: ObservableObject {
     /// Whether an agent's spark may join the line and draw now: false while a scene covers the media, a quiz question is open, or
     /// Show Clicky is off (`agentSparksMayDraw(clickyCursorIsEnabled:aSceneIsOnScreen:aQuizQuestionIsOpen:)`). `CompanionManager`
     /// sets it, since the controller does not know those states. It is read when an agent starts, when a release reads the
-    /// media, and each time the line is drawn, so a line that is already showing hides when it turns false and an agent held back
+    /// media, and each time the line is drawn, so a line that is already showing hides at the next redraw of the overlay after it turns false, and an agent held back
     /// joins at the first release that allows it. Until it is set, no spark draws.
     var agentSparksMayDraw: () -> Bool = { false }
 

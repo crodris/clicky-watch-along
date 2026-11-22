@@ -108,7 +108,9 @@ The line fades out over 0.35 seconds, and the dots take over if Clicky is still 
 An agent works on the video in front when it started from the tab that is still in front (`agentWorksOnTheVideoInFront`): a 3D model, experiment, or task agent compares its front tab URL, and a study guide or update agent compares its video key (`studyGuideVideoKey`).
 `BackgroundAgent` keeps no tab, so `CompanionManager` tells the loop each agent's `AgentSourceTab` when it learns it (`theAgentStartedFromTheFrontTab`): the guide at its start, a scene agent after its front tab read, and a task agent after its harness front tab read.
 A spark joins the line and draws only while no scene is on screen, no quiz question is open, and Show Clicky is on (`agentSparksMayDraw(clickyCursorIsEnabled:aSceneIsOnScreen:aQuizQuestionIsOpen:)`, which `CompanionManager` hands the controller as a closure), as a request's loop draws only then, and with Show Clicky off the overlay fades a second after the answer.
-The controller reads the gate when an agent starts, when a release reads the media, and each time the line is drawn (`agentLineToDraw`), so a line already showing hides when the gate turns false, and a controller with no gate wired draws no sparks.
+The controller reads the gate when an agent starts, when a release reads the media, and each time the line is drawn (`agentLineToDraw`).
+A line already showing hides at the next redraw of the overlay after the gate turns false, which the cursor's movement and the voice state trigger all the time.
+A controller with no gate wired draws no sparks.
 An agent held back is remembered and joins at the first release that allows it.
 The sparks go around the media the loop already holds: the line already showing, a request's loop, or the rect the push-to-talk release read for the same turn (`CursorLoopState.agentStarted`).
 A request's loop and the agent line are separate, so a spark's agent keeps its line after the request's loop ends.
