@@ -543,7 +543,9 @@ A pause really pauses: no model turn and no tool call starts, and no result is d
   The call it allows waits for the resume.
 - An agent started during a pause starts paused (`pausedAt` set at its start, and `start_task` with `startsPaused`, since a later `pause_task` could arrive after the harness's first request).
 - Push-to-talk, the voice brain, and voice commands never pause.
-Each agent's progress and its elapsed time stop at `pausedAt`, its ring and the list's meter stand still, the panel home's agents row says "N paused · say go ahead" (`panelAgentsSummary`), and a resume moves `currentStepStartedAt` later by the pause's length, so the progress picks up where it stopped.
+Each agent's progress stops at `pausedAt`, its ring and the list's meter stand still, and a resume moves `currentStepStartedAt` later by the pause's length, so the progress picks up where it stopped.
+Its elapsed time stops where the pause began (`elapsedTimeStoppedAt`, which a step that finishes during the pause does not move), and the pause's length goes into `secondsSpentPaused` at the resume or the agent's end, so the time goes on with no jump.
+The panel home's agents row says "N paused · say go ahead", or "N paused · answer the request first" while a request waits for the learner's OK (`panelAgentsSummary`).
 Cancelling every running agent from the list ends the pause, since nothing is left to hold.
 The discs fold into one paused disc (`AgentTokenSlot.paused`, `agentTokenSlotsLeftToRight`): a gray ring around two pause bars, with the count of running agents it holds in a capsule badge when there is more than one (`AgentPausedDiscView`, `pausedAgentCount`).
 Its peek says "N agents paused" and "Say go ahead to let them go on", or "Answer the request first, then say go ahead" while one waits for the learner's OK, VoiceOver reads the same two lines, and a click opens the agent list.

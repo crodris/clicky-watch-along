@@ -182,6 +182,11 @@ struct BackgroundAgent: Identifiable, Equatable {
     var currentStepStartedAt: Date
     /// When the learner paused every agent, while this agent is paused, so its progress stops there. Nil while it runs.
     var pausedAt: Date? = nil
+    /// When the pause that holds this agent began, for its elapsed time. Unlike `pausedAt`, a step that finishes during
+    /// the pause never moves it, so the time stops once, where the pause began. Nil while it runs.
+    var elapsedTimeStoppedAt: Date? = nil
+    /// The seconds this agent spent in pauses that have ended, which its elapsed time leaves out.
+    var secondsSpentPaused: TimeInterval = 0
     var endedAt: Date?
     var phase: BackgroundAgentPhase
     /// The learner's own push-to-talk transcript that started a task agent, which its approval card shows as "You said".
@@ -297,11 +302,18 @@ struct BackgroundAgent: Identifiable, Equatable {
         }
     }
 
+    /// Adds the pause that just ended, by a resume or by the agent ending, to the time its elapsed time leaves out.
+    mutating func endThePauseOfItsElapsedTime(at now: Date) {
+        guard let elapsedTimeStoppedAt else { return }
+        secondsSpentPaused += max(0, now.timeIntervalSince(elapsedTimeStoppedAt))
+        self.elapsedTimeStoppedAt = nil
+    }
+
     /// Seconds from start to the end, or to `now` while it runs.
-    /// A paused agent's time stops at `pausedAt`, as its progress does, and goes on from there after the resume, which
-    /// moves only its step's start, so a pause is never counted as working time while it lasts.
+    /// A paused agent's time stops where the pause began and goes on from there after the resume, so no pause counts as
+    /// working time, during it or after it.
     func elapsedSeconds(at now: Date) -> TimeInterval {
-        max(0, (endedAt ?? min(now, pausedAt ?? now)).timeIntervalSince(startedAt))
+        max(0, (endedAt ?? min(now, elapsedTimeStoppedAt ?? now)).timeIntervalSince(startedAt) - secondsSpentPaused)
     }
 }
 
@@ -494,6 +506,7 @@ final class BackgroundAgentStore: ObservableObject {
             startedAt: startedAt,
             currentStepStartedAt: startedAt,
             pausedAt: agentsArePaused ? startedAt : nil,
+            elapsedTimeStoppedAt: agentsArePaused ? startedAt : nil,
             endedAt: nil,
             phase: .running(completedStepCount: 0),
             tokenColor: look.tokenColor,
@@ -593,6 +606,7 @@ final class BackgroundAgentStore: ObservableObject {
         agentsArePaused = true
         for agentIndex in agents.indices where agents[agentIndex].isRunning {
             agents[agentIndex].pausedAt = now
+            agents[agentIndex].elapsedTimeStoppedAt = now
         }
         return true
     }
@@ -606,6 +620,7 @@ final class BackgroundAgentStore: ObservableObject {
             guard let pausedAt = agents[agentIndex].pausedAt else { continue }
             agents[agentIndex].currentStepStartedAt += max(0, now.timeIntervalSince(pausedAt))
             agents[agentIndex].pausedAt = nil
+            agents[agentIndex].endThePauseOfItsElapsedTime(at: now)
         }
         return true
     }
@@ -660,8 +675,10 @@ final class BackgroundAgentStore: ObservableObject {
     private func endRunningAgent(_ agentID: UUID, in endPhase: BackgroundAgentPhase) {
         let agentEnded = updateRunningAgent(agentID) { agent in
             agent.phase = endPhase
-            agent.endedAt = Date()
+            let endedAt = Date()
+            agent.endedAt = endedAt
             agent.pausedAt = nil
+            agent.endThePauseOfItsElapsedTime(at: endedAt)
         }
         guard agentEnded else { return }
         // The learner cancelled every paused agent from the list, so no paused disc or "go ahead" is left to explain.
