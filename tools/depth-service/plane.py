@@ -5,6 +5,8 @@ camera's frame (x right, y down, z forward, in meters). A RANSAC plane fit on
 the bare wall points gives the wall's plane, and `wall_frame` turns the plane
 into a placement frame at the anchor pixel: a center, and a right and an up
 direction that lie on the wall and keep the artwork level with the camera.
+`floor_frame` does the same for the floor under the anchor, and returns a
+center, right, up (the floor normal), and forward for standing a box on it.
 """
 
 import numpy as np
@@ -17,16 +19,58 @@ MINIMUM_BARE_WALL_POINTS = 200
 WALL_INLIER_DISTANCE_M = 0.02
 
 
-class WallNotMeasuredError(ValueError):
-    """The photo was read, and it holds no wall the artwork can hang on. The server answers 422."""
+# Floor points come from a window around the anchor: this share of the frame's
+# width on each side, and from just above the anchor to a longer reach below it,
+# since the floor the furniture stands on runs down toward the camera.
+FLOOR_WINDOW_HALF_SHARE = 0.2
+FLOOR_WINDOW_ABOVE_SHARE = 0.04
+FLOOR_WINDOW_BELOW_SHARE = 0.2
+MINIMUM_BARE_FLOOR_POINTS = 200
+# Wider than the wall's: the floor is seen at a grazing angle, so depth noise spreads along it.
+FLOOR_INLIER_DISTANCE_M = 0.03
+# A plane whose normal is further than this from the camera's vertical is a wall or a table.
+MAXIMUM_FLOOR_TILT_DEGREES = 25.0
+
+# The camera's up direction in its own frame (x right, y down, z forward).
+CAMERA_UP = np.array([0.0, -1.0, 0.0])
+
+
+class PlaneNotMeasuredError(ValueError):
+    """The photo was read, and it holds no plane the geometry can use at the anchor. The server answers 422."""
+
+
+class WallNotMeasuredError(PlaneNotMeasuredError):
+    """The photo was read, and it holds no wall the artwork can hang on."""
 
 
 class TooLittleWallError(WallNotMeasuredError):
     """Fewer than MINIMUM_BARE_WALL_POINTS pixels around the anchor are free of people."""
 
 
-class NonFinitePlaneError(WallNotMeasuredError):
+class NonFinitePlaneError(PlaneNotMeasuredError):
     """The fitted plane has a NaN or infinite number, such as a wall seen edge on, so it places nothing."""
+
+
+class FloorNotMeasuredError(PlaneNotMeasuredError):
+    """The photo was read, and it holds no floor the furniture can stand on."""
+
+
+class TooLittleFloorError(FloorNotMeasuredError):
+    """Fewer than MINIMUM_BARE_FLOOR_POINTS pixels near the anchor are free of people."""
+
+
+class NotFloorLikeError(FloorNotMeasuredError):
+    """The plane under the anchor is a wall or a table, not a floor."""
+
+
+def sample_bare_pixels(person_mask, window_left, window_right, window_top, window_bottom):
+    """Every third pixel in the window that no person covers, as (us, vs) float arrays."""
+    grid_vs, grid_us = np.mgrid[window_top:window_bottom:WALL_SAMPLE_STEP_PIXELS, window_left:window_right:WALL_SAMPLE_STEP_PIXELS]
+    if person_mask is None:
+        keep = np.ones(grid_vs.shape, bool)
+    else:
+        keep = ~person_mask[grid_vs, grid_us]
+    return grid_us[keep].astype(np.float64), grid_vs[keep].astype(np.float64)
 
 
 def back_project(pixel_us, pixel_vs, depths, focal_px, principal_point):
@@ -93,12 +137,7 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
     window_right = min(image_width, int(anchor_u) + window_half_width)
     window_top = max(0, int(anchor_v) - window_half_width)
     window_bottom = min(image_height, int(anchor_v) + window_half_width)
-    grid_vs, grid_us = np.mgrid[window_top:window_bottom:WALL_SAMPLE_STEP_PIXELS, window_left:window_right:WALL_SAMPLE_STEP_PIXELS]
-    if person_mask is None:
-        keep = np.ones(grid_vs.shape, bool)
-    else:
-        keep = ~person_mask[grid_vs, grid_us]
-    bare_wall_us, bare_wall_vs = grid_us[keep].astype(np.float64), grid_vs[keep].astype(np.float64)
+    bare_wall_us, bare_wall_vs = sample_bare_pixels(person_mask, window_left, window_right, window_top, window_bottom)
     if len(bare_wall_us) < MINIMUM_BARE_WALL_POINTS:
         raise TooLittleWallError("Too little bare wall around that point: click away from people and objects")
 
@@ -110,8 +149,7 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
     center = ray * ((plane_point @ normal) / (ray @ normal))
     # Keep the artwork level: its horizontal edge is perpendicular to both the
     # wall normal and the camera's up direction.
-    camera_up = np.array([0.0, -1.0, 0.0])
-    right = np.cross(camera_up, normal)
+    right = np.cross(CAMERA_UP, normal)
     right /= np.linalg.norm(right)
     if right[0] < 0:
         right = -right
@@ -130,5 +168,73 @@ def wall_frame(depth_m, focal_px, person_mask, anchor):
         "principal": [principal[0], principal[1]],
         "distanceMeters": round(float(np.linalg.norm(center)), 3),
         "wallAngleDegrees": round(float(np.degrees(np.arccos(abs(normal[2])))), 1),
+        "planeInlierShare": round(float(inlier_share), 3),
+    }
+
+
+def floor_frame(depth_m, focal_px, person_mask, anchor):
+    """Measures the floor under `anchor`, the pixel where furniture's front-bottom center stands.
+
+    `depth_m`, `person_mask`, and the principal point are as in `wall_frame`. The
+    plane is fitted to bare floor points in a window around and below the anchor.
+    Raises TooLittleFloorError when under 200 bare points remain, and
+    NotFloorLikeError when the plane's normal is more than 25 degrees from the
+    camera's vertical, or when the anchor's ray does not reach the plane in front
+    of the camera (an anchor above the horizon), and NonFinitePlaneError when the
+    plane has a NaN or infinite number.
+
+    The frame is right-handed in the camera's coordinates (x right, y down, z forward):
+    `up` is the floor normal pointing up, `right` lies on the floor toward +x of the
+    image, and `forward` = up x right lies on the floor pointing away from the camera
+    (right x up points toward the camera). A box W wide, D deep, and H tall stands
+    with its front face from center - right * W/2 to center + right * W/2, rising
+    H along up, and its back face D further along forward.
+    """
+    image_height, image_width = depth_m.shape
+    anchor_u, anchor_v = float(anchor["u"]), float(anchor["v"])
+    window_half_width = int(FLOOR_WINDOW_HALF_SHARE * image_width)
+    window_left = max(0, int(anchor_u) - window_half_width)
+    window_right = min(image_width, int(anchor_u) + window_half_width)
+    window_top = max(0, int(anchor_v - FLOOR_WINDOW_ABOVE_SHARE * image_width))
+    window_bottom = min(image_height, int(anchor_v + FLOOR_WINDOW_BELOW_SHARE * image_width))
+    bare_floor_us, bare_floor_vs = sample_bare_pixels(person_mask, window_left, window_right, window_top, window_bottom)
+    if len(bare_floor_us) < MINIMUM_BARE_FLOOR_POINTS:
+        raise TooLittleFloorError("Too little bare floor around that point: aim at floor with no people or furniture on it")
+
+    principal = (image_width / 2, image_height / 2)
+    points = back_project(bare_floor_us, bare_floor_vs, depth_m[bare_floor_vs.astype(int), bare_floor_us.astype(int)], focal_px, principal)
+    facing_camera_normal, plane_point, inlier_share = fit_plane_ransac(points, inlier_distance_m=FLOOR_INLIER_DISTANCE_M)
+
+    up = facing_camera_normal if facing_camera_normal @ CAMERA_UP > 0 else -facing_camera_normal
+    floor_tilt_degrees = float(np.degrees(np.arccos(min(1.0, up @ CAMERA_UP))))
+    if floor_tilt_degrees > MAXIMUM_FLOOR_TILT_DEGREES:
+        raise NotFloorLikeError(
+            f"The surface at that point is tilted {floor_tilt_degrees:.0f} degrees from the floor's direction: "
+            "aim at the bare floor where the furniture will stand"
+        )
+
+    ray = np.array([(anchor_u - principal[0]) / focal_px, (anchor_v - principal[1]) / focal_px, 1.0])
+    ray_distance = (plane_point @ up) / (ray @ up)
+    if ray_distance <= 0:
+        raise NotFloorLikeError("That point is above the floor's horizon: aim lower, at the floor")
+    center = ray * ray_distance
+
+    # Level with the camera: the camera's x axis, flattened onto the floor.
+    right = np.array([1.0, 0.0, 0.0]) - up[0] * up
+    right /= np.linalg.norm(right)
+    forward = np.cross(up, right)
+    # A NaN or inf would reach the app as JSON it cannot read, so it is a floor not measured.
+    numbers = np.concatenate([center, right, up, forward, [focal_px, inlier_share, floor_tilt_degrees]])
+    if not np.all(np.isfinite(numbers)):
+        raise NonFinitePlaneError("The floor's plane could not be measured there: aim the camera at bare floor")
+    return {
+        "center": center.round(4).tolist(),
+        "right": right.round(5).tolist(),
+        "up": up.round(5).tolist(),
+        "forward": forward.round(5).tolist(),
+        "focalPx": round(float(focal_px), 2),
+        "principal": [principal[0], principal[1]],
+        "distanceMeters": round(float(np.linalg.norm(center)), 3),
+        "floorTiltDegrees": round(floor_tilt_degrees, 1),
         "planeInlierShare": round(float(inlier_share), 3),
     }
