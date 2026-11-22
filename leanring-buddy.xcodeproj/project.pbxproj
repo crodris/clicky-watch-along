@@ -71,6 +71,7 @@
 			membershipExceptions = (
 				ClickyTheme.swift,
 				CursorFollowMotion.swift,
+				CursorGlyph.swift,
 				CustomThemeStore.swift,
 				DesignSystem.swift,
 				JSONValue.swift,
@@ -86,6 +87,7 @@
 			membershipExceptions = (
 				ClickyTheme.swift,
 				CursorFollowMotion.swift,
+				CursorGlyph.swift,
 				CustomThemeStore.swift,
 				DesignSystem.swift,
 				JSONValue.swift,

@@ -8,8 +8,9 @@
 //  The thumbnail extension (ClickyThemeThumbnail/) compiles the same files and draws `ThemeFileThumbnailView`, the file's
 //  icon in Finder: the cursor on its disc over the theme's colors. Both read the file with `readThemeFileForQuickLook`.
 //  The preview is one still picture, so it draws the cursor still and has no motion, and no Reduce Motion form is needed.
-//  The extension cannot reach the app's views, so the cursor is drawn here from the theme's fields: the triangle flat in the
-//  accent at its pointer angle, the shapes in the 24 point box, or the picture with its fit, outline, and tint.
+//  The extension cannot reach most of the app's views, so the cursor is drawn here from the theme's fields: the app's shaded
+//  triangle (`CursorTriangleGlyph`, CursorGlyph.swift) at its pointer angle, the shapes in the 24 point box, or the picture
+//  with its fit, outline, and tint.
 //
 
 import AppKit
@@ -202,10 +203,9 @@ struct ThemeFilePreviewCursor: View {
         }
     }
 
-    /// The triangle at its pointer angle, as the app's header and theme cards draw it.
+    /// The triangle at its pointer angle, shaded as the overlay draws it.
     private var triangle: some View {
-        ThemeFilePreviewTriangle()
-            .fill(Color(hex: theme.accentHex))
+        CursorTriangleGlyph(accentHex: theme.accentHex)
             .frame(width: drawingSide * 0.66, height: drawingSide * 0.66)
             .rotationEffect(.degrees(-35))
     }
@@ -242,21 +242,6 @@ struct ThemeFilePreviewCursor: View {
         case .circle:
             imageLayers.clipShape(Circle()).overlay(Circle().strokeBorder(Color(hex: style.outlineHex), lineWidth: outlineWidth))
         }
-    }
-}
-
-/// The app's cursor triangle (`Triangle` in OverlayWindow.swift, which the extension does not compile): equilateral, with
-/// its top vertex up.
-private struct ThemeFilePreviewTriangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let side = min(rect.width, rect.height)
-        let height = side * sqrt(3.0) / 2.0
-        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
-        path.addLine(to: CGPoint(x: rect.midX - side / 2, y: rect.midY + height / 3))
-        path.addLine(to: CGPoint(x: rect.midX + side / 2, y: rect.midY + height / 3))
-        path.closeSubpath()
-        return path
     }
 }
 
