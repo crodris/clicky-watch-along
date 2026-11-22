@@ -362,6 +362,16 @@ struct BlueCursorView: View {
                 CursorLoopView(loop: loopToDraw, cursorPosition: cursorPosition, color: themeSettings.shownTheme.cursorColor)
             }
 
+            // The sparks background agents lap around the same media, over a request's loop when one shows.
+            if let agentLoopToDraw = cursorLoopController.agentLoopToDraw(onScreenWithFrame: screenFrame) {
+                CursorLoopAgentSparkView(
+                    agentLoop: agentLoopToDraw,
+                    agentStore: companionManager.backgroundAgentStore,
+                    trackColor: themeSettings.shownTheme.cursorColor,
+                    reduceMotionIsOn: reduceMotionIsOn
+                )
+            }
+
             // The theme's cursor: the triangle, shapes such as a school's volleyball, or a picture. It stays visible through every voice state,
             // with the ring around it, and stays in the view tree so SwiftUI doesn't remove/re-insert it
             // (which caused a visible cursor "pop").

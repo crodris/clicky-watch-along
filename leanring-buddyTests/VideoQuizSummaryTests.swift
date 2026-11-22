@@ -93,6 +93,12 @@ struct VideoQuizSummaryTests {
         #expect(firstWrongAnswerSpokenLine(judgeSpokenReply: "Close. Want a clue?") == "Close. Want a clue?")
     }
 
+    @Test func theQuizGoBackFailureLineIsSpokenAsAFailureSoTheCursorShakes() {
+        // sayTheQuizQuestionCouldNotBeShownAgain speaks this value, and a failure line makes the cursor shake as it is said.
+        #expect(SpokenSceneLine.quizQuestionCouldNotBeShownAgain.isAFailure)
+        #expect(SpokenSceneLine.quizQuestionCouldNotBeShownAgain.text == "Sorry, I couldn't go back to that question.")
+    }
+
     // MARK: - The scene stylesheet
 
     @Test func theStylesheetScriptSetsTheAccentAndAddsTheStyleAheadOfThePage() {
