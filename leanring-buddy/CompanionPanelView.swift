@@ -27,6 +27,8 @@ final class PanelPresentation: ObservableObject {
     @Published var page: PanelPage = .home
     /// Counts the opens, so the approval card is a new view on each one and measures its summary from the top again.
     @Published var openCount = 0
+    /// The tallest a page under the header may be before it scrolls, so the card never runs past the screen's bottom.
+    @Published var tallestPageHeight: CGFloat = 600
     /// Called when the card's size changes, so the window follows it with its top edge kept under the menu bar.
     var onCardSizeChanged: (() -> Void)?
 }
@@ -53,9 +55,6 @@ struct CompanionPanelView: View {
     /// places the window with it.
     static let shadowMargin = EdgeInsets(top: 12, leading: 28, bottom: 40, trailing: 28)
 
-    /// The gap between one row's rise and the next one's when the panel opens.
-    private static let secondsBetweenRowRises = 0.03
-
     var body: some View {
         panelCard
             .padding(Self.shadowMargin)
@@ -74,11 +73,17 @@ struct CompanionPanelView: View {
             )
             .panelRowRise(order: 0, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
 
-            switch presentation.page {
-            case .home: homePage
-            case .allThemes: allThemesPage
-            case .setup: setupPage
+            // A tall page, such as the home with an approval card, scrolls under the header instead of running off the
+            // bottom of the screen.
+            ScrollView(.vertical) {
+                switch presentation.page {
+                case .home: homePage
+                case .allThemes: allThemesPage
+                case .setup: setupPage
+                }
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: presentation.tallestPageHeight)
         }
         .frame(width: Self.contentWidth)
         .fixedSize(horizontal: false, vertical: true)
@@ -166,6 +171,8 @@ struct CompanionPanelView: View {
             // A new request, or a new open of the panel, gets a new card, so its summary is measured from the top: the
             // desk forgot what this surface had seen when the panel closed.
             .id("\(shownCard.request.approvalID)-\(presentation.openCount)")
+            // A card that leaves the screen, such as for All themes, is no longer being read, so its clock stops.
+            .onDisappear { approvalDesk.theCardHasNotShownTheWholeSummary(on: .menuPanel) }
         }
     }
 
@@ -180,20 +187,23 @@ struct CompanionPanelView: View {
                     .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
 
-            TimelineView(.periodic(from: .now, by: 1)) { timelineContext in
-                if let agentsSummary = panelAgentsSummary(agents: backgroundAgentStore.agents, at: timelineContext.date) {
-                    PanelAgentsSection(
-                        summary: agentsSummary,
-                        agents: agentsWithTokens(from: backgroundAgentStore.agents, at: timelineContext.date),
-                        store: backgroundAgentStore,
-                        selectedAgentID: $selectedAgentID,
-                        companionManager: companionManager
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
+            // The closed panel keeps its view, so the row's clock runs only while the panel is open.
+            if presentation.isOpen {
+                TimelineView(.periodic(from: .now, by: 1)) { timelineContext in
+                    if let agentsSummary = panelAgentsSummary(agents: backgroundAgentStore.agents, at: timelineContext.date) {
+                        PanelAgentsSection(
+                            summary: agentsSummary,
+                            agents: agentsWithTokens(from: backgroundAgentStore.agents, at: timelineContext.date),
+                            store: backgroundAgentStore,
+                            selectedAgentID: $selectedAgentID,
+                            companionManager: companionManager
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
+                    }
                 }
+                .panelRowRise(order: 1, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
             }
-            .panelRowRise(order: 1, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
 
             PanelSectionLabel(title: "Model") {
                 PanelModelPicker(
@@ -382,10 +392,21 @@ extension View {
     /// Motion on it only fades with the card.
     func panelRowRise(order: Int, hasGlidedIn: Bool, reduceMotion: Bool) -> some View {
         self
-            .offset(y: hasGlidedIn || reduceMotion ? 0 : 8)
+            .offset(y: hasGlidedIn || reduceMotion ? 0 : PanelRowRise.risePoints)
             .opacity(hasGlidedIn ? 1 : 0)
-            .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)?.delay(reduceMotion ? 0 : Double(order) * 0.03), value: hasGlidedIn)
+            .animation(
+                DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)?.delay(reduceMotion ? 0 : Double(order) * PanelRowRise.secondsBetweenRows),
+                value: hasGlidedIn
+            )
     }
+}
+
+/// How the panel's rows rise as it opens.
+enum PanelRowRise {
+    /// How far below its place a row starts.
+    static let risePoints: CGFloat = 8
+    /// The gap between one row's rise and the next one's.
+    static let secondsBetweenRows = 0.03
 }
 
 // MARK: - Header
@@ -404,7 +425,7 @@ struct PanelHeaderView: View {
         HStack(spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(RadialGradient(colors: [Color(hex: "#24324f"), Color(hex: "#111620")], center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: 34))
+                    .fill(RadialGradient(colors: [DS.Colors.panelCursorTileTop, DS.Colors.panelCursorTileBottom], center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: 34))
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
                 // A new theme's cursor Pops in: each theme is its own view, so the change is a removal and an insertion.
@@ -592,10 +613,17 @@ private struct PanelAgentsSection: View {
                                 )
                             ),
                             isPicked: selectedAgentID == agent.id,
-                            pick: { selectedAgentID = selectedAgentID == agent.id ? nil : agent.id },
-                            focusChanged: { hasTheFocus in
-                                companionManager.showTheKeyboardFocusOnTheAgentDisc(of: hasTheFocus ? agent.id : nil)
-                                if hasTheFocus { selectedAgentID = agent.id }
+                            // Picking always shows the chip's actions, since a click also gives the chip the focus.
+                            pick: { selectedAgentID = agent.id },
+                            focusChanged: { hasTheFocus, theKeyboardMovedIt in
+                                if hasTheFocus {
+                                    selectedAgentID = agent.id
+                                    // The disc takes the panel's ring only when the keyboard moved the focus, as every
+                                    // control does.
+                                    if theKeyboardMovedIt { companionManager.showTheKeyboardFocusOnTheAgentDisc(of: agent.id) }
+                                } else {
+                                    companionManager.endTheKeyboardFocusOnTheAgentDisc(of: agent.id)
+                                }
                             }
                         )
                     }
@@ -650,7 +678,8 @@ private struct PanelAgentChip: View {
     let accessibilityLabel: String
     let isPicked: Bool
     let pick: () -> Void
-    let focusChanged: (Bool) -> Void
+    /// The chip gained or lost the focus, and whether the keyboard moved it.
+    let focusChanged: (_ hasTheFocus: Bool, _ theKeyboardMovedIt: Bool) -> Void
 
     @State private var isHovered = false
     @FocusState private var hasTheFocus: Bool
@@ -674,7 +703,7 @@ private struct PanelAgentChip: View {
         }
         .onChange(of: hasTheFocus) { _, isNowFocused in
             showsTheFocusRing = isNowFocused && theKeyboardMovedTheFocus()
-            focusChanged(isNowFocused)
+            focusChanged(isNowFocused, showsTheFocusRing)
         }
         .panelKeyboardFocusRing(isShowing: showsTheFocusRing && hasTheFocus, cornerRadius: (AgentTokenMetrics.discDiameter + 4) / 2)
         .accessibilityLabel(accessibilityLabel)
@@ -866,8 +895,8 @@ struct SetupChecklistView: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(hex: "#16261f")))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color(hex: "#1f5040"), lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(DS.Colors.setupAllSetSurface))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.Colors.setupAllSetEdge, lineWidth: 1))
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -883,7 +912,7 @@ private struct SetupProgressBar: View {
     var body: some View {
         GeometryReader { barProxy in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color(hex: "#232833"))
+                Capsule().fill(DS.Colors.setupTrack)
                 Capsule()
                     .fill(DS.Colors.success)
                     .frame(width: barProxy.size.width * fraction)
@@ -947,12 +976,12 @@ private struct SetupStepRow: View {
 
     private var rowFill: Color {
         if isTurnedOff { return DS.Colors.destructiveSurface }
-        return isNext ? Color(hex: "#1c2029") : .clear
+        return isNext ? DS.Colors.setupNextStepSurface : .clear
     }
 
     private var rowEdge: Color {
         if isTurnedOff { return DS.Colors.destructiveEdge }
-        return isNext ? Color(hex: "#2f3646") : .clear
+        return isNext ? DS.Colors.setupNextStepEdge : .clear
     }
 
     @ViewBuilder private var trailing: some View {
@@ -1004,6 +1033,9 @@ private struct SetupStepMark: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drawnShareOfTheCheck: CGFloat
 
+    /// A done step's number turns into a check drawn in this long, as the spec says.
+    private static let secondsToDrawTheCheck = 0.22
+
     init(stepNumber: Int, state: SetupStepState) {
         self.stepNumber = stepNumber
         self.state = state
@@ -1041,16 +1073,16 @@ private struct SetupStepMark: View {
                 drawnShareOfTheCheck = 1
             } else {
                 drawnShareOfTheCheck = 0
-                withAnimation(.easeOut(duration: 0.22)) { drawnShareOfTheCheck = 1 }
+                withAnimation(.easeOut(duration: Self.secondsToDrawTheCheck)) { drawnShareOfTheCheck = 1 }
             }
         }
         .accessibilityHidden(true)
     }
 
     private var circleFill: Color {
-        if state.countsAsDone { return Color(hex: "#173d2f") }
-        if state == .turnedOff { return Color(hex: "#3a1416") }
-        return Color(hex: "#232833")
+        if state.countsAsDone { return DS.Colors.setupDoneCircle }
+        if state == .turnedOff { return DS.Colors.setupTurnedOffCircle }
+        return DS.Colors.setupTrack
     }
 }
 

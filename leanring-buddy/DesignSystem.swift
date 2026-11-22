@@ -156,6 +156,20 @@ enum DS {
         static let destructiveSurface = Color(hex: "#2a1517")
         static let destructiveEdge = Color(hex: "#5a2a2e")
 
+        // ── Menu bar panel ─────────────────────────────────────────
+        /// The dark tile under the header's cursor, lighter at its upper left.
+        static let panelCursorTileTop = Color(hex: "#24324f")
+        static let panelCursorTileBottom = Color(hex: "#111620")
+        /// The setup checklist: the bar's empty track and an undone step's circle, the lit row of the next step, a done
+        /// step's circle, a turned-off step's circle, and the green box that suggests a first question.
+        static let setupTrack = Color(hex: "#232833")
+        static let setupNextStepSurface = Color(hex: "#1c2029")
+        static let setupNextStepEdge = Color(hex: "#2f3646")
+        static let setupDoneCircle = Color(hex: "#173d2f")
+        static let setupTurnedOffCircle = Color(hex: "#3a1416")
+        static let setupAllSetSurface = Color(hex: "#16261f")
+        static let setupAllSetEdge = Color(hex: "#1f5040")
+
         /// Success — checkmarks, granted status, completion indicators.
         /// Independent green so success states are visually distinct from the blue accent.
         static let success = Color(hex: "#34D399")      // Tailwind Emerald 400

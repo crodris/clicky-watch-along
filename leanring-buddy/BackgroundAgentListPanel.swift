@@ -1605,7 +1605,8 @@ private struct ApprovalAnswerButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .focusable()
+        // Tab reaches the button, Return or Space answers, and a dimmed Allow button refuses, as a click does.
+        .panelKeyboardControl(cornerRadius: DS.CornerRadius.medium, isEnabled: isEnabled, action: action)
         .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
         .accessibilityLabel(title)
     }

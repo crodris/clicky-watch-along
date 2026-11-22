@@ -7,7 +7,9 @@
 //  draws or reads a window, so each rule is tested on its own (`PanelHomeTests.swift`).
 //
 
+import CoreGraphics
 import Foundation
+import SwiftUI
 
 // MARK: - Pages
 
@@ -223,4 +225,37 @@ func themeGridCardIndex(afterPressing arrowKey: ThemeGridArrowKey, from cardInde
 func agentDiscAccessibilityLabel(agentName: String, peekContent: AgentTokenPeekContent?) -> String {
     guard let peekContent else { return agentName }
     return [peekContent.title, peekContent.caption, peekContent.hint].compactMap { $0 }.joined(separator: ". ")
+}
+
+// MARK: - Keyboard focus on a disc
+
+/// The disc that takes the panel's keyboard focus for an agent: the agent's disc on the display with the mouse, else its
+/// disc on any display, else none, as for an agent counted in "+N".
+func agentDiscIDTakingTheKeyboardFocus(among discIDs: [AgentTokenDiscID], agentID: UUID, mouseDisplayID: CGDirectDisplayID?) -> AgentTokenDiscID? {
+    let discIDsOfTheAgent = discIDs.filter { $0.tokenSlot == .agent(agentID) }
+    return discIDsOfTheAgent.first { $0.displayID == mouseDisplayID } ?? discIDsOfTheAgent.first
+}
+
+// MARK: - Escape and height
+
+/// How long after the panel closed on Escape the app's own Escape handler still counts that Escape as the panel's. The
+/// panel and the app's event tap both see the key, in either order.
+let secondsAnEscapeStaysThePanels: TimeInterval = 0.5
+
+/// Whether an Escape belongs to the menu bar panel: it holds the keyboard, or it just closed on that Escape. The app's
+/// Escape handler then skips no quiz question and clears no scene.
+func menuPanelTookTheEscape(panelIsKey: Bool, panelClosedOnEscapeAt: Date?, now: Date) -> Bool {
+    if panelIsKey { return true }
+    guard let panelClosedOnEscapeAt else { return false }
+    return now.timeIntervalSince(panelClosedOnEscapeAt) < secondsAnEscapeStaysThePanels
+}
+
+/// The header's height, which stays above the scrolling page.
+let panelHeaderHeight: CGFloat = 76
+
+/// The tallest a page under the header may be on a screen whose visible part is this tall: the screen less the gap under
+/// the menu bar, the shadow margin, and the header. A page past it scrolls.
+func panelTallestPageHeight(visibleScreenHeight: CGFloat, shadowMargin: EdgeInsets) -> CGFloat {
+    let gapUnderTheMenuBar: CGFloat = 4
+    return max(200, visibleScreenHeight - gapUnderTheMenuBar - shadowMargin.top - shadowMargin.bottom - panelHeaderHeight)
 }

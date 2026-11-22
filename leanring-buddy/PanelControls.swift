@@ -182,7 +182,8 @@ struct PanelKeyCap: View {
 
     var body: some View {
         Text(verbatim: key)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .font(DS.TypeScale.caption.font)
+            .fontWeight(.semibold)
             .foregroundColor(DS.Colors.textPrimary)
             .padding(.horizontal, 4)
             .frame(minWidth: 16, minHeight: 16)

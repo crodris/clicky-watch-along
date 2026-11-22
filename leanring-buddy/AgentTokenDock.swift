@@ -754,30 +754,39 @@ final class AgentTokenDockController {
 
     /// The disc that stands for an agent, on the display with the mouse when the agent has a disc there.
     private func discID(of agentID: UUID) -> AgentTokenDiscID? {
-        let discIDsOfTheAgent = discsByID.keys.filter { $0.tokenSlot == .agent(agentID) }
-        let mouseDisplayID = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayID
-        return discIDsOfTheAgent.first { $0.displayID == mouseDisplayID } ?? discIDsOfTheAgent.first
+        agentDiscIDTakingTheKeyboardFocus(
+            among: Array(discsByID.keys),
+            agentID: agentID,
+            mouseDisplayID: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayID
+        )
     }
 
-    /// The panel's chip for an agent holds the keyboard focus: its disc shows the focus ring and its peek card at once, as a
-    /// rested hover does. Nil takes both away.
-    func showTheKeyboardFocus(onTheDiscOf agentID: UUID?) {
+    /// The keyboard moved the focus to the panel's chip for an agent: its disc shows the focus ring and its peek card at
+    /// once, as a rested hover does.
+    func showTheKeyboardFocus(onTheDiscOf agentID: UUID) {
         if let discIDWithTheKeyboardFocus { discsByID[discIDWithTheKeyboardFocus]?.discModel.hasTheKeyboardFocus = false }
         discIDWithTheKeyboardFocus = nil
-        guard let agentID, let focusedDiscID = discID(of: agentID), let focusedDisc = discsByID[focusedDiscID] else {
-            hideThePeek()
-            return
-        }
+        guard let focusedDiscID = discID(of: agentID), let focusedDisc = discsByID[focusedDiscID] else { return }
         discIDWithTheKeyboardFocus = focusedDiscID
         focusedDisc.discModel.hasTheKeyboardFocus = true
         peekDelayTask?.cancel()
         showThePeek(forDiscWithID: focusedDiscID)
     }
 
+    /// Takes the focus ring and its peek card off the agent's disc, or off any disc for nil. It does nothing when the ring
+    /// is on another agent's disc, or on none, so a peek card the mouse opened stays.
+    func endTheKeyboardFocus(onTheDiscOf agentID: UUID?) {
+        guard let focusedDiscID = discIDWithTheKeyboardFocus else { return }
+        if let agentID, focusedDiscID.tokenSlot != .agent(agentID) { return }
+        discsByID[focusedDiscID]?.discModel.hasTheKeyboardFocus = false
+        discIDWithTheKeyboardFocus = nil
+        hideThePeek()
+    }
+
     /// Runs one of a disc's menu items for an agent, as its right-click menu does. False when the agent has no disc on screen,
     /// so the caller opens the agent list itself.
     func run(_ menuItem: AgentDiscMenuItem, forTheDiscOf agentID: UUID) -> Bool {
-        showTheKeyboardFocus(onTheDiscOf: nil)
+        endTheKeyboardFocus(onTheDiscOf: nil)
         guard let agentDiscID = discID(of: agentID) else { return false }
         run(menuItem, forDiscWithID: agentDiscID, agent: store.agents.first { $0.id == agentID })
         return true

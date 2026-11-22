@@ -28,8 +28,12 @@ extension Notification.Name {
 private class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
+    /// When Escape last closed the panel, which the app's own Escape handler reads (`menuPanelTookTheEscape`).
+    var closedOnEscapeAt: Date?
+
     /// Escape with no control that handles it, such as a rename field, closes the panel.
     override func cancelOperation(_ sender: Any?) {
+        closedOnEscapeAt = Date()
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
     }
 }
@@ -94,6 +98,14 @@ final class MenuBarPanelManager: NSObject {
         self.companionManager = companionManager
         workerReachability = WorkerReachability(workerBaseURL: CompanionManager.workerBaseURL)
         super.init()
+        companionManager.menuPanelTookTheEscape = { [weak self] in
+            guard let panel = self?.panel as? KeyablePanel else { return false }
+            return menuPanelTookTheEscape(panelIsKey: panel.isKeyWindow, panelClosedOnEscapeAt: panel.closedOnEscapeAt, now: Date())
+        }
+        companionManager.menuPanelShowsTheApprovalCard = { [weak self] in
+            guard let self else { return false }
+            return self.panel?.isVisible == true && self.presentation.page == .home
+        }
         createStatusItem()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
@@ -203,6 +215,7 @@ final class MenuBarPanelManager: NSObject {
         // Each open starts at the home, or at the setup checklist while setup is not finished.
         presentation.page = companionManager.setupIsFinished ? .home : .setup
         presentation.openCount += 1
+        presentation.tallestPageHeight = tallestPageHeightOnTheIconsScreen()
         presentation.isOpen = true
         panel?.contentView?.layoutSubtreeIfNeeded()
         positionPanelBelowStatusItem()
@@ -219,7 +232,7 @@ final class MenuBarPanelManager: NSObject {
         // The approval card's seen ranges and clock belong to this open, so a closed panel's reading never counts.
         companionManager.approvalDesk.theCardHasNotShownTheWholeSummary(on: .menuPanel)
         // A disc keeps no focus ring once the panel that held the keyboard is gone.
-        companionManager.showTheKeyboardFocusOnTheAgentDisc(of: nil)
+        companionManager.endTheKeyboardFocusOnTheAgentDisc(of: nil)
         reachabilityTask?.cancel()
         reachabilityTask = nil
         removeClickOutsideMonitor()
@@ -285,6 +298,12 @@ final class MenuBarPanelManager: NSObject {
                 self.positionPanelBelowStatusItem()
             }
         }
+    }
+
+    /// The tallest a page may be on the screen that shows the menu bar icon, so the card ends above the screen's bottom.
+    private func tallestPageHeightOnTheIconsScreen() -> CGFloat {
+        guard let screenHeight = statusItem?.button?.window?.screen?.visibleFrame.height else { return 600 }
+        return panelTallestPageHeight(visibleScreenHeight: screenHeight, shadowMargin: shadowMargin)
     }
 
     private func positionPanelBelowStatusItem() {

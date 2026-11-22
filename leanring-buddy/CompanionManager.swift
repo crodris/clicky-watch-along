@@ -185,8 +185,10 @@ final class CompanionManager: ObservableObject {
         agentHarness.approvalDesk.onWaitingRequestsChanged = { [weak self] waitingRequests in
             self?.syncTheApprovalWaitingState(waitingRequests)
         }
+        // The panel's banner shows the card too, so a request that becomes the oldest while it is open needs no list.
         agentHarness.approvalDesk.listIsShowing = { [weak self] in
-            self?.agentListPanelController.isOpen ?? false
+            guard let self else { return false }
+            return self.agentListPanelController.isOpen || self.menuPanelShowsTheApprovalCard()
         }
         agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
             self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
@@ -803,7 +805,7 @@ final class CompanionManager: ObservableObject {
     let showsSetupForThisLaunch = false
     #endif
 
-    /// Whether the panel opens on the setup checklist instead of the home.
+    /// Whether setup is finished, so the panel opens on the home instead of the setup checklist.
     var setupIsFinished: Bool { hasCompletedOnboarding && !showsSetupForThisLaunch }
 
     /// What macOS says about each setup step now, read without a prompt.
@@ -895,15 +897,22 @@ final class CompanionManager: ObservableObject {
     /// again, since it must not write the defaults the everyday Clicky shares.
     func finishSetup() {
         #if DEBUG
-        if showsSetupForThisLaunch {
+        // Only a Mac that already finished onboarding takes the Debug path. On one that never did, Start is the real one.
+        if showsSetupForThisLaunch && hasCompletedOnboarding {
             showsSetupForThisLaunch = false
             return
         }
+        showsSetupForThisLaunch = false
         #endif
         triggerOnboarding()
     }
 
     // MARK: - Panel actions
+
+    /// Set by `MenuBarPanelManager`: whether the menu bar panel holds the keyboard, or closed on an Escape a moment ago.
+    var menuPanelTookTheEscape: () -> Bool = { false }
+    /// Set by `MenuBarPanelManager`: whether the panel is open on its home, where the banner slot shows the approval card.
+    var menuPanelShowsTheApprovalCard: () -> Bool = { false }
 
     /// How the running video quiz is going, for the panel's state line, or nil with no quiz running.
     @Published private(set) var videoQuizProgress: VideoQuizProgress?
@@ -928,10 +937,16 @@ final class CompanionManager: ObservableObject {
         startDesigningATheme(request: "a new theme", basedOnIdea: nil, pictureChoice: .none)
     }
 
-    /// An agent chip in the panel holds the keyboard focus: its disc in the menu bar shows the focus ring and its peek card,
-    /// so the keyboard reaches the discs, which never take the keyboard themselves. Nil takes the ring and the card away.
-    func showTheKeyboardFocusOnTheAgentDisc(of agentID: UUID?) {
+    /// The keyboard moved the focus to an agent chip in the panel: its disc in the menu bar shows the focus ring and its
+    /// peek card, so the keyboard reaches the discs, which never take the keyboard themselves.
+    func showTheKeyboardFocusOnTheAgentDisc(of agentID: UUID) {
         agentTokenDockController.showTheKeyboardFocus(onTheDiscOf: agentID)
+    }
+
+    /// An agent chip lost the focus, or the panel closed (nil): the ring and the peek card leave that disc, and only that
+    /// disc, so a chip that loses the focus after the next chip took it never takes the next one's ring away.
+    func endTheKeyboardFocusOnTheAgentDisc(of agentID: UUID?) {
+        agentTokenDockController.endTheKeyboardFocus(onTheDiscOf: agentID)
     }
 
     /// What the agent's disc menu offers, for the panel's agent actions.
@@ -948,11 +963,25 @@ final class CompanionManager: ObservableObject {
     /// mouse when the agent has no disc on screen, such as one counted in "+N".
     func runTheAgentDiscMenuItemFromThePanel(_ menuItem: AgentDiscMenuItem, agentID: UUID) {
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-        if !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) {
-            switch menuItem {
-            case .reviewRequest: agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
-            default: if !agentListPanelController.isOpen { agentListPanelController.toggle() }
+        guard !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) else { return }
+        // An agent with no disc on screen, such as one counted in "+N", runs the item here, as its disc menu would.
+        switch menuItem {
+        case .reviewRequest:
+            agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
+        case .openAgentList:
+            if !agentListPanelController.isOpen { agentListPanelController.toggle() }
+        case .showReadyScene:
+            guard agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive) else { return }
+            startShowingTheReadyBackgroundScene()
+        case .hearAnswer:
+            guard agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive) else { return }
+            startSpeakingTheTaskAnswer()
+        case .openPage:
+            if let pageURL = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.finishedResult?.pageURL {
+                NSWorkspace.shared.open(pageURL)
             }
+        case .cancelAgent:
+            cancelBackgroundAgent(agentID)
         }
     }
 
@@ -2812,6 +2841,11 @@ final class CompanionManager: ObservableObject {
         if NSApp.keyWindow?.firstResponder is NSText {
             return
         }
+        // The menu bar panel takes Escape as its own close, so it skips no quiz question and clears no scene. The panel may
+        // close before this runs, so it also counts an Escape it closed on a moment ago.
+        if menuPanelTookTheEscape() {
+            return
+        }
         // With the settings dial open, Escape only cancels it. The monitor sends Escape ahead of the dial's own
         // cancel, so the dial is still open here.
         if settingsDialController.isOpen {
@@ -3869,6 +3903,8 @@ final class CompanionManager: ObservableObject {
     /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
         themeSettings.shownTheme.sounds.needsYourOK.play()
+        // The panel's banner already shows the card, so the list does not open over it.
+        guard !menuPanelShowsTheApprovalCard() else { return }
         agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
     }
 

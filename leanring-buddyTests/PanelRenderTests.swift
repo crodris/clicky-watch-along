@@ -124,6 +124,26 @@ struct PanelRenderTests {
         #expect(bitmap.size.height > CGFloat(rowCount * 120))
     }
 
+    @Test func aTallPageScrollsUnderTheHeaderInsteadOfGrowingTheCard() throws {
+        let companionManager = CompanionManager()
+        let presentation = PanelPresentation()
+        presentation.page = .home
+        presentation.isOpen = true
+        presentation.tallestPageHeight = 250
+        let panelView = CompanionPanelView(
+            companionManager: companionManager,
+            themeSettings: companionManager.themeSettings,
+            backgroundAgentStore: companionManager.backgroundAgentStore,
+            presentation: presentation,
+            workerReachability: WorkerReachability(workerBaseURL: "http://127.0.0.1:9"),
+            approvalDesk: companionManager.approvalDesk
+        )
+        let bitmap = try render(panelView.frame(width: CompanionPanelView.contentWidth + 56), named: "panel-home-capped")
+        // The card is the header and at most 250 points of page, plus its shadow margin and the render's padding.
+        let margin = CompanionPanelView.shadowMargin
+        #expect(bitmap.size.height <= panelHeaderHeight + 250 + margin.top + margin.bottom + 48 + 8)
+    }
+
     // MARK: - Keyboard focus
 
     @Test func onlyTheKeyboardShowsTheFocusRing() {

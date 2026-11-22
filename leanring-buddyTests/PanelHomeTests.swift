@@ -6,7 +6,10 @@
 //  show, how the arrow keys move between cards, and what VoiceOver reads for an agent's disc.
 //
 
+import CoreGraphics
 import Foundation
+import Network
+import SwiftUI
 import Testing
 
 @testable import Clicky
@@ -187,6 +190,77 @@ struct PanelHomeTests {
         #expect(themeGridCardIndex(afterPressing: .down, from: 0, columnCount: 3, cardCount: 0) == 0)
         // Down on a last row of two cards stays put, and never slides to the card beside it.
         #expect(themeGridCardIndex(afterPressing: .down, from: 6, columnCount: 3, cardCount: 8) == 6)
+    }
+
+    // MARK: - Escape, height, and the disc the keyboard reaches
+
+    @Test func anEscapeBelongsToThePanelWhileItIsKeyAndForAMomentAfterItClosedOnIt() {
+        let now = Date(timeIntervalSince1970: 7_000)
+        #expect(menuPanelTookTheEscape(panelIsKey: true, panelClosedOnEscapeAt: nil, now: now))
+        #expect(menuPanelTookTheEscape(panelIsKey: false, panelClosedOnEscapeAt: now.addingTimeInterval(-0.1), now: now))
+        #expect(!menuPanelTookTheEscape(panelIsKey: false, panelClosedOnEscapeAt: now.addingTimeInterval(-secondsAnEscapeStaysThePanels), now: now))
+        #expect(!menuPanelTookTheEscape(panelIsKey: false, panelClosedOnEscapeAt: nil, now: now))
+    }
+
+    @Test func aPageScrollsPastTheScreenLessTheHeaderAndTheMargins() {
+        let margin = CompanionPanelView.shadowMargin
+        #expect(panelTallestPageHeight(visibleScreenHeight: 900, shadowMargin: margin) == 900 - 4 - margin.top - margin.bottom - panelHeaderHeight)
+        #expect(panelTallestPageHeight(visibleScreenHeight: 100, shadowMargin: margin) == 200)
+    }
+
+    @Test func theKeyboardReachesTheAgentsDiscOnTheMouseDisplayFirst() {
+        let agentID = UUID()
+        let otherAgentID = UUID()
+        let discIDs = [
+            AgentTokenDiscID(displayID: 1, tokenSlot: .agent(agentID)),
+            AgentTokenDiscID(displayID: 2, tokenSlot: .agent(agentID)),
+            AgentTokenDiscID(displayID: 2, tokenSlot: .agent(otherAgentID)),
+            AgentTokenDiscID(displayID: 2, tokenSlot: .overflow),
+        ]
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: discIDs, agentID: agentID, mouseDisplayID: 2)?.displayID == 2)
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: discIDs, agentID: agentID, mouseDisplayID: 3)?.tokenSlot == .agent(agentID))
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: discIDs, agentID: UUID(), mouseDisplayID: 2) == nil)
+    }
+
+    @Test func theDeskCountsThePanelsHomeAsASurfaceThatShowsTheCard() {
+        let companionManager = CompanionManager()
+        #expect(!companionManager.approvalDesk.listIsShowing())
+        // With the panel open on its home, a request that becomes the oldest needs no agent list opened over it.
+        companionManager.menuPanelShowsTheApprovalCard = { true }
+        #expect(companionManager.approvalDesk.listIsShowing())
+    }
+
+    // MARK: - The Worker check
+
+    @Test(.timeLimit(.minutes(1))) func theWorkerIsUnreachableWithNoServerAndReachableWithAnyReply() async throws {
+        // Nothing listens on the discard port, so the connection is refused.
+        let unreachable = WorkerReachability(workerBaseURL: "http://127.0.0.1:9")
+        await unreachable.check()
+        #expect(unreachable.isUnreachable)
+
+        // A local server that answers every request with a 404, as the Worker's root does.
+        let listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { _, _, _, _ in
+                let reply = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\nConnection: close\r\n\r\nNot found"
+                connection.send(content: Data(reply.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+        let port: UInt16 = try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready: continuation.resume(returning: listener.port?.rawValue ?? 0)
+                case .failed(let error): continuation.resume(throwing: error)
+                default: break
+                }
+            }
+            listener.start(queue: .global())
+        }
+        defer { listener.cancel() }
+        let reachable = WorkerReachability(workerBaseURL: "http://127.0.0.1:\(port)")
+        await reachable.check()
+        #expect(!reachable.isUnreachable)
     }
 
     // MARK: - VoiceOver

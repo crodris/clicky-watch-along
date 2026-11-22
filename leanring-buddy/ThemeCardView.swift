@@ -10,8 +10,8 @@
 //
 //  A card keeps its size in every state, since the panel's frame follows its content: renaming puts a field where the
 //  name was, a refused name shows a short red phrase over the bottom of the tile, and an armed delete shows a red Delete
-//  button there for 3 seconds. The rename rules are the ones the old saved theme row had: Return saves, Escape or a click
-//  away cancels, and a refused name keeps the field open with "1 to 24 characters".
+//  button there for 3 seconds. Return saves a new name, Escape or a click away cancels, and a refused name keeps the field
+//  open with "1 to 24 characters".
 //
 //  In the grid the arrow keys move the keyboard focus between cards (`themeGridCardIndex`) and Return or Space picks.
 //
@@ -125,7 +125,7 @@ struct ThemeCard: View {
     @FocusState private var nameFieldIsFocused: Bool
 
     static let cornerRadius = DS.CornerRadius.medium
-    /// The full-name pill under a focused card: one caption line and its padding.
+    /// The full-name pill over a focused card's swatch row: one caption line and its padding.
     static let fullNamePillHeight: CGFloat = 22
     private static let secondsAnArmedDeleteWaits: Double = 3
     /// Two lines of the title type, so a long name keeps the card's height.
@@ -284,19 +284,8 @@ struct ThemeCard: View {
                 .padding(6)
                 .accessibilityAddTraits(.updatesFrequently)
         } else if deleteIsArmed {
-            Button(action: confirmDelete) {
-                Text("Delete")
-                    .font(DS.TypeScale.caption.font)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(DS.Colors.destructive))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PanelPressStyle())
-            .hoverAndPointer { _ in }
-            .panelKeyboardControl(cornerRadius: 6, action: confirmDelete)
+            PanelButton(title: "Delete", prominence: .destructive, action: confirmDelete)
+            .frame(maxWidth: .infinity)
             .padding(6)
             .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
             .accessibilityLabel("Confirm delete \(theme.name)")
