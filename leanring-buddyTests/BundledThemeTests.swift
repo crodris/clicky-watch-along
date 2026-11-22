@@ -55,8 +55,13 @@ func rosterPlayers(of theme: ClickyTheme) -> [ThemeRosterPlayer] {
     return []
 }
 
-/// A store whose folder does not exist, so a test never reads the themes the developer saved on this Mac.
-let themeStoreWithNoSavedThemes = CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("clicky-tests-no-saved-themes", isDirectory: true))
+/// A store whose folder does not exist, so a test never reads the themes the developer saved on this Mac. Each use gets its own
+/// folder, since a test that saves a theme (the studio's save, a rename) would otherwise leave it for every later test and
+/// every later run, and Shuffle picks among them, so one run found 209 saved themes and the shuffle test failed whenever its
+/// 30 random picks all had triangle faces.
+var themeStoreWithNoSavedThemes: CustomThemeStore {
+    CustomThemeStore(themesDirectoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("clicky-tests-no-saved-themes-\(UUID().uuidString)", isDirectory: true))
+}
 
 /// Theme settings backed by their own UserDefaults suite, so a test never reads or changes the app's saved theme.
 @MainActor
