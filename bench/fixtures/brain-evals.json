@@ -624,6 +624,64 @@
         "seek_to_moment",
         "start_background_task"
       ]
+    },
+    "popoutReplayOpenAgentsPaused": {
+      "description": "The pop-out with its instant replay open at stop 2 of 3, while the learner has paused two background agents. The offered tools are the replay's plus resume_agents.",
+      "sceneState": {
+        "explodeAmount": 0,
+        "focusedLabel": "tail",
+        "insideIsOpen": false,
+        "labels": [
+          "wing",
+          "tail",
+          "engine"
+        ],
+        "page": "framePopout",
+        "pitchDegrees": 10,
+        "tourFinished": true,
+        "videoQuizIsRunning": false,
+        "yawDegrees": 79,
+        "zoom": 0.4,
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": true,
+          "playbackRate": 1,
+          "playing": false,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "replay": {
+          "stops": 3,
+          "open": true,
+          "atStop": 2
+        },
+        "backgroundAgents": "2 paused, and a new agent waits for go ahead too"
+      },
+      "tools": [
+        "rotate_model",
+        "zoom",
+        "zoom_to_part",
+        "reset_view",
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "close_scene",
+        "explain_part",
+        "replay_explanation",
+        "replay_step",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "start_background_task",
+        "resume_agents"
+      ]
     }
   },
   "cases": [
@@ -1718,6 +1776,24 @@
         }
       },
       "why": "During a replay, stop ends it, never close_scene."
+    },
+    {
+      "id": "replay-open-agents-paused-keep-going",
+      "context": "popoutReplayOpenAgentsPaused",
+      "say": "keep going",
+      "accept": [
+        "resume_agents"
+      ],
+      "why": "While agents are paused, keep going lets them go on, even with a replay open, where the replay's own step is next."
+    },
+    {
+      "id": "replay-open-agents-paused-go-ahead",
+      "context": "popoutReplayOpenAgentsPaused",
+      "say": "okay, go ahead",
+      "accept": [
+        "resume_agents"
+      ],
+      "why": "Go ahead is the resume phrase, and a replay step never takes it."
     }
   ]
 }

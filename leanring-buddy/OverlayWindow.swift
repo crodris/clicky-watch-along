@@ -132,6 +132,8 @@ struct BlueCursorView: View {
     /// The loop around the video or image Clicky is looking at. It is the thinking light while it shows, so it is
     /// observed here to redraw the ring and the loop together.
     @ObservedObject private var cursorLoopController: CursorLoopController
+    /// Whether a status line's Callout is on screen above the cursor, which pulls the thinking dots' orbit in under it.
+    @ObservedObject private var statusLinePresence: TetherCalloutPresence
     @State private var cursorPosition: CGPoint
     @State private var isCursorOnThisScreen: Bool
 
@@ -141,6 +143,7 @@ struct BlueCursorView: View {
         self.companionManager = companionManager
         self.themeSettings = companionManager.themeSettings
         self.cursorLoopController = companionManager.cursorLoopController
+        self.statusLinePresence = LiveSceneStatusLabel.shared.statusLabelModel.presence
 
         // Seed the cursor position from the current mouse location so the
         // buddy doesn't flash at (0,0) before onAppear fires.
@@ -425,7 +428,8 @@ struct BlueCursorView: View {
                     loopIsShowing: cursorLoopController.isShowingTheLoop(onScreenWithFrame: screenFrame)
                 ),
                 audioPowerLevel: companionManager.currentAudioPowerLevel,
-                color: themeSettings.shownTheme.cursorColor
+                color: themeSettings.shownTheme.cursorColor,
+                aStatusLineShows: statusLinePresence.isInTheViewTree
             )
                 .opacity(buddyIsVisibleOnThisScreen ? cursorOpacity * flightFadeOpacity : 0)
                 .position(cursorPosition)

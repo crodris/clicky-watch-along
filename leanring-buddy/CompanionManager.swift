@@ -2291,7 +2291,7 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
             }
         }
-        await speakLiveSceneLine("Sure, let me pop that out.")
+        await speakLiveSceneLine("Sure, let me pop that out.", isAFailure: false)
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var framePopout: VideoFramePopout?
@@ -2354,7 +2354,7 @@ final class CompanionManager: ObservableObject {
         guard !framePopout.isArtwork else {
             print("Frame pop-out: leaving the artwork as the artist made it")
             if let artworkLine = PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing {
-                await speakLiveSceneLine(artworkLine)
+                await speakLiveSceneLine(artworkLine, isAFailure: false)
             }
             // A push-to-talk press cancels this task, and a hide scheduled now would fade the overlay while they talk.
             guard !Task.isCancelled else { return }
@@ -2369,7 +2369,7 @@ final class CompanionManager: ObservableObject {
             }
         }
         let pictureFlowsTask = Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
-        await speakLiveSceneLine("Sure, let me animate that.")
+        await speakLiveSceneLine("Sure, let me animate that.", isAFailure: false)
         // A fast "nothing flows" reply would otherwise cut this line off, since a new line stops the one playing.
         await waitForClickyToFinishSpeaking()
         guard !Task.isCancelled else { return }
@@ -2436,7 +2436,7 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
-        await speakLiveSceneLine("Sure, let me build that for you.")
+        await speakLiveSceneLine("Sure, let me build that for you.", isAFailure: false)
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var cursorScreenJPEGData: Data?
@@ -2544,7 +2544,7 @@ final class CompanionManager: ObservableObject {
                 if let partLabel = spokenPart.partLabel {
                     LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
                 }
-                await speakLiveSceneLine(spokenPart.spokenText)
+                await speakLiveSceneLine(spokenPart.spokenText, isAFailure: false)
                 await waitForClickyToFinishSpeaking()
             }
             LiveSceneOverlay.shared.highlightPart(labelText: "")
@@ -2704,7 +2704,7 @@ final class CompanionManager: ObservableObject {
     private func speakTheWaitingChallengePrompt() async {
         guard let challengePromptLine = simulationLesson?.challengePromptWaitingToBeSpoken, !Task.isCancelled else { return }
         print("Simulation: saying \"\(challengePromptLine)\"")
-        await speakLiveSceneLine(challengePromptLine)
+        await speakLiveSceneLine(challengePromptLine, isAFailure: false)
         // The audio has started once speaking returns uncancelled, so it is cleared now, before the wait, or a newer
         // narration that waits for this audio to end would say the prompt a second time.
         guard !Task.isCancelled else { return }
@@ -2719,7 +2719,7 @@ final class CompanionManager: ObservableObject {
     private func speakSimulationLine(_ line: String) async -> Bool {
         guard !Task.isCancelled, !line.isEmpty else { return false }
         print("Simulation: saying \"\(line)\"")
-        let lineAudioStarted = await speakLiveSceneLine(line)
+        let lineAudioStarted = await speakLiveSceneLine(line, isAFailure: false)
         await waitForClickyToFinishSpeaking()
         return lineAudioStarted && !Task.isCancelled
     }
@@ -2743,7 +2743,7 @@ final class CompanionManager: ObservableObject {
         liveScenePhase = .idle
         guard resumesTheVideo, videoQuizSession.videoIsPausedForRequestedScene else { return }
         Task {
-            await self.speakLiveSceneLine("Okay, back to the video.")
+            await self.speakLiveSceneLine("Okay, back to the video.", isAFailure: false)
             await self.waitForClickyToFinishSpeaking()
             // Speaking the line set the voice state to responding, and a quiz asks its next question only when idle.
             if self.voiceState == .responding {
@@ -2887,7 +2887,7 @@ final class CompanionManager: ObservableObject {
             quiz: quiz,
             wrongAnswerCount: wrongAnswerCount
         )
-        await speakLiveSceneLine(spokenLine)
+        await speakLiveSceneLine(spokenLine, isAFailure: false)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2949,13 +2949,13 @@ final class CompanionManager: ObservableObject {
             }
             liveScenePhase = .allLabelsShowing
             LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
-            await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false))
+            await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false), isAFailure: false)
         case .repeatQuestion:
-            await speakLiveSceneLine(quiz.question)
+            await speakLiveSceneLine(quiz.question, isAFailure: false)
         case .giveHint:
             // The camera turns to the part still labeled "?", which is the hint the eyes get.
             LiveSceneOverlay.shared.highlightPart(labelText: quiz.answerLabel)
-            await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply)
+            await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply, isAFailure: false)
         case .sceneCommand:
             startVoiceCommand(
                 transcript: transcript,
@@ -3009,7 +3009,7 @@ final class CompanionManager: ObservableObject {
             )
         }
         liveScenePhase = .allLabelsShowing
-        await speakLiveSceneLine(spokenLine)
+        await speakLiveSceneLine(spokenLine, isAFailure: false)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -3060,7 +3060,7 @@ final class CompanionManager: ObservableObject {
         }
 
         currentResponseTask = Task {
-            await self.speakLiveSceneLine(spokenLine)
+            await self.speakLiveSceneLine(spokenLine, isAFailure: false)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -3101,7 +3101,7 @@ final class CompanionManager: ObservableObject {
         }
         liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
         currentResponseTask = Task {
-            await self.speakLiveSceneLine(quiz.question)
+            await self.speakLiveSceneLine(quiz.question, isAFailure: false)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -3123,7 +3123,7 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
         // The learner needs a moment with the explanation before the video moves on.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
-        await speakLiveSceneLine("Okay, back to the video.")
+        await speakLiveSceneLine("Okay, back to the video.", isAFailure: false)
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
         // A frame pop-out sits over the video, so it lands back in its frame and goes away before play.
@@ -3408,6 +3408,12 @@ final class CompanionManager: ObservableObject {
         case .playsFromBeforeIt:
             return
         case .couldNotGoBack:
+            // A scene build this go-back cancelled, or a requested scene it cleared, still holds the video's pause, and nothing
+            // else will resume it now.
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                self.videoQuizSession.resumeVideoAfterRequestedScene()
+            }
             currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
             return
         }
@@ -3482,7 +3488,7 @@ final class CompanionManager: ObservableObject {
             let settledLabelScreenPointsTask = Task {
                 await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
             }
-            await self.speakLiveSceneLine(quiz.question)
+            await self.speakLiveSceneLine(quiz.question, isAFailure: false)
             self.pointTheBuddyAtTheQuizQuestion(quiz, labelScreenPoints: await settledLabelScreenPointsTask.value)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
@@ -3713,7 +3719,7 @@ final class CompanionManager: ObservableObject {
                     // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                     await agentTokenDockController.waitForTheServeToLand()
                     guard !Task.isCancelled else { return }
-                    if await speakLiveSceneLine(spokenLine) { timing.mark(\.firstLineAudioStartedAt) }
+                    if await speakLiveSceneLine(spokenLine, isAFailure: false) { timing.mark(\.firstLineAudioStartedAt) }
                 }
             }
             break
@@ -4519,7 +4525,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         currentResponseTask = Task {
-            await self.speakLiveSceneLine(readyTaskAnswer)
+            await self.speakLiveSceneLine(readyTaskAnswer, isAFailure: false)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
@@ -4693,7 +4699,7 @@ final class CompanionManager: ObservableObject {
             // The experiment agent serves its token from the cursor first, and the line plays after it lands.
             await self.agentTokenDockController.waitForTheServeToLand()
             guard !Task.isCancelled else { return }
-            await self.speakLiveSceneLine(spokenLine)
+            await self.speakLiveSceneLine(spokenLine, isAFailure: false)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
@@ -5501,23 +5507,23 @@ final class CompanionManager: ObservableObject {
     /// `isAFailure` says the line reports something that went wrong, so the cursor shakes as Clicky says it. The caller says
     /// so, since a failure line can start with any words ("I couldn't find a YouTube video open in Chrome.").
     @discardableResult
-    private func speakLiveSceneLine(_ line: String, isAFailure: Bool = false) async -> Bool {
+    private func speakLiveSceneLine(_ line: String, isAFailure: Bool) async -> Bool {
         await speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) != nil
     }
 
     /// `speakLiveSceneLine` for a line whose audio may already be fetching, such as a voice command's line fetched while its
     /// calls ran.
     private func speakLiveSceneLine(_ lineFetch: SpokenLineFetch) async -> Bool {
-        await speakTheFetchedLineAndReturnItsToken(lineFetch) != nil
+        await speakTheFetchedLineAndReturnItsToken(lineFetch, isAFailure: false) != nil
     }
 
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
-    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool = false) async -> SpokenLineToken? {
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool) async -> SpokenLineToken? {
         await speakTheFetchedLineAndReturnItsToken(elevenLabsTTSClient.startFetching(line), isAFailure: isAFailure)
     }
 
-    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool = false) async -> SpokenLineToken? {
+    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool) async -> SpokenLineToken? {
         if isAFailure { playCursorEmote(.shake) }
         do {
             let lineToken = try await playLineEndingAnOpenReplay(lineFetch)
@@ -5631,7 +5637,7 @@ final class CompanionManager: ObservableObject {
     /// Returns the instant replay stop of a sentence whose part the cursor pointed at, with the camera pose then.
     private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async -> ReplayStop? {
         guard let partLabel else {
-            await speakLiveSceneLine(spokenText)
+            await speakLiveSceneLine(spokenText, isAFailure: false)
             // The buddy stays on the last part it pointed at, and its bubble follows what Clicky says now.
             if !Task.isCancelled, detectedElementPointingHold == .untilReleased(byNarrationID: narrationID) {
                 detectedElementBubbleText = spokenText
@@ -5645,7 +5651,7 @@ final class CompanionManager: ObservableObject {
             let settledLabelScreenPoints = await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
             return (settledLabelScreenPoints, await LiveSceneOverlay.shared.cameraPoseForTheReplay())
         }
-        await speakLiveSceneLine(spokenText)
+        await speakLiveSceneLine(spokenText, isAFailure: false)
         let (settledLabelScreenPoints, settledCameraPose) = await settledLabelScreenPointsTask.value
         var replayStop: ReplayStop?
         if !Task.isCancelled,
@@ -5665,7 +5671,17 @@ final class CompanionManager: ObservableObject {
 
     /// The replay points the buddy with its own hold. A point equal to the one the buddy already has would not reach the
     /// overlay's onChange, so it moves by a hundredth of a point, which a frozen buddy needs to fly again.
-    private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) {
+    /// Returns how long the cursor's flight to the label takes: from the stop before when the cursor already points for the
+    /// replay, or else from the mouse, where the cursor follows it.
+    private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) -> TimeInterval {
+        let mouseLocation = NSEvent.mouseLocation
+        let flightStart = cursorPointsForTheReplay(pointingHold: detectedElementPointingHold, replayPointingID: instantReplayPointingID)
+            ? detectedElementScreenLocation
+            : nil
+        let flightSeconds = replayCursorFlightSeconds(
+            from: flightStart ?? CGPoint(x: mouseLocation.x + StatusLabelPlacement.trianglesSpotFromTheMouse.x, y: mouseLocation.y + StatusLabelPlacement.trianglesSpotFromTheMouse.y),
+            to: labelScreenPoint.globalPoint
+        )
         showTheCursorOverlayForThisInteraction()
         var pointToFlyTo = labelScreenPoint.globalPoint
         if detectedElementScreenLocation == pointToFlyTo { pointToFlyTo.x += 0.01 }
@@ -5674,6 +5690,7 @@ final class CompanionManager: ObservableObject {
             bubbleText: sentence,
             narrationID: instantReplayPointingID
         )
+        return flightSeconds
     }
 
     /// The overlay calls this once the mouse moved away from a buddy the replay stopped, so it flies back to the mouse.
@@ -5763,7 +5780,7 @@ final class CompanionManager: ObservableObject {
         guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase else { return }
         let landmarkLine = landmarkNarrationLine(for: famousPlace)
         print("Landmark: saying \"\(landmarkLine)\"")
-        await speakLiveSceneLine(landmarkLine)
+        await speakLiveSceneLine(landmarkLine, isAFailure: false)
         await waitForClickyToFinishSpeaking()
     }
 
