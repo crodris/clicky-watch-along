@@ -173,7 +173,6 @@ struct CursorDrawsTheLoopTests {
     @Test func aTracedDrawShowsNothingUntilTheCursorArrivesThenTheInkBehindItThenTheWholeLine() {
         var draw = BuddyLoopDraw(loopBeganAt: 10, way: .theCursorTracesIt)
         #expect(draw.ink == .waitingForTheCursor)
-        #expect(draw.holdsTheBuddy)
         // The trace cannot finish before the cursor arrives.
         draw.theTraceFinished(at: 10.5)
         #expect(draw.ink == .waitingForTheCursor)

@@ -100,7 +100,7 @@ At the start of the trace the cursor turns from its flight's angle to its tracin
 The finished line carries a quiet shimmer, a soft white band a sixth of the lap long, lapping every 2.2 seconds, or every 4 seconds once a status line, such as a scene build's or a pop-out's, has shown under the loop for 3 seconds (`CursorLoopTimeline.lapShare`, `CursorLoopDrawing.drawTheShimmer`).
 The shimmer keeps the line alive as the thinking light once the cursor is back, since the thinking dots stay off while a loop shows.
 A push-to-talk press, a pointing, a scrub, an instant replay's freeze, or the loop ending lands the draw at once: the whole line shows, and the buddy goes back to the mouse, or to the pointing or the scrub that took it (`landTheLoopDrawAtOnce`).
-A pointing or a scrub on another display, and a newer loop, bring back a buddy still flying back from the line at once, so only one buddy ever shows.
+A pointing or a scrub on another display, and a newer loop on any display, bring back a buddy still flying back from the line at once, so only one buddy ever shows.
 The trace keeps the theme's facing it had when the buddy left, so a theme change mid-draw never moves the glyph, and the triangle traces without the Point move's stretch, which would pull its tip off the ink.
 The status line and the tool chips stay beside the mouse while the buddy is away at the line, so for the 2 to 4 seconds of the draw their tails point at where the cursor will come back to.
 A buddy already pointing, scrubbing, frozen by an instant replay, or typing the first-launch welcome never leaves for a loop, and the line then fades in whole (`cursorLoopDrawWay`).

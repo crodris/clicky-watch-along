@@ -12,7 +12,9 @@ A background agent that works on the video in front laps its own spark around th
 - `ring-thinking` shows three dots orbiting the cursor once every 1.2 seconds while a request runs and no loop shows.
 - `loop-draws` draws the loop around the front tab's video when the router hands off to `answer_with_screen`, `build_new_scene`, or `pop_out`, or the keyword path starts a scene or pop-out.
 - `loop-cursor-draws` is the buddy itself tracing the line in the shown theme's glyph: the triangle with the ink at its tip under Clicky blue, the volleyball facing along the line under a school theme. No white spark shows.
-- `loop-lands-at-once` shows the whole line and sends the buddy back when a push-to-talk press, a pointing, a scrub, or the loop ending comes during the draw.
+- `loop-lands-at-once` shows the whole line and sends the buddy back when a push-to-talk press, a pointing, a scrub, an instant replay's freeze, or the loop ending comes during the draw.
+  A pointing or a scrub on another display, and a newer loop on any display, bring back a buddy still flying back at once.
+  The triangle traces with its tip on the ink and no stretch.
 - `loop-clears` fades the loop on idle, a new press, a scroll, a front tab or media rect change, an app switch, the answer's speech, or a scene starting to show.
 - `loop-popout` fades the loop when a pop-out lifts, so the pop-out rises from the line.
 - `loop-agent-spark` laps one spark for each agent working on the video in front, in the agent's color, over a quiet track when no request loop shows.

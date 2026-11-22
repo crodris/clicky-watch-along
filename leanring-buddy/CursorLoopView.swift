@@ -473,7 +473,7 @@ enum CursorLoopDrawing {
         stroke(line.inkPath(upToShare: share), color: color, in: &context)
     }
 
-    /// A quiet band of light lapping the finished line, so it reads as working while Clicky thinks, with no spark on it.
+    /// A quiet band of light lapping the finished line, so it reads as working while Clicky thinks, with no white spark on it.
     static func drawTheShimmer(on line: CursorLoopLine, atLapShare lapShare: Double, in context: inout GraphicsContext) {
         guard line.lapLength > 0 else { return }
         let headLength = CGFloat(line.shareOfTheLine(atLapShare: lapShare)) * line.totalLength
