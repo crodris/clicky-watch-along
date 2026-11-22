@@ -2097,7 +2097,7 @@ final class CompanionManager: ObservableObject {
                 Task {
                     await LiveSceneOverlay.shared.waitForReturnToFinish()
                     // A scene asked for while the old one returned owns the pause now.
-                    guard case .idle = self.liveScenePhase else { return }
+                    guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) else { return }
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }
@@ -2337,7 +2337,8 @@ final class CompanionManager: ObservableObject {
             // No scene opened, so nothing will clear it and resume the video.
             // A previous pop-out cleared for this request may still be landing back in its frame.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
-            if videoQuizSession.videoIsPausedForRequestedScene {
+            // A scene asked for during the line or the return owns the pause now.
+            if videoQuizSession.videoIsPausedForRequestedScene, aSceneThatEndedMayResumeItsVideo(liveScenePhase: liveScenePhase) {
                 videoQuizSession.resumeVideoAfterRequestedScene()
             }
             return
@@ -2772,7 +2773,7 @@ final class CompanionManager: ObservableObject {
             // A frame pop-out lands back in the paused frame before the video moves.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
             // A scene asked for during the line or the return owns the pause now.
-            guard case .idle = self.liveScenePhase else { return }
+            guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) else { return }
             self.videoQuizSession.resumeVideoAfterRequestedScene()
         }
     }
@@ -3167,6 +3168,8 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
         await LiveSceneOverlay.shared.waitForReturnToFinish()
+        // A scene asked for during the line or the return owns the pause now.
+        guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: liveScenePhase) else { return }
         videoQuizSession.resumeVideoAfterRequestedScene()
     }
 
@@ -3438,7 +3441,7 @@ final class CompanionManager: ObservableObject {
             // else will resume it now. A scene or pop-out that started while the old one returned owns the pause instead.
             Task {
                 await LiveSceneOverlay.shared.waitForReturnToFinish()
-                guard case .idle = self.liveScenePhase else { return }
+                guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) else { return }
                 self.videoQuizSession.resumeVideoAfterRequestedScene()
             }
             currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
