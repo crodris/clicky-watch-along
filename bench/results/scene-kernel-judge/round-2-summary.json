@@ -1,0 +1,30 @@
+[
+  {
+    "route": "/live-scene",
+    "challenger": "kernel",
+    "pairCount": 19,
+    "perJudge": {
+      "opus": {
+        "challengerWins": 7,
+        "baselineWins": 10,
+        "undecided": 2
+      },
+      "sol": {
+        "challengerWins": 6,
+        "baselineWins": 11,
+        "undecided": 2
+      }
+    },
+    "total": {
+      "challengerWins": 13,
+      "baselineWins": 21,
+      "undecided": 4
+    },
+    "winRate": 0.38235294117647056,
+    "agreementPerJudge": {
+      "opus": 0.8947368421052632,
+      "sol": 0.8947368421052632
+    },
+    "judgesAgreeShare": 0.8
+  }
+]
