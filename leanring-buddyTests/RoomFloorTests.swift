@@ -362,7 +362,7 @@ struct RoomFloorTests {
 struct RoomFurnitureTests {
     @Test func theCutoutIsDrawnAtItsOwnShapeAtThePagesHeightAndTheSizeIsSaidFromThePage() throws {
         let context = CGContext(data: nil, width: 300, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let furniture = RoomFurniture(title: "POÄNG", widthMeters: 0.68, heightMeters: 1.0, cutoutImage: try #require(context.makeImage()))
+        let furniture = RoomFurniture(title: "POÄNG", widthMeters: 0.68, heightMeters: 1.0, depthMeters: 0.82, cutoutImage: try #require(context.makeImage()))
 
         // A three quarter view photo is wider than the page's width says, and is drawn at its own shape, never squashed.
         #expect(abs(furniture.drawnWidthMeters - 1.5) < 1e-9)
