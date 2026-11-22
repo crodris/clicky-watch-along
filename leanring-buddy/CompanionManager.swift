@@ -937,7 +937,8 @@ final class CompanionManager: ObservableObject {
     /// An agent's spark may join the loop's line unless a scene covers the media or a quiz question is open, where a request's
     /// loop never draws either, or Show Clicky is off, since the overlay then fades a second after the answer.
     private var agentSparksMayDraw: Bool {
-        isClickyCursorEnabled && requestMayDrawALoop(
+        Clicky.agentSparksMayDraw(
+            clickyCursorIsEnabled: isClickyCursorEnabled,
             aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
         )

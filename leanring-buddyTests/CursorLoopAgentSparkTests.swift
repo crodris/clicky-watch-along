@@ -36,7 +36,7 @@ private func sparkMedia(tabURL: String = sparkTabURL) -> MediaOnTheFrontTab {
 private func stateHoldingTheMediaInHand() -> CursorLoopState {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 10)
+    state.mediaRectArrived(sparkMedia(), at: 10, agentsMayJoinTheLine: true)
     return state
 }
 
@@ -72,7 +72,7 @@ private func stateHoldingTheMediaInHand() -> CursorLoopState {
 @Test func anAgentStartedFromTheVideoInFrontJoinsTheLineAroundTheMediaTheReleaseRead() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(), agentIDs: [agentID])))
     // The agent's line is not a request's loop, so no loop draws.
     #expect(state.loop == .hidden)
@@ -80,34 +80,34 @@ private func stateHoldingTheMediaInHand() -> CursorLoopState {
 
 @Test func anAgentStartedFromAnotherTabOrWithNoMediaInHandJoinsNothing() {
     var otherTab = stateHoldingTheMediaInHand()
-    otherTab.agentStarted(id: UUID(), sourceTab: .tab(url: "https://www.youtube.com/watch?v=another"))
+    otherTab.agentStarted(id: UUID(), sourceTab: .tab(url: "https://www.youtube.com/watch?v=another"), mayJoinTheLine: true)
     #expect(otherTab.agentLine == .hidden)
 
     var noMedia = CursorLoopState()
-    noMedia.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    noMedia.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(noMedia.agentLine == .hidden)
 
     var mediaRead = CursorLoopState()
     mediaRead.pushToTalkWasReleased()
-    mediaRead.mediaRectArrived(nil, at: 10)
-    mediaRead.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    mediaRead.mediaRectArrived(nil, at: 10, agentsMayJoinTheLine: true)
+    mediaRead.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(mediaRead.agentLine == .hidden)
 }
 
 @Test func anAgentStartedAfterTheNextPressNoLongerHasTheOldRect() {
     var state = stateHoldingTheMediaInHand()
     state.pushToTalkWasPressed()
-    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(state.agentLine == .hidden)
 }
 
 @Test func anAgentStartedUnderAShowingLoopLapsTheSameMedia() {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 10)
+    state.mediaRectArrived(sparkMedia(), at: 10, agentsMayJoinTheLine: true)
     state.requestBecameALookAtTheMedia(at: 10.1)
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(), agentIDs: [agentID])))
     #expect(state.loopIsShowing)
 }
@@ -116,23 +116,23 @@ private func stateHoldingTheMediaInHand() -> CursorLoopState {
     var state = stateHoldingTheMediaInHand()
     let firstAgentID = UUID()
     let secondAgentID = UUID()
-    state.agentStarted(id: firstAgentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: firstAgentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     // The next press clears the rect in hand, so the second agent joins the line that already shows.
     state.pushToTalkWasPressed()
-    state.agentStarted(id: secondAgentID, sourceTab: .youTubeVideo(key: "sparkVideo"))
-    state.agentStarted(id: secondAgentID, sourceTab: .youTubeVideo(key: "sparkVideo"))
+    state.agentStarted(id: secondAgentID, sourceTab: .youTubeVideo(key: "sparkVideo"), mayJoinTheLine: true)
+    state.agentStarted(id: secondAgentID, sourceTab: .youTubeVideo(key: "sparkVideo"), mayJoinTheLine: true)
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(), agentIDs: [firstAgentID, secondAgentID])))
 }
 
 @Test func anAgentFromAnotherTabStartsAFreshLineInsteadOfJoiningTheOldOne() {
     var state = stateHoldingTheMediaInHand()
     let firstAgentID = UUID()
-    state.agentStarted(id: firstAgentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: firstAgentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     let otherTabURL = "https://www.youtube.com/watch?v=another"
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(tabURL: otherTabURL), at: 20)
+    state.mediaRectArrived(sparkMedia(tabURL: otherTabURL), at: 20, agentsMayJoinTheLine: true)
     let secondAgentID = UUID()
-    state.agentStarted(id: secondAgentID, sourceTab: .tab(url: otherTabURL))
+    state.agentStarted(id: secondAgentID, sourceTab: .tab(url: otherTabURL), mayJoinTheLine: true)
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(tabURL: otherTabURL), agentIDs: [secondAgentID])))
 }
 
@@ -141,7 +141,7 @@ private func stateHoldingTheMediaInHand() -> CursorLoopState {
 @Test(arguments: CursorLoopEndReason.allCases)
 func onlyAChangeOfWhatIsInFrontClearsTheAgentLine(reason: CursorLoopEndReason) {
     var state = stateHoldingTheMediaInHand()
-    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.end(because: reason)
     let reasonsThatChangeWhatIsInFront: [CursorLoopEndReason] = [.scrolled, .tabOrMediaChanged, .appSwitched, .aSceneStartedToShow]
     #expect(state.agentLineIsShowing == !reasonsThatChangeWhatIsInFront.contains(reason))
@@ -151,8 +151,8 @@ func onlyAChangeOfWhatIsInFrontClearsTheAgentLine(reason: CursorLoopEndReason) {
     var state = stateHoldingTheMediaInHand()
     let firstAgentID = UUID()
     let secondAgentID = UUID()
-    state.agentStarted(id: firstAgentID, sourceTab: .tab(url: sparkTabURL))
-    state.agentStarted(id: secondAgentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: firstAgentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
+    state.agentStarted(id: secondAgentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.agentLeavesTheLine(id: UUID())
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(), agentIDs: [firstAgentID, secondAgentID])))
     state.agentLeavesTheLine(id: firstAgentID)
@@ -165,7 +165,7 @@ func onlyAChangeOfWhatIsInFrontClearsTheAgentLine(reason: CursorLoopEndReason) {
 
 @Test func theFrontTabPollStopsWatchingAnAgentLineOnceItFades() {
     var state = stateHoldingTheMediaInHand()
-    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(state.mediaThePollWatches == sparkMedia())
     state.end(because: .scrolled)
     #expect(state.mediaThePollWatches == nil)
@@ -286,6 +286,7 @@ private func controllerWithTheMediaInHand(
         waitBetweenFrontTabPolls: { await Task.yield() },
         waitForAFinishingSparkLap: {}
     )
+    controller.agentSparksMayDraw = { true }
     controller.pushToTalkWasReleased()
     await controller.waitForTheMediaReadToFinish()
     return controller
@@ -296,7 +297,7 @@ private func controllerWithTheMediaInHand(
 @Test func aRunningAgentRejoinsTheLineWhenItsVideoIsInFrontAgainAfterAScrollClearedIt() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.end(because: .scrolled)
     state.agentLineFadeOutFinished()
     #expect(state.agentLine == .hidden)
@@ -304,7 +305,7 @@ private func controllerWithTheMediaInHand(
     // The next press reads the same video's media again.
     state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 30)
+    state.mediaRectArrived(sparkMedia(), at: 30, agentsMayJoinTheLine: true)
     #expect(state.agentLine == .showing(AgentSparkLine(media: sparkMedia(), agentIDs: [agentID])))
 }
 
@@ -323,13 +324,13 @@ private func controllerWithTheMediaInHand(
 
     state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 40)
+    state.mediaRectArrived(sparkMedia(), at: 40, agentsMayJoinTheLine: true)
     #expect(state.agentLineOnTheMedia?.line.agentIDs == [agentID])
 }
 
 @Test func aReleaseThatDrawsARequestsLoopWhileAScenePlaysBringsBackNoAgentSpark() {
     var state = stateHoldingTheMediaInHand()
-    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.end(because: .aSceneStartedToShow)
     state.agentLineFadeOutFinished()
 
@@ -344,35 +345,35 @@ private func controllerWithTheMediaInHand(
 @Test func aFinishedAgentNeverRejoinsTheLineItsSparkLeft() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.agentFinished(id: agentID)
     state.end(because: .scrolled)
     state.agentLineFadeOutFinished()
 
     state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 30)
+    state.mediaRectArrived(sparkMedia(), at: 30, agentsMayJoinTheLine: true)
     #expect(state.agentLine == .hidden)
 }
 
 @Test func anAgentDoesNotRejoinForAnotherVideoOrAfterItEnded() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.end(because: .scrolled)
     state.agentLineFadeOutFinished()
 
     // Another video is in front.
     state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(tabURL: "https://www.youtube.com/watch?v=another"), at: 30)
+    state.mediaRectArrived(sparkMedia(tabURL: "https://www.youtube.com/watch?v=another"), at: 30, agentsMayJoinTheLine: true)
     #expect(state.agentLine == .hidden)
 
     // The agent ends, so its own video coming back changes nothing.
     state.agentEnded(id: agentID)
     state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 40)
+    state.mediaRectArrived(sparkMedia(), at: 40, agentsMayJoinTheLine: true)
     #expect(state.agentLine == .hidden)
     #expect(state.runningAgents.isEmpty)
 }
@@ -380,14 +381,14 @@ private func controllerWithTheMediaInHand(
 @Test func aRectThatArrivesAfterTheHandOffDrawsTheLoopAndTheRunningAgentRejoinsIt() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     state.end(because: .scrolled)
     state.agentLineFadeOutFinished()
 
     state.pushToTalkWasPressed()
     state.pushToTalkWasReleased()
     state.requestBecameALookAtTheMedia(at: 30)
-    state.mediaRectArrived(sparkMedia(), at: 30.2)
+    state.mediaRectArrived(sparkMedia(), at: 30.2, agentsMayJoinTheLine: true)
     #expect(state.loopIsShowing)
     #expect(state.agentLineOnTheMedia?.line.agentIDs == [agentID])
 }
@@ -395,18 +396,18 @@ private func controllerWithTheMediaInHand(
 @Test func startingTheSameAgentTwiceRemembersItOnce() {
     var state = stateHoldingTheMediaInHand()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(state.runningAgents.count == 1)
 }
 
 @Test func anAgentStartedWithNoMediaInHandIsStillRememberedAndJoinsOnTheNextRelease() {
     var state = CursorLoopState()
     let agentID = UUID()
-    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    state.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL), mayJoinTheLine: true)
     #expect(state.agentLine == .hidden)
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(sparkMedia(), at: 10)
+    state.mediaRectArrived(sparkMedia(), at: 10, agentsMayJoinTheLine: true)
     #expect(state.agentLineOnTheMedia?.line.agentIDs == [agentID])
 }
 
@@ -473,6 +474,7 @@ private func controllerWithTheMediaInHand(
         waitBetweenFrontTabPolls: { await Task.yield() },
         waitForAFinishingSparkLap: { lapWaits.started += 1 }
     )
+    controller.agentSparksMayDraw = { true }
     controller.pushToTalkWasReleased()
     await controller.waitForTheMediaReadToFinish()
     let agentID = UUID()
@@ -495,6 +497,7 @@ private func controllerWithTheMediaInHand(
         waitForAFinishingSparkLap: {},
         workspaceNotificationCenter: workspaceNotificationCenter
     )
+    controller.agentSparksMayDraw = { true }
     controller.pushToTalkWasReleased()
     await controller.waitForTheMediaReadToFinish()
     controller.agentStarted(id: UUID(), sourceTab: .tab(url: sparkTabURL))
@@ -642,4 +645,31 @@ private struct RenderedAgentLine {
     controller.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
     controller.agentStatusesChanged([agentID: .finished])
     #expect(controller.state.runningAgents.first?.hasFinished == true)
+}
+
+@Test func sparksMayDrawOnlyWithShowClickyOnAndNoSceneOrQuizQuestionOnScreen() {
+    #expect(agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: false, aSceneIsOnScreen: false, aQuizQuestionIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: true, aQuizQuestionIsOpen: false))
+    #expect(!agentSparksMayDraw(clickyCursorIsEnabled: true, aSceneIsOnScreen: false, aQuizQuestionIsOpen: true))
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func aLineThatIsAlreadyShowingDrawsNothingWhileSparksMayNotDrawAndDrawsAgainWhenTheyMay() async {
+    let controller = await controllerWithTheMediaInHand()
+    let agentID = UUID()
+    controller.agentStarted(id: agentID, sourceTab: .tab(url: sparkTabURL))
+    #expect(controller.agentLineToDraw()?.line.agentIDs == [agentID])
+
+    // Show Clicky turns off, or a voice-only quiz question opens, with the line showing.
+    var sparksMayDraw = false
+    controller.agentSparksMayDraw = { sparksMayDraw }
+    #expect(controller.agentLineToDraw() == nil)
+
+    sparksMayDraw = true
+    #expect(controller.agentLineToDraw()?.line.agentIDs == [agentID])
+}
+
+@Test @MainActor func aControllerWithNoGateWiredDrawsNoSparks() {
+    let controller = CursorLoopController(readTheMediaInTheFrontTab: { _ in nil }, readTheFrontTabSample: { nil })
+    #expect(controller.agentSparksMayDraw() == false)
 }

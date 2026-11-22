@@ -5,7 +5,8 @@
 //  The pure part of the loop Clicky draws around the video or image it is looking at: what decides
 //  whether a request draws a loop and when it clears, the line that background agents lap their sparks around,
 //  the outline of the loop, and the timing of the spark that draws it. Nothing here reads Chrome, the clock, or
-//  the screen, so tests drive it with made-up times and rects. `CursorLoopController` does the reading, and `CursorLoopView` the drawing.
+//  the screen, so tests drive it with made-up times and rects.
+//  `CursorLoopController` does the reading, and `CursorLoopView` the drawing.
 //
 
 import CoreGraphics
@@ -41,6 +42,12 @@ struct MediaOnTheFrontTab: Equatable {
 /// covers the media, and a quiz question waiting on its answer belongs to the question.
 func requestMayDrawALoop(aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool) -> Bool {
     !aSceneIsOnScreen && !aQuizQuestionIsOpen
+}
+
+/// An agent's spark draws, and joins the line, only when a request's loop could draw, and with Show Clicky on, since with it
+/// off the overlay fades a second after the answer.
+func agentSparksMayDraw(clickyCursorIsEnabled: Bool, aSceneIsOnScreen: Bool, aQuizQuestionIsOpen: Bool) -> Bool {
+    clickyCursorIsEnabled && requestMayDrawALoop(aSceneIsOnScreen: aSceneIsOnScreen, aQuizQuestionIsOpen: aQuizQuestionIsOpen)
 }
 
 /// A loop around a whole screen frames nothing, so media that covers nearly all of a screen gets none.
@@ -202,7 +209,7 @@ struct CursorLoopState: Equatable {
     /// keeps. With no request loop, that rect in hand is what gives an agent a line of its own, and dropping it would
     /// limit sparks to a loop a request already drew. `mayJoinTheLine` is false while a scene covers the media, a quiz question
     /// is open, or Show Clicky is off, and the agent is then only remembered.
-    mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab, mayJoinTheLine: Bool = true) {
+    mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab, mayJoinTheLine: Bool) {
         guard !runningAgents.contains(where: { $0.id == agentID }) else { return }
         let runningAgent = RunningAgent(id: agentID, sourceTab: sourceTab)
         runningAgents.append(runningAgent)
@@ -271,7 +278,7 @@ struct CursorLoopState: Equatable {
     /// The read finished. Nil means Chrome has no media in front worth framing, or the read failed.
     /// `agentsMayJoinTheLine` is false while a scene covers the media, a quiz question is open, or Show Clicky is off, so a release
     /// then brings back no agent's spark.
-    mutating func mediaRectArrived(_ media: MediaOnTheFrontTab?, at now: TimeInterval, agentsMayJoinTheLine: Bool = true) {
+    mutating func mediaRectArrived(_ media: MediaOnTheFrontTab?, at now: TimeInterval, agentsMayJoinTheLine: Bool) {
         guard case .readingTheRect(let handedOffAt) = turn else { return }
         guard let media else {
             turn = .notWaitingForALoop

@@ -38,10 +38,12 @@ final class CursorLoopController: ObservableObject {
     private let waitBetweenFrontTabPolls: () async -> Void
     /// The wait for a finished agent's spark to complete its last lap. Tests pass one that returns at once.
     private let waitForAFinishingSparkLap: () async -> Void
-    /// Whether an agent's spark may join the line now: false while a scene covers the media, a quiz question is open, or Show
-    /// Clicky is off. `CompanionManager` sets it, since the controller does not know those states. It is read when an agent
-    /// starts and when a release reads the media, so an agent held back joins at the first release that allows it.
-    var agentSparksMayDraw: () -> Bool = { true }
+    /// Whether an agent's spark may join the line and draw now: false while a scene covers the media, a quiz question is open, or
+    /// Show Clicky is off (`agentSparksMayDraw(clickyCursorIsEnabled:aSceneIsOnScreen:aQuizQuestionIsOpen:)`). `CompanionManager`
+    /// sets it, since the controller does not know those states. It is read when an agent starts, when a release reads the
+    /// media, and each time the line is drawn, so a line that is already showing hides when it turns false and an agent held back
+    /// joins at the first release that allows it. Until it is set, no spark draws.
+    var agentSparksMayDraw: () -> Bool = { false }
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
@@ -237,9 +239,14 @@ final class CursorLoopController: ObservableObject {
         )
     }
 
+    /// The agent line to draw, or nil when none shows or sparks may not draw now.
+    func agentLineToDraw() -> (line: AgentSparkLine, isFadingOut: Bool)? {
+        agentSparksMayDraw() ? state.agentLineOnTheMedia : nil
+    }
+
     /// The agent sparks to draw on the screen with this frame, or nil when the media is on another screen or no agent line shows.
     func agentLoopToDraw(onScreenWithFrame screenFrame: CGRect) -> AgentLoopOnScreen? {
-        guard let agentLineOnTheMedia = state.agentLineOnTheMedia else { return nil }
+        guard let agentLineOnTheMedia = agentLineToDraw() else { return nil }
         let screens = NSScreen.screens
         guard let screenIndex = indexOfTheScreenFrameHolding(agentLineOnTheMedia.line.media.screenRect, screenFramesInAppKitCoordinates: screens.map(\.frame)),
               screens[screenIndex].frame == screenFrame else {
