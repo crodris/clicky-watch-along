@@ -24,53 +24,53 @@ enum DS {
         // Layered surfaces from deepest to most elevated.
         // Higher surfaces are lighter, creating a sense of depth.
 
-        /// The deepest background — used for the main app window fill.
+        /// The deepest background - used for the main app window fill.
         static let background = Color(hex: "#101211")
 
-        /// First elevation layer — used for cards, sidebar, top bar backgrounds.
+        /// First elevation layer - used for cards, sidebar, top bar backgrounds.
         static let surface1 = Color(hex: "#171918")
 
-        /// Second elevation layer — used for input fields, elevated cards, chat bubbles.
+        /// Second elevation layer - used for input fields, elevated cards, chat bubbles.
         static let surface2 = Color(hex: "#202221")
 
-        /// Third elevation layer — used for hover backgrounds on interactive elements.
+        /// Third elevation layer - used for hover backgrounds on interactive elements.
         static let surface3 = Color(hex: "#272A29")
 
-        /// Fourth elevation layer — used for active/pressed states on interactive elements.
+        /// Fourth elevation layer - used for active/pressed states on interactive elements.
         static let surface4 = Color(hex: "#2E3130")
 
         // ── Borders ──────────────────────────────────────────────────
 
-        /// Subtle border — used for card outlines, dividers, input field borders.
+        /// Subtle border - used for card outlines, dividers, input field borders.
         static let borderSubtle = Color(hex: "#373B39")
 
         // ── Text ─────────────────────────────────────────────────────
 
-        /// Primary text — main body text, titles, headings.
+        /// Primary text - main body text, titles, headings.
         static let textPrimary = Color(hex: "#ECEEED")
 
-        /// Secondary text — descriptions, hints, muted labels.
+        /// Secondary text - descriptions, hints, muted labels.
         static let textSecondary = Color(hex: "#ADB5B2")
 
-        /// Tertiary text — very muted, used for section labels, timestamps, disabled text.
+        /// Tertiary text - very muted, used for section labels, timestamps, disabled text.
         static let textTertiary = Color(hex: "#6B736F")
 
         /// Text used on top of the accent fill (#2563eb blue), like the primary button label.
-        /// White on #2563eb achieves ~5.1:1 contrast — WCAG AA compliant.
-        /// White on #1d4ed8 hover achieves ~6.5:1 — also WCAG AA compliant.
+        /// White on #2563eb achieves ~5.1:1 contrast - WCAG AA compliant.
+        /// White on #1d4ed8 hover achieves ~6.5:1 - also WCAG AA compliant.
         static let textOnAccent: Color = .white
 
         // ── Tailwind Blue Scale ─────────────────────────────────────
         // Full Tailwind CSS v4 blue palette for consistent blue usage.
         //
         // Usage guide:
-        //   50–100  → Very subtle tinted backgrounds (selected rows, hover fills on dark surfaces)
-        //   200–300 → Light text/icons on dark backgrounds, disabled states
+        //   50-100  → Very subtle tinted backgrounds (selected rows, hover fills on dark surfaces)
+        //   200-300 → Light text/icons on dark backgrounds, disabled states
         //   400     → Bright accent text, links, icons, chat user bubbles
         //   500     → Mid-tone fills, badges, secondary buttons
-        //   600     → Primary action fills (buttons, toggles) — main accent
+        //   600     → Primary action fills (buttons, toggles) - main accent
         //   700     → Hover/pressed state for primary actions
-        //   800–900 → Deep backgrounds, dark overlays, header bars
+        //   800-900 → Deep backgrounds, dark overlays, header bars
 
         static let blue50  = Color(hex: "#eff6ff")
         static let blue200 = Color(hex: "#bfdbfe")
@@ -137,13 +137,13 @@ enum DS {
         // ── Accent (derived from blue scale) ───────────────────────
         // The primary fill is Blue 600.
 
-        /// Accent fill — used for solid button backgrounds.
+        /// Accent fill - used for solid button backgrounds.
         /// #2563eb → ~5.1:1 contrast with white text (WCAG AA).
         static let accent = blue600
 
         // ── Semantic Colors ──────────────────────────────────────────
 
-        /// Destructive/error actions — delete buttons, error messages, close button hover.
+        /// Destructive/error actions - delete buttons, error messages, close button hover.
         static let destructive = Color(hex: "#E5484D")        // Radix Red 9
 
         /// Destructive hover state.
@@ -170,14 +170,14 @@ enum DS {
         static let setupAllSetSurface = Color(hex: "#16261f")
         static let setupAllSetEdge = Color(hex: "#1f5040")
 
-        /// Success — checkmarks, granted status, completion indicators.
+        /// Success - checkmarks, granted status, completion indicators.
         /// Independent green so success states are visually distinct from the blue accent.
         static let success = Color(hex: "#34D399")      // Tailwind Emerald 400
 
-        /// Warning — caution messages, manual verification failure explanations.
+        /// Warning - caution messages, manual verification failure explanations.
         static let warning = Color(hex: "#FFB224")            // Radix Amber 9
 
-        /// Warning text — brighter variant for text on dark backgrounds.
+        /// Warning text - brighter variant for text on dark backgrounds.
         static let warningText = Color(hex: "#F1A10D")        // Radix Amber 11
 
         // ── Overlay Cursor ───────────────────────────────────────────
@@ -263,11 +263,11 @@ enum DS {
     // MARK: - Animation Durations
 
     enum Animation {
-        /// Quick state changes — hover in/out, press feedback.
+        /// Quick state changes - hover in/out, press feedback.
         static let fast: Double = 0.15
-        /// Standard transitions — content reveal, button state changes.
+        /// Standard transitions - content reveal, button state changes.
         static let normal: Double = 0.25
-        /// Slower, more dramatic — fade-ins, celebration screen elements.
+        /// Slower, more dramatic - fade-ins, celebration screen elements.
         static let slow: Double = 0.4
     }
 

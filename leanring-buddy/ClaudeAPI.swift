@@ -68,12 +68,12 @@ class ClaudeAPI {
                 return "image/png"
             }
         }
-        // Default to JPEG — screen captures use JPEG compression
+        // Default to JPEG - screen captures use JPEG compression
         return "image/jpeg"
     }
 
     /// Sends a no-op HEAD request to the API host to establish and cache a TLS session.
-    /// Failures are silently ignored — this is purely an optimization.
+    /// Failures are silently ignored - this is purely an optimization.
     private func warmUpTLSConnectionIfNeeded() {
         Self.tlsWarmupLock.lock()
         let shouldStartTLSWarmup = !Self.hasStartedTLSWarmup
@@ -102,7 +102,7 @@ class ClaudeAPI {
         warmupRequest.httpMethod = "HEAD"
         warmupRequest.timeoutInterval = 10
         session.dataTask(with: warmupRequest) { _, _, _ in
-            // Response doesn't matter — the TLS handshake is the goal
+            // Response doesn't matter - the TLS handshake is the goal
         }.resume()
     }
 

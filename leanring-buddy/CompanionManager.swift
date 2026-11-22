@@ -521,7 +521,7 @@ final class CompanionManager: ObservableObject {
     private var audioPowerCancellable: AnyCancellable?
     private var accessibilityCheckTimer: Timer?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
-    /// Scheduled hide for transient cursor mode — cancelled if the user
+    /// Scheduled hide for transient cursor mode - cancelled if the user
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
 
@@ -664,7 +664,7 @@ final class CompanionManager: ObservableObject {
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
-        // were revoked (e.g. signing change), don't show the cursor — the
+        // were revoked (e.g. signing change), don't show the cursor - the
         // panel will show the permissions UI instead.
         if hasCompletedOnboarding && allPermissionsGranted && isClickyCursorEnabled {
             overlayWindowManager.hasShownOverlayBefore = true
@@ -675,20 +675,20 @@ final class CompanionManager: ObservableObject {
 
     /// Called by BlueCursorView after the buddy finishes its pointing
     /// animation and returns to cursor-following mode.
-    /// Triggers the onboarding sequence — dismisses the panel and restarts
+    /// Triggers the onboarding sequence - dismisses the panel and restarts
     /// the overlay so the welcome animation and intro video play.
     func triggerOnboarding() {
         // Post notification so the panel manager can dismiss the panel
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
 
         // Mark onboarding as completed so the Start button won't appear
-        // again on future launches — the cursor will auto-show instead
+        // again on future launches - the cursor will auto-show instead
         hasCompletedOnboarding = true
 
         // Play Besaid theme at 60% volume, fade out after 1m 30s
         startOnboardingMusic()
 
-        // Show the overlay for the first time — isFirstAppearance triggers
+        // Show the overlay for the first time - isFirstAppearance triggers
         // the welcome animation and onboarding video
         overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
         isOverlayVisible = true
@@ -834,7 +834,7 @@ final class CompanionManager: ObservableObject {
             print("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
         }
 
-        // Screen content permission is persisted — once the user has approved the
+        // Screen content permission is persisted - once the user has approved the
         // SCShareableContent picker, we don't need to re-check it.
         if !hasScreenContentPermission {
             hasScreenContentPermission = UserDefaults.standard.bool(forKey: "hasScreenContentPermission")
@@ -896,7 +896,7 @@ final class CompanionManager: ObservableObject {
                 config.width = 320
                 config.height = 240
                 let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                // Verify the capture actually returned real content — a 0x0 or
+                // Verify the capture actually returned real content - a 0x0 or
                 // fully-empty image means the user denied the prompt.
                 let didCapture = image.width > 0 && image.height > 0
                 print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
@@ -1124,7 +1124,7 @@ final class CompanionManager: ObservableObject {
     // MARK: - Private
 
     /// Polls all permissions frequently so the UI updates live after the
-    /// user grants them in System Settings. Screen Recording is the exception —
+    /// user grants them in System Settings. Screen Recording is the exception -
     /// macOS requires an app restart for that one to take effect.
     private func startPermissionPolling() {
         accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
@@ -1151,7 +1151,7 @@ final class CompanionManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isRecording, isFinalizing, isPreparing in
                 guard let self else { return }
-                // Don't override .responding — the AI response pipeline
+                // Don't override .responding - the AI response pipeline
                 // manages that state directly until streaming finishes.
                 guard self.voiceState != .responding else { return }
 
@@ -1164,7 +1164,7 @@ final class CompanionManager: ObservableObject {
                 } else {
                     self.voiceState = .idle
                     // If the user pressed and released the hotkey without
-                    // saying anything, no response task runs — schedule the
+                    // saying anything, no response task runs - schedule the
                     // transient hide here so the overlay doesn't get stuck.
                     // Only do this when no response is in flight, otherwise
                     // the brief idle gap between recording and processing
@@ -2238,7 +2238,7 @@ final class CompanionManager: ObservableObject {
                     }
                 }
             } catch is CancellationError {
-                // User spoke again — response was interrupted
+                // User spoke again - response was interrupted
             } catch {
                 print("⚠️ Companion response error: \(error)")
                 speakCreditsErrorFallback()
@@ -5818,7 +5818,7 @@ final class CompanionManager: ObservableObject {
 
     /// Result of parsing a [POINT:...] tag from Claude's response.
     struct PointingParseResult {
-        /// The response text with the [POINT:...] tag removed — this is what gets spoken.
+        /// The response text with the [POINT:...] tag removed - this is what gets spoken.
         let spokenText: String
         /// The parsed pixel coordinate, or nil if Claude said "none" or no tag was found.
         let coordinate: CGPoint?
@@ -5885,7 +5885,7 @@ final class CompanionManager: ObservableObject {
         self.showOnboardingVideo = true
         self.onboardingVideoOpacity = 0.0
 
-        // Start playback immediately — the video plays while invisible,
+        // Start playback immediately - the video plays while invisible,
         // then we fade in both the visual and audio over 1s.
         player.play()
 
