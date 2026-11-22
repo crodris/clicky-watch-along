@@ -111,7 +111,7 @@ Deferred from PR 1, to fold into later PRs: the Chrome control row hides after o
 
 Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Motion, the tether fades for about 200 ms after a disc covers its slot, and the flush is unchecked through a real Apple Event stall. PR 6 writes the first Glide caller.
 
-Deferred from PR 3: the "Add theme?" card shown before an install (PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
+Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18).
 
 Left open by PR 4: the ring still hides while a status line shows (PR 9), and a push-to-talk press during a narration leaves the bubble with a rise instead of shrinking it into the cursor (PR 11).
 PR 19 takes the rest: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
