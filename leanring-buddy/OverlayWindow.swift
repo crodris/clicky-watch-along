@@ -134,6 +134,10 @@ struct BlueCursorView: View {
     @ObservedObject private var cursorLoopController: CursorLoopController
     /// Whether a status line's Callout is on screen above the cursor, which pulls the thinking dots' orbit in under it.
     @ObservedObject private var statusLinePresence: TetherCalloutPresence
+    /// The slide along a video's progress bar before a voice seek.
+    @ObservedObject private var cursorScrubController: CursorScrubController
+    /// The scrub this screen's buddy is playing, from the flight to the bar until it is back at the mouse.
+    @State private var playingScrubID: UUID?
     @State private var cursorPosition: CGPoint
     @State private var isCursorOnThisScreen: Bool
 
@@ -144,6 +148,7 @@ struct BlueCursorView: View {
         self.themeSettings = companionManager.themeSettings
         self.cursorLoopController = companionManager.cursorLoopController
         self.statusLinePresence = LiveSceneStatusLabel.shared.statusLabelModel.presence
+        self.cursorScrubController = companionManager.cursorScrubController
 
         // Seed the cursor position from the current mouse location so the
         // buddy doesn't flash at (0,0) before onAppear fires.
@@ -470,10 +475,17 @@ struct BlueCursorView: View {
             } else {
                 self.cursorOpacity = 1.0
             }
+            // A scrub can be asked for in the same turn that shows the overlay, before this view's first render, when no
+            // onChange would see it.
+            if let scrubRequest = cursorScrubController.request {
+                startScrubbing(scrubRequest)
+            }
         }
         .onDisappear {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
+            // A scrub this view played ends with it, so a later overlay never replays a seek that already ran.
+            endThePlayingScrub()
             companionManager.tearDownOnboardingVideo()
         }
         .onChange(of: companionManager.cursorEmoteRequest) { newEmoteRequest in
@@ -487,6 +499,17 @@ struct BlueCursorView: View {
                   let newBubbleText else { return }
             navigationBubbleText = ""
             typeNavigationBubble(phrase: newBubbleText)
+        }
+        .onChange(of: cursorScrubController.request) { newScrubRequest in
+            if let newScrubRequest {
+                startScrubbing(newScrubRequest)
+            } else if playingScrubID != nil {
+                // A push-to-talk press landed the scrub at once, so the buddy goes back to the mouse, where the ring listens.
+                // A pointing on another display is that display's, so this one leaves it set.
+                navigationAnimationTimer?.invalidate()
+                navigationAnimationTimer = nil
+                finishNavigationAndResumeFollowing(clearingTheSharedPointing: false)
+            }
         }
         .onChange(of: companionManager.buddyFreezeCount) { _ in
             freezeTheBuddyWhereItIs()
@@ -520,9 +543,9 @@ struct BlueCursorView: View {
     private var buddyIsVisibleOnThisScreen: Bool {
         switch buddyNavigationMode {
         case .followingCursor:
-            // If another screen's BlueCursorView is navigating to an element,
+            // If another screen's BlueCursorView is navigating to an element or scrubbing,
             // hide the cursor on this screen to prevent a duplicate buddy
-            if companionManager.detectedElementScreenLocation != nil {
+            if companionManager.detectedElementScreenLocation != nil || cursorScrubController.request != nil {
                 return false
             }
             return isCursorOnThisScreen
@@ -625,6 +648,9 @@ struct BlueCursorView: View {
         // moves the mouse enough to cancel the return flight
         let mouseLocation = NSEvent.mouseLocation
         cursorPositionWhenNavigationStarted = convertScreenPointToSwiftUICoordinates(mouseLocation)
+
+        // A pointing takes over a scrub this buddy was playing, whose seek then runs at once.
+        endThePlayingScrub()
 
         // Enter navigation mode - stop cursor following
         buddyIsFrozenWhereItStopped = false
@@ -933,7 +959,7 @@ struct BlueCursorView: View {
         endTheLandingRing()
 
         animateBezierFlightArc(to: cursorWithTrackingOffset) {
-            self.finishNavigationAndResumeFollowing()
+            self.finishNavigationAndResumeFollowing(clearingTheSharedPointing: self.playingScrubID == nil)
         }
     }
 
@@ -952,7 +978,8 @@ struct BlueCursorView: View {
         navigationBubbleOpacity = 0.0
         buddyFlightSpeedShare = 0
         flightFadeOpacity = 1.0
-        finishNavigationAndResumeFollowing()
+        // A scrub never owns the shared pointing, which a pointing on another display may have set during its flight back.
+        finishNavigationAndResumeFollowing(clearingTheSharedPointing: playingScrubID == nil)
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
@@ -977,6 +1004,102 @@ struct BlueCursorView: View {
         if clearingTheSharedPointing {
             companionManager.clearDetectedElementLocation()
         }
+        endThePlayingScrub()
+    }
+
+    // MARK: - Scrub by voice
+
+    /// Flies to the current time on the video's line, slides along it to the moment, tells the controller it arrived so the
+    /// video seeks, holds there for a moment, and flies back to the mouse. With Reduce Motion on, it fades in at the moment
+    /// instead, with no travel. A scrub this buddy already plays, or one for another screen, changes nothing.
+    private func startScrubbing(_ scrubRequest: CursorScrubRequest) {
+        guard playingScrubID != scrubRequest.scrubID,
+              targetDisplayIsThisScreen(scrubRequest.displayFrame),
+              !showWelcome || welcomeText.isEmpty else { return }
+        // The buddy sits beside the point as it does beside a pointed element, so its tip touches the line, and stays 20
+        // points inside the screen as a pointing does, for a line on the screen's bottom edge.
+        func besideThePoint(_ screenPoint: CGPoint) -> CGPoint {
+            let pointInSwiftUI = convertScreenPointToSwiftUICoordinates(screenPoint)
+            return CGPoint(
+                x: max(20, min(pointInSwiftUI.x + 8, screenFrame.width - 20)),
+                y: max(20, min(pointInSwiftUI.y + 12, screenFrame.height - 20))
+            )
+        }
+        let scrubID = scrubRequest.scrubID
+        let momentInSwiftUI = convertScreenPointToSwiftUICoordinates(scrubRequest.momentPoint)
+        playingScrubID = scrubID
+        buddyIsFrozenWhereItStopped = false
+        buddyNavigationMode = .navigatingToTarget
+        isReturningToCursor = false
+        currentTargetHoldsUntilReleased = false
+        navigationBubbleText = ""
+        navigationBubbleOpacity = 0.0
+        endTheLandingRing()
+        pointedTargetCenter = momentInSwiftUI
+        let arriveAtTheMoment = {
+            guard self.playingScrubID == scrubID else { return }
+            self.holdAtTheScrubMoment(scrubID: scrubID)
+        }
+        switch cursorScrubMotion(reduceMotionIsOn: reduceMotionIsOn) {
+        case .fadeAtTheMoment:
+            // The flight's Reduce Motion form is the fade, so this flight fades in at the moment.
+            animateBezierFlightArc(to: besideThePoint(scrubRequest.momentPoint), onComplete: arriveAtTheMoment)
+        case .flyThenSlide:
+            animateBezierFlightArc(to: besideThePoint(scrubRequest.startPoint)) {
+                guard self.playingScrubID == scrubID else { return }
+                self.slideAlongTheScrubLine(to: besideThePoint(scrubRequest.momentPoint), onComplete: arriveAtTheMoment)
+            }
+        }
+    }
+
+    /// Slides the buddy in a straight line along the video's line, paced like the Point move, with its pointer angle, so it
+    /// reads as the cursor dragging the playhead.
+    private func slideAlongTheScrubLine(to destination: CGPoint, onComplete: @escaping () -> Void) {
+        navigationAnimationTimer?.invalidate()
+        let startPosition = cursorPosition
+        let slideDistance = hypot(destination.x - startPosition.x, destination.y - startPosition.y)
+        let pointMoveCurve = DS.Move.point.curve
+        let slideDurationSeconds = pointMoveCurve.seconds(travelingPoints: slideDistance)
+        let slideStartDate = Date()
+        triangleRotationDegrees = -35.0
+        buddyFlightSpeedShare = 0
+        navigationAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
+            let elapsedSeconds = Date().timeIntervalSince(slideStartDate)
+            guard elapsedSeconds < slideDurationSeconds else {
+                self.navigationAnimationTimer?.invalidate()
+                self.navigationAnimationTimer = nil
+                self.cursorPosition = destination
+                onComplete()
+                return
+            }
+            let easedSlideProgress = pointMoveCurve.progress(atSeconds: elapsedSeconds, travelingPoints: slideDistance)
+            self.cursorPosition = CGPoint(
+                x: startPosition.x + (destination.x - startPosition.x) * easedSlideProgress,
+                y: startPosition.y + (destination.y - startPosition.y) * easedSlideProgress
+            )
+        }
+    }
+
+    /// The buddy is on the moment: the landing ring marks it, the video seeks, and after a short hold the buddy flies back.
+    private func holdAtTheScrubMoment(scrubID: UUID) {
+        buddyNavigationMode = .pointingAtTarget
+        triangleRotationDegrees = -35.0
+        landingRing = CursorLandingRing(center: pointedTargetCenter, landedAt: Date(), endedAt: nil)
+        cursorScrubController.cursorReachedTheMoment(scrubID: scrubID)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsTheScrubHoldsAtTheMoment) {
+            guard self.playingScrubID == scrubID, self.buddyNavigationMode == .pointingAtTarget else { return }
+            self.startFlyingBackToCursor()
+        }
+    }
+
+    /// Long enough to see the video jump under the cursor before it leaves.
+    private static let secondsTheScrubHoldsAtTheMoment: Double = 0.7
+
+    /// The scrub ends here: the buddy is back at the mouse, or a pointing took over.
+    private func endThePlayingScrub() {
+        guard let playingScrubID else { return }
+        self.playingScrubID = nil
+        cursorScrubController.overlayFinished(scrubID: playingScrubID)
     }
 
     // MARK: - Welcome Animation

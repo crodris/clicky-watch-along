@@ -112,7 +112,7 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 14 The loop carries background work | Merged: [#97](https://github.com/crodris/clicky-watch-along/pull/97). Seen in the app with an experiment and a task agent on one volcano video. The Reduce Motion arcs are checked by renders only |
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
-| 17 Scrub by voice | Building |
+| 17 Scrub by voice | Merged: [#111](https://github.com/crodris/clicky-watch-along/pull/111). Seen in the app on the volcano video: a long slide, a short one from a spoken request, and a press mid-scrub. Reduce Motion is covered by a unit test only |
 | 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
 | 19 Tether polish | Building in three parallel PRs: 19a agents, menu bar, and recap; 19b speech, cursor, quiz, and replay; 19c themes, panel, Quick Look, and the app icon |
 
@@ -152,3 +152,9 @@ PR 19b ([#112](https://github.com/crodris/clicky-watch-along/pull/112), speech, 
 - PR 10: Escape during the summary Card's glide-in hides the carried Card at once (`landAtOnce(hidingTheCarriedView:)`). A go-back that fails after it cancelled a scene build, or cleared a requested scene, lets go of that pause and plays the video again.
 - PR 11: while a part is focused, by a narration or a replay stop, a lifted model stays over its video: the pan starts with the model centered on the video, each side is held on its own, and a replay stop moves the camera out, no farther than a zoom reaches, when the model is larger than the video. In headless Chrome on a YouTube-like layout every stop measured 0 points outside the video, where before it reached up to 441 points past it. With no part focused, the view after the tour still centers the model in the window. A replay stop's dwell starts when the cursor's flight ends, timed from the shown theme's Point move, so the slowest theme keeps the whole dwell. A brain eval case pins that "keep going" and "go ahead" reach `resume_agents` while a replay is open and agents are paused.
 Left open by PR 19b: the agent list and the Theme Studio card still call `landAtOnce()` without `hidingTheCarriedView` when they close during their glide-in, so each can show whole for 0.05 seconds; those files belong to PRs 19a and 19c. With no part focused, the view after a pop-out's tour still centers the model in the window, so a wide model can reach over a video page's sidebar until a part is focused. The stacked chips were checked by tests and a 2x render, and not seen in the app.
+
+Left open by PR 17, which was built while PR 19 was building, so a later polish PR takes them: the scrub's Reduce Motion fade is checked only by a unit test of `cursorScrubMotion`, not in the app.
+The scrub was not seen on a non-YouTube player (the video's bottom edge line), or with the mouse on another display than the video, where the cursor flies from wherever the video's screen last saw the mouse.
+One of four app runs read no line while the volcano video had about 14 seconds left, and the app sought with no slide, as designed; the first 400 characters of the reply are now logged, so the next case shows why.
+A scrub refused by the first-launch welcome hides the cursor on every screen until its timeout, up to about 4 seconds.
+A page can choose the line's geometry, since the script runs in the page, so it can steer where the cursor slides on its own display; nothing reaches a model.
