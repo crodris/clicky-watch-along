@@ -127,8 +127,10 @@ nonisolated enum CursorScrubOutcome: Equatable {
     case reachedTheMoment
     /// A push-to-talk press, or a cancel of the voice command, landed it at once.
     case landedAtOnce
-    /// The overlay never reported arrival, such as one that would not fly during the first-launch welcome.
+    /// The overlay never reported arrival.
     case timedOut
+    /// The overlay of the line's display would not fly, such as during the first-launch welcome, so the seek runs at once.
+    case refusedByTheOverlay
     /// A newer scrub, or a pointing, took over before this one arrived.
     case replaced
 }
@@ -162,8 +164,9 @@ func tabToSeekAfterTheScrub(checkedTab: ChromeVideoTab, tabInFrontNow: ChromeVid
 }
 
 /// Holds the one scrub the overlay plays and the wait for it. The overlay reads `request`, reports arrival with
-/// `cursorReachedTheMoment` and the end of its flight back with `overlayFinished`, and a push-to-talk press calls
-/// `landAtOnce`. Each scrub resumes its wait exactly once, whichever of these comes first.
+/// `cursorReachedTheMoment` and the end of its flight back with `overlayFinished`, or a refusal to fly with
+/// `overlayRefused`, and a push-to-talk press calls `landAtOnce`. Each scrub resumes its wait exactly once, whichever of
+/// these comes first.
 @MainActor
 final class CursorScrubController: ObservableObject {
     @Published private(set) var request: CursorScrubRequest?
@@ -215,6 +218,12 @@ final class CursorScrubController: ObservableObject {
     /// The overlay is done with the scrub: the cursor is back at the mouse, or a pointing took over before it arrived.
     func overlayFinished(scrubID: UUID) {
         endTheWait(ofScrubID: scrubID, with: .replaced, clearingTheRequest: true)
+    }
+
+    /// The overlay of the line's display will not fly this scrub, such as during the first-launch welcome. The request
+    /// clears at once, since while it is set every screen hides its buddy.
+    func overlayRefused(scrubID: UUID) {
+        endTheWait(ofScrubID: scrubID, with: .refusedByTheOverlay, clearingTheRequest: true)
     }
 
     /// A push-to-talk press: the seek runs now, and the cursor goes back to the mouse, where the ring listens.
