@@ -225,6 +225,28 @@ struct ShirtFramingTests {
     }
 }
 
+// MARK: - The drawn edge
+
+struct ShirtCutoutEdgeTests {
+    @Test func theDrawnEdgeIsPulledInAndRampsUpToFullyOpaqueInside() {
+        // A 40 by 40 cutout with a 20 by 20 garment square from column and row 10 to 29.
+        var pixels = [UInt8](repeating: 0, count: 40 * 40)
+        for row in 10..<30 { for column in 10..<30 { pixels[row * 40 + column] = 255 } }
+        let alpha = ShirtCutoutMask(width: 40, height: 40, pixels: pixels).featheredEdgeAlpha()
+        func alphaAt(column: Int, row: Int) -> UInt8 { alpha[row * 40 + column] }
+
+        // The garment's outer two pixels, which carry the photo's background, are never drawn, and nothing outside is.
+        #expect(alphaAt(column: 10, row: 20) == 0 && alphaAt(column: 11, row: 20) == 0)
+        #expect(alphaAt(column: 5, row: 20) == 0)
+        // The edge ramps up over a few pixels, and the middle is fully opaque.
+        #expect(alphaAt(column: 12, row: 20) > 0 && alphaAt(column: 12, row: 20) < alphaAt(column: 14, row: 20))
+        #expect(alphaAt(column: 20, row: 20) == 255)
+        // The photo's own edge counts as background, so a garment touching it is pulled in there too.
+        let touchingTheEdge = ShirtCutoutMask(width: 10, height: 10, pixels: [UInt8](repeating: 255, count: 100)).featheredEdgeAlpha()
+        #expect(touchingTheEdge[0] == 0 && touchingTheEdge[5 * 10 + 1] == 0 && touchingTheEdge[5 * 10 + 5] > 0)
+    }
+}
+
 // MARK: - Framing debounce
 
 struct ShirtFramingDebouncerTests {

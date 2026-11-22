@@ -41,6 +41,15 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// The shading comes from the camera's luminance, blurred this much (in half size pixels) so a noisy dark webcam shirt
     /// does not put its grain into the print. The spike used 2 full size pixels, which showed the grain.
     static let shadingBlurSigmaAtHalfSize = 3.0
+    /// The analysis masks are blurred by this many of their own pixels once scaled up, which turns their steps into curves.
+    static let analysisMaskSmoothingInSmallPixels = 0.8
+    /// The base color fill is closed (grown by twice this, then shrunk by this many analysis pixels), which fills holes a
+    /// few pixels wide where a fold read as not the old shirt, and leaves it grown by this much under the garment's edge,
+    /// so the two meet with no gap.
+    static let baseColorGrowthUnderTheGarmentInSmallPixels = 1.0
+    /// The base color fill stays this share of the frame's width inside the person mask's edge: about 4 camera pixels at
+    /// 1280, which keeps it off the room where the mask reaches past the arm.
+    static let baseColorFillPullInShareOfTheFrameWidth = 0.0025
 
     private let ciContext: CIContext
     private let sRGBColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
@@ -139,22 +148,40 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         // 4. The masks. The person's opacity ramps from 0.35 to 0.65, the room art's occluder, a slightly hard edge.
         let personOpacity = Self.ramp(Self.channel(Self.scaled(personMask, toFill: frameExtent), 0), from: 0.35, to: 0.65)
         let smallMasks = CIImage(bitmapData: Data(analysis.maskPixels), bytesPerRow: smallWidth * 4, size: CGSize(width: smallWidth, height: smallHeight), format: .RGBA8, colorSpace: nil)
+        // The analysis masks are a quarter of the frame's width, so scaled up they are blocky. Blurred by about one small
+        // pixel before their ramp, their edges come out as smooth curves instead of steps.
+        let cameraPixelsPerSmallPixel = frameWidth / Double(smallWidth)
         let upscaledMasks = Self.scaled(smallMasks, toFill: frameExtent)
+            .clampedToExtent().applyingGaussianBlur(sigma: cameraPixelsPerSmallPixel * Self.analysisMaskSmoothingInSmallPixels).cropped(to: frameExtent)
         let neckCut = Self.ramp(Self.channel(upscaledMasks, 0), from: 0.3, to: 0.7)
         let uncoveredOldShirt = Self.ramp(Self.channel(upscaledMasks, 1), from: 0.3, to: 0.7)
 
         let garmentAlpha = Self.channel(warpedGarment, 3)
         let alphaOfTheGarment = Self.multiplied(Self.multiplied(garmentAlpha, personOpacity), Self.inverted(neckCut))
-        // The old shirt the garment's outline misses (the waist, under the arms) takes the garment's base color, but only
-        // where the garment is not already drawn, and only on the person.
-        let garmentIsDrawn = Self.ramp(alphaOfTheGarment, from: 0.45, to: 0.55)
-        let baseColorCoverage = Self.multiplied(Self.multiplied(uncoveredOldShirt, Self.inverted(garmentIsDrawn)), personOpacity)
-        let totalAlpha = alphaOfTheGarment.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: baseColorCoverage])
+        // The old shirt the garment's outline misses (the waist, under the arms) takes the garment's base color. The fill
+        // grows a little under the garment's edge, so no gap of the old shirt shows between them, and it stays inside the
+        // person mask pulled in from its edge, since the mask's edge is soft and a fill out to it would spill onto the room.
+        let bodyInsideItsEdge = Self.ramp(
+            Self.channel(Self.scaled(personMask, toFill: frameExtent), 0)
+                .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: frameWidth * Self.baseColorFillPullInShareOfTheFrameWidth]),
+            from: 0.45, to: 0.75
+        )
+        let growthRadius = cameraPixelsPerSmallPixel * Self.baseColorGrowthUnderTheGarmentInSmallPixels
+        let grownUncoveredOldShirt = uncoveredOldShirt
+            .applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 2 * growthRadius])
+            .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: growthRadius])
+            .cropped(to: frameExtent)
+        let baseColorCoverage = Self.multiplied(Self.multiplied(grownUncoveredOldShirt, bodyInsideItsEdge), Self.inverted(neckCut))
+        // The garment is drawn over the base color, so their alphas join the way two layers do: a + (1 - a) b, which is the
+        // screen blend. Where the garment's softened edge meets the fill, the two together cover the old shirt with no
+        // notch between them, where the larger of the two would leave a dip. Core Image's addition filter adds the gray
+        // images' own alphas too, which skews the mask, so it is not used here.
+        let totalAlpha = alphaOfTheGarment.applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: baseColorCoverage])
 
-        // 5. The colors, in gamma encoded sRGB like the spike, since the shading is a ratio of encoded luminances.
+        // 5. The colors, in gamma encoded sRGB like the spike, since the shading is a ratio of encoded luminances. The garment
+        // lies over the base color by its own alpha, so its softened edge fades into the fill and not into the old shirt.
         let baseColor = CIColor(red: CGFloat(garment.baseColor.red), green: CGFloat(garment.baseColor.green), blue: CGFloat(garment.baseColor.blue), colorSpace: sRGBColorSpace) ?? .white
-        let garmentWithBaseColor = CIImage(color: baseColor).cropped(to: frameExtent)
-            .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: warpedGarment.unpremultiplyingAlpha(), kCIInputMaskImageKey: baseColorCoverage])
+        let garmentWithBaseColor = warpedGarment.composited(over: CIImage(color: baseColor).cropped(to: frameExtent))
         let garmentInGamma = garmentWithBaseColor.applyingFilter("CILinearToSRGBToneCurve")
 
         let frameInGamma = frame.applyingFilter("CILinearToSRGBToneCurve")

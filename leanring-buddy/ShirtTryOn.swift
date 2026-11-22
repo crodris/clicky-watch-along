@@ -326,6 +326,75 @@ nonisolated struct ShirtCutoutMask: Equatable, Sendable {
         self.init(width: width, height: height, pixels: pixels)
     }
 
+    /// How far the drawn edge is pulled in from the cutout's edge, in working photo pixels. Subject lifting marks a pixel as
+    /// garment when it is at least half garment, so the outermost pixel or two still carry the photo's white or gray
+    /// background, which would show as a light fringe around the shirt.
+    static let edgePullInPixels = 2
+    /// How many 3 by 3 box blurs soften the pulled-in edge: two make a ramp about 4 pixels wide, which lands as 1 to 3
+    /// camera pixels, a camera's own edge softness.
+    static let edgeSofteningPasses = 2
+
+    /// The garment's alpha for drawing: the cutout pulled in by `edgePullInPixels` and softened by `edgeSofteningPasses`
+    /// box blurs, 0 to 255 per pixel. Outside the pulled-in cutout it is 0, so the softening only ever fades the garment's
+    /// own pixels and never brings background back in.
+    func featheredEdgeAlpha() -> [UInt8] {
+        let reach = Self.edgePullInPixels
+        // The distance from each pixel to the nearest background pixel along its row and along its column, where the
+        // photo's edge counts as background, so a garment touching the edge is pulled in there too.
+        var distanceAlongTheRow = [Int](repeating: 0, count: pixels.count)
+        for row in 0..<height {
+            var lastBackgroundColumn = -1
+            for column in 0..<width {
+                if pixels[row * width + column] == 0 { lastBackgroundColumn = column }
+                distanceAlongTheRow[row * width + column] = column - lastBackgroundColumn
+            }
+            var nextBackgroundColumn = width
+            for column in stride(from: width - 1, through: 0, by: -1) {
+                if pixels[row * width + column] == 0 { nextBackgroundColumn = column }
+                distanceAlongTheRow[row * width + column] = min(distanceAlongTheRow[row * width + column], nextBackgroundColumn - column)
+            }
+        }
+        // A pixel stays when every pixel within `reach` (a square) is garment: it is far enough from the side edges, and
+        // so is every pixel within `reach` above and below it.
+        let farFromTheSideEdges = distanceAlongTheRow.map { $0 > reach }
+        var pulledIn = [Float](repeating: 0, count: pixels.count)
+        for column in 0..<width {
+            var lastNearRow = -1
+            var distanceAlongTheColumn = [Int](repeating: 0, count: height)
+            for row in 0..<height {
+                if !farFromTheSideEdges[row * width + column] { lastNearRow = row }
+                distanceAlongTheColumn[row] = row - lastNearRow
+            }
+            var nextNearRow = height
+            for row in stride(from: height - 1, through: 0, by: -1) {
+                if !farFromTheSideEdges[row * width + column] { nextNearRow = row }
+                if min(distanceAlongTheColumn[row], nextNearRow - row) > reach { pulledIn[row * width + column] = 1 }
+            }
+        }
+        // Each pass is a 3 pixel box along the rows, then along the columns.
+        var softened = pulledIn
+        for _ in 0..<Self.edgeSofteningPasses {
+            var alongTheRows = [Float](repeating: 0, count: softened.count)
+            for row in 0..<height {
+                for column in 0..<width {
+                    let index = row * width + column
+                    let left = column > 0 ? softened[index - 1] : 0, right = column < width - 1 ? softened[index + 1] : 0
+                    alongTheRows[index] = (left + softened[index] + right) / 3
+                }
+            }
+            for row in 0..<height {
+                for column in 0..<width {
+                    let index = row * width + column
+                    let above = row > 0 ? alongTheRows[index - width] : 0, below = row < height - 1 ? alongTheRows[index + width] : 0
+                    softened[index] = (above + alongTheRows[index] + below) / 3
+                }
+            }
+        }
+        return zip(softened, pulledIn).map { softenedValue, pulledInValue in
+            pulledInValue == 0 ? 0 : UInt8((min(max(softenedValue, 0), 1) * 255).rounded())
+        }
+    }
+
     /// The mask keeping only its largest 4-connected piece, so a stray speck that lifting kept cannot stretch the garment's
     /// top or bottom edge.
     func keepingTheLargestPiece() -> ShirtCutoutMask {
@@ -473,13 +542,19 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
             }
         }
         var garmentChannelSum = 0.0
-        var premultipliedPixels = [UInt8](repeating: 0, count: photoPixels.count)
         for pixelIndex in cutoutMask.pixels.indices where cutoutMask.pixels[pixelIndex] != 0 {
+            for channel in 0..<3 { garmentChannelSum += Double(photoPixels[pixelIndex * 4 + channel]) }
+        }
+        // The drawn garment's edge is the cutout pulled in and softened (`featheredEdgeAlpha`), so the photo's background
+        // mixed into the edge pixels never shows as a light fringe and the edge is smooth at any size it lands.
+        let edgeAlpha = cutoutMask.featheredEdgeAlpha()
+        var premultipliedPixels = [UInt8](repeating: 0, count: photoPixels.count)
+        for pixelIndex in edgeAlpha.indices where edgeAlpha[pixelIndex] != 0 {
+            let alpha = UInt16(edgeAlpha[pixelIndex])
             for channel in 0..<3 {
-                premultipliedPixels[pixelIndex * 4 + channel] = photoPixels[pixelIndex * 4 + channel]
-                garmentChannelSum += Double(photoPixels[pixelIndex * 4 + channel])
+                premultipliedPixels[pixelIndex * 4 + channel] = UInt8((UInt16(photoPixels[pixelIndex * 4 + channel]) * alpha + 127) / 255)
             }
-            premultipliedPixels[pixelIndex * 4 + 3] = 255
+            premultipliedPixels[pixelIndex * 4 + 3] = edgeAlpha[pixelIndex]
         }
         let meanBrightness = Float(garmentChannelSum / (3 * 255 * Double(garmentPixelCount)))
         let baseChannels = bandChannels.map { channelValues -> Float in
