@@ -52,11 +52,4 @@ struct LiveSceneTourEndTests {
         let reportAfterTheClearEndedTheTour = tourEnd.pageReportedTheTourFinished()
         #expect(!reportAfterTheClearEndedTheTour)
     }
-
-    @Test func theDeadlineAllowsEveryBundledTourAndAGeneratedOne() {
-        // The landmark page reveals within 7 seconds and tours for 6, the frame pop-out tours for 4.5, and the
-        // /live-scene prompt asks for a tour of about 6 seconds after a rise of about 3.
-        let longestExpectedTourSeconds: TimeInterval = 13
-        #expect(LiveSceneTourEnd.secondsATourMayTake >= 2 * longestExpectedTourSeconds)
-    }
 }

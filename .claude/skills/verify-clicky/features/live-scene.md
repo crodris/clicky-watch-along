@@ -9,6 +9,7 @@ Saying "quiz" or "test me" plays the same scene with one label hidden as "?", th
 - `scene-explore` builds a scene and tours every labeled part.
 - `scene-quiz` hides one label, asks about it after the tour, and grades the spoken answer.
 - `scene-failure` says "Sorry, I couldn't build that one." on a timeout, an error, or a 422, and resumes a video it paused.
+- `scene-tour-deadline` ends a tour that its page never ended 30 seconds after the page started, so the narration or the quiz question still comes.
 - `scene-route` is the Worker's `/live-scene` route, which returns the page and the quiz.
 
 ## How to get to it (user POV)
@@ -49,7 +50,8 @@ Preconditions:
   The stub answers `POST /live-scene` with a page that shows two labels and never ends its tour, and passes every other route through.
   Run `$V app-wait 120`.
   About 30 seconds after the stub's `answered POST /live-scene` line, the app log shows `Live scene: the page did not end its tour within 30 seconds, so Clicky ended it`, the narration is spoken, and the rehearsal finishes in phase `allLabelsShowing`.
-  Before the fix, the rehearsal never finished and Clicky said nothing after the stub's `passed POST /chat` line.
+  A rehearsal that never finishes, with nothing spoken after the stub's `passed POST /chat` line, means the deadline did not run.
+  The Worker on 8796 is gone after the swap, so `app-wait` prints `usage lines: unavailable`, and the passed requests' usage lines are in `worker-8797.log`.
   Stop the stub with `pkill -f stuck-tour-scene-stub.mjs` after `$V cleanup`.
 - **Cost ceiling.** One `[/live-scene]` usage line per request.
   Two lines mean the reply failed the page checks once and the route retried, and the report names the retry.
