@@ -596,9 +596,15 @@ final class AgentListPanelController {
 
 /// This panel never becomes key, so its rows get hover and the pointing hand from an always-active tracking area
 /// instead of SwiftUI's hover or cursor rects, the same way LiveSceneWebView gets mouse moves.
-private final class HoverAndPointerNSView: NSView {
+///
+/// A tracking area reports an entry only when the mouse moves across its edge, so a view that appears under a still
+/// pointer, such as a panel that opens there, would show no hover until the next mouse move. Each time the tracking area
+/// is laid out, the view checks where the mouse already is and reports the hover at once (`reportTheHover`).
+final class HoverAndPointerNSView: NSView {
     var onHoverChange: ((Bool) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
+    /// The last hover this view reported, so a check of where the mouse already is never reports the same one twice.
+    private(set) var reportedHover = false
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -613,15 +619,44 @@ private final class HoverAndPointerNSView: NSView {
         )
         addTrackingArea(trackingArea)
         hoverTrackingArea = trackingArea
+        reportTheHoverWhereTheMouseAlreadyIs()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // The window may not be on screen yet in this turn, so the check waits for the next one.
+        DispatchQueue.main.async { [weak self] in self?.reportTheHoverWhereTheMouseAlreadyIs() }
+    }
+
+    /// Where the mouse is in a window's coordinates. A test passes a fixed point, since a CI runner's background session has
+    /// no mouse to read.
+    var mouseLocationInTheWindow: (NSWindow) -> CGPoint = { $0.mouseLocationOutsideOfEventStream }
+
+    private func reportTheHoverWhereTheMouseAlreadyIs() {
+        guard let window, window.isVisible else { return }
+        reportTheHover(atMouseLocationInTheView: convert(mouseLocationInTheWindow(window), from: nil))
+    }
+
+    /// Reports a hover from where the mouse is, in this view's coordinates, with no mouse event needed.
+    func reportTheHover(atMouseLocationInTheView mouseLocationInTheView: CGPoint) {
+        reportTheHover(visibleRect.contains(mouseLocationInTheView))
+        if reportedHover { NSCursor.pointingHand.set() }
+    }
+
+    /// Reports a hover that changed, and nothing for one that did not.
+    func reportTheHover(_ isHovered: Bool) {
+        guard isHovered != reportedHover else { return }
+        reportedHover = isHovered
+        onHoverChange?(isHovered)
     }
 
     override func mouseEntered(with event: NSEvent) {
-        onHoverChange?(true)
+        reportTheHover(true)
     }
 
     override func mouseExited(with event: NSEvent) {
         NSCursor.arrow.set()
-        onHoverChange?(false)
+        reportTheHover(false)
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -1553,8 +1588,8 @@ struct ApprovalCardView: View {
 }
 
 /// One of the card's three equal buttons. They share one look, with no red or green, so no color picks a side. A
-/// disabled button keeps the arrow, shows no hover, and does nothing. Plain `.focusable()` lets Tab reach it with Full
-/// Keyboard Access off, once the card sits on a surface that takes the keyboard.
+/// disabled button keeps the arrow, shows no hover, and does nothing. `panelKeyboardControl` lets Tab reach an enabled one
+/// with Full Keyboard Access off, on a surface that takes the keyboard, and Return or Space answers with it.
 private struct ApprovalAnswerButton: View {
     let title: String
     let isEnabled: Bool
@@ -1578,7 +1613,8 @@ private struct ApprovalAnswerButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .focusable()
+        // Tab reaches the button, Return or Space answers, and a dimmed Allow button refuses, as a click does.
+        .panelKeyboardControl(cornerRadius: DS.CornerRadius.medium, isEnabled: isEnabled, action: action)
         .hoverAndPointer(isEnabled: isEnabled) { isHovered = $0 }
         .accessibilityLabel(title)
     }

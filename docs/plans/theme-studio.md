@@ -147,7 +147,7 @@ nonisolated struct CustomThemeSounds: Equatable, Codable, Sendable { let done: T
 - `cursorColor` and `cursorContrastColor` come from the theme's two colors, and `cursorVolleyballColors` is nil.
 - `nextHaikyuPlayer` returns nil, so agents have no player.
 - `CompanionTheme.allChoices` stays the built-in list. The settings dial's Team fan lists it, then the 3 newest saved themes (`SettingsDialFans`, added in #57).
-  The menu bar panel's "Team theme" section lists the built-in choices, then the saved custom themes.
+  The menu bar panel shows every theme as a card: up to five on its home, and the built-in themes then the saved ones on its "All themes" page.
 
 `CompanionThemeSettings` gets `@Published var previewTheme: CompanionTheme?` and `var shownTheme: CompanionTheme { previewTheme ?? theme }`.
 Every view that draws the theme reads `shownTheme`. Only the saved `theme` is written to UserDefaults.
