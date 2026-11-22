@@ -79,7 +79,7 @@ struct VoiceCommandEarlyLineTests {
         #expect(earlyLineIsWorthFetching(turnToolNames: ["rotate_model", "zoom"], lookupToolNames: lookups))
         #expect(earlyLineIsWorthFetching(turnToolNames: ["undo_last_change"], lookupToolNames: lookups))
         // These lines never play, so each fetch would only bill ElevenLabs.
-        for handOffToolName in ["pop_out", "build_new_scene", "answer_with_screen", "animate_picture", "close_scene", "build_simulation"] {
+        for handOffToolName in ["pop_out", "build_new_scene", "answer_with_screen", "animate_picture", "show_art_in_my_room", "close_scene", "build_simulation"] {
             #expect(!earlyLineIsWorthFetching(turnToolNames: ["rotate_model", handOffToolName], lookupToolNames: lookups), "\(handOffToolName)")
         }
         #expect(!earlyLineIsWorthFetching(turnToolNames: ["find_moment", "seek_to_time"], lookupToolNames: lookups))
@@ -90,7 +90,7 @@ struct VoiceCommandEarlyLineTests {
     @Test func theToolsThatMayHandOffAreTheOnesWhoseStepHandsOff() {
         let handOffTools = Set(AppVoiceTool.allCases.filter(\.mayHandOff).map(\.rawValue))
         #expect(handOffTools == [
-            "answer_with_screen", "build_new_scene", "build_simulation", "pop_out", "animate_picture", "close_scene",
+            "answer_with_screen", "build_new_scene", "build_simulation", "pop_out", "animate_picture", "show_art_in_my_room", "close_scene",
             "explain_part", "end_quiz", "show_ready_model", "hear_task_answer", "design_theme",
         ])
     }
