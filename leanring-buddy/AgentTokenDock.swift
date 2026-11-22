@@ -157,6 +157,9 @@ struct AgentTokenDiscContent: View {
 
     var body: some View {
         discView
+            // A paused agent's disc grays before it folds into the paused disc, and its color returns as it is sent back.
+            .grayscale(store.agentsArePaused ? 1 : 0)
+            .animation(.easeOut(duration: AgentTokenGather.graySeconds), value: store.agentsArePaused)
             .frame(width: AgentTokenMetrics.panelWidth)
             .frame(maxHeight: .infinity)
             .overlay {
@@ -190,6 +193,13 @@ struct AgentTokenDiscContent: View {
         switch tokenSlot {
         case .overflow:
             return "\(overflowCount) more agents"
+        case .paused:
+            // The caption says how to go on, which a VoiceOver user cannot read from the pause bars.
+            let pausedContent = agentTokenPausedPeekContent(
+                pausedAgentCount: pausedAgentCount(of: store.agents),
+                anApprovalWaits: !store.agentIDsWaitingForApproval.isEmpty
+            )
+            return "\(pausedContent.title). \(pausedContent.caption)"
         case .agent(let agentID):
             guard let agent = store.agents.first(where: { $0.id == agentID }) else { return "Agent" }
             let content = agentTokenPeekContent(
@@ -216,6 +226,8 @@ struct AgentTokenDiscContent: View {
             }
         case .overflow:
             AgentOverflowDiscView(overflowCount: overflowCount, isHovered: discModel.isHovered)
+        case .paused:
+            AgentPausedDiscView(pausedAgentCount: pausedAgentCount(of: store.agents), isHovered: discModel.isHovered)
         }
     }
 }
@@ -298,6 +310,10 @@ final class AgentTokenDockController {
     private var pollTimer: Timer?
     private var observers: [Any] = []
     private var storeCancellable: AnyCancellable?
+    /// Whether every agent was paused at the last refresh, so a refresh that sees it change plays the gather or the send back.
+    private var agentsWerePausedAtTheLastRefresh = false
+    /// The discs sent back to their places after a pause, still in the air, so a push-to-talk press can land them.
+    private var sendBackFlights: [CarrierFlight] = []
     /// The token that flies to its slot right now, and the disc it lands on. Nil when no serve runs.
     private var flight: CarrierFlight?
     private var discIDTheFlightLandsOn: AgentTokenDiscID?
@@ -367,10 +383,26 @@ final class AgentTokenDockController {
     private func refresh(discIDAwaitingTheServe: AgentTokenDiscID? = nil) {
         let now = Date()
         let rankedAgents = agentsWithTokens(from: store.agents, at: now)
+        let agentsArePaused = store.agentsArePaused
+        let pauseMove = agentTokenPauseMove(
+            agentsWerePaused: agentsWerePausedAtTheLastRefresh,
+            agentsArePaused: agentsArePaused,
+            reduceMotionIsOn: reduceMotionIsOn
+        )
+        agentsWerePausedAtTheLastRefresh = agentsArePaused
+        // A disc still flying back from the last resume lands first, so a new pause gathers it from its place.
+        if pauseMove != nil {
+            for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
+        }
         guard !rankedAgents.isEmpty else {
             removeEveryDisc()
             stopPolling()
             return
+        }
+        // Where the paused disc sits on each display, which the gather slides into and the send back leaves from.
+        var pausedDiscPanelFramesByDisplayID: [CGDirectDisplayID: CGRect] = [:]
+        for (discID, disc) in discsByID where discID.tokenSlot == .paused {
+            pausedDiscPanelFramesByDisplayID[discID.displayID] = disc.panel.frame
         }
         startPollingIfNeeded()
         readTheFrontAppMenuTitlesIfTheAppChanged()
@@ -408,10 +440,12 @@ final class AgentTokenDockController {
                 rankedAgentIDs: rankedAgentIDs,
                 positionCount: agentTokenPositionCount(freeSpaceMinX: freeSpaceMinX, endOfFreeSpaceX: endOfFreeSpaceX)
             )
-            shownAgentIDsByDisplayID[displayID] = layout.shownAgentIDs
+            // While paused, the positions the tokens had wait unchanged, so each one goes back to its own place.
+            if !agentsArePaused {
+                shownAgentIDsByDisplayID[displayID] = layout.shownAgentIDs
+            }
 
-            var tokenSlotsLeftToRight = layout.shownAgentIDs.map(AgentTokenSlot.agent)
-            if layout.overflowCount > 0 { tokenSlotsLeftToRight.append(.overflow) }
+            let tokenSlotsLeftToRight = agentTokenSlotsLeftToRight(layout: layout, agentsArePaused: agentsArePaused)
             for (position, tokenSlot) in tokenSlotsLeftToRight.enumerated() {
                 let discLeftEdgeX = freeSpaceMinX + AgentTokenMetrics.spaceBeforeTheFirstDisc + CGFloat(position) * AgentTokenMetrics.panelWidth
                 let panelFrame = CGRect(
@@ -422,17 +456,27 @@ final class AgentTokenDockController {
                 )
                 let discID = AgentTokenDiscID(displayID: displayID, tokenSlot: tokenSlot)
                 discIDsOnScreen.insert(discID)
+                if tokenSlot == .paused {
+                    pausedDiscPanelFramesByDisplayID[displayID] = panelFrame
+                }
+                let sentBackFrom = pauseMove == .sendBackToTheirPlaces ? pausedDiscPanelFramesByDisplayID[displayID] : nil
                 place(
                     discID: discID,
                     overflowCount: layout.overflowCount,
                     panelFrame: panelFrame,
-                    isAnOpenSlotAwaitingItsToken: discID == discIDAwaitingTheServe
+                    isAnOpenSlotAwaitingItsToken: discID == discIDAwaitingTheServe,
+                    sentBackFromPausedDiscPanelFrame: sentBackFrom,
+                    pauseMove: pauseMove
                 )
             }
         }
 
         for (discID, disc) in discsByID where !discIDsOnScreen.contains(discID) {
-            remove(disc)
+            if pauseMove == .gatherIntoThePausedDisc, let pausedDiscPanelFrame = pausedDiscPanelFramesByDisplayID[discID.displayID] {
+                gather(disc, intoPausedDiscPanelFrame: pausedDiscPanelFrame)
+            } else {
+                remove(disc, crossfadeSeconds: pauseMove == nil ? nil : DS.Move.fadeSeconds)
+            }
             discsByID[discID] = nil
         }
         // A token cannot land on a disc that left, such as an agent cancelled mid-flight.
@@ -460,10 +504,22 @@ final class AgentTokenDockController {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
+    /// How long a disc fades in or out when it comes or goes.
+    private static let discFadeSeconds: Double = 0.2
+
     /// Moves a disc's panel to its position, or creates it there. A new disc fades in at its position, and the others slide
     /// to close a gap. With Reduce Motion on, a disc just appears in its position. A disc made for a serve starts as an open
-    /// slot that stays hidden until `startServingTheToken` decides how its token arrives.
-    private func place(discID: AgentTokenDiscID, overflowCount: Int, panelFrame: CGRect, isAnOpenSlotAwaitingItsToken: Bool) {
+    /// slot that stays hidden until `startServingTheToken` decides how its token arrives. A pause or a resume changes that:
+    /// the paused disc waits for the gather, a disc sent back flies from the paused disc (`sentBackFromPausedDiscPanelFrame`),
+    /// and with Reduce Motion on each crossfades over the fade time.
+    private func place(
+        discID: AgentTokenDiscID,
+        overflowCount: Int,
+        panelFrame: CGRect,
+        isAnOpenSlotAwaitingItsToken: Bool,
+        sentBackFromPausedDiscPanelFrame: CGRect? = nil,
+        pauseMove: AgentTokenPauseMove? = nil
+    ) {
         if let existingDisc = discsByID[discID] {
             if case .overflow = discID.tokenSlot {
                 existingDisc.overflowCount = overflowCount
@@ -480,7 +536,7 @@ final class AgentTokenDockController {
                 existingDisc.panel.setFrame(panelFrame, display: true)
             } else {
                 NSAnimationContext.runAnimationGroup { animationContext in
-                    animationContext.duration = 0.2
+                    animationContext.duration = Self.discFadeSeconds
                     existingDisc.panel.animator().setFrame(panelFrame, display: true)
                 }
             }
@@ -498,7 +554,20 @@ final class AgentTokenDockController {
         )
         displayedDisc.panel.setFrame(panelFrame, display: false)
         discsByID[discID] = displayedDisc
-        if isAnOpenSlotAwaitingItsToken {
+        if let sentBackFromPausedDiscPanelFrame, case .agent(let agentID) = discID.tokenSlot {
+            sendBack(displayedDisc, agentID: agentID, onDisplay: discID.displayID, fromPausedDiscPanelFrame: sentBackFromPausedDiscPanelFrame)
+        } else if pauseMove != nil {
+            // The paused disc shows once the discs have grayed and slid into it, and with Reduce Motion every disc crossfades.
+            let fadeDelay = pauseMove == .gatherIntoThePausedDisc ? AgentTokenGather.graySeconds + AgentTokenGather.slideSeconds / 2 : 0
+            displayedDisc.panel.alphaValue = 0
+            displayedDisc.panel.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + fadeDelay) {
+                NSAnimationContext.runAnimationGroup { animationContext in
+                    animationContext.duration = DS.Move.fadeSeconds
+                    displayedDisc.panel.animator().alphaValue = 1
+                }
+            }
+        } else if isAnOpenSlotAwaitingItsToken {
             displayedDisc.panel.alphaValue = 0
             displayedDisc.panel.orderFrontRegardless()
         } else if reduceMotionIsOn {
@@ -507,31 +576,78 @@ final class AgentTokenDockController {
             displayedDisc.panel.alphaValue = 0
             displayedDisc.panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.2
+                animationContext.duration = Self.discFadeSeconds
                 displayedDisc.panel.animator().alphaValue = 1
             }
         }
     }
 
-    private func remove(_ disc: AgentTokenDisc) {
-        if let discID = discsByID.first(where: { $0.value === disc })?.key {
-            if discID == discIDOfThePeek { hideThePeek() }
-            // A disc that leaves takes the keyboard focus ring with it, so a later end of that focus changes nothing.
-            if discID == discIDWithTheKeyboardFocus { discIDWithTheKeyboardFocus = nil }
-        }
-        if reduceMotionIsOn {
+    /// Fades a disc out and drops it, and with Reduce Motion on drops it at once. A pause or a resume passes
+    /// `crossfadeSeconds`, since its Reduce Motion form is a crossfade, so the disc fades over that time either way.
+    private func remove(_ disc: AgentTokenDisc, crossfadeSeconds: Double? = nil) {
+        forgetThePeekAndTheFocus(of: disc)
+        if reduceMotionIsOn && crossfadeSeconds == nil {
             disc.panel.orderOut(nil)
             disc.panel.contentView = nil
             return
         }
         NSAnimationContext.runAnimationGroup { animationContext in
-            animationContext.duration = 0.2
+            animationContext.duration = crossfadeSeconds ?? Self.discFadeSeconds
             disc.panel.animator().alphaValue = 0
         } completionHandler: {
             disc.panel.orderOut(nil)
             // Dropping the view stops its ring's animation.
             disc.panel.contentView = nil
         }
+    }
+
+    /// A disc that leaves takes its peek card and the keyboard focus ring with it, so a later end of that focus changes
+    /// nothing.
+    private func forgetThePeekAndTheFocus(of disc: AgentTokenDisc) {
+        guard let discID = discsByID.first(where: { $0.value === disc })?.key else { return }
+        if discID == discIDOfThePeek { hideThePeek() }
+        if discID == discIDWithTheKeyboardFocus { discIDWithTheKeyboardFocus = nil }
+    }
+
+    // MARK: Pause
+
+    /// "Hold on": the disc has grayed (`AgentTokenDiscContent`), and now slides into the paused disc's place as it shrinks
+    /// and fades, on the Recall move's curve.
+    private func gather(_ disc: AgentTokenDisc, intoPausedDiscPanelFrame pausedDiscPanelFrame: CGRect) {
+        forgetThePeekAndTheFocus(of: disc)
+        DispatchQueue.main.asyncAfter(deadline: .now() + AgentTokenGather.graySeconds) {
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = AgentTokenGather.slideSeconds
+                animationContext.timingFunction = AgentTokenGather.slideTimingFunction
+                disc.panel.animator().setFrame(AgentTokenGather.endFrame(intoPausedDiscPanelFrame: pausedDiscPanelFrame), display: true)
+                disc.panel.animator().alphaValue = 0
+            } completionHandler: {
+                disc.panel.orderOut(nil)
+                disc.panel.contentView = nil
+            }
+        }
+    }
+
+    /// "Go ahead": the disc flies from the paused disc back to its place on the Send move, tethered in the agent's color, and
+    /// shows in its place as it lands. A push-to-talk press lands it at once (`finishTheServeAtOnce`).
+    private func sendBack(_ disc: AgentTokenDisc, agentID: UUID, onDisplay displayID: CGDirectDisplayID, fromPausedDiscPanelFrame pausedDiscPanelFrame: CGRect) {
+        disc.panel.alphaValue = 0
+        disc.panel.orderFrontRegardless()
+        let tokenSide = AgentTokenMetrics.panelWidth
+        let agentColor = store.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary
+        let path = agentTokenServePath(
+            from: CGPoint(x: pausedDiscPanelFrame.midX, y: pausedDiscPanelFrame.midY),
+            to: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY)
+        )
+        let sendBackFlight = TetherCarrier.shared.play(
+            .send(along: path, carriedSize: CGSize(width: tokenSide, height: tokenSide)),
+            carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: .agent(agentID), overflowCount: 0),
+            onDisplay: displayID,
+            tetherColor: NSColor(agentColor),
+            onLanded: { disc.panel.alphaValue = 1 },
+            onGone: { [weak self] goneFlight in self?.sendBackFlights.removeAll { $0 === goneFlight } }
+        )
+        sendBackFlights.append(sendBackFlight)
     }
 
     private func removeEveryDisc() {
@@ -620,6 +736,7 @@ final class AgentTokenDockController {
         landTheServeAtOnce()
         for gatherFlight in gatherFlights { gatherFlight.landAtOnce() }
         for bringBackFlight in bringBackFlights { bringBackFlight.landAtOnce() }
+        for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
     }
 
     private func landTheServeAtOnce() {
@@ -788,6 +905,9 @@ final class AgentTokenDockController {
     /// with no discs, or a display that is gone gets no spark, and the chip shows at once. A push-to-talk press lands the
     /// spark at once (`finishTheServeAtOnce`).
     func bringBack(agentID: UUID, in agentColor: Color, showTheChip: @escaping () -> Void) {
+        // An ending held through a pause comes right after "go ahead", while the disc may still fly back to its place, so
+        // the disc lands first and the spark leaves from it.
+        for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
         let mouseLocation = NSEvent.mouseLocation
         let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
         guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID),
@@ -874,6 +994,11 @@ final class AgentTokenDockController {
             accentColor = DS.Colors.textSecondary
             let overflowCount = disc.overflowCount
             contentAt = { _ in agentTokenOverflowPeekContent(overflowCount: overflowCount) }
+        case .paused:
+            accentColor = DS.Colors.textSecondary
+            contentAt = { _ in
+                agentTokenPausedPeekContent(pausedAgentCount: pausedAgentCount(of: store.agents), anApprovalWaits: !store.agentIDsWaitingForApproval.isEmpty)
+            }
         }
         discIDOfThePeek = discID
         peekController.show(contentAt: contentAt, accentColor: accentColor, discPanelFrame: disc.panel.frame, on: screen)
