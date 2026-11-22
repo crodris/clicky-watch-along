@@ -439,7 +439,7 @@ final class InstantReplayController: ObservableObject {
         if freezingTheCursor && isOpen { stage.freezeTheCursor() }
     }
 
-    /// Turns the camera to the open stop, waits for it to settle, flies the cursor to the label, and in a play-through
+    /// Turns the camera to the open stop, waits for it to settle, flies the cursor to the part, and in a play-through
     /// holds the sentence for its dwell and moves on. Every wait checks the generation it started with.
     private func travelToTheOpenStop() {
         guard let stopIndex = phase.openStopIndex, stops.indices.contains(stopIndex) else { return }

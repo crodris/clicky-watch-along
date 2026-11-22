@@ -972,9 +972,10 @@ struct leanring_buddyTests {
         let anchorWithAWord = labelFields.merging(["anchor": ["x": "420", "y": NSNumber(value: 300)]]) { _, new in new }
         let anchorWithAMissingY = labelFields.merging(["anchor": ["x": NSNumber(value: 420)]]) { _, new in new }
         let anchorThatIsNotAnObject = labelFields.merging(["anchor": "420,300"]) { _, new in new }
-        let anchorThatIsNotFinite = labelFields.merging(["anchor": ["x": NSNumber(value: Double.infinity), "y": NSNumber(value: 300)]]) { _, new in new }
+        let anchorWithAnInfiniteX = labelFields.merging(["anchor": ["x": NSNumber(value: Double.infinity), "y": NSNumber(value: 300)]]) { _, new in new }
+        let anchorWithAnInfiniteY = labelFields.merging(["anchor": ["x": NSNumber(value: 420), "y": NSNumber(value: Double.infinity)]]) { _, new in new }
         let frame = CGRect(x: 0, y: 0, width: 1512, height: 982)
-        for pageValue in [noAnchorKey, nullAnchor, anchorWithAWord, anchorWithAMissingY, anchorThatIsNotAnObject, anchorThatIsNotFinite] {
+        for pageValue in [noAnchorKey, nullAnchor, anchorWithAWord, anchorWithAMissingY, anchorThatIsNotAnObject, anchorWithAnInfiniteX, anchorWithAnInfiniteY] {
             let labelRect = try #require(LiveScenePartLabelRectInPage(pageValue: pageValue))
             #expect(labelRect.anchor == nil)
             // The middle of the box's bottom edge: x 900 + 40, y 40 + 24 = 64 down from the top.

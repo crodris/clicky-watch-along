@@ -5742,7 +5742,7 @@ final class CompanionManager: ObservableObject {
 
     /// The replay points the buddy with its own hold. A point equal to the one the buddy already has would not reach the
     /// overlay's onChange, so it moves by a hundredth of a point, which a frozen buddy needs to fly again.
-    /// Returns how long the cursor's flight to the label takes: from the point the cursor points at, such as the stop before
+    /// Returns how long the cursor's flight to the part takes: from the point the cursor points at, such as the stop before
     /// or the narration's last part, or else from the mouse, where the cursor follows it.
     private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) -> TimeInterval {
         let mouseLocation = NSEvent.mouseLocation
