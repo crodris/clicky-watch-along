@@ -804,6 +804,8 @@ final class RoomArtPreviewController: ObservableObject {
         var speak: (_ line: String, _ isAFailure: Bool) -> Void
         /// The theme's accent, which Clicky's loop is drawn in. Read each time the panel draws it.
         var loopAccentColor: () -> Color
+        /// The theme's cursor, which traces Clicky's loop in the panel. Read each time the panel draws it.
+        var loopTracerLook: () -> CursorLoopTracerLook? = { nil }
         /// Runs on every close, from Escape, the Close button, or a new request, so a line about this panel that is
         /// still waiting or playing ends with it.
         var endTheSpokenLine: () -> Void
@@ -830,6 +832,7 @@ final class RoomArtPreviewController: ObservableObject {
             clearTheLiveScene: @escaping () -> Void,
             speak: @escaping (String, Bool) -> Void,
             loopAccentColor: @escaping () -> Color,
+            loopTracerLook: @escaping () -> CursorLoopTracerLook?,
             endTheSpokenLine: @escaping () -> Void
         ) -> Environment {
             let roomArtClient = RoomArtClient(workerBaseURL: workerBaseURL)
@@ -857,6 +860,7 @@ final class RoomArtPreviewController: ObservableObject {
                 clearTheLiveScene: clearTheLiveScene,
                 speak: speak,
                 loopAccentColor: loopAccentColor,
+                loopTracerLook: loopTracerLook,
                 endTheSpokenLine: endTheSpokenLine,
                 findTheStoreModel: { pageURL in await RoomFurnitureModelLoading.findTheStoreModel(onThePageAt: pageURL) },
                 furnitureGeneration: RoomFurnitureGenerationClient(workerBaseURL: workerBaseURL),
@@ -951,6 +955,9 @@ final class RoomArtPreviewController: ObservableObject {
 
     /// The theme's accent, which the panel draws the loop in.
     var loopAccentColor: Color { environment.loopAccentColor() }
+
+    /// The theme's cursor, which traces the loop in the panel.
+    var loopTracerLook: CursorLoopTracerLook? { environment.loopTracerLook() }
 
     // MARK: The furniture's looks
 
@@ -1689,6 +1696,7 @@ private struct RoomArtPanelView: View {
                 RoomArtLoopView(
                     state: previewController.loopState,
                     color: previewController.loopAccentColor,
+                    tracerLook: previewController.loopTracerLook,
                     outlineProvider: {
                         previewController.currentLoopOutline(cameraSize: metalLayer.drawableSize, panelSize: RoomArtPanelController.panelSize)
                     },

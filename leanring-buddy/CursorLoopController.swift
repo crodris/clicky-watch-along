@@ -96,7 +96,21 @@ final class CursorLoopController: ObservableObject {
 
     var isShowingTheLoop: Bool { state.loopIsShowing }
 
-    /// Whether the loop shows on the screen with this frame. The cursor's cue asks per screen, since the loop's spark
+    /// The screen whose buddy is away drawing the loop, from its flight to the line's start until it is back at the mouse.
+    /// The loop draws only on the screen that holds the media, and the mouse may be on another, so every other screen hides
+    /// its buddy meanwhile, the way a pointing on another display hides it.
+    @Published private(set) var screenFrameWhereTheBuddyDrawsTheLoop: CGRect?
+
+    func theBuddyStartedDrawingTheLoop(onScreenWithFrame screenFrame: CGRect) {
+        screenFrameWhereTheBuddyDrawsTheLoop = screenFrame
+    }
+
+    func theBuddyFinishedDrawingTheLoop(onScreenWithFrame screenFrame: CGRect) {
+        guard screenFrameWhereTheBuddyDrawsTheLoop == screenFrame else { return }
+        screenFrameWhereTheBuddyDrawsTheLoop = nil
+    }
+
+    /// Whether the loop shows on the screen with this frame. The cursor's cue asks per screen, since the loop's shimmer
     /// lights the thinking only where the loop is, and the screen under the cursor needs the dots when it has none.
     func isShowingTheLoop(onScreenWithFrame screenFrame: CGRect) -> Bool {
         state.loopIsShowing && loopToDraw(onScreenWithFrame: screenFrame) != nil
@@ -241,7 +255,7 @@ final class CursorLoopController: ObservableObject {
             lineRect: lineRect,
             seed: CursorLoopOutline.seed(for: mediaRect),
             beganAt: loopOnTheMedia.since,
-            sparkSlowsAt: loopOnTheMedia.sparkSlowsAt,
+            shimmerSlowsAt: loopOnTheMedia.shimmerSlowsAt,
             isFadingOut: loopOnTheMedia.isFadingOut
         )
     }

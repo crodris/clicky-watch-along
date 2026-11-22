@@ -230,14 +230,23 @@ struct RoomArtLoopOutlineTests {
         #expect(RoomArtLoopOutline.path(for: degenerate, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)) == nil)
     }
 
-    @Test func theLoopUsesTheCursorLoopsTimelineAndReduceMotionDrawsTheWholeLineWithNoSpark() {
-        let normal = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.65, reduceMotionIsOn: false)
-        #expect(normal.showsTheSpark)
-        #expect(abs(normal.frame.drawnShare - 0.35) < 1e-9)
+    @Test func theGlyphTracesTheLineFromTheLoopsStartThenLapsItAndReduceMotionDrawsTheWholeLineWithNoGlyph() {
+        let tracing = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 0.5, reduceMotionIsOn: false)
+        #expect(tracing.showsTheTracer)
+        #expect(tracing.frame == CursorLoopTimeline.Frame(drawnShare: 0.5, tracer: .tracing(share: 0.5)))
+
+        let lapping = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: 1 + 1.1, reduceMotionIsOn: false)
+        #expect(lapping.showsTheTracer)
+        #expect(lapping.frame.drawnShare == 1)
+        guard case .lapping(let lapShare) = lapping.frame.tracer else {
+            Issue.record("the glyph should lap the finished line")
+            return
+        }
+        #expect(abs(lapShare - 0.5) < 1e-9)
 
         for seconds in [0.0, 0.65, 9] {
             let reduced = RoomArtLoopDrawingPlan.at(secondsSinceTheLoopBegan: seconds, reduceMotionIsOn: true)
-            #expect(!reduced.showsTheSpark)
+            #expect(!reduced.showsTheTracer)
             #expect(reduced.frame.drawnShare == 1)
         }
     }
@@ -250,15 +259,16 @@ struct RoomArtLoopRenderTests {
     private let accentRGB: (red: Int, green: Int, blue: Int) = (249, 115, 22)
 
     /// The rendered loop as 8-bit RGBA bytes at 2x, drawn into a known layout so no pixel read depends on the renderer's.
-    private func renderedLoop(showsTheSpark: Bool) throws -> (bytes: [UInt8], width: Int, height: Int, path: Path) {
+    private func renderedLoop(tracerLook: CursorLoopTracerLook? = nil, tracer: CursorLoopTimeline.TracerPlace = .lapping(lapShare: 0.5), showsTheTracer: Bool = true) throws -> (bytes: [UInt8], width: Int, height: Int, path: Path) {
         let keyframe = RoomArtLoopGeometry.keyframeCorners(around: CGPoint(x: 640, y: 250), frameSize: cameraFrame, on: .wall)
         let snapshot = RoomArtLoopSnapshot(keyframeCorners: keyframe, currentCorners: keyframe)
         let path = try #require(RoomArtLoopOutline.path(for: snapshot, fit: RoomArtVideoFit(cameraSize: cameraFrame, viewSize: panelSize)))
         let canvas = RoomArtLoopCanvas(
             outline: path,
-            frame: CursorLoopTimeline.Frame(drawnShare: 1, spark: .onTheLoop(share: 0.5)),
+            frame: CursorLoopTimeline.Frame(drawnShare: 1, tracer: tracer),
             color: Color(hex: "#F97316"),
-            showsTheSpark: showsTheSpark
+            tracerLook: tracerLook,
+            showsTheTracer: showsTheTracer
         )
         let renderer = ImageRenderer(content: canvas.frame(width: panelSize.width, height: panelSize.height))
         renderer.scale = 2
@@ -284,7 +294,7 @@ struct RoomArtLoopRenderTests {
     }
 
     @Test func theLineIsDrawnInTheAccentColorAndStaysInsideThePanel() throws {
-        let render = try renderedLoop(showsTheSpark: true)
+        let render = try renderedLoop()
         #expect(render.width == 1920 && render.height == 1080)
 
         var accentPixelCount = 0
@@ -302,19 +312,69 @@ struct RoomArtLoopRenderTests {
         }
         // A 3 point line is 6 pixels wide at 2x and the line is over 700 points long.
         #expect(accentPixelCount > 3_000)
-        // The drawing covers the line's own box, with room for its width and the spark's glow, and nothing beyond.
+        // The drawing covers the line's own box, with room for its width and the glyph and its glow, and nothing beyond.
         let pathBoundsInPixels = CGRect(x: render.path.boundingRect.minX * 2, y: render.path.boundingRect.minY * 2, width: render.path.boundingRect.width * 2, height: render.path.boundingRect.height * 2)
         #expect(drawnBounds.minX >= pathBoundsInPixels.minX - 30 && drawnBounds.maxX <= pathBoundsInPixels.maxX + 30)
         #expect(drawnBounds.minY >= pathBoundsInPixels.minY - 30 && drawnBounds.maxY <= pathBoundsInPixels.maxY + 30)
         #expect(drawnBounds.minX <= pathBoundsInPixels.minX + 10 && drawnBounds.maxX >= pathBoundsInPixels.maxX - 10)
     }
 
-    @Test func theSparkIsAWhiteDotWithAnAccentOutlineAndReduceMotionDrawsNone() throws {
-        func whitePixelCount(_ render: (bytes: [UInt8], width: Int, height: Int, path: Path)) -> Int {
-            stride(from: 0, to: render.bytes.count, by: 4).filter { render.bytes[$0] > 240 && render.bytes[$0 + 1] > 240 && render.bytes[$0 + 2] > 240 && render.bytes[$0 + 3] > 240 }.count
+    /// The pixels that differ between two renders, which is what the tracer drew.
+    private func boundsOfTheTracer(in render: (bytes: [UInt8], width: Int, height: Int, path: Path), comparedWith lineOnly: (bytes: [UInt8], width: Int, height: Int, path: Path)) -> (bounds: CGRect, seamPixelCount: Int, accentBluePixelCount: Int) {
+        var bounds = CGRect.null
+        var seamPixelCount = 0
+        var accentBluePixelCount = 0
+        for row in 0..<render.height {
+            for column in 0..<render.width {
+                let offset = (row * render.width + column) * 4
+                let differs = (0..<4).contains { abs(Int(render.bytes[offset + $0]) - Int(lineOnly.bytes[offset + $0])) > 24 }
+                guard differs else { continue }
+                bounds = bounds.union(CGRect(x: column, y: row, width: 1, height: 1))
+                let red = Int(render.bytes[offset]), green = Int(render.bytes[offset + 1]), blue = Int(render.bytes[offset + 2]), alpha = Int(render.bytes[offset + 3])
+                // A school's volleyball has dark seams, opaque and near black, which no triangle has.
+                if alpha >= 250 && red < 60 && green < 60 && blue < 60 { seamPixelCount += 1 }
+                if alpha >= 250 && blue > red + 80 && blue > green + 30 { accentBluePixelCount += 1 }
+            }
         }
+        return (bounds, seamPixelCount, accentBluePixelCount)
+    }
 
-        #expect(whitePixelCount(try renderedLoop(showsTheSpark: true)) > 50)
-        #expect(whitePixelCount(try renderedLoop(showsTheSpark: false)) == 0)
+    private func whitePixelCount(_ render: (bytes: [UInt8], width: Int, height: Int, path: Path)) -> Int {
+        stride(from: 0, to: render.bytes.count, by: 4).filter { render.bytes[$0] > 240 && render.bytes[$0 + 1] > 240 && render.bytes[$0 + 2] > 240 && render.bytes[$0 + 3] > 240 }.count
+    }
+
+    @Test func theTracerIsTheThemesCursorGlyphOnTheLineAndThereIsNoWhiteSpark() throws {
+        let lineOnly = try renderedLoop(showsTheTracer: false)
+        let line = CursorLoopLine(outline: lineOnly.path)
+        let tracerShare = 0.5
+
+        // Under a school theme the tracer is its volleyball, centered on the ink, with the ball's dark seams.
+        let karasuno = CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil)
+        let volleyballRender = try renderedLoop(tracerLook: karasuno, tracer: .tracing(share: tracerShare))
+        let volleyball = boundsOfTheTracer(in: volleyballRender, comparedWith: lineOnly)
+        let ballPlacement = CursorLoopTracerPlacement(on: line, atShare: tracerShare, cursorFacing: karasuno.theme.cursorFacing)
+        #expect(abs(volleyball.bounds.midX / 2 - ballPlacement.glyphCenter.x) < 4)
+        #expect(abs(volleyball.bounds.midY / 2 - ballPlacement.glyphCenter.y) < 6)
+        // The 24 point ball with its glow and contact shadow, and nothing the size of a 9 point spark.
+        #expect(volleyball.bounds.width / 2 > 22 && volleyball.bounds.width / 2 < 60)
+        #expect(volleyball.seamPixelCount > 20)
+        #expect(whitePixelCount(volleyballRender) == 0)
+
+        // Under Clicky blue it is the blue triangle, with no seams, beside the line with its tip on the ink.
+        let clickyBlue = CursorLoopTracerLook(theme: clickyBlueTheme, picture: nil)
+        let triangleRender = try renderedLoop(tracerLook: clickyBlue, tracer: .tracing(share: tracerShare))
+        let triangle = boundsOfTheTracer(in: triangleRender, comparedWith: lineOnly)
+        let trianglePlacement = CursorLoopTracerPlacement(on: line, atShare: tracerShare, cursorFacing: clickyBlue.theme.cursorFacing)
+        #expect(abs(triangle.bounds.midX / 2 - trianglePlacement.glyphCenter.x) < 4)
+        #expect(abs(triangle.bounds.midY / 2 - trianglePlacement.glyphCenter.y) < 6)
+        #expect(triangle.seamPixelCount == 0)
+        #expect(triangle.accentBluePixelCount > 40)
+        #expect(whitePixelCount(triangleRender) == 0)
+    }
+
+    @Test func reduceMotionDrawsNoTracer() throws {
+        let lineOnly = try renderedLoop(showsTheTracer: false)
+        let reduced = try renderedLoop(tracerLook: CursorLoopTracerLook(theme: bundledTheme("school-karasuno"), picture: nil), showsTheTracer: false)
+        #expect(boundsOfTheTracer(in: reduced, comparedWith: lineOnly).bounds.isNull)
     }
 }

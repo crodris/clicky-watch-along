@@ -391,6 +391,9 @@ final class CompanionManager: ObservableObject {
         // shirt's coaching do not.
         speak: { [weak self] line, isAFailure in self?.speakARoomArtLine(line, isAFailure: isAFailure) },
         loopAccentColor: { [weak self] in self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue },
+        loopTracerLook: { [weak self] in
+            self.map { CursorLoopTracerLook(theme: $0.themeSettings.shownTheme, picture: $0.themeSettings.shownThemePicture) }
+        },
         endTheSpokenLine: { [weak self] in self?.stopTheRoomArtSpeech() }
     ))
     /// The room art line waiting for its turn or playing. A new line replaces it, and every close of the panel ends it.
