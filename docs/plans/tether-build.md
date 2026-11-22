@@ -181,4 +181,5 @@ The leftover paragraphs above are a record; this list is what is still open, and
 - An ended approval card leaves at once, with no Glide, when its task ends within the card's 2 second ending, as a fast task does.
   The agent's bring back spark from its disc plays then instead.
 - Known limits, kept: the recap covers only the last quiz and can miss a playlist's end; the scrub was not seen on a non-YouTube player or a second display; a page can steer where the scrub line sits on its own display; a scene build the learner watches waits 60 seconds, which a slow Sonnet test Worker can pass.
-- For Chris by hand: the dark, tinted, and clear app icon modes need the layers imported into Icon Composer, and macOS asks whether Clicky may bypass the system private window picker.
+- For Chris by hand: the dark, tinted, and clear app icon modes need the layers imported into Icon Composer.
+  Chris answered the macOS prompt about bypassing the system private window picker on 2026-11-22.
