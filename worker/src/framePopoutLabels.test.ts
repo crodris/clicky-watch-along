@@ -14,4 +14,13 @@ describe("frame-popout.html part labels", () => {
     expect(framePopoutSource).toMatch(/keepLabelAxisInViewport\(position, halfSize, innerWidth\)/);
     expect(framePopoutSource).toMatch(/keepLabelAxisInViewport\(position, halfSize, innerHeight\)/);
   });
+
+  it("clamps each leader line's part end into the window too, so a line never points off screen after a resize", () => {
+    // Deferred from the quick fixes PR: the label was clamped, but its line still started at the projected part point,
+    // which a window that shrank after the scene loaded leaves outside what shows.
+    expect(framePopoutSource).toMatch(/const anchorX = keepLabelXInViewport\(pointX, 0\), anchorY = keepLabelYInViewport\(pointY, 0\);/);
+    expect(framePopoutSource).toMatch(/entry\.line\.setAttribute\("x1", anchorX\); entry\.line\.setAttribute\("y1", anchorY\);/);
+    expect(framePopoutSource).toMatch(/entry\.dot\.setAttribute\("cx", anchorX\); entry\.dot\.setAttribute\("cy", anchorY\);/);
+    expect(framePopoutSource).not.toMatch(/setAttribute\("x1", pointX\)/);
+  });
 });

@@ -325,6 +325,56 @@ nonisolated func clickyHoldsTheVideoPauseAfterASceneRequest(videoIsPlaying: Bool
     videoIsPlaying || clickyAlreadyHoldsThePause
 }
 
+// MARK: - Summary
+
+/// "2:14" for a time in a video, or "1:02:05" past an hour, as YouTube writes it.
+nonisolated func videoTimestampText(seconds: Double) -> String {
+    let wholeSeconds = max(0, Int(seconds.isFinite ? seconds.rounded(.down) : 0))
+    let hours = wholeSeconds / 3600
+    let minutes = (wholeSeconds % 3600) / 60
+    let secondsPart = wholeSeconds % 60
+    if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, secondsPart) }
+    return String(format: "%d:%02d", minutes, secondsPart)
+}
+
+/// A question of a finished quiz that the learner missed or skipped, which the summary lists so they can go back to it.
+nonisolated struct VideoQuizMissedQuestion: Equatable, Sendable, Identifiable {
+    let question: String
+    /// The video time the quiz paused at, which a click seeks back to.
+    let askedAtSeconds: Double
+    var id: Double { askedAtSeconds }
+    var timestampText: String { videoTimestampText(seconds: askedAtSeconds) }
+}
+
+/// What the Card at the end of a quiz shows: the score and each question to go back to, in video order.
+/// A skip counts as a miss, as it does for the study guide's "Review these first".
+nonisolated struct VideoQuizSummary: Equatable, Sendable {
+    let rightCount: Int
+    let questionCount: Int
+    let missedQuestions: [VideoQuizMissedQuestion]
+
+    /// Nil when the learner finished no question, since a quiz stopped before its first answer has nothing to sum up.
+    init?(quizResults: [StudyGuideQuizResult]) {
+        guard !quizResults.isEmpty else { return nil }
+        questionCount = quizResults.count
+        rightCount = quizResults.filter { $0.result == .gotIt }.count
+        missedQuestions = quizResults
+            .filter { $0.result != .gotIt }
+            .sorted { $0.askedAtSeconds < $1.askedAtSeconds }
+            .map { VideoQuizMissedQuestion(question: $0.question, askedAtSeconds: $0.askedAtSeconds) }
+    }
+
+    var scoreText: String { "\(rightCount) of \(questionCount) right" }
+
+    var captionText: String {
+        switch missedQuestions.count {
+        case 0: return questionCount == 1 ? "You got it right." : "You got every one right."
+        case 1: return "One to look at again. Click it to jump back to it."
+        default: return "\(missedQuestions.count) to look at again. Click one to jump back to it."
+        }
+    }
+}
+
 // MARK: - Session
 
 @MainActor
@@ -343,7 +393,8 @@ final class VideoQuizSession {
     private let workerBaseURL: String
     private let canAskQuestionNow: @MainActor () -> Bool
     private let askQuestion: @MainActor (LiveSceneQuiz, VideoFramePopout?) -> Void
-    private let speakLine: @MainActor (String) -> Void
+    /// Says a line after whatever Clicky is saying. The second value is true for a line that reports a failure, so the cursor shakes.
+    private let speakLine: @MainActor (String, Bool) -> Void
 
     private(set) var isRunning = false
     private var runningTask: Task<Void, Never>?
@@ -366,12 +417,19 @@ final class VideoQuizSession {
     private var studyGuideQuizLog = StudyGuideQuizLog()
     private var consecutiveFailedPlaybackReadCount = 0
     private var framePopoutTasksByMomentIndex: [Int: Task<VideoFramePopout?, Never>] = [:]
+    /// The questions the learner finished in this quiz, for the summary. The study guide's log keeps every quiz of a video.
+    private var quizResultsOfThisQuiz: [StudyGuideQuizResult] = []
+    /// The pop-out each question showed, by the video time it paused at, so the summary can show it again.
+    /// Kept after the quiz ends, until the next quiz starts.
+    private var questionPopoutsByAskedSeconds: [Double: VideoFramePopout] = [:]
+    /// Called once when a quiz ends with at least one question finished, whether every moment was asked or the learner stopped it.
+    var onQuizEnded: ((VideoQuizSummary) -> Void)?
 
     init(
         workerBaseURL: String,
         canAskQuestionNow: @escaping @MainActor () -> Bool,
         askQuestion: @escaping @MainActor (LiveSceneQuiz, VideoFramePopout?) -> Void,
-        speakLine: @escaping @MainActor (String) -> Void
+        speakLine: @escaping @MainActor (String, Bool) -> Void
     ) {
         self.workerBaseURL = workerBaseURL
         self.canAskQuestionNow = canAskQuestionNow
@@ -388,6 +446,8 @@ final class VideoQuizSession {
         askedMomentIndices = []
         consecutiveFailedPlaybackReadCount = 0
         framePopoutTasksByMomentIndex = [:]
+        quizResultsOfThisQuiz = []
+        questionPopoutsByAskedSeconds = [:]
         runningTask = Task {
             await self.planAndRunQuiz()
         }
@@ -408,6 +468,10 @@ final class VideoQuizSession {
         // A failure or a stop during planning would otherwise leave the planning label up.
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
         print("Video quiz: stopped")
+        if let summary = VideoQuizSummary(quizResults: quizResultsOfThisQuiz) {
+            print("Video quiz: \(summary.scoreText), \(summary.missedQuestions.count) to look at again")
+            onQuizEnded?(summary)
+        }
     }
 
     /// Pauses the main video in Chrome's front tab, on any public https site, for a 3D model or pop-out the learner asked
@@ -556,7 +620,7 @@ final class VideoQuizSession {
             print("Video quiz: planned \(plannedMoments.count) moments in \(String(format: "%.1f", planningSeconds))s")
 
             let spotCountText = plannedMoments.count == 1 ? "1 spot" : "\(plannedMoments.count) spots"
-            speakLine("Okay, I've got \(spotCountText) picked out.")
+            speakLine("Okay, I've got \(spotCountText) picked out.", false)
             // The line takes about this long, and the video should start after it.
             try await Task.sleep(for: .seconds(Self.secondsForTheReadyLineToFinish))
             guard isRunning else { return }
@@ -575,7 +639,7 @@ final class VideoQuizSession {
     private func fail(with failure: VideoQuizFailure) {
         guard isRunning, !Task.isCancelled else { return }
         print("Video quiz: failed: \(failure)")
-        speakLine(failure.spokenLine)
+        speakLine(failure.spokenLine, true)
         stop()
     }
 
@@ -658,6 +722,9 @@ final class VideoQuizSession {
             explanation: moment.quiz.explanation,
             askedAtSeconds: moment.pauseAtSeconds
         )
+        if let framePopout {
+            questionPopoutsByAskedSeconds[moment.pauseAtSeconds] = framePopout
+        }
         askQuestion(moment.quiz, framePopout)
     }
 
@@ -665,7 +732,70 @@ final class VideoQuizSession {
     /// of a question counts, so a follow-up grade on the same question adds nothing, and this returns false for it.
     @discardableResult
     func recordTheOpenQuestionOutcome(_ outcome: StudyGuideQuizOutcome) -> Bool {
-        studyGuideQuizLog.closeTheOpenQuestion(with: outcome)
+        guard studyGuideQuizLog.closeTheOpenQuestion(with: outcome) else { return false }
+        if let currentVideoTab, let recordedResult = studyGuideQuizLog.results(forVideoURL: currentVideoTab.url).last {
+            quizResultsOfThisQuiz.append(recordedResult)
+        }
+        return true
+    }
+
+    /// What going back to a missed question did.
+    enum GoingBackToAMissedQuestion {
+        /// The video waits paused at the question, and this is its pop-out with every label named.
+        case showsItsPopout(VideoFramePopout)
+        /// The question was asked by voice alone, so the video plays again from 10 seconds before it.
+        case playsFromBeforeIt
+        /// The quiz tab is gone or shows another video now, or Chrome refused a script, so the go-back stopped there.
+        case couldNotGoBack
+    }
+
+    /// For a question the summary lists: brings the quiz video's tab forward, moves the video to where the question paused,
+    /// and holds it paused for the pop-out. Clearing the pop-out resumes the video, as for a pop-out the learner asked for.
+    func goBackToTheMissedQuestion(_ missedQuestion: VideoQuizMissedQuestion) -> GoingBackToAMissedQuestion {
+        guard let quizVideoTab = currentVideoTab else { return .couldNotGoBack }
+        // The go-back takes over Clicky's one pause, whether or not it finds the quiz video. A video it held paused on another
+        // tab stays paused, since pressing play on it could play two videos at once, and Clicky forgets that pause, as it does
+        // a learner's.
+        if let heldVideoTab = videoPausedByClicky?.tab, !heldVideoTab.isTheSameTab(as: quizVideoTab) {
+            videoPausedByClicky = nil
+            print("Video quiz: let go of the pause it held on another tab, which stays paused")
+        }
+        // The learner may have closed the tab or moved it to another video since the quiz ended, and seeking that one
+        // to the old time would lift the old frame over a different video.
+        guard (try? ChromeVideoTab.bringTabForward(tabID: quizVideoTab.tabId)) == true,
+              let frontVideoTab = try? ChromeVideoTab.frontTabOfTheFrontWindow(),
+              frontVideoTab.isTheSamePage(as: quizVideoTab) else {
+            print("Video quiz: the quiz video is no longer in its tab, so it cannot go back to \(missedQuestion.timestampText)")
+            return .couldNotGoBack
+        }
+        guard var framePopout = questionPopoutsByAskedSeconds[missedQuestion.askedAtSeconds] else {
+            do {
+                try ChromeVideoTab.runJavaScript(LearnerVideoCommand.seekTo(seconds: max(0, missedQuestion.askedAtSeconds - 10)).javaScript, in: quizVideoTab)
+                try ChromeVideoTab.runJavaScript(Self.playVideoJavaScript, in: quizVideoTab)
+            } catch {
+                print("Video quiz: could not go back to \(missedQuestion.timestampText): \(error)")
+                return .couldNotGoBack
+            }
+            // The quiz video plays again, so a pause Clicky held on it is over.
+            videoPausedByClicky = nil
+            print("Video quiz: went back to \(missedQuestion.timestampText), a question with no pop-out")
+            return .playsFromBeforeIt
+        }
+        do {
+            try ChromeVideoTab.runJavaScript(LearnerVideoCommand.seekTo(seconds: missedQuestion.askedAtSeconds).javaScript, in: quizVideoTab)
+            try ChromeVideoTab.runJavaScript(Self.pauseVideoJavaScript, in: quizVideoTab)
+        } catch {
+            print("Video quiz: could not go back to \(missedQuestion.timestampText): \(error)")
+            return .couldNotGoBack
+        }
+        videoPausedByClicky = VideoPausedByClicky(reason: .requestedScene, tab: quizVideoTab)
+        // The question is over, so no label waits to be named, and the video's printed labels may show the answer again.
+        framePopout.parts = framePopout.parts.map { part in
+            VideoFramePopout.Part(label: part.label, x: part.x, y: part.y, isQuizAnswer: false)
+        }
+        framePopout.textBoxesToHide = []
+        print("Video quiz: went back to \(missedQuestion.timestampText) and shows its pop-out again")
+        return .showsItsPopout(framePopout)
     }
 
     // MARK: Lifting the subject out of the frame
