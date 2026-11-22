@@ -368,6 +368,11 @@ nonisolated extension ClickyTheme {
         ClickyTheme(id: id, name: newName, accentHex: accentHex, contrastHex: contrastHex, cursor: cursor, motion: motion, agents: agents, sounds: sounds, origin: origin)
     }
 
+    /// The same theme with other agents, for an export that leaves out the roster portraits it cannot ship.
+    func with(agents newAgents: ThemeAgents) -> ClickyTheme {
+        ClickyTheme(id: id, name: name, accentHex: accentHex, contrastHex: contrastHex, cursor: cursor, motion: motion, agents: newAgents, sounds: sounds, origin: origin)
+    }
+
     /// The same theme with another id and origin, for a theme the store saves or installs.
     func with(id newID: String, origin newOrigin: ThemeOrigin) -> ClickyTheme {
         ClickyTheme(id: newID, name: name, accentHex: accentHex, contrastHex: contrastHex, cursor: cursor, motion: motion, agents: agents, sounds: sounds, origin: newOrigin)

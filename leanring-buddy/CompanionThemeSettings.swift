@@ -13,6 +13,16 @@ import AppKit
 import Combine
 import SwiftUI
 
+// MARK: - Where saved themes live
+
+nonisolated extension CustomThemeStore {
+    /// ~/Library/Application Support/Clicky/Themes, next to the learner's skills and mcp.json. It is here and not in
+    /// CustomThemeStore.swift because the Quick Look extension compiles that file and has no folder of Clicky's to read.
+    static func standard() -> CustomThemeStore {
+        CustomThemeStore(themesDirectoryURL: TaskAgentFolders.clickyApplicationSupportURL().appendingPathComponent("Themes", isDirectory: true))
+    }
+}
+
 // MARK: - What views read from a theme
 
 extension ClickyTheme {

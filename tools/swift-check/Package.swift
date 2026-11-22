@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
-// Mirrors the leanring-buddy target's Swift settings in leanring-buddy.xcodeproj. Change both together.
+// Mirrors the leanring-buddy target's Swift settings in leanring-buddy.xcodeproj. Change both together, and the flags of the
+// Quick Look type-check in tools/swift-check.sh too.
 import PackageDescription
 
 let appTargetSettings: [SwiftSetting] = [
