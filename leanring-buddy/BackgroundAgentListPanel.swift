@@ -348,7 +348,7 @@ final class AgentListPanelController {
         let agentIDToExpand: UUID?
         switch discID.tokenSlot {
         case .agent(let agentID): agentIDToExpand = agentID
-        case .overflow: agentIDToExpand = nil
+        case .overflow, .paused: agentIDToExpand = nil
         }
         open(
             anchorTopLeft: CGPoint(x: discPanelFrame.minX, y: discPanelFrame.minY - Self.gapFromTheMouse / 4),

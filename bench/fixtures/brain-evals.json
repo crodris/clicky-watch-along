@@ -391,6 +391,129 @@
         "save_theme",
         "close_theme_studio"
       ]
+    },
+    "agentsRunning": {
+      "description": "Two background agents are running while a YouTube video plays in Chrome. The scene state's backgroundAgents says so, as the app sends it, and the offered tools are the video context's plus pause_agents.",
+      "sceneState": {
+        "page": "none",
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": false,
+          "playbackRate": 1,
+          "playing": true,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "videoQuizIsRunning": false,
+        "backgroundAgents": "2 running"
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "make_study_guide",
+        "build_model_in_background",
+        "start_background_task",
+        "pause_agents"
+      ]
+    },
+    "agentsRunningNoVideo": {
+      "description": "One background agent is running with nothing on screen and no video in front, so the router takes the command only because an agent runs. The offered tools are the nothing context's plus pause_agents.",
+      "sceneState": {
+        "page": "none",
+        "videoQuizIsRunning": false,
+        "backgroundAgents": "1 running"
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "start_background_task",
+        "pause_agents"
+      ]
+    },
+    "agentsPaused": {
+      "description": "The learner paused two background agents while a YouTube video plays in Chrome. The offered tools are the video context's plus resume_agents, and pause_agents is left out.",
+      "sceneState": {
+        "page": "none",
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": false,
+          "playbackRate": 1,
+          "playing": true,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "videoQuizIsRunning": false,
+        "backgroundAgents": "2 paused, and a new agent waits for go ahead too"
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "make_study_guide",
+        "build_model_in_background",
+        "start_background_task",
+        "resume_agents"
+      ]
+    },
+    "agentsPausedApprovalWaiting": {
+      "description": "The learner paused two background agents while one of them waits for the learner to allow an action, with a YouTube video playing in Chrome. resume_agents is left out, since go ahead answers the waiting request, so the offered tools are the approvalWaiting context's.",
+      "sceneState": {
+        "page": "none",
+        "video": {
+          "durationSeconds": 612,
+          "onYouTube": true,
+          "paused": false,
+          "playbackRate": 1,
+          "playing": true,
+          "seconds": 124,
+          "title": "How sharks float"
+        },
+        "videoQuizIsRunning": false,
+        "approvalWaiting": "sends",
+        "backgroundAgents": "2 paused, and a new agent waits for go ahead too"
+      },
+      "tools": [
+        "answer_with_screen",
+        "build_new_scene",
+        "build_simulation",
+        "pop_out",
+        "animate_picture",
+        "pause_video",
+        "play_video",
+        "seek_relative",
+        "seek_to_time",
+        "set_speed",
+        "find_moment",
+        "seek_to_moment",
+        "make_study_guide",
+        "build_model_in_background",
+        "start_background_task",
+        "answer_approval"
+      ]
     }
   },
   "cases": [
@@ -1274,6 +1397,134 @@
         { "calls": ["set_control", "record_guess", "run_simulation"], "input": { "set_control": { "name": "angle", "value": 60, "run": false } } }
       ],
       "why": "The guess must be recorded before the run, since Run is locked until then, and the control must be set before the run. set_control with run true does the set and the run in one call, so record_guess comes first. The older chain with run_simulation is accepted only when set_control leaves run out or passes run false, so a model that runs twice fails."
+    },
+    {
+      "id": "agents-hold-on",
+      "context": "agentsRunning",
+      "say": "hold on",
+      "accept": [
+        "pause_agents"
+      ],
+      "why": "Easy. The phrase the spec names pauses every agent."
+    },
+    {
+      "id": "agents-hold-on-a-second",
+      "context": "agentsRunning",
+      "say": "hold on a second",
+      "accept": [
+        "pause_agents"
+      ],
+      "why": "A longer hold on still pauses them."
+    },
+    {
+      "id": "agents-pause-the-agents",
+      "context": "agentsRunning",
+      "say": "pause the agents",
+      "accept": [
+        "pause_agents"
+      ],
+      "why": "Naming the agents pauses them, not the video."
+    },
+    {
+      "id": "agents-hold-on-question",
+      "context": "agentsRunning",
+      "say": "hold on, what is that",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "Near miss. Hold on only starts a question, which is about the screen."
+    },
+    {
+      "id": "agents-pause-the-video",
+      "context": "agentsRunning",
+      "say": "pause the video",
+      "accept": [
+        "pause_video"
+      ],
+      "why": "Near miss. Pausing the video must not pause the agents."
+    },
+    {
+      "id": "agents-hold-on-no-video",
+      "context": "agentsRunningNoVideo",
+      "say": "hold on",
+      "accept": [
+        "pause_agents"
+      ],
+      "why": "With no video, the router takes hold on only because an agent runs."
+    },
+    {
+      "id": "agents-hold-on-question-no-video",
+      "context": "agentsRunningNoVideo",
+      "say": "hold on, what does this page say",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "Near miss. A question that starts with hold on stays a question."
+    },
+    {
+      "id": "agents-go-ahead",
+      "context": "agentsPaused",
+      "say": "go ahead",
+      "accept": [
+        "resume_agents"
+      ],
+      "why": "Easy. The phrase the spec names resumes every agent."
+    },
+    {
+      "id": "agents-keep-going",
+      "context": "agentsPaused",
+      "say": "okay, keep going",
+      "accept": [
+        "resume_agents"
+      ],
+      "why": "Another way to say go ahead."
+    },
+    {
+      "id": "agents-go-ahead-pop-out",
+      "context": "agentsPaused",
+      "say": "go ahead and pop this out",
+      "accept": [
+        "pop_out"
+      ],
+      "why": "Near miss. Go ahead only starts another command."
+    },
+    {
+      "id": "agents-paused-question",
+      "context": "agentsPaused",
+      "say": "how do sharks float",
+      "accept": [
+        "answer_with_screen"
+      ],
+      "why": "Paused agents must not capture an unrelated question."
+    },
+    {
+      "id": "agents-paused-go-ahead-answers-the-request",
+      "context": "agentsPausedApprovalWaiting",
+      "say": "go ahead",
+      "accept": [
+        "answer_approval"
+      ],
+      "input": {
+        "answer_approval": {
+          "approved": true,
+          "always": false
+        }
+      },
+      "why": "With a request waiting, go ahead is its yes, and the agents go on only after it is answered, so a resume never doubles as an approval."
+    },
+    {
+      "id": "agents-paused-no-declines-the-request",
+      "context": "agentsPausedApprovalWaiting",
+      "say": "no, don't do that",
+      "accept": [
+        "answer_approval"
+      ],
+      "input": {
+        "answer_approval": {
+          "approved": false
+        }
+      },
+      "why": "A pause leaves the request waiting, and a no still declines it."
     }
   ]
 }

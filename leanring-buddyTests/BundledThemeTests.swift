@@ -85,9 +85,22 @@ func makeBackgroundAgentStore(theme: ClickyTheme = clickyBlueTheme) -> Backgroun
 /// Every CI runner on the Mac runs as the same macOS user and builds the app with its own bundle ID, so the bundle ID
 /// keeps the tests of two runners that run at the same time from clearing or overwriting each other's values. The name
 /// stays fixed for each runner, since macOS keeps an empty preferences file for each suite even after its domain is removed.
+/// `tools/swift-check.sh` runs every checkout's tests under one test runner's bundle ID, and parallel worktrees run it at
+/// the same time, so the name also carries a hash of the checkout's path, which stays fixed for each checkout.
 func fixedTestDefaultsSuiteName(_ testName: String) -> String {
-    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(testName)"
+    "\(Bundle.main.bundleIdentifier ?? "clicky-tests")-\(checkoutPathHash)-\(testName)"
 }
+
+/// A 64-bit FNV-1a hash of the checkout's path, in hex. Swift's own `hashValue` changes with every process, and a path
+/// cannot go in a suite name, since UserDefaults reads a slash as a file path.
+private let checkoutPathHash: String = {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in repositoryRootURL.path.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 0x0000_0100_0000_01b3
+    }
+    return String(hash, radix: 16)
+}()
 
 /// A UserDefaults suite of its own, named by `fixedTestDefaultsSuiteName`, emptied before and after `body`.
 @MainActor
