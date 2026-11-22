@@ -127,7 +127,8 @@ struct PanelRenderTests {
     @Test func aTallPageScrollsUnderTheHeaderInsteadOfGrowingTheCard() throws {
         let companionManager = CompanionManager()
         let presentation = PanelPresentation()
-        presentation.page = .home
+        // The setup page, which shows no banner, so the height does not depend on this Mac's permissions or approvals.
+        presentation.page = .setup
         presentation.isOpen = true
         presentation.tallestPageHeight = 250
         let panelView = CompanionPanelView(
@@ -138,8 +139,8 @@ struct PanelRenderTests {
             workerReachability: WorkerReachability(workerBaseURL: "http://127.0.0.1:9"),
             approvalDesk: companionManager.approvalDesk
         )
-        let bitmap = try render(panelView.frame(width: CompanionPanelView.contentWidth + 56), named: "panel-home-capped")
-        // The card is the header and 250 points of page, plus its shadow margin and the render's padding. The home is
+        let bitmap = try render(panelView.frame(width: CompanionPanelView.contentWidth + 56), named: "panel-setup-capped")
+        // The card is the header and 250 points of page, plus its shadow margin and the render's padding. The setup page is
         // taller than 250 points, so a page that scrolls fills the cap exactly, and one that collapsed would come out shorter.
         let margin = CompanionPanelView.shadowMargin
         let cappedHeight = panelHeaderHeight + 250 + margin.top + margin.bottom + 48
@@ -157,21 +158,26 @@ struct PanelRenderTests {
     // MARK: - Hover under a still pointer
 
     @Test func aViewThatAppearsUnderAStillPointerReportsItsHoverAtOnce() {
-        // The view sits in a window, so it has a visible rect, and the mouse location is passed in, so the test never reads
-        // the real mouse, which a CI runner's background session does not have.
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: true)
+        // The window sits off every screen, and the mouse location is a fixed point, so the test never reads the real
+        // mouse, which a CI runner's background session does not have.
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let hoverView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
-        window.contentView = hoverView
+        var mouseLocationInTheWindow = CGPoint(x: 40, y: 40)
+        hoverView.mouseLocationInTheWindow = { _ in mouseLocationInTheWindow }
         var reportedHovers: [Bool] = []
         hoverView.onHoverChange = { reportedHovers.append($0) }
-        // The mouse already rests inside the view when it is laid out: the hover is reported with no mouse event.
-        hoverView.reportTheHover(atMouseLocationInTheView: CGPoint(x: 40, y: 40))
+        window.contentView = hoverView
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // No mouse event arrives: laying out the tracking area finds the mouse already inside and reports the hover.
+        hoverView.updateTrackingAreas()
         #expect(reportedHovers == [true])
         // The same hover is never reported twice, and leaving reports once.
-        hoverView.reportTheHover(atMouseLocationInTheView: CGPoint(x: 10, y: 10))
+        hoverView.updateTrackingAreas()
         #expect(reportedHovers == [true])
-        hoverView.reportTheHover(atMouseLocationInTheView: CGPoint(x: 200, y: 200))
+        mouseLocationInTheWindow = CGPoint(x: 200, y: 200)
+        hoverView.updateTrackingAreas()
         #expect(reportedHovers == [true, false])
     }
 

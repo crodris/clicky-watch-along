@@ -966,8 +966,10 @@ final class CompanionManager: ObservableObject {
 
     /// The agents row: the panel closes and the agent list opens next to the mouse, as the settings dial's Agents slice opens it.
     func openTheAgentListFromThePanel() {
-        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        // The list opens before the panel closes, so the panel's close finds it open and opens no second list for a
+        // waiting request (`theMenuPanelStoppedShowingTheApprovalCard`).
         if !agentListPanelController.isOpen { agentListPanelController.toggle() }
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
     }
 
     /// The "Design one" card: the panel closes and the Theme Studio opens next to the mouse with three new ideas.
@@ -1001,14 +1003,16 @@ final class CompanionManager: ObservableObject {
     /// Runs one of a disc's menu items from the panel. One that opens the agent list opens it under the disc, or next to the
     /// mouse when the agent has no disc on screen, such as one counted in "+N".
     func runTheAgentDiscMenuItemFromThePanel(_ menuItem: AgentDiscMenuItem, agentID: UUID) {
-        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
-        guard !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) else { return }
-        // Only an item that opens the agent list comes back, for an agent with no disc to open it under.
-        if menuItem == .reviewRequest {
-            agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
-        } else if !agentListPanelController.isOpen {
-            agentListPanelController.toggle()
+        // The item runs before the panel closes, so a list it opens is already open when the panel's close checks.
+        if !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) {
+            // Only an item that opens the agent list comes back, for an agent with no disc to open it under.
+            if menuItem == .reviewRequest {
+                agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
+            } else if !agentListPanelController.isOpen {
+                agentListPanelController.toggle()
+            }
         }
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
     }
 
     // MARK: - Private
@@ -2860,9 +2864,9 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
-    /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
-    /// Theme Studio card when that is open, keeping the old theme, then answers an "Add theme?" card with a no, then closes the
-    /// quiz summary Card. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is
+    /// open, only closes the agent list when that is open, and then closes the Theme Studio card when that is open, keeping
+    /// the old theme, then answers an "Add theme?" card with a no, then closes the quiz summary Card. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {

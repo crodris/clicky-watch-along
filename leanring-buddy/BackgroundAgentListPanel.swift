@@ -628,9 +628,13 @@ final class HoverAndPointerNSView: NSView {
         DispatchQueue.main.async { [weak self] in self?.reportTheHoverWhereTheMouseAlreadyIs() }
     }
 
+    /// Where the mouse is in a window's coordinates. A test passes a fixed point, since a CI runner's background session has
+    /// no mouse to read.
+    var mouseLocationInTheWindow: (NSWindow) -> CGPoint = { $0.mouseLocationOutsideOfEventStream }
+
     private func reportTheHoverWhereTheMouseAlreadyIs() {
         guard let window, window.isVisible else { return }
-        reportTheHover(atMouseLocationInTheView: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        reportTheHover(atMouseLocationInTheView: convert(mouseLocationInTheWindow(window), from: nil))
     }
 
     /// Reports a hover from where the mouse is, in this view's coordinates, with no mouse event needed.
