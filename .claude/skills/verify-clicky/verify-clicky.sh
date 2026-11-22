@@ -22,7 +22,7 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   worker-down [port]        Stop the Workers this script started, or only the one on that port.
   post <route> <body.json> [port]
                             POST a JSON body to a Worker this script started, and save the response in the run.
-  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] "<steps>"
+  app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --room-camera-file passes the same Debug argument, so the room art panel loops that video
                           instead of the camera.
@@ -41,6 +41,8 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
                           transcript, and a run can time the same commands both ways.
                           --every-permission quits the app and fails when it starts without every permission or onboarding,
                           since its permissions panel would cover a recorded take. record-shot.sh passes it.
+                          --show-setup passes --show-setup, so the menu bar panel opens on the six-step setup checklist as a
+                          first run does, without clearing a permission or writing hasCompletedOnboarding.
   app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
   app-quit                  Quit the app instance this script launched.
   shot <name>               Save a screenshot of every display into the run.
@@ -697,6 +699,7 @@ parse_app_launch_arguments() {
       --brain) app_launch_flag_arguments+=(--brain-takes-every-request) ;;
       --harness-brain) app_launch_flag_arguments+=(--brain-runs-in-the-harness) ;;
       --every-permission) app_launch_needs_every_permission=true ;;
+      --show-setup) app_launch_flag_arguments+=(--show-setup) ;;
       --room-camera-file)
         app_launch_flag_arguments+=(--room-camera-file "${2:?--room-camera-file needs a video path}")
         shift

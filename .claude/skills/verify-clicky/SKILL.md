@@ -169,11 +169,13 @@ worker-up [port] [-- wrangler args]
 worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] "<steps>"
+app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
                           --worker-port makes the app call a Worker this script started on that port instead of 8787.
                           --no-speculation passes --no-voice-command-speculation.
+                          --room-camera-file passes the same Debug argument, so the room art panel loops that video instead of the camera.
+                          --show-setup passes --show-setup, so the menu bar panel opens on the six-step setup checklist without clearing a permission.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.

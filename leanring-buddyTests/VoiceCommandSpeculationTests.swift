@@ -120,6 +120,24 @@ struct VoiceCommandSpeculationTests {
         }
     }
 
+    @Test func roomArtIsAKeywordBranchWithTheBrainFlagOffAndTheRoutersWithItOn() {
+        let transcript = "show me how this would look in my room"
+        #expect(transcriptRoute(for: transcript, in: quietScreen, videoIsInFront: { false }) == .keywordBranch(.showArtInMyRoom))
+        var brainTakesEveryRequest = quietScreen
+        brainTakesEveryRequest.brainTakesEveryRequest = true
+        #expect(transcriptRoute(for: transcript, in: brainTakesEveryRequest, videoIsInFront: { false }) == .voiceCommandRouter)
+        // With the flag off the partial waits for the final transcript, since the room art panel is not the router's.
+        #expect(
+            speculativeStartStep(
+                partialTranscript: transcript,
+                partialRoute: .keywordBranch(.showArtInMyRoom),
+                voiceCommandsRunInTheHarness: true,
+                approvalAtPress: nil,
+                speculationIsOn: true
+            ) == .waitForOtherWords(reason: "the partial transcript does not go to the router")
+        )
+    }
+
     @Test func aPartialStartsACommandOnlyWhenTheBrainWouldTakeItAndNoApprovalIsWaiting() {
         func step(_ partial: String, route: TranscriptRoute = .voiceCommandRouter, harness: Bool = true, approvalAtPress: ApprovalAtPress? = nil, isOn: Bool = true) -> SpeculativeStartStep {
             speculativeStartStep(partialTranscript: partial, partialRoute: route, voiceCommandsRunInTheHarness: harness, approvalAtPress: approvalAtPress, speculationIsOn: isOn)

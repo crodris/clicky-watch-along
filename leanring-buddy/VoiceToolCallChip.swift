@@ -202,6 +202,10 @@ final class VoiceToolCallChip {
         panel.orderFrontRegardless()
         chipModel.isVisible = true
         chipModel.presence.appear()
+        // The chip's panel never takes the keyboard, so VoiceOver would never reach it: it reads the chip's words aloud instead.
+        if !chipTextIsCode {
+            announceForVoiceOver([chipText, secondaryChipText].compactMap { $0 }.joined(separator: " "))
+        }
         // Runs only while the chip is up, so the tail keeps pointing at the cursor as it moves.
         if cursorFollowTimer == nil {
             cursorFollowTimer = Timer.scheduledTimer(withTimeInterval: Self.cursorFollowInterval, repeats: true) { [weak self] _ in
