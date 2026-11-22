@@ -19,7 +19,8 @@ struct AgentPauseTests {
 
     @Test func aPauseHoldsEachRunningAgentsProgressAndAResumePicksItUpFromThere() throws {
         let store = makeBackgroundAgentStore()
-        let agentID = store.start(kind: .threeDModel)
+        // A task's one step runs 45 seconds, so 4 seconds in and 64 seconds in read differently.
+        let agentID = store.start(kind: .task)
         let startedAt = try #require(store.agents.first).currentStepStartedAt
         let pausedAt = startedAt.addingTimeInterval(4)
         #expect(store.pauseEveryAgent(at: pausedAt))
