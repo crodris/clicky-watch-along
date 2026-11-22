@@ -3732,6 +3732,8 @@ final class CompanionManager: ObservableObject {
         pushToTalkPressCountWhenTheThemeDesignStarted = pushToTalkPressCount
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
+        // The panel's Design one card starts a design with no press, so a replay still playing ends here, before the card opens.
+        instantReplay.endForAnotherAnswer()
         cancelTheSceneStillBuilding()
         if pictureChoice == .captureAgain {
             theRequestBecameALookAtTheMedia()
@@ -4964,7 +4966,7 @@ final class CompanionManager: ObservableObject {
     /// replay ends first, so it never moves the camera or the cursor under that answer, whichever surface started it.
     @discardableResult
     private func speakTextEndingAnOpenReplay(_ text: String) async throws -> SpokenLineToken {
-        instantReplay.endIfOpen()
+        instantReplay.endForAnotherAnswer()
         return try await elevenLabsTTSClient.speakText(text)
     }
 

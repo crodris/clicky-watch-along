@@ -322,16 +322,43 @@ struct InstantReplayTests {
         #expect(replay.stops.isEmpty)
     }
 
+    @Test func anotherAnswerStopsAMovingReplayAndLeavesACommandsCameraMoveAlone() async {
+        let recorder = RecordingReplayStage()
+        let replay = InstantReplayController(stage: recorder.stage)
+        replay.offer(threeStops, sceneNumber: 4)
+        replay.playFromTheStart()
+        await letTheReplayRun()
+        // A surface with no press, such as the panel's Hear answer, speaks during a play-through: camera and cursor stop.
+        replay.endForAnotherAnswer()
+        #expect(recorder.calls.suffix(3) == ["endFocus", "freeze", "hideNumbers"])
+        #expect(replay.phase == .notOpen)
+
+        // The review of PR 88 found that after a press, a camera command's spoken confirmation stopped the turn it confirmed.
+        let afterAPress = RecordingReplayStage()
+        let pressedReplay = InstantReplayController(stage: afterAPress.stage)
+        pressedReplay.offer(threeStops, sceneNumber: 4)
+        pressedReplay.playFromTheStart()
+        await letTheReplayRun()
+        pressedReplay.stopTheTravelForAPress()
+        let callsAfterThePress = afterAPress.calls
+        pressedReplay.endForAnotherAnswer()
+        #expect(Array(afterAPress.calls.dropFirst(callsAfterThePress.count)) == ["hideNumbers", "release"])
+        #expect(pressedReplay.phase == .notOpen)
+    }
+
     @Test func everyLineClickySaysGoesThroughTheOneCallThatEndsAnOpenReplay() throws {
         // The review of PR 88 found surfaces, such as the panel's Hear answer, that spoke with a replay still moving the
         // cursor. Only the wrapper may start a line, so a new surface cannot speak under a replay.
+        // tools/swift-check.sh links this file into its package, so the link is resolved to find the repository.
         let repositoryRootURL = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
         let companionManagerSource = try String(contentsOf: repositoryRootURL.appendingPathComponent("leanring-buddy/CompanionManager.swift"), encoding: .utf8)
         #expect(companionManagerSource.components(separatedBy: "elevenLabsTTSClient.speakText(").count - 1 == 1)
         let wrapperStart = try #require(companionManagerSource.range(of: "private func speakTextEndingAnOpenReplay("))
-        let wrapperBody = companionManagerSource[wrapperStart.upperBound...].prefix(200)
-        #expect(wrapperBody.contains("instantReplay.endIfOpen()"))
-        #expect(wrapperBody.contains("elevenLabsTTSClient.speakText(text)"))
+        let wrapperSource = companionManagerSource[wrapperStart.upperBound...]
+        let replayEnd = try #require(wrapperSource.range(of: "instantReplay.endForAnotherAnswer()"))
+        let lineStart = try #require(wrapperSource.range(of: "elevenLabsTTSClient.speakText(text)"))
+        // The replay ends before the line starts, so the camera and the cursor are still before the answer is heard.
+        #expect(replayEnd.upperBound <= lineStart.lowerBound)
     }
 
     @Test func showMeAgainRunsAheadOfTheRouterOnlyWhenNothingElseHoldsTheWords() {
