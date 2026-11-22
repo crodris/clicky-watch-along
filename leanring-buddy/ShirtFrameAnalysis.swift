@@ -167,18 +167,24 @@ nonisolated struct ShirtSmallFrame: Sendable {
     }
 
     /// Where the learner's neck meets their own shirt: the first row below the chin, on the center column, whose color is
-    /// within 45 (of 255, in RGB) of the old shirt's. Looked for from 45 percent of a shoulder width above the shoulder line
-    /// to 20 percent below it, and averaged over three columns, since the small frame is sharper than the spike's blurred one.
+    /// within 45 (of 255, in RGB) of the old shirt's and whose hue, its share of each linear channel, is within 0.1 of the
+    /// old shirt's. The neck in the chin's shadow is as dark as a navy shirt, and only its warmer hue tells them apart.
+    /// Looked for from 45 percent of a shoulder width above the shoulder line to 20 percent below it, and averaged over
+    /// three columns, since the small frame is sharper than the spike's blurred one.
     func bodyNeckRow(oldShirtColor: SIMD3<Float>) -> Double? {
         let shoulderWidth = torso.shoulderWidth
         let centerColumn = Int(torso.shoulderMidpoint.x.rounded())
         let firstRow = max(0, Int((torso.shoulderMidpoint.y - 0.45 * shoulderWidth).rounded()))
         let lastRow = min(height - 1, Int((torso.shoulderMidpoint.y + 0.2 * shoulderWidth).rounded()))
         guard firstRow <= lastRow, centerColumn >= 1, centerColumn < width - 1 else { return nil }
+        let oldShirtHue = ShirtColorMath.chromaticity(red: ShirtColorMath.byte(oldShirtColor.x), green: ShirtColorMath.byte(oldShirtColor.y), blue: ShirtColorMath.byte(oldShirtColor.z))
         for row in firstRow...lastRow {
             let averageColor = (color(atColumn: centerColumn - 1, row: row) + color(atColumn: centerColumn, row: row) + color(atColumn: centerColumn + 1, row: row)) / 3
             let difference = averageColor - oldShirtColor
-            if (difference * difference).sum().squareRoot() < 45 { return Double(row) }
+            guard (difference * difference).sum().squareRoot() < 45 else { continue }
+            let hue = ShirtColorMath.chromaticity(red: ShirtColorMath.byte(averageColor.x), green: ShirtColorMath.byte(averageColor.y), blue: ShirtColorMath.byte(averageColor.z))
+            if let hue, let oldShirtHue, simd_distance(hue, oldShirtHue) >= ShirtColorMath.oldShirtChromaticityDistanceLimitForTheShading { continue }
+            return Double(row)
         }
         return nil
     }

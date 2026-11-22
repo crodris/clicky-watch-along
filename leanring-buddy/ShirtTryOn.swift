@@ -667,6 +667,170 @@ nonisolated struct ShirtGarmentMeasurements: Equatable, Sendable {
     }
 }
 
+/// The neck opening of a flat lay photo: the inside of the shirt's back, with its label, seen through the collar ring.
+///
+/// A flat lay photo shows the back panel's inner side and the neck label inside the collar, so subject lifting cuts the
+/// garment out with no neck hole. Worn, that panel sits behind the learner's neck, so drawn it shows the back of the shirt
+/// where the neck should be. The opening is found in the photo as an ellipse on the center line whose edge is the collar
+/// ring's inner edge: its top on the first strong edge below the back collar, its outside the ring's own color, and the
+/// most contrast across its edge of every ellipse of a neck opening's size. The garment's cutout leaves it out, so the
+/// collar ring stays all the way round and the learner's own neck shows inside it.
+nonisolated struct ShirtNeckOpening: Equatable, Sendable {
+    let centerColumn: Int
+    let topRow: Int
+    let bottomRow: Int
+    let halfWidth: Int
+
+    /// The ring's color is the median of the back collar down the center line, from 3 pixels below its top edge for this
+    /// share of the garment's height.
+    static let collarSampleShareOfTheHeight = 0.012
+    /// The opening's top is the first row below the back collar where the colors 2 rows above and below differ by more than
+    /// this mean of 8-bit levels, from this share of the garment's height below the collar's top to the second share.
+    static let topEdgeLevels: Float = 30
+    static let topEdgeSearchShares = (from: 0.015, to: 0.09)
+    /// The opening's height and half width, as shares of the garment's height and of the torso's width.
+    static let heightShares = (least: 0.06, mostBelowTheCollarTop: 0.12)
+    static let halfWidthShares = (least: 0.12, most: 0.30)
+    /// The edge's contrast is read this many pixels either side of it, and the ring's color this far and twice this far out.
+    static let edgeSamplePixels = 3.0
+    /// A point of the edge counts only when the pixels just outside it are within this mean of 8-bit levels of the ring's
+    /// color, since the opening's edge is the ring's inner edge.
+    static let ringColorLevels: Float = 45
+    /// The edge must lie this far inside the cutout, so the collar ring is left around it.
+    static let leastRingPixels = 8.0
+    /// Below this mean contrast across its edge, no ellipse is an opening, as for a photo with no collar seen from inside.
+    static let leastScore: Float = 8
+    static let edgeSampleCount = 48
+
+    /// Whether a pixel lies inside the opening.
+    func contains(column: Int, row: Int) -> Bool {
+        let verticalHalf = Double(bottomRow - topRow) / 2, middleRow = Double(topRow + bottomRow) / 2
+        guard halfWidth > 0, verticalHalf > 0 else { return false }
+        let across = Double(column - centerColumn) / Double(halfWidth), down = (Double(row) - middleRow) / verticalHalf
+        return across * across + down * down <= 1
+    }
+
+    /// The opening in `photoPixels` (tight RGBA rows of the working photo), or nil when the cutout already has a neck hole,
+    /// no strong edge lies below the back collar, or no ellipse's edge has enough contrast.
+    static func find(photoPixels: [UInt8], mask: ShirtCutoutMask, measurements: ShirtGarmentMeasurements) -> ShirtNeckOpening? {
+        guard !measurements.frontNeckWasFound else { return nil }
+        let width = mask.width, height = mask.height
+        let garmentHeight = Double(measurements.bottomRow - measurements.topRow)
+        let torsoWidth = Double(measurements.torsoRightColumn - measurements.torsoLeftColumn)
+        let centerColumn = (measurements.torsoLeftColumn + measurements.torsoRightColumn) / 2
+        guard let collarTopRow = (measurements.topRow...measurements.bottomRow).first(where: { mask.pixels[$0 * width + centerColumn] != 0 }) else { return nil }
+
+        // The photo near the neck, each pixel the mean of its 3 by 3 neighbors, so a JPEG's grain does not read as an edge.
+        let regionLeft = max(0, centerColumn - Int(halfWidthShares.most * torsoWidth) - 16), regionRight = min(width - 1, centerColumn + Int(halfWidthShares.most * torsoWidth) + 16)
+        let regionTop = max(0, collarTopRow - 4), regionBottom = min(height - 1, collarTopRow + Int(heightShares.mostBelowTheCollarTop * garmentHeight) + 16)
+        let regionWidth = regionRight - regionLeft + 1, regionHeight = regionBottom - regionTop + 1
+        guard regionWidth > 8, regionHeight > 8 else { return nil }
+        var smoothed = [SIMD3<Float>](repeating: .zero, count: regionWidth * regionHeight)
+        for row in 0..<regionHeight {
+            for column in 0..<regionWidth {
+                var sum = SIMD3<Float>.zero, count: Float = 0
+                for dy in -1...1 {
+                    for dx in -1...1 {
+                        let imageRow = regionTop + row + dy, imageColumn = regionLeft + column + dx
+                        guard imageRow >= 0, imageRow < height, imageColumn >= 0, imageColumn < width else { continue }
+                        let index = (imageRow * width + imageColumn) * 4
+                        sum += SIMD3(Float(photoPixels[index]), Float(photoPixels[index + 1]), Float(photoPixels[index + 2]))
+                        count += 1
+                    }
+                }
+                smoothed[row * regionWidth + column] = sum / count
+            }
+        }
+        func color(column: Int, row: Int) -> SIMD3<Float>? {
+            let regionColumn = column - regionLeft, regionRow = row - regionTop
+            guard regionColumn >= 0, regionColumn < regionWidth, regionRow >= 0, regionRow < regionHeight else { return nil }
+            return smoothed[regionRow * regionWidth + regionColumn]
+        }
+        func meanLevels(_ first: SIMD3<Float>, _ second: SIMD3<Float>) -> Float {
+            let difference = simd_abs(first - second)
+            return (difference.x + difference.y + difference.z) / 3
+        }
+
+        // The ring's color, down the back collar.
+        let collarRows = (collarTopRow + 3)...(collarTopRow + max(4, Int(collarSampleShareOfTheHeight * garmentHeight)))
+        let collarColors = collarRows.compactMap { color(column: centerColumn, row: $0) }
+        guard !collarColors.isEmpty else { return nil }
+        func median(_ values: [Float]) -> Float { values.sorted()[values.count / 2] }
+        let ringColor = SIMD3(median(collarColors.map(\.x)), median(collarColors.map(\.y)), median(collarColors.map(\.z)))
+
+        // The opening's top: the first strong edge below the back collar, read over the 7 columns around the center line.
+        func centerColor(row: Int) -> SIMD3<Float>? {
+            let colors = (-3...3).compactMap { color(column: centerColumn + $0, row: row) }
+            return colors.isEmpty ? nil : colors.reduce(.zero, +) / Float(colors.count)
+        }
+        let topEdgeRows = (collarTopRow + Int(topEdgeSearchShares.from * garmentHeight))...(collarTopRow + Int(topEdgeSearchShares.to * garmentHeight))
+        guard let topEdgeRow = topEdgeRows.first(where: { row in
+            guard let above = centerColor(row: row - 2), let below = centerColor(row: row + 2) else { return false }
+            return meanLevels(above, below) > topEdgeLevels
+        }) else { return nil }
+
+        // Each ellipse's score: the mean contrast across its edge, counting only the points with the ring's color outside.
+        let angles = (0..<edgeSampleCount).map { Double($0) / Double(edgeSampleCount) * 2 * .pi }
+        func score(topRow: Int, bottomRow: Int, halfWidth: Int) -> Float? {
+            let middleRow = Double(topRow + bottomRow) / 2, verticalHalf = Double(bottomRow - topRow) / 2
+            guard verticalHalf > 1, halfWidth > 1 else { return nil }
+            var contrastSum: Float = 0
+            for angle in angles {
+                let edgeX = Double(centerColumn) + Double(halfWidth) * cos(angle), edgeY = middleRow + verticalHalf * sin(angle)
+                let outward = simd_normalize(SIMD2(cos(angle) / Double(halfWidth), sin(angle) / verticalHalf))
+                func pixel(_ distance: Double) -> (column: Int, row: Int) {
+                    (Int((edgeX + outward.x * distance).rounded()), Int((edgeY + outward.y * distance).rounded()))
+                }
+                let ringPoint = pixel(leastRingPixels)
+                guard ringPoint.column >= 0, ringPoint.column < width, ringPoint.row >= 0, ringPoint.row < height,
+                      mask.pixels[ringPoint.row * width + ringPoint.column] != 0 else { return nil }
+                let outside = pixel(edgeSamplePixels), inside = pixel(-edgeSamplePixels), fartherOutside = pixel(2 * edgeSamplePixels)
+                guard let outsideColor = color(column: outside.column, row: outside.row), let insideColor = color(column: inside.column, row: inside.row),
+                      let fartherOutsideColor = color(column: fartherOutside.column, row: fartherOutside.row) else { return nil }
+                guard meanLevels(outsideColor, ringColor) < ringColorLevels, meanLevels(fartherOutsideColor, ringColor) < ringColorLevels else { continue }
+                contrastSum += meanLevels(outsideColor, insideColor)
+            }
+            return contrastSum / Float(edgeSampleCount)
+        }
+        var best: (score: Float, opening: ShirtNeckOpening)?
+        func consider(topRow: Int, bottomRow: Int, halfWidth: Int) {
+            guard let candidateScore = score(topRow: topRow, bottomRow: bottomRow, halfWidth: halfWidth), candidateScore > (best?.score ?? -1) else { return }
+            best = (candidateScore, ShirtNeckOpening(centerColumn: centerColumn, topRow: topRow, bottomRow: bottomRow, halfWidth: halfWidth))
+        }
+        let lowestBottomRow = collarTopRow + Int(heightShares.mostBelowTheCollarTop * garmentHeight)
+        let halfWidths = Int(halfWidthShares.least * torsoWidth)...Int(halfWidthShares.most * torsoWidth)
+        // A coarse search in steps of 3 pixels, then every pixel around the best.
+        for topRow in (topEdgeRow - 4)...(topEdgeRow + 3) {
+            for bottomRow in stride(from: topRow + Int(heightShares.least * garmentHeight), through: lowestBottomRow, by: 3) {
+                for halfWidth in stride(from: halfWidths.lowerBound, through: halfWidths.upperBound, by: 3) {
+                    consider(topRow: topRow, bottomRow: bottomRow, halfWidth: halfWidth)
+                }
+            }
+        }
+        guard let coarse = best?.opening else { return nil }
+        for bottomRow in (coarse.bottomRow - 2)...min(lowestBottomRow, coarse.bottomRow + 2) where bottomRow - coarse.topRow >= Int(heightShares.least * garmentHeight) {
+            for halfWidth in max(halfWidths.lowerBound, coarse.halfWidth - 2)...min(halfWidths.upperBound, coarse.halfWidth + 2) {
+                consider(topRow: coarse.topRow, bottomRow: bottomRow, halfWidth: halfWidth)
+            }
+        }
+        guard let best, best.score >= leastScore else { return nil }
+        return best.opening
+    }
+}
+
+extension ShirtCutoutMask {
+    /// The mask with `opening` cleared.
+    func leavingOut(_ opening: ShirtNeckOpening) -> ShirtCutoutMask {
+        var cleared = pixels
+        for row in opening.topRow...opening.bottomRow where row >= 0 && row < height {
+            for column in (opening.centerColumn - opening.halfWidth)...(opening.centerColumn + opening.halfWidth) where column >= 0 && column < width {
+                if opening.contains(column: column, row: row) { cleared[row * width + column] = 0 }
+            }
+        }
+        return ShirtCutoutMask(width: width, height: height, pixels: cleared)
+    }
+}
+
 /// One sleeve of the garment as the renderer draws it on its own: its pixels and where they lie in the working photo.
 ///
 /// On a hanging arm a sleeve's seam runs down the arm while its opening runs across it, where on the flat lay the two are
@@ -726,6 +890,13 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
     /// Nil when no garment is found. Slow (about 200 ms to 2 seconds, mostly Vision), so call it off the main actor. It is
     /// meant for flat lay photos: a photo of the shirt on a model has the model in the cutout.
     static func make(productPhoto: CGImage, itemCorners: RoomArtCorners) -> ShirtGarment? {
+        guard let workingPhoto = workingPhoto(productPhoto: productPhoto, itemCorners: itemCorners), let cutoutMask = ShirtCutoutMask.lifted(from: workingPhoto) else { return nil }
+        return make(workingPhoto: workingPhoto, cutoutMask: cutoutMask)
+    }
+
+    /// The product photo cropped to the item's corners with a 5 percent margin and scaled down to `longestWorkingSide`, the
+    /// photo a garment is made from. Nil when the crop is under 32 pixels on a side.
+    static func workingPhoto(productPhoto: CGImage, itemCorners: RoomArtCorners) -> CGImage? {
         let corners = itemCorners.clockwiseFromTopLeft
         let photoBounds = CGRect(x: 0, y: 0, width: productPhoto.width, height: productPhoto.height)
         let cornersBox = CGRect(
@@ -734,18 +905,22 @@ nonisolated struct ShirtGarment: @unchecked Sendable {
         )
         let cropBox = cornersBox.insetBy(dx: -cornersBox.width * 0.05, dy: -cornersBox.height * 0.05).intersection(photoBounds).integral
         guard cropBox.width >= 32, cropBox.height >= 32, let croppedPhoto = productPhoto.cropping(to: cropBox) else { return nil }
-        guard let workingPhoto = scaledDown(croppedPhoto, toLongestSide: longestWorkingSide), let cutoutMask = ShirtCutoutMask.lifted(from: workingPhoto) else { return nil }
-        return make(workingPhoto: workingPhoto, cutoutMask: cutoutMask)
+        return scaledDown(croppedPhoto, toLongestSide: longestWorkingSide)
     }
 
     /// The garment from a working photo and its cutout, which must be the same size. Nil when the cutout is under 4 percent
     /// of the photo, or has no torso.
     static func make(workingPhoto: CGImage, cutoutMask suppliedMask: ShirtCutoutMask) -> ShirtGarment? {
         guard suppliedMask.width == workingPhoto.width, suppliedMask.height == workingPhoto.height else { return nil }
-        let cutoutMask = suppliedMask.keepingTheLargestPiece()
+        let wholeMask = suppliedMask.keepingTheLargestPiece()
+        guard let wholeMeasurements = ShirtGarmentMeasurements(mask: wholeMask), let photoPixels = rgbaPixels(of: workingPhoto) else { return nil }
+        // The inside of the shirt's back, seen through the collar, is left out (`ShirtNeckOpening`), which also gives the
+        // cutout the neck hole the necklines are lined up by.
+        let neckOpening = ShirtNeckOpening.find(photoPixels: photoPixels, mask: wholeMask, measurements: wholeMeasurements)
+        let cutoutMask = neckOpening.map { wholeMask.leavingOut($0) } ?? wholeMask
         let garmentPixelCount = cutoutMask.pixels.reduce(0) { $0 + ($1 != 0 ? 1 : 0) }
-        guard Double(garmentPixelCount) >= 0.04 * Double(cutoutMask.pixels.count), let measurements = ShirtGarmentMeasurements(mask: cutoutMask),
-              let photoPixels = rgbaPixels(of: workingPhoto) else { return nil }
+        guard Double(garmentPixelCount) >= 0.04 * Double(cutoutMask.pixels.count),
+              let measurements = neckOpening == nil ? wholeMeasurements : ShirtGarmentMeasurements(mask: cutoutMask) else { return nil }
         let width = workingPhoto.width, height = workingPhoto.height
 
         // The hem band: from 12 to 3 percent of the garment's height above its bottom, inside the torso's columns. A print
