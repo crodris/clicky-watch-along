@@ -248,53 +248,6 @@ func cursorEmote(forAnswerOutcome revealOutcome: LiveSceneRevealOutcome) -> Curs
     }
 }
 
-// MARK: - Glyph shading
-
-/// The triangle's gradient: light at the tip, the accent in the middle, deeper at the base. A color as three channels.
-struct CursorGlyphShade: Equatable {
-    let red: Double
-    let green: Double
-    let blue: Double
-
-    var color: Color { Color(red: red, green: green, blue: blue) }
-
-    /// The accent mixed `share` of the way toward `other`.
-    func mixed(toward other: CursorGlyphShade, share: Double) -> CursorGlyphShade {
-        CursorGlyphShade(
-            red: red + (other.red - red) * share,
-            green: green + (other.green - green) * share,
-            blue: blue + (other.blue - blue) * share
-        )
-    }
-
-    static let white = CursorGlyphShade(red: 1, green: 1, blue: 1)
-    static let black = CursorGlyphShade(red: 0, green: 0, blue: 0)
-
-    static let lightShare = 0.28
-    static let deepShare = 0.25
-
-    /// The light, middle, and deep shades of an accent. Nil when the accent is not a `#RRGGBB` color.
-    static func shades(accentHex: String) -> (light: CursorGlyphShade, middle: CursorGlyphShade, deep: CursorGlyphShade)? {
-        guard let accent = ThemeRGBColor(hex: accentHex) else { return nil }
-        let middle = CursorGlyphShade(red: accent.red, green: accent.green, blue: accent.blue)
-        return (
-            light: middle.mixed(toward: .white, share: lightShare),
-            middle: middle,
-            deep: middle.mixed(toward: .black, share: deepShare)
-        )
-    }
-
-    /// The glow behind the cursor stays this strong, so it reads on a dark page and does not smudge a white one.
-    static let glowOpacity = 0.25
-    static let glowRadiusInPoints: CGFloat = 8
-    /// The glow grows by this much at the fastest point of a flight.
-    static let glowRadiusGrowthAtFullSpeedInPoints: CGFloat = 6
-    /// A small offset shadow that sits the cursor on the page, drawn under every cursor kind.
-    static let contactShadowOpacity = 0.3
-    static let contactShadowRadiusInPoints: CGFloat = 1.5
-    static let contactShadowOffsetInPoints: CGFloat = 1.5
-}
-
 // MARK: - Views
 
 /// The cursor's glyph with its body language: the glow and contact shadow, the stretch and squash of a flight and a landing,

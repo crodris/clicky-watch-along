@@ -135,6 +135,8 @@ final class CompanionManager: ObservableObject {
     @Published var detectedElementBubbleText: String?
     /// How long the buddy stays on the detected element. A 3D scene part holds until its narration ends.
     @Published var detectedElementPointingHold: BuddyPointingHold = .briefly
+    /// The cursor's slide along the video's progress bar before a voice seek, which BlueCursorView plays.
+    let cursorScrubController = CursorScrubController()
     /// Counts up each time an instant replay stops the buddy where it is, which BlueCursorView observes.
     @Published private(set) var buddyFreezeCount = 0
     /// The cursor's latest nod, shake, or hop, which BlueCursorView plays. Set only through `playCursorEmote`.
@@ -253,6 +255,14 @@ final class CompanionManager: ObservableObject {
             guard let self else { return false }
             return self.agentListPanelController.isOpen || self.menuPanelShowsTheApprovalCard()
         }
+        // Once a request is settled, its agent's disc turns the "!" into a check or a gray dash for a moment, and the ended
+        // card Glides back into that disc when its time in the list runs out.
+        agentHarness.approvalDesk.onACardEnded = { [weak self] endedCard, ending in
+            self?.showTheApprovalSettledMark(agentTokenApprovalSettledMark(for: ending), onTheDiscOf: endedCard.request.taskID)
+        }
+        agentHarness.approvalDesk.onAnEndedCardLeft = { [weak self] endedCard in
+            self?.agentListPanelController.glideTheEndedApprovalCardIntoItsDisc(endedCard)
+        }
         agentHarness.approvalDesk.onOldestRequestNeedsShowing = { [weak self] approvalRequest in
             self?.agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
         }
@@ -323,20 +333,16 @@ final class CompanionManager: ObservableObject {
     private lazy var agentTokenDockController = AgentTokenDockController(
         store: backgroundAgentStore,
         themeSettings: themeSettings,
-        menuActions: AgentDiscMenuActions(
+        menuActions: .holdingAWaitingResultDuringAQuizQuestion(
+            aVideoQuizQuestionIsOpen: { [weak self] in self?.videoQuizQuestionIsActive ?? false },
             cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
-            // A quiz question can open while the menu is up, so each closure checks again, as the agent list's buttons do.
-            showReadyScene: { [weak self] in
-                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
-                self.startShowingTheReadyBackgroundScene()
-            },
-            hearTaskAnswer: { [weak self] in
-                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
-                self.startSpeakingTheTaskAnswer()
-            }
+            showReadyScene: { [weak self] in self?.startShowingTheReadyBackgroundScene() },
+            hearTaskAnswer: { [weak self] in self?.startSpeakingTheTaskAnswer() },
+            // The same path as the agent list's "Try again", which checks again whether the work may start now.
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) }
         )
     ) { [weak self] click in
-        self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
+        self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen, opensOnly: click.opensOnly)
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
     private let settingsDialController = SettingsDialController()
@@ -468,8 +474,8 @@ final class CompanionManager: ObservableObject {
             guard let self else { return true }
             return self.clickyIsBusyForAVideoRecapCard || self.videoRecapIsGatheringTheDiscs
         },
-        readTheFrontTabURL: { try ChromeVideoTab.frontTabOfTheFrontWindow().url },
-        readTheFrontVideo: { try ChromeVideoTab.readWhetherTheFrontVideoHasEnded() },
+        readTheFrontTabURL: { try await ChromeFrontTabAppleEvents.frontTabURLOffTheMainActor() },
+        readTheFrontVideo: { try await ChromeFrontTabAppleEvents.frontVideoEndReadingOffTheMainActor() },
         recapForVideo: { [weak self] videoURL in self?.videoRecap(forVideoURL: videoURL) },
         showTheRecapAtTheEnd: { [weak self] recap, videoURL in self?.showTheRecapAtTheEndOfTheVideo(recap, videoURL: videoURL) }
     )
@@ -627,6 +633,10 @@ final class CompanionManager: ObservableObject {
         }
         videoQuizSession.onQuizEnded = { [weak self] _ in
             self?.showTheVideoQuizSummary()
+        }
+        // An ended approval card Glides back into its agent's disc, which only the dock knows.
+        agentListPanelController.discCenterOfTheAgent = { [weak self] agentID, displayID in
+            self?.agentTokenDockController.discCenter(ofTheAgent: agentID, onDisplay: displayID)
         }
         // The discs a video's end gathered at the cursor go back when the Card closes, however it closes.
         videoQuizSummaryPanelController.onClosed = { [weak self] glideOrigin in
@@ -1052,6 +1062,8 @@ final class CompanionManager: ObservableObject {
     var menuPanelTookTheEscape: () -> Bool = { false }
     /// Set by `MenuBarPanelManager`: whether the panel is open on its home, where the banner slot shows the approval card.
     var menuPanelShowsTheApprovalCard: () -> Bool = { false }
+    /// Set by `MenuBarPanelManager`: whether the panel is open on any page, which holds back the end-of-video recap.
+    var menuPanelIsOpen: () -> Bool = { false }
 
     /// How the running video quiz is going, for the panel's state line, or nil with no quiz running.
     @Published private(set) var videoQuizProgress: VideoQuizProgress?
@@ -1336,14 +1348,18 @@ final class CompanionManager: ObservableObject {
             forgetTheVoiceCommandScreenRead()
             // So is a command the last press started on its partial transcript, whose words the learner is now replacing.
             endTheVoiceCommandSpeculation(because: "a new push-to-talk press")
-            // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
-            // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
-            cancelTheVideoRecapGather()
-            agentTokenDockController.finishTheServeAtOnce()
-            // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
-            LiveSceneStatusLabel.shared.hide()
-            VoiceToolCallChip.shared.recall()
-            cursorLoopController.pushToTalkWasPressed()
+            // The moves and labels on screen end in the order `PushToTalkPressStep` gives and its test pins. A new press starts
+            // a new request, so the label from the last build is out of date, and so is its loop.
+            for pressStep in PushToTalkPressStep.allCases {
+                switch pressStep {
+                case .endTheRecapGather: cancelTheVideoRecapGather()
+                case .landTheFlights: agentTokenDockController.finishTheServeAtOnce()
+                case .landTheScrub: cursorScrubController.landAtOnce()
+                case .hideTheStatusLabel: LiveSceneStatusLabel.shared.hide()
+                case .recallTheChip: VoiceToolCallChip.shared.recall()
+                case .endTheCursorLoop: cursorLoopController.pushToTalkWasPressed()
+                }
+            }
 
             showTheCursorOverlayForThisInteraction()
 
@@ -2082,6 +2098,8 @@ final class CompanionManager: ObservableObject {
             if requestedKind == nil {
                 Task {
                     await LiveSceneOverlay.shared.waitForReturnToFinish()
+                    // A scene asked for while the old one returned owns the pause now.
+                    guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) else { return }
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }
@@ -2293,7 +2311,7 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.popOutLines)
             }
         }
-        await speakLiveSceneLine("Sure, let me pop that out.")
+        await speakLiveSceneLine("Sure, let me pop that out.", isAFailure: false)
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var framePopout: VideoFramePopout?
@@ -2321,7 +2339,8 @@ final class CompanionManager: ObservableObject {
             // No scene opened, so nothing will clear it and resume the video.
             // A previous pop-out cleared for this request may still be landing back in its frame.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
-            if videoQuizSession.videoIsPausedForRequestedScene {
+            // A scene asked for during the line or the return owns the pause now.
+            if videoQuizSession.videoIsPausedForRequestedScene, aSceneThatEndedMayResumeItsVideo(liveScenePhase: liveScenePhase) {
                 videoQuizSession.resumeVideoAfterRequestedScene()
             }
             return
@@ -2356,7 +2375,7 @@ final class CompanionManager: ObservableObject {
         guard !framePopout.isArtwork else {
             print("Frame pop-out: leaving the artwork as the artist made it")
             if let artworkLine = PictureFlowsOutcome.leftTheArtworkAlone.spokenLineWhenNotShowing {
-                await speakLiveSceneLine(artworkLine)
+                await speakLiveSceneLine(artworkLine, isAFailure: false)
             }
             // A push-to-talk press cancels this task, and a hide scheduled now would fade the overlay while they talk.
             guard !Task.isCancelled else { return }
@@ -2371,7 +2390,7 @@ final class CompanionManager: ObservableObject {
             }
         }
         let pictureFlowsTask = Task { await self.showPictureFlows(on: framePopout, requestGeneration: requestGeneration) }
-        await speakLiveSceneLine("Sure, let me animate that.")
+        await speakLiveSceneLine("Sure, let me animate that.", isAFailure: false)
         // A fast "nothing flows" reply would otherwise cut this line off, since a new line stops the one playing.
         await waitForClickyToFinishSpeaking()
         guard !Task.isCancelled else { return }
@@ -2438,7 +2457,7 @@ final class CompanionManager: ObservableObject {
                 LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
             }
         }
-        await speakLiveSceneLine("Sure, let me build that for you.")
+        await speakLiveSceneLine("Sure, let me build that for you.", isAFailure: false)
         guard !Task.isCancelled else { return }
         voiceState = .processing
         var cursorScreenJPEGData: Data?
@@ -2546,7 +2565,7 @@ final class CompanionManager: ObservableObject {
                 if let partLabel = spokenPart.partLabel {
                     LiveSceneOverlay.shared.highlightPart(labelText: partLabel)
                 }
-                await speakLiveSceneLine(spokenPart.spokenText)
+                await speakLiveSceneLine(spokenPart.spokenText, isAFailure: false)
                 await waitForClickyToFinishSpeaking()
             }
             LiveSceneOverlay.shared.highlightPart(labelText: "")
@@ -2706,7 +2725,7 @@ final class CompanionManager: ObservableObject {
     private func speakTheWaitingChallengePrompt() async {
         guard let challengePromptLine = simulationLesson?.challengePromptWaitingToBeSpoken, !Task.isCancelled else { return }
         print("Simulation: saying \"\(challengePromptLine)\"")
-        await speakLiveSceneLine(challengePromptLine)
+        await speakLiveSceneLine(challengePromptLine, isAFailure: false)
         // The audio has started once speaking returns uncancelled, so it is cleared now, before the wait, or a newer
         // narration that waits for this audio to end would say the prompt a second time.
         guard !Task.isCancelled else { return }
@@ -2721,7 +2740,7 @@ final class CompanionManager: ObservableObject {
     private func speakSimulationLine(_ line: String) async -> Bool {
         guard !Task.isCancelled, !line.isEmpty else { return false }
         print("Simulation: saying \"\(line)\"")
-        let lineAudioStarted = await speakLiveSceneLine(line)
+        let lineAudioStarted = await speakLiveSceneLine(line, isAFailure: false)
         await waitForClickyToFinishSpeaking()
         return lineAudioStarted && !Task.isCancelled
     }
@@ -2745,7 +2764,7 @@ final class CompanionManager: ObservableObject {
         liveScenePhase = .idle
         guard resumesTheVideo, videoQuizSession.videoIsPausedForRequestedScene else { return }
         Task {
-            await self.speakLiveSceneLine("Okay, back to the video.")
+            await self.speakLiveSceneLine("Okay, back to the video.", isAFailure: false)
             await self.waitForClickyToFinishSpeaking()
             // Speaking the line set the voice state to responding, and a quiz asks its next question only when idle.
             if self.voiceState == .responding {
@@ -2755,6 +2774,8 @@ final class CompanionManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 500_000_000)
             // A frame pop-out lands back in the paused frame before the video moves.
             await LiveSceneOverlay.shared.waitForReturnToFinish()
+            // A scene asked for during the line or the return owns the pause now.
+            guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) else { return }
             self.videoQuizSession.resumeVideoAfterRequestedScene()
         }
     }
@@ -2889,7 +2910,7 @@ final class CompanionManager: ObservableObject {
             quiz: quiz,
             wrongAnswerCount: wrongAnswerCount
         )
-        await speakLiveSceneLine(spokenLine)
+        await speakLiveSceneLine(spokenLine, isAFailure: false)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -2951,13 +2972,13 @@ final class CompanionManager: ObservableObject {
             }
             liveScenePhase = .allLabelsShowing
             LiveSceneOverlay.shared.revealQuizLabel(outcome: .revealWithoutCelebration, correctAnswerSound: themeSettings.shownTheme.sounds.correct)
-            await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false))
+            await speakLiveSceneLine(spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false), isAFailure: false)
         case .repeatQuestion:
-            await speakLiveSceneLine(quiz.question)
+            await speakLiveSceneLine(quiz.question, isAFailure: false)
         case .giveHint:
             // The camera turns to the part still labeled "?", which is the hint the eyes get.
             LiveSceneOverlay.shared.highlightPart(labelText: quiz.answerLabel)
-            await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply)
+            await speakLiveSceneLine(judgeSpokenReply.isEmpty ? "Here's a hint: look at the part that's glowing." : judgeSpokenReply, isAFailure: false)
         case .sceneCommand:
             startVoiceCommand(
                 transcript: transcript,
@@ -3011,7 +3032,7 @@ final class CompanionManager: ObservableObject {
             )
         }
         liveScenePhase = .allLabelsShowing
-        await speakLiveSceneLine(spokenLine)
+        await speakLiveSceneLine(spokenLine, isAFailure: false)
         await resumeVideoQuizAfterExplanation()
         guard !Task.isCancelled else { return }
         voiceState = .idle
@@ -3054,7 +3075,8 @@ final class CompanionManager: ObservableObject {
             Task {
                 await LiveSceneOverlay.shared.waitForReturnToFinish()
                 self.videoQuizSession.resumeVideoAfterQuestion()
-                if aSceneWasBuilding {
+                // A scene asked for during the return owns the pause now.
+                if aSceneWasBuilding, aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) {
                     self.videoQuizSession.resumeVideoAfterRequestedScene()
                 }
             }
@@ -3062,7 +3084,7 @@ final class CompanionManager: ObservableObject {
         }
 
         currentResponseTask = Task {
-            await self.speakLiveSceneLine(spokenLine)
+            await self.speakLiveSceneLine(spokenLine, isAFailure: false)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -3103,7 +3125,7 @@ final class CompanionManager: ObservableObject {
         }
         liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 0)
         currentResponseTask = Task {
-            await self.speakLiveSceneLine(quiz.question)
+            await self.speakLiveSceneLine(quiz.question, isAFailure: false)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
             self.scheduleTransientHideIfNeeded()
@@ -3125,7 +3147,7 @@ final class CompanionManager: ObservableObject {
         await waitForClickyToFinishSpeaking()
         // The learner needs a moment with the explanation before the video moves on.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
-        await speakLiveSceneLine("Okay, back to the video.")
+        await speakLiveSceneLine("Okay, back to the video.", isAFailure: false)
         await waitForClickyToFinishSpeaking()
         try? await Task.sleep(nanoseconds: 500_000_000)
         // A frame pop-out sits over the video, so it lands back in its frame and goes away before play.
@@ -3149,6 +3171,8 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         // A pop-out whose page failed may still be landing back in its frame.
         await LiveSceneOverlay.shared.waitForReturnToFinish()
+        // A scene asked for during the line or the return owns the pause now.
+        guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: liveScenePhase) else { return }
         videoQuizSession.resumeVideoAfterRequestedScene()
     }
 
@@ -3318,11 +3342,12 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// A press, Escape, or a scene starting ends a recap's gather: the flights land at once, and the Card stays away.
+    /// A press, Escape, or a scene starting ends a recap's gather: the flights land at once, the discs show in their places at
+    /// once with no flight back, and the Card stays away.
     private func cancelTheVideoRecapGather() {
         guard videoRecapIsGatheringTheDiscs else { return }
         videoRecapGatherWasCancelled = true
-        agentTokenDockController.finishTheServeAtOnce()
+        agentTokenDockController.sendTheDiscsBackAtOnce()
     }
 
     private func showTheVideoRecapCard(_ recap: VideoRecap, moment: VideoRecapMoment, videoURL: String, videoRect: CGRect?, cursorPoint: CGPoint? = nil) {
@@ -3374,18 +3399,23 @@ final class CompanionManager: ObservableObject {
     /// speaking, a quiz question or a running quiz, a scene, a Card already up, the Theme Studio card, the settings dial, the
     /// agent list, the room art panel, the "Add theme?" card, or an approval waiting for the learner.
     private var clickyIsBusyForAVideoRecapCard: Bool {
-        guard case .idle = liveScenePhase else { return true }
-        return voiceState != .idle
-            || elevenLabsTTSClient.isPlaying
-            || videoQuizQuestionIsActive
-            || videoQuizSession.isRunning
-            || videoQuizSummaryPanelController.isShowing
-            || themeStudioController.isOpen
-            || settingsDialController.isOpen
-            || agentListPanelController.isOpen
-            || roomArtPreviewController.isOpen
-            || themeInstallConfirmation.isOpen
-            || agentHarness.approvalDesk.oldestWaitingRequest != nil
+        let aSceneIsUp: Bool
+        if case .idle = liveScenePhase { aSceneIsUp = false } else { aSceneIsUp = true }
+        return VideoRecapBusyFacts(
+            aSceneIsUp: aSceneIsUp,
+            clickyIsNotIdle: voiceState != .idle,
+            speechIsPlaying: elevenLabsTTSClient.isPlaying,
+            aQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            aQuizIsRunning: videoQuizSession.isRunning,
+            aCardIsShowing: videoQuizSummaryPanelController.isShowing,
+            theThemeStudioIsOpen: themeStudioController.isOpen,
+            theSettingsDialIsOpen: settingsDialController.isOpen,
+            theAgentListIsOpen: agentListPanelController.isOpen,
+            theMenuBarPanelIsOpen: menuPanelIsOpen(),
+            theRoomArtPanelIsOpen: roomArtPreviewController.isOpen,
+            anAddThemeCardIsOpen: themeInstallConfirmation.isOpen,
+            anApprovalWaits: agentHarness.approvalDesk.oldestWaitingRequest != nil
+        ).clickyIsBusy
     }
 
     /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label
@@ -3410,6 +3440,13 @@ final class CompanionManager: ObservableObject {
         case .playsFromBeforeIt:
             return
         case .couldNotGoBack:
+            // A scene build this go-back cancelled, or a requested scene it cleared, still holds the video's pause, and nothing
+            // else will resume it now. A scene or pop-out that started while the old one returned owns the pause instead.
+            Task {
+                await LiveSceneOverlay.shared.waitForReturnToFinish()
+                guard aSceneThatEndedMayResumeItsVideo(liveScenePhase: self.liveScenePhase) else { return }
+                self.videoQuizSession.resumeVideoAfterRequestedScene()
+            }
             currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
             return
         }
@@ -3484,7 +3521,7 @@ final class CompanionManager: ObservableObject {
             let settledLabelScreenPointsTask = Task {
                 await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
             }
-            await self.speakLiveSceneLine(quiz.question)
+            await self.speakLiveSceneLine(quiz.question, isAFailure: false)
             self.pointTheBuddyAtTheQuizQuestion(quiz, labelScreenPoints: await settledLabelScreenPointsTask.value)
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
@@ -3715,7 +3752,7 @@ final class CompanionManager: ObservableObject {
                     // An agent the command started serves its token from the cursor first, and the line plays after it lands.
                     await agentTokenDockController.waitForTheServeToLand()
                     guard !Task.isCancelled else { return }
-                    if await speakLiveSceneLine(spokenLine) { timing.mark(\.firstLineAudioStartedAt) }
+                    if await speakLiveSceneLine(spokenLine, isAFailure: false) { timing.mark(\.firstLineAudioStartedAt) }
                 }
             }
             break
@@ -4023,7 +4060,14 @@ final class CompanionManager: ObservableObject {
             return .outcome(runLearnerVideoCommand(.seekBy(seconds: seconds)))
         case .seekToTime:
             guard let seconds = input["seconds"]?.numberValue else { return .outcome(.failed(error: "seconds must be a number", state: nil)) }
-            return .outcome(runLearnerVideoCommand(.seekTo(seconds: seconds)))
+            do {
+                let videoState = try await videoQuizSession.seekTheFrontVideo(toSeconds: seconds) { videoTab, targetSeconds in
+                    await self.scrubTheCursorAlongTheProgressBar(of: videoTab, toSeconds: targetSeconds)
+                }
+                return .outcome(.changed(state: .object(["video": videoState])))
+            } catch {
+                return .outcome(.failed(error: (error as? LocalizedError)?.errorDescription ?? "No video is in Chrome's front tab", state: nil))
+            }
         case .setSpeed:
             guard let playbackRate = input["rate"]?.numberValue else { return .outcome(.failed(error: "rate must be a number", state: nil)) }
             return .outcome(runLearnerVideoCommand(.setPlaybackRate(playbackRate)))
@@ -4039,7 +4083,9 @@ final class CompanionManager: ObservableObject {
         case .seekToMoment:
             // One call finds the best caption line and seeks there, so the model can follow it with pop_out in the same reply.
             do {
-                guard let seek = try await videoQuizSession.seekToTheCaptionMoment(matching: input["query"]?.stringValue ?? "") else {
+                guard let seek = try await videoQuizSession.seekToTheCaptionMoment(matching: input["query"]?.stringValue ?? "", scrubTheCursorFirst: { videoTab, targetSeconds in
+                    await self.scrubTheCursorAlongTheProgressBar(of: videoTab, toSeconds: targetSeconds)
+                }) else {
                     return .outcome(.failed(error: "No caption line says that. Try other words, or use find_moment.", state: nil))
                 }
                 return .outcome(.changed(state: .object([
@@ -4521,7 +4567,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask?.cancel()
         elevenLabsTTSClient.stopPlayback()
         currentResponseTask = Task {
-            await self.speakLiveSceneLine(readyTaskAnswer)
+            await self.speakLiveSceneLine(readyTaskAnswer, isAFailure: false)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
@@ -4579,6 +4625,20 @@ final class CompanionManager: ObservableObject {
         // The panel's banner already shows the card, so the list does not open over it.
         guard !menuPanelShowsTheApprovalCard() else { return }
         agentListPanelController.openForAnApprovalRequest(fromAgentID: approvalRequest.taskID)
+    }
+
+    /// Which showing of each agent's settled mark is the latest, so an older one's timer never removes a newer mark.
+    private var approvalSettledMarkShowingIDs: [UUID: UUID] = [:]
+
+    private func showTheApprovalSettledMark(_ mark: AgentTokenApprovalSettledMark, onTheDiscOf agentID: UUID) {
+        let showingID = UUID()
+        approvalSettledMarkShowingIDs[agentID] = showingID
+        backgroundAgentStore.approvalSettledMarksByAgentID[agentID] = mark
+        DispatchQueue.main.asyncAfter(deadline: .now() + agentTokenApprovalSettledMarkSeconds) { [weak self] in
+            guard let self, self.approvalSettledMarkShowingIDs[agentID] == showingID else { return }
+            self.approvalSettledMarkShowingIDs[agentID] = nil
+            self.backgroundAgentStore.approvalSettledMarksByAgentID[agentID] = nil
+        }
     }
 
     /// Keeps the chip in step with the approval desk, after each arrival and answer.
@@ -4695,7 +4755,7 @@ final class CompanionManager: ObservableObject {
             // The experiment agent serves its token from the cursor first, and the line plays after it lands.
             await self.agentTokenDockController.waitForTheServeToLand()
             guard !Task.isCancelled else { return }
-            await self.speakLiveSceneLine(spokenLine)
+            await self.speakLiveSceneLine(spokenLine, isAFailure: false)
             await self.waitForClickyToFinishSpeaking()
             guard !Task.isCancelled else { return }
             self.voiceState = .idle
@@ -5204,7 +5264,13 @@ final class CompanionManager: ObservableObject {
     /// where the spark lands. An agent with no disc to leave from shows the chip at once.
     private func bringBackTheEndingChip(ofAgent agentID: UUID, showTheChip: @escaping () -> Void) {
         let agentColor = backgroundAgentStore.agents.first { $0.id == agentID }?.displayColor.color ?? DS.Colors.textSecondary
-        agentTokenDockController.bringBack(agentID: agentID, in: agentColor, showTheChip: showTheChip)
+        // The video the loop or an agent's spark is around, read with no new Apple Event, so the drop comes down beside it.
+        agentTokenDockController.bringBack(
+            agentID: agentID,
+            in: agentColor,
+            keepingClearOf: cursorLoopController.mediaScreenRectInAppKitCoordinates,
+            showTheChip: showTheChip
+        )
     }
 
     /// Who an ending chip speaks for: the agent's kind, and its player while a team theme is on.
@@ -5503,23 +5569,23 @@ final class CompanionManager: ObservableObject {
     /// `isAFailure` says the line reports something that went wrong, so the cursor shakes as Clicky says it. The caller says
     /// so, since a failure line can start with any words ("I couldn't find a YouTube video open in Chrome.").
     @discardableResult
-    private func speakLiveSceneLine(_ line: String, isAFailure: Bool = false) async -> Bool {
+    private func speakLiveSceneLine(_ line: String, isAFailure: Bool) async -> Bool {
         await speakLiveSceneLineAndReturnItsToken(line, isAFailure: isAFailure) != nil
     }
 
     /// `speakLiveSceneLine` for a line whose audio may already be fetching, such as a voice command's line fetched while its
     /// calls ran.
     private func speakLiveSceneLine(_ lineFetch: SpokenLineFetch) async -> Bool {
-        await speakTheFetchedLineAndReturnItsToken(lineFetch) != nil
+        await speakTheFetchedLineAndReturnItsToken(lineFetch, isAFailure: false) != nil
     }
 
     /// Like `speakLiveSceneLine`, but returns the token of the line once its own audio has started, for a caller that must
     /// stop that exact line later. Nil on a cancel or when the credits fallback plays instead.
-    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool = false) async -> SpokenLineToken? {
+    private func speakLiveSceneLineAndReturnItsToken(_ line: String, isAFailure: Bool) async -> SpokenLineToken? {
         await speakTheFetchedLineAndReturnItsToken(elevenLabsTTSClient.startFetching(line), isAFailure: isAFailure)
     }
 
-    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool = false) async -> SpokenLineToken? {
+    private func speakTheFetchedLineAndReturnItsToken(_ lineFetch: SpokenLineFetch, isAFailure: Bool) async -> SpokenLineToken? {
         if isAFailure { playCursorEmote(.shake) }
         do {
             let lineToken = try await playLineEndingAnOpenReplay(lineFetch)
@@ -5633,7 +5699,7 @@ final class CompanionManager: ObservableObject {
     /// Returns the instant replay stop of a sentence whose part the cursor pointed at, with the camera pose then.
     private func speakLiveSceneNarrationSentence(_ spokenText: String, aboutPartLabel partLabel: String?, narrationID: UUID) async -> ReplayStop? {
         guard let partLabel else {
-            await speakLiveSceneLine(spokenText)
+            await speakLiveSceneLine(spokenText, isAFailure: false)
             // The buddy stays on the last part it pointed at, and its bubble follows what Clicky says now.
             if !Task.isCancelled, detectedElementPointingHold == .untilReleased(byNarrationID: narrationID) {
                 detectedElementBubbleText = spokenText
@@ -5647,7 +5713,7 @@ final class CompanionManager: ObservableObject {
             let settledLabelScreenPoints = await LiveSceneOverlay.shared.partLabelScreenPointsOnceTheCameraSettles()
             return (settledLabelScreenPoints, await LiveSceneOverlay.shared.cameraPoseForTheReplay())
         }
-        await speakLiveSceneLine(spokenText)
+        await speakLiveSceneLine(spokenText, isAFailure: false)
         let (settledLabelScreenPoints, settledCameraPose) = await settledLabelScreenPointsTask.value
         var replayStop: ReplayStop?
         if !Task.isCancelled,
@@ -5659,6 +5725,40 @@ final class CompanionManager: ObservableObject {
         return replayStop
     }
 
+    // MARK: - Scrub by voice
+
+    /// Flies the cursor to the video's progress bar, slides it to the moment, and returns as it arrives, so the seek runs
+    /// then. With no line to slide along, it returns at once and the seek runs as before.
+    private func scrubTheCursorAlongTheProgressBar(of videoTab: ChromeVideoTab, toSeconds targetSeconds: Double) async {
+        let scrubConditions = CursorScrubConditions(
+            chromeIsTheFrontApp: NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome",
+            cursorIsPointing: detectedElementScreenLocation != nil,
+            sceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
+            commandWasCancelled: Task.isCancelled
+        )
+        guard let scrubLine = scrubLineToPlay(scrubConditions, readTheLine: { ChromeVideoTab.scrubLineOfTheVideo(in: videoTab) }) else {
+            print("Scrub by voice: no line to slide along (\(scrubConditions)), so the video seeks at once")
+            return
+        }
+        showTheCursorOverlayForThisInteraction()
+        let startPoint = scrubLine.point(atSeconds: scrubLine.currentSeconds)
+        let momentPoint = scrubLine.point(atSeconds: targetSeconds)
+        let mouseLocation = NSEvent.mouseLocation
+        // The flight and the slide each take the Point move's time for their distance, and a second more covers a busy main actor.
+        let pointMoveCurve = DS.Move.point.curve
+        let timeoutSeconds = pointMoveCurve.seconds(travelingPoints: hypot(startPoint.x - mouseLocation.x, startPoint.y - mouseLocation.y))
+            + pointMoveCurve.seconds(travelingPoints: abs(momentPoint.x - startPoint.x))
+            + 1
+        let scrubOutcome = await cursorScrubController.scrubBeforeTheSeek(
+            along: scrubLine,
+            toSeconds: targetSeconds,
+            displayFrames: NSScreen.screens.map(\.frame),
+            timeoutSeconds: timeoutSeconds
+        )
+        // The voice command schedules the transient hide when it ends, which waits for the scrub's flight back.
+        print("Scrub by voice: \(scrubOutcome) from \(Int(scrubLine.currentSeconds)) s to \(Int(targetSeconds)) s along \(scrubLine.followsTheProgressBar ? "the progress bar" : "the video's bottom edge")")
+    }
+
     // MARK: - Instant replay
 
     private var replayStopsAreRecordedForTheSceneOnScreen: Bool {
@@ -5667,7 +5767,14 @@ final class CompanionManager: ObservableObject {
 
     /// The replay points the buddy with its own hold. A point equal to the one the buddy already has would not reach the
     /// overlay's onChange, so it moves by a hundredth of a point, which a frozen buddy needs to fly again.
-    private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) {
+    /// Returns how long the cursor's flight to the label takes: from the point the cursor points at, such as the stop before
+    /// or the narration's last part, or else from the mouse, where the cursor follows it.
+    private func pointTheBuddyForTheReplay(at labelScreenPoint: LiveScenePartScreenPoint, sentence: String) -> TimeInterval {
+        let mouseLocation = NSEvent.mouseLocation
+        let flightSeconds = replayCursorFlightSeconds(
+            from: detectedElementScreenLocation ?? CGPoint(x: mouseLocation.x + StatusLabelPlacement.trianglesSpotFromTheMouse.x, y: mouseLocation.y + StatusLabelPlacement.trianglesSpotFromTheMouse.y),
+            to: labelScreenPoint.globalPoint
+        )
         showTheCursorOverlayForThisInteraction()
         var pointToFlyTo = labelScreenPoint.globalPoint
         if detectedElementScreenLocation == pointToFlyTo { pointToFlyTo.x += 0.01 }
@@ -5676,6 +5783,7 @@ final class CompanionManager: ObservableObject {
             bubbleText: sentence,
             narrationID: instantReplayPointingID
         )
+        return flightSeconds
     }
 
     /// The overlay calls this once the mouse moved away from a buddy the replay stopped, so it flies back to the mouse.
@@ -5765,7 +5873,7 @@ final class CompanionManager: ObservableObject {
         guard !Task.isCancelled, case .allLabelsShowing = liveScenePhase else { return }
         let landmarkLine = landmarkNarrationLine(for: famousPlace)
         print("Landmark: saying \"\(landmarkLine)\"")
-        await speakLiveSceneLine(landmarkLine)
+        await speakLiveSceneLine(landmarkLine, isAFailure: false)
         await waitForClickyToFinishSpeaking()
     }
 
@@ -5791,8 +5899,8 @@ final class CompanionManager: ObservableObject {
             }
 
             // Wait for pointing animation to finish (location is cleared
-            // when the buddy flies back to the cursor)
-            while detectedElementScreenLocation != nil {
+            // when the buddy flies back to the cursor), and for a scrub's flight back
+            while detectedElementScreenLocation != nil || cursorScrubController.request != nil {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }

@@ -215,6 +215,12 @@ final class CursorLoopController: ObservableObject {
         change { $0.end(because: reason) }
     }
 
+    /// The media a loop or an agent line is around now, in AppKit screen coordinates, or nil when none is. Bring back's drop
+    /// keeps clear of it, and reading it costs no Apple Event, which an agent's end would otherwise spend on the main actor.
+    var mediaScreenRectInAppKitCoordinates: CGRect? {
+        state.mediaThePollWatches.map { appKitRect(of: $0.screenRect, mainDisplayHeight: NSScreen.screens.first?.frame.height ?? 0) }
+    }
+
     // MARK: - Drawing
 
     /// The loop to draw on the screen with this frame, or nil when the media is on another screen or no loop shows.

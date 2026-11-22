@@ -297,7 +297,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .endQuiz:
             return "Stop the video quiz."
         case .makeStudyGuide:
-            return "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and a chip under the cursor shows when the page is ready, with nothing spoken. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done."
+            return "Write a Notion study guide for the YouTube video in Chrome's front tab. It runs in the background for up to a minute while the video keeps playing, and a chip above the cursor shows when the page is ready, with nothing spoken. Use it when the learner asks for a study guide, notes, or a summary page in Notion. Put an extra wish, such as only the part about the engine, in focus. Your confirmation is a few plain words that it has started, such as \"writing it now\", never that it is done."
         case .reviseStudyGuide:
             return "Change the study guide already written for this video, such as making it shorter, adding detail on one part, or adding a section. The new page replaces the old one in Notion and is written in the background. Put what to change in instruction, in the learner's words. Your confirmation is a few plain words that it has started, such as \"updating it now\", never that it is done."
         case .openStudyGuide:

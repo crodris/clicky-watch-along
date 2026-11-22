@@ -497,6 +497,11 @@ final class HarnessApprovalDesk: ObservableObject {
     /// for a request the desk's own timeout declined, since "Declined it" above the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
+    /// A card started to say how its request ended, so the requesting agent's disc can turn its "!" into a check or a dash.
+    var onACardEnded: ((_ endedCard: ShownApprovalCard, _ ending: ApprovalCardEnding) -> Void)?
+    /// An ended card's time ran out while no other request waited, so it was the card on screen and leaves now. The agent
+    /// list Glides it back into its disc. A card dropped with its task, or hidden behind a newer request, never calls this.
+    var onAnEndedCardLeft: ((ShownApprovalCard) -> Void)?
     /// Whether a surface shows the card: the agent list is open, or the menu bar panel is open on its home. A request that
     /// becomes the oldest then shows there.
     var listIsShowing: () -> Bool = { false }
@@ -653,9 +658,11 @@ final class HarnessApprovalDesk: ObservableObject {
     private func showTheEnding(_ ending: ApprovalCardEnding, of request: HarnessApprovalRequest) {
         let endedCard = ShownApprovalCard(request: request, phase: .ended(ending))
         lastEndedCard = endedCard
+        onACardEnded?(endedCard, ending)
         scheduleAfter(secondsAnEndedCardStays) { [weak self] in
             guard let self, self.lastEndedCard == endedCard else { return }
             self.lastEndedCard = nil
+            if self.waitingRequests.isEmpty { self.onAnEndedCardLeft?(endedCard) }
         }
     }
 

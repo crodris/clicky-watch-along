@@ -8,9 +8,24 @@
 
 /* Begin PBXBuildFile section */
 		AA00BB182F6500180039DA55 /* ClickyThemeQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA00BB112F6500110039DA55 /* ClickyThemeQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA00BC182F6500180039DA55 /* ClickyThemeThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA00BC112F6500110039DA55 /* ClickyThemeThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		AA00BB192F6500190039DA55 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA00BB102F6500100039DA55;
+			remoteInfo = ClickyThemeQuickLook;
+		};
+		AA00BC192F6500190039DA55 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA00BC102F6500100039DA55;
+			remoteInfo = ClickyThemeThumbnail;
+		};
 		28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
@@ -25,13 +40,6 @@
 			remoteGlobalIDString = 28F22CBE2F56440300A0FC59;
 			remoteInfo = "leanring-buddy";
 		};
-		AA00BB192F6500190039DA55 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = AA00BB102F6500100039DA55;
-			remoteInfo = ClickyThemeQuickLook;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,6 +50,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				AA00BB182F6500180039DA55 /* ClickyThemeQuickLook.appex in Embed Foundation Extensions */,
+				AA00BC182F6500180039DA55 /* ClickyThemeThumbnail.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -53,6 +62,7 @@
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA00BB112F6500110039DA55 /* ClickyThemeQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClickyThemeQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA00BC112F6500110039DA55 /* ClickyThemeThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClickyThemeThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -61,6 +71,7 @@
 			membershipExceptions = (
 				ClickyTheme.swift,
 				CursorFollowMotion.swift,
+				CursorGlyph.swift,
 				CustomThemeStore.swift,
 				DesignSystem.swift,
 				JSONValue.swift,
@@ -71,6 +82,22 @@
 			);
 			target = AA00BB102F6500100039DA55 /* ClickyThemeQuickLook */;
 		};
+		AA00BC132F6500130039DA55 /* Exceptions for "leanring-buddy" folder in "ClickyThemeThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ClickyTheme.swift,
+				CursorFollowMotion.swift,
+				CursorGlyph.swift,
+				CustomThemeStore.swift,
+				DesignSystem.swift,
+				JSONValue.swift,
+				SVGPathData.swift,
+				TetherMaterials.swift,
+				ThemeFilePreviewView.swift,
+				ThemeTags.swift,
+			);
+			target = AA00BC102F6500100039DA55 /* ClickyThemeThumbnail */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -78,6 +105,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				AA00BB132F6500130039DA55 /* Exceptions for "leanring-buddy" folder in "ClickyThemeQuickLook" target */,
+				AA00BC132F6500130039DA55 /* Exceptions for "leanring-buddy" folder in "ClickyThemeThumbnail" target */,
 			);
 			path = "leanring-buddy";
 			sourceTree = "<group>";
@@ -95,6 +123,11 @@
 		AA00BB122F6500120039DA55 /* ClickyThemeQuickLook */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ClickyThemeQuickLook;
+			sourceTree = "<group>";
+		};
+		AA00BC122F6500120039DA55 /* ClickyThemeThumbnail */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClickyThemeThumbnail;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -128,6 +161,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA00BC152F6500150039DA55 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -138,6 +178,7 @@
 				28F22CCF2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD92F56440300A0FC59 /* leanring-buddyUITests */,
 				AA00BB122F6500120039DA55 /* ClickyThemeQuickLook */,
+				AA00BC122F6500120039DA55 /* ClickyThemeThumbnail */,
 				28F22CC02F56440300A0FC59 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -149,6 +190,7 @@
 				28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */,
 				28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */,
 				AA00BB112F6500110039DA55 /* ClickyThemeQuickLook.appex */,
+				AA00BC112F6500110039DA55 /* ClickyThemeThumbnail.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -171,6 +213,7 @@
 			);
 			dependencies = (
 				AA00BB1A2F65001A0039DA55 /* PBXTargetDependency */,
+				AA00BC1A2F65001A0039DA55 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				28F22CC12F56440300A0FC59 /* leanring-buddy */,
@@ -248,6 +291,28 @@
 			productReference = AA00BB112F6500110039DA55 /* ClickyThemeQuickLook.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		AA00BC102F6500100039DA55 /* ClickyThemeThumbnail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00BC1B2F65001B0039DA55 /* Build configuration list for PBXNativeTarget "ClickyThemeThumbnail" */;
+			buildPhases = (
+				AA00BC142F6500140039DA55 /* Sources */,
+				AA00BC152F6500150039DA55 /* Frameworks */,
+				AA00BC162F6500160039DA55 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AA00BC122F6500120039DA55 /* ClickyThemeThumbnail */,
+			);
+			name = ClickyThemeThumbnail;
+			packageProductDependencies = (
+			);
+			productName = ClickyThemeThumbnail;
+			productReference = AA00BC112F6500110039DA55 /* ClickyThemeThumbnail.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -272,6 +337,9 @@
 					AA00BB102F6500100039DA55 = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					AA00BC102F6500100039DA55 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 				};
 			};
 			buildConfigurationList = 28F22CBA2F56440300A0FC59 /* Build configuration list for PBXProject "leanring-buddy" */;
@@ -292,6 +360,7 @@
 				28F22CCB2F56440300A0FC59 /* leanring-buddyTests */,
 				28F22CD52F56440300A0FC59 /* leanring-buddyUITests */,
 				AA00BB102F6500100039DA55 /* ClickyThemeQuickLook */,
+				AA00BC102F6500100039DA55 /* ClickyThemeThumbnail */,
 			);
 		};
 /* End PBXProject section */
@@ -319,6 +388,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AA00BB162F6500160039DA55 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA00BC162F6500160039DA55 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -413,6 +489,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA00BC142F6500140039DA55 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -430,6 +513,11 @@
 			isa = PBXTargetDependency;
 			target = AA00BB102F6500100039DA55 /* ClickyThemeQuickLook */;
 			targetProxy = AA00BB192F6500190039DA55 /* PBXContainerItemProxy */;
+		};
+		AA00BC1A2F65001A0039DA55 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA00BC102F6500100039DA55 /* ClickyThemeThumbnail */;
+			targetProxy = AA00BC192F6500190039DA55 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -743,6 +831,37 @@
 			};
 			name = Debug;
 		};
+		AA00BC1C2F65001C0039DA55 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ClickyThemeThumbnail/ClickyThemeThumbnail.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L828W27Z59;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClickyThemeThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Clicky Theme Thumbnail";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.crodris.clicky-watch-along$(CLICKY_BUNDLE_ID_SUFFIX).theme-thumbnail";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		AA00BB1D2F65001D0039DA55 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -764,6 +883,37 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.crodris.clicky-watch-along$(CLICKY_BUNDLE_ID_SUFFIX).theme-preview";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		AA00BC1D2F65001D0039DA55 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ClickyThemeThumbnail/ClickyThemeThumbnail.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L828W27Z59;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClickyThemeThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Clicky Theme Thumbnail";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.crodris.clicky-watch-along$(CLICKY_BUNDLE_ID_SUFFIX).theme-thumbnail";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -818,6 +968,15 @@
 			buildConfigurations = (
 				AA00BB1C2F65001C0039DA55 /* Debug */,
 				AA00BB1D2F65001D0039DA55 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00BC1B2F65001B0039DA55 /* Build configuration list for PBXNativeTarget "ClickyThemeThumbnail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00BC1C2F65001C0039DA55 /* Debug */,
+				AA00BC1D2F65001D0039DA55 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

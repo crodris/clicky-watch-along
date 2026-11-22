@@ -31,30 +31,32 @@ for test_name in "${tests_that_need_the_app_bundle[@]}"; do
 done
 echo "swift-check: skipping ${#tests_that_need_the_app_bundle[@]} test(s) that need the app bundle: ${tests_that_need_the_app_bundle[*]}"
 
-# The Quick Look extension compiles a few of the app's files on their own: the project's membership exception set for the
-# ClickyThemeQuickLook target. Type-check that set alone, with flags that mirror the app's Swift settings in Package.swift
-# (change all three together: the Xcode targets, Package.swift, and these flags), so a shared file that starts using an
-# app-only type fails here instead of only in CI's Xcode build.
-quick_look_files=()
-while IFS= read -r shared_file_name; do
-  quick_look_files+=("$checkout_root/leanring-buddy/$shared_file_name")
-done < <(awk '
-  /Exceptions for "leanring-buddy" folder in "ClickyThemeQuickLook" target/ && /= \{/ { in_set = 1 }
-  in_set && /membershipExceptions = \(/ { in_list = 1; next }
-  in_list && /\);/ { exit }
-  in_list { gsub(/[\t ,]/, ""); if ($0 != "") print }
-' "$checkout_root/leanring-buddy.xcodeproj/project.pbxproj")
-if [[ ${#quick_look_files[@]} -eq 0 ]]; then
-  echo "swift-check: found no files for the Quick Look extension in project.pbxproj" >&2
-  exit 1
-fi
-echo "swift-check: type-checking the Quick Look extension's ${#quick_look_files[@]} shared files on their own"
-swiftc -typecheck -parse-as-library -module-name ClickyThemeQuickLook -target "$(uname -m)-apple-macos14.2" \
-  -swift-version 5 -default-isolation MainActor -D DEBUG \
-  -enable-upcoming-feature NonisolatedNonsendingByDefault \
-  -enable-upcoming-feature InferIsolatedConformances \
-  -enable-upcoming-feature MemberImportVisibility \
-  "${quick_look_files[@]}" "$checkout_root"/ClickyThemeQuickLook/*.swift
+# The two Quick Look extensions (the preview and the thumbnail) each compile a few of the app's files on their own: the
+# project's membership exception set for that target. Type-check each set alone with the extension's own sources, with
+# flags that mirror the app's Swift settings in Package.swift (change all three together: the Xcode targets, Package.swift,
+# and these flags), so a shared file that starts using an app-only type fails here instead of only in CI's Xcode build.
+for extension_target in ClickyThemeQuickLook ClickyThemeThumbnail; do
+  extension_files=()
+  while IFS= read -r shared_file_name; do
+    extension_files+=("$checkout_root/leanring-buddy/$shared_file_name")
+  done < <(awk -v target="$extension_target" '
+    index($0, "Exceptions for \"leanring-buddy\" folder in \"" target "\" target") && /= \{/ { in_set = 1 }
+    in_set && /membershipExceptions = \(/ { in_list = 1; next }
+    in_list && /\);/ { exit }
+    in_list { gsub(/[\t ,]/, ""); if ($0 != "") print }
+  ' "$checkout_root/leanring-buddy.xcodeproj/project.pbxproj")
+  if [[ ${#extension_files[@]} -eq 0 ]]; then
+    echo "swift-check: found no files for the $extension_target extension in project.pbxproj" >&2
+    exit 1
+  fi
+  echo "swift-check: type-checking the $extension_target extension's ${#extension_files[@]} shared files on their own"
+  swiftc -typecheck -parse-as-library -module-name "$extension_target" -target "$(uname -m)-apple-macos14.2" \
+    -swift-version 5 -default-isolation MainActor -D DEBUG \
+    -enable-upcoming-feature NonisolatedNonsendingByDefault \
+    -enable-upcoming-feature InferIsolatedConformances \
+    -enable-upcoming-feature MemberImportVisibility \
+    "${extension_files[@]}" "$checkout_root/$extension_target"/*.swift
+done
 
 cd "$package_dir"
 swift test "${skip_arguments[@]}" "$@"

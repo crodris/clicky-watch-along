@@ -17,6 +17,9 @@ enum AgentDiscMenuItem: Equatable {
     case showReadyScene(title: String)
     case hearAnswer
     case openPage
+    /// Starts a failed agent's work again as a new agent, as the agent list's "Try again" does. Offered only while the
+    /// agent may be tried again (`BackgroundAgent.canBeTriedAgain`).
+    case tryAgain
     case cancelAgent
     /// What the "+N" disc, and an agent with nothing else to offer, opens.
     case openAgentList
@@ -27,13 +30,15 @@ enum AgentDiscMenuItem: Equatable {
         case .showReadyScene(let title): return title
         case .hearAnswer: return "Hear answer"
         case .openPage: return "Open page"
+        case .tryAgain: return "Try again"
         case .cancelAgent: return "Cancel agent"
         case .openAgentList: return "Open agent list"
         }
     }
 }
 
-/// What a disc's right-click menu offers, in order. Cancel comes last, after a separator the dock adds.
+/// What a disc's right-click menu offers, in order. Cancel comes last, after a separator the dock adds. A failed agent offers
+/// "Try again" only where the list's row does, since both read `canBeTriedAgain`.
 ///
 /// - `agent`: the agent the disc stands for, or nil for the "+N" disc.
 /// - `aVideoQuizQuestionIsOpen`: a waiting result is held while a quiz question is open, as the list's own buttons are
@@ -54,6 +59,7 @@ func agentDiscMenuItems(for agent: BackgroundAgent?, isWaitingForApproval: Bool,
         }
         if finishedResult.pageURL != nil { menuItems.append(.openPage) }
     }
+    if agent.phase.isFailed && agent.canBeTriedAgain { menuItems.append(.tryAgain) }
     if agent.isRunning { menuItems.append(.cancelAgent) }
     return menuItems.isEmpty ? [.openAgentList] : menuItems
 }
@@ -63,4 +69,31 @@ struct AgentDiscMenuActions {
     let cancelAgent: (UUID) -> Void
     let showReadyScene: () -> Void
     let hearTaskAnswer: () -> Void
+    let tryAgain: (UUID) -> Void
+}
+
+extension AgentDiscMenuActions {
+    /// The menu's actions with a waiting result held while a video quiz question is open. A question can open while the menu
+    /// is up, so showing the scene and hearing the answer check again when the item runs, as the agent list's buttons do
+    /// (`agentListMayDeliverAWaitingResult`).
+    static func holdingAWaitingResultDuringAQuizQuestion(
+        aVideoQuizQuestionIsOpen: @escaping () -> Bool,
+        cancelAgent: @escaping (UUID) -> Void,
+        showReadyScene: @escaping () -> Void,
+        hearTaskAnswer: @escaping () -> Void,
+        tryAgain: @escaping (UUID) -> Void
+    ) -> AgentDiscMenuActions {
+        AgentDiscMenuActions(
+            cancelAgent: cancelAgent,
+            showReadyScene: {
+                guard agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: aVideoQuizQuestionIsOpen()) else { return }
+                showReadyScene()
+            },
+            hearTaskAnswer: {
+                guard agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: aVideoQuizQuestionIsOpen()) else { return }
+                hearTaskAnswer()
+            },
+            tryAgain: tryAgain
+        )
+    }
 }

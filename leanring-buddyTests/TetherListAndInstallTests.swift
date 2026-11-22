@@ -152,6 +152,70 @@ struct AgentListLiveLineTests {
     }
 }
 
+@MainActor
+struct AgentListHoverViewTests {
+    @Test func theListFindsEveryRowsHoverViewAtAnyDepth() {
+        let contentView = NSView()
+        let nestedContainer = NSView()
+        let topLevelHoverView = HoverAndPointerNSView()
+        let nestedHoverView = HoverAndPointerNSView()
+        contentView.addSubview(topLevelHoverView)
+        contentView.addSubview(nestedContainer)
+        nestedContainer.addSubview(NSView())
+        nestedContainer.addSubview(nestedHoverView)
+        let foundHoverViews = hoverAndPointerViews(in: contentView)
+        #expect(foundHoverViews.count == 2)
+        #expect(foundHoverViews.contains { $0 === topLevelHoverView } && foundHoverViews.contains { $0 === nestedHoverView })
+    }
+}
+
+@MainActor
+struct AgentListGlideInCloseTests {
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
+    func aListClosedDuringItsGlideInShowsNothingWhole() throws {
+        let controller = makeController()
+        controller.toggle()
+        let glideIn = try #require(controller.openingFlight, "the list should Glide out of the mouse")
+        #expect(!glideIn.carriedViewIsHidden)
+        // Another surface opens over the list before the Glide lands.
+        controller.close()
+        #expect(glideIn.carriedViewIsHidden)
+        #expect(!controller.isOpen)
+    }
+
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
+    func escapeOrAClickOutsideDuringTheGlideInPlaysNoCloseFromTheWholeCard() throws {
+        let controller = makeController()
+        controller.toggle()
+        let glideIn = try #require(controller.openingFlight, "the list should Glide out of the mouse")
+        // Escape, a click outside, or a second click on the disc before the Glide lands.
+        let closeFlight = controller.closeWithGlide()
+        #expect(glideIn.carriedViewIsHidden)
+        #expect(closeFlight == nil)
+        #expect(!controller.isOpen)
+    }
+
+    private func makeController() -> AgentListPanelController {
+        let themeSettings = makeThemeSettings()
+        return AgentListPanelController(
+            store: BackgroundAgentStore(themeSettings: themeSettings),
+            themeSettings: themeSettings,
+            approvalDesk: HarnessApprovalDesk { _, _, _ in },
+            actions: AgentListActions(cancelAgent: { _ in }, showReadyScene: {}, hearTaskAnswer: {}, tryAgain: { _ in }, answerApproval: { _, _, _ in })
+        )
+    }
+}
+
+struct AgentListDiscClickTests {
+    @Test func aClickOnTheDiscTheListIsOpenFromClosesItButAMenuItemThatOpensItKeepsIt() {
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: true, theClickOnlyOpens: false) == .close)
+        // Review request on the chip of the agent whose disc the list is open under: no close into the disc and reopen.
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: true, theClickOnlyOpens: true) == .stayOpen)
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: false, theClickOnlyOpens: true) == .openUnderTheDisc)
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: false, theClickOnlyOpens: false) == .openUnderTheDisc)
+    }
+}
+
 struct AgentListWindowPlacementTests {
     private let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
     private let windowSize = CGSize(width: 348, height: 300)
@@ -171,6 +235,14 @@ struct AgentListWindowPlacementTests {
         let clickInTheShadow = CGPoint(x: cardFrame.midX, y: cardFrame.minY - 20)
         #expect(windowFrame.contains(clickInTheShadow))
         #expect(!cardFrame.contains(clickInTheShadow))
+    }
+
+    @Test func theMousePassesThroughTheShadowMarginAndNotTheCard() {
+        let windowFrame = AgentListWindowMargins.windowFrame(cardTopLeft: CGPoint(x: 500, y: 600), windowSize: windowSize, visibleFrame: visibleFrame)
+        let cardFrame = AgentListWindowMargins.cardFrame(inWindowFrame: windowFrame)
+        #expect(AgentListWindowMargins.windowPassesTheMouseThrough(at: CGPoint(x: cardFrame.midX, y: cardFrame.minY - 20), windowFrame: windowFrame))
+        #expect(AgentListWindowMargins.windowPassesTheMouseThrough(at: CGPoint(x: cardFrame.minX - 10, y: cardFrame.midY), windowFrame: windowFrame))
+        #expect(!AgentListWindowMargins.windowPassesTheMouseThrough(at: CGPoint(x: cardFrame.midX, y: cardFrame.midY), windowFrame: windowFrame))
     }
 
     @Test func aCardAtTheScreenEdgeIsKeptOnScreenWhileItsMarginMayReachPastIt() {

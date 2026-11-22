@@ -107,14 +107,14 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 9 Cursor and ring | Merged: [#83](https://github.com/crodris/clicky-watch-along/pull/83) |
 | 10 Quiz, scenes, edges | Merged: [#85](https://github.com/crodris/clicky-watch-along/pull/85). The quiz summary Card was seen in the app during PR 15's check |
 | 11 Instant replay | Merged: [#88](https://github.com/crodris/clicky-watch-along/pull/88). Seen in the app on the volcano video. The Recall, Reduce Motion, and Escape from a physical keyboard are covered by tests only |
-| 8 Panel, onboarding, keyboard | Merged: [#95](https://github.com/crodris/clicky-watch-along/pull/95). The approval banner and the quiz line are not yet seen live |
-| 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
+| 8 Panel, onboarding, keyboard | Merged: [#95](https://github.com/crodris/clicky-watch-along/pull/95). The approval banner and the quiz line were seen live in PR 19c |
+| 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording were done in PR 19c |
 | 14 The loop carries background work | Merged: [#97](https://github.com/crodris/clicky-watch-along/pull/97). Seen in the app with an experiment and a task agent on one volcano video. The Reduce Motion arcs are checked by renders only |
 | 15 End-of-video recap | Merged: [#93](https://github.com/crodris/clicky-watch-along/pull/93) |
 | 16 Pause every agent by voice | Merged: [#94](https://github.com/crodris/clicky-watch-along/pull/94) |
-| 17 Scrub by voice | Building |
+| 17 Scrub by voice | Merged: [#111](https://github.com/crodris/clicky-watch-along/pull/111). Seen in the app on the volcano video: a long slide, a short one from a spoken request, and a press mid-scrub. Reduce Motion is covered by a unit test only |
 | 18 Share themes as files | Merged: [#102](https://github.com/crodris/clicky-watch-along/pull/102) |
-| 19 Tether polish | Building in three parallel PRs: 19a agents, menu bar, and recap; 19b speech, cursor, quiz, and replay; 19c themes, panel, Quick Look, and the app icon |
+| 19 Tether polish | Merged in three parts: 19a agents, menu bar, and recap ([#114](https://github.com/crodris/clicky-watch-along/pull/114)); 19b speech, cursor, quiz, and replay ([#112](https://github.com/crodris/clicky-watch-along/pull/112)); 19c themes, panel, Quick Look, and the app icon ([#113](https://github.com/crodris/clicky-watch-along/pull/113)) |
 
 Deferred from PR 1, to fold into later PRs: the Chrome control row hides after onboarding (PR 8), a hover that shows only after the next mouse move on a still pointer (PR 8), the dimmed No button's low contrast (PR 5), a pop-out label's leader line that can point off screen after a resize (PR 10), and the menu bar icon not found beside the notch (PR 7).
 
@@ -123,25 +123,62 @@ Left open by PR 2, folded into PR 7: the serve has no still ring under Reduce Mo
 Deferred from PR 3: the "Add theme?" card shown before an install (done in PR 6), and a parent-folder race during install on a hostile network volume, graded informational (PR 18, which closed it: an install opens the package folder once and walks each file's path from it with `openat` and `O_NOFOLLOW`, so the package folder is resolved once per read and every name below it is looked up from a folder already open).
 
 Left open by PR 4: a push-to-talk press during a narration left the bubble with a rise instead of shrinking it into the cursor. PR 11 makes it shrink into the cursor.
-PR 19 takes the rest, plus PR 7's leftovers: Bring back's drop to the cursor can cross the video, no unit test pins the tether cut when a disc slides, the right-click menu's quiz check, or the press-handler order, and the app icon's cursor points down and right while the app's cursor points up and left. PR 4's leftovers in PR 19: stacked chips (a new chip pushes the old one up, which needs a second panel), the speech underline at exactly 2 points, and the `start_background_task` description that still says "a chip under the cursor", with its three fixtures and recorded evals.
+PR 19 takes the rest, plus PR 7's leftovers. PR 19c turned the app icon's cursor to the app's pointer angle, up and to the left. PR 19a closed the others: Bring back's drop comes down beside a video the cursor loop knows, and unit tests pin the tether cut when a disc slides (`AgentTokenServeFlights`), the right-click menu's quiz check, and the press-handler order (`PushToTalkPressStep`). PR 19b closed PR 4's leftovers (see its block below).
 
 Folded into PR 8 from PR 7: keyboard focus on the agent discs, and the status badge on a light menu bar.
 
-Left open by PR 6, for PR 19: the disc right-click menu has no "Try again" item, `AgentTriangleView` is now unused, and a click in the agent list's shadow margin hits faint shadow pixels. PR 8 makes the panel's theme cards match the studio tiles.
+Left open by PR 6, closed by PR 19a: the disc right-click menu's "Try again" item, the unused `AgentTriangleView` deleted, and a click in the agent list's shadow margin passing to the app under it. PR 8 makes the panel's theme cards match the studio tiles.
 
-Left open by PR 5, for PR 19: the approval card should glide back into its agent disc when answered, and the disc's "!" should turn into a check.
+Left open by PR 5, closed by PR 19a: the ended approval card Glides back into its agent's disc, and the disc's "!" turns into a check, or a gray dash for any ending but an allow. The menu bar panel's banner card does not Glide.
 Left open by PR 9, for PR 19: a ring dot crosses about 3 points into a status line's Callout at the top of its orbit, the shake, hop, and Reduce Motion tints are checked only on rendered frames, and the failure flag `isAFailure` defaults to false, so make it required once the parallel PRs have merged.
 Left open by PR 10: the panel header's quiz progress line (PR 8), and for PR 19, Escape during the summary Card's 0.42 second glide-in shows the whole Card for 0.05 seconds (needs a carrier option), a video pause stays held when a scene build is cancelled on the quiz tab and a jump back to a question then fails, and an experiment built on the Sonnet scene model took 63 seconds, past the app's 60 second timeout. The experiment build timeout PR gave background builds a 240 second timeout. The flaky test PR takes the two timing tests that failed under load.
-Left open by PR 8, for PR 19: a double flight when the agent list is open under a disc and that agent's chip is picked in the panel, the spec's red menu bar badge for the permission-off and offline banners, a full-name pill wider than its card for a long theme name, and a live look at the approval banner and the quiz line.
+Left open by PR 8, closed in PR 19: PR 19c made the full-name pill wrap inside its card and saw the approval banner and the quiz line live with nothing off. PR 19a closed the double flight when the agent list is open under a disc and that agent's chip is picked in the panel, and added the spec's red menu bar badge for the permission-off and offline banners, with the Worker check now also at launch and while it stays unreachable.
 Left open by PR 11, for PR 19: under PR 13's slowest theme a long replay flight leaves about 0.72 seconds of dwell at a stop instead of 1.0.
 A lifted model wider than its video reaches over the page's sidebar, seen on the volcano video, so the camera pan clamp from the prototype findings does not hold for a wide model.
 No brain eval has a replay open while agents are paused, so it is not pinned that "keep going" reaches `resume_agents` then.
-Left open by PR 15, for PR 19: an open menu bar panel does not count as busy for the recap, keyboard focus can reach a hidden disc while the recap Card is open, the gather is unchecked in the app under Reduce Motion, a press, Escape, or a scene during its 0.5 seconds, and on a second display, and the Escape-order paragraph in `AGENTS.md` lacks the gather step. Known limits: the recap covers only the last quiz, and a playlist that ends can be missed.
-Left open by PR 16, for PR 19: a push-to-talk press during the recap's disc gather sends the discs back on a 0.5 second flight instead of at once, the panel's agent chips stay colored during a pause, keyboard focus does not move to the paused disc or back after "go ahead", a recap within half a second of a pause or resume can leave a disc showing, and three `AGENTS.md` nits (the `AgentPauseTests.swift` line count, the approval line in the Swift agents bullet, and the missing held tool call log line).
-Left open by PR 18, for PR 19: a theme card keeps its hover look when the panel re-lays out under a still pointer, such as after a delete, which comes from the shared `HoverAndPointerNSView`.
-Finder also has no Quick Look thumbnail for a `.clickytheme` file yet (`qlmanage -t`), so its icon is still the app's document icon.
-The Quick Look extension draws its own still cursor, a small copy of the triangle shape and the Clicky blue palette order, because the app's cursor view depends on app-only state.
+Left open by PR 15: the gather is unchecked in the app under Reduce Motion, on a second display, and for a press, Escape, or a scene during its 0.5 seconds, since driving it needs a quiz or a study guide with spoken lines. PR 19a closed the rest: an open menu bar panel counts as busy for the recap, keyboard focus cannot reach a hidden disc, the Escape-order paragraph names the gather step, and a press, Escape, or a scene during the gather ends it with the discs back at once, which unit tests pin (`AgentTokenRecapGather`, `PushToTalkPressStep`). Known limits: the recap covers only the last quiz, and a playlist that ends can be missed.
+Left open by PR 16, closed by PR 19a: a press during the recap's gather shows the discs at once, the panel's agent chips gray and say "Paused" during a pause, keyboard focus moves to the paused disc and back after "go ahead", a recap within half a second of a pause or resume leaves no disc showing, and the three `AGENTS.md` nits.
+Left open by PR 18, closed by PR 19c: the hover look after a re-layout (`HoverAndPointerNSView` tested the pointer against a visible rect as large as the window), and Finder's icon for a `.clickytheme` file (the `ClickyThemeThumbnail` extension).
+Still open: the Quick Look extensions draw their own still cursor, a flat copy of the triangle and the Clicky blue palette order.
+Sharing the app's drawing needs `Triangle` (OverlayWindow.swift) and `CursorGlyphShade` (CursorBodyLanguage.swift) moved into a file the extensions compile, and PR 19b owned those files while 19c was built.
+19b merged as [#112](https://github.com/crodris/clicky-watch-along/pull/112), so a later PR can move them.
 
-Left open by PR 14, for PR 19: no test covers the loop view passing the paused flag to an agent's spark.
-The recap watcher reads the front tab every 3 seconds on the main actor, so a spark may jump while an agent works on that video; this is not measured.
+Left open by PR 14, closed by PR 19a: a test pins the loop view passing the paused flag to an agent's spark (`cursorLoopAgentsOnTheLine`).
+The recap watcher's front tab read held the main actor for about 133 ms every 3 seconds, measured through `NSAppleScript`, so it now sends raw Apple Events off the main actor, which took 9 to 29 ms.
 "Let me try it" timed out at 60 seconds on the local Worker in both of PR 14's app runs, because Sonnet sometimes thinks for 3,000 to 7,000 tokens first; [#108](https://github.com/crodris/clicky-watch-along/pull/108) closed it, so PR 19 does not take it.
+
+PR 19b ([#112](https://github.com/crodris/clicky-watch-along/pull/112), speech, cursor, quiz, and replay) closes these leftovers:
+- PR 4: chips stack, with a second panel: a new chip pushes the one on screen up one step, and a third sends the oldest away at once. The speech underline is a bar of exactly 2 points on macOS 15 and later, drawn by a text renderer, and the system underline before that. The model-facing text that said "a chip under the cursor" was `make_study_guide`'s, not `start_background_task`'s; it now says above, in the app and both fixtures, with a new recorded brain eval run (264 of 264 on the harness backend).
+- PR 9: while a status line shows, the thinking dots orbit 17 points out instead of 24, so no dot reaches the Callout's body. `isAFailure` is required at every `speakLiveSceneLine` call.
+- PR 10: Escape during the summary Card's glide-in hides the carried Card at once (`landAtOnce(hidingTheCarriedView:)`). A go-back that fails after it cancelled a scene build, or cleared a requested scene, lets go of that pause and plays the video again.
+- PR 17: a scrub the first-launch welcome refused hid the cursor on every screen for up to about 4 seconds. The overlay now reports the refusal, so the seek runs at once and the cursor stays.
+- PR 11: while a part is focused, by a narration or a replay stop, a lifted model stays over its video: the pan starts with the model centered on the video, each side is held on its own, and a replay stop moves the camera out, no farther than a zoom reaches, when the model is larger than the video. In headless Chrome on a YouTube-like layout every stop measured 0 points outside the video, where before it reached up to 441 points past it. With no part focused, the view after the tour still centers the model in the window. A replay stop's dwell starts when the cursor's flight ends, timed from the shown theme's Point move, so the slowest theme keeps the whole dwell. A brain eval case pins that "keep going" and "go ahead" reach `resume_agents` while a replay is open and agents are paused.
+Left open by PR 19b: the agent list and the Theme Studio card still call `landAtOnce()` without `hidingTheCarriedView` when they close during their glide-in, so each can show whole for 0.05 seconds; those files belong to PRs 19a and 19c.
+PR 19a closed the agent list's half: a close during its glide-in hides the carried copy (`landAtOnce(hidingTheCarriedView: true)`).
+PR 19c closed the Theme Studio card's half: a close hides the glide-in's carried copy, during the glide or in its 0.05 second rest, and a card that never showed leaves with no move (`themeStudioCardExit`).
+With no part focused, the view after a pop-out's tour still centers the model in the window, so a wide model can reach over a video page's sidebar until a part is focused.
+The stacked chips were checked by tests and a 2x render, and not seen in the app.
+
+Left open by PR 17, which was built while PR 19 was building, so a later polish PR takes them: the scrub's Reduce Motion fade is checked only by a unit test of `cursorScrubMotion`, not in the app.
+The scrub was not seen on a non-YouTube player (the video's bottom edge line), or with the mouse on another display than the video, where the cursor flies from wherever the video's screen last saw the mouse.
+One of four app runs read no line while the volcano video had about 14 seconds left, and the app sought with no slide, as designed; the first 400 characters of the reply are now logged, so the next case shows why.
+A page can choose the line's geometry, since the script runs in the page, so it can steer where the cursor slides on its own display; nothing reaches a model.
+
+## Still open after the build
+
+Every PR in the build order and every bigger idea has merged.
+The leftover paragraphs above are a record; this list is what is still open, and a follow-up PR takes the code items.
+
+- Closed by the follow-up PR: the Quick Look preview draws the app's own shaded triangle from `CursorGlyph.swift`, which both extensions compile; the failed pop-out and the failed scene build leave the video's pause to a newer scene (`aSceneThatEndedMayResumeItsVideo`); the Theme Studio card's close during its glide-in has a test; and a bench suite that times out no longer leaks its fake Chrome.
+- With no part focused, the pop-out's tour now ends with the model centered on its video, and the view keeps it there as the learner drags, stopping 10 points inside the window's edge.
+  A model larger than the video still reaches out evenly on both sides, unless that would cross the window's edge, since moving the camera out to fit it would shrink the tour's framing of the subject at 62 percent of the window's height.
+- Seen in the app by the follow-up PR: the stacked chips ("Turning it left" one step above "Zooming in"), the pop-out resting over the video instead of the sidebar, the approval card's "Allowed once" ending and its Glide into its disc along a tether in the agent's color, and the Theme Studio card gone with no stray copy after an Escape sent as it opened.
+  A screenshot cannot catch the 0.42 second glide-in, so the close during it is checked by its unit test.
+- The focused pan toward a part has no window limit of its own: it holds each side of the model inside the video, so a video that hangs partly off the window, as on a page scrolled past it, can still carry the model past the window's edge.
+  This predates the follow-up PR, which limits only the start of the pan.
+- The Quick Look extensions still keep their own copy of Clicky blue's palette order (`ThemeFilePreviewView.perKindAgentColors`, the same colors as `AgentPaletteColor`), since the palette lives in AgentTokenLayout.swift with app-only types.
+- Not yet seen in the app: the scrub's Reduce Motion fade (only a render and a unit test can check it, since no agent may change Reduce Motion) and the recap gather, which needs a finished quiz or a new study guide before the video ends.
+- An ended approval card leaves at once, with no Glide, when its task ends within the card's 2 second ending, as a fast task does.
+  The agent's bring back spark from its disc plays then instead.
+- Known limits, kept: the recap covers only the last quiz and can miss a playlist's end; the scrub was not seen on a non-YouTube player or a second display; a page can steer where the scrub line sits on its own display; a scene build the learner watches waits 60 seconds, which a slow Sonnet test Worker can pass.
+- For Chris by hand: the dark, tinted, and clear app icon modes need the layers imported into Icon Composer, and macOS asks whether Clicky may bypass the system private window picker.

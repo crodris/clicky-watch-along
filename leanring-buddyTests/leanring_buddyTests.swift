@@ -2048,17 +2048,6 @@ struct leanring_buddyTests {
         #expect(agent(.failed(reason: "x")).progressHeading(at: stepStartedAt) == nil)
     }
 
-    @Test func theTriangleFillsByAreaSoHalfTheWorkFillsHalfTheTriangle() async throws {
-        #expect(agentTriangleFillHeightShare(forProgress: 0) == 0)
-        #expect(agentTriangleFillHeightShare(forProgress: 1) == 1)
-        // The filled area of a triangle cut at height share h from its base is 1 - (1 - h)^2.
-        for progress in [0.25, 0.5, 0.75] {
-            let heightShare = agentTriangleFillHeightShare(forProgress: progress)
-            #expect(abs((1 - (1 - heightShare) * (1 - heightShare)) - progress) < 0.0001)
-        }
-        #expect(agentTriangleFillHeightShare(forProgress: 0.5) < 0.3)
-    }
-
     @Test func theLandmarkLineSaysTheBeforeANameThatTakesIt() async throws {
         let colosseum = FamousPlace(name: "Colosseum", nameTakesThe: true, latitude: 41.89021, longitude: 12.49223, heightMeters: 48, radiusMeters: 94)
         #expect(landmarkNarrationLine(for: colosseum) == "This is the Colosseum, in real 3D. It stands about 48 meters tall, as high as a 16-story building.")

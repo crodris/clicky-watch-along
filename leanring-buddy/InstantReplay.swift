@@ -128,6 +128,12 @@ nonisolated func replayStopDwellSeconds(for sentence: String) -> Double {
     return max(1.5, 0.3 * Double(wordCount))
 }
 
+/// How long the cursor's flight between two points takes under the shown theme: the Point move, paced by distance, which
+/// the overlay flies with (`OverlayWindow`'s flight).
+func replayCursorFlightSeconds(from startPoint: CGPoint, to endPoint: CGPoint, pointMoveCurve: MoveCurve = DS.Move.point.curve) -> TimeInterval {
+    pointMoveCurve.seconds(travelingPoints: hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y))
+}
+
 /// The count the control shows: "3 stops" before a replay, "2 of 3" during one.
 nonisolated func instantReplayCountText(phase: InstantReplayPhase, stopCount: Int) -> String {
     guard let openStopIndex = phase.openStopIndex else {
@@ -211,8 +217,9 @@ struct InstantReplayStage {
     var hideStopNumbers: () -> Void
     /// Where the part's label sits once the camera has stopped turning, or nil when it is gone.
     var labelScreenPointOnceTheCameraSettles: (_ partLabel: String) async -> LiveScenePartScreenPoint?
-    /// Flies the blue cursor to the label and shows the sentence in its bubble, until the replay lets it go.
-    var pointTheCursor: (_ labelScreenPoint: LiveScenePartScreenPoint, _ sentence: String) -> Void
+    /// Flies the blue cursor to the label and shows the sentence in its bubble, until the replay lets it go. Returns how
+    /// long the flight takes, which the theme's Point move and the distance decide, so the dwell starts when it lands.
+    var pointTheCursor: (_ labelScreenPoint: LiveScenePartScreenPoint, _ sentence: String) -> TimeInterval
     /// Stops the cursor where it is, mid-flight included, and hides its bubble, only while it points for the replay.
     var freezeTheCursor: () -> Void
     /// Sends the cursor back to the mouse, only while it points for the replay.
@@ -450,13 +457,14 @@ final class InstantReplayController: ObservableObject {
             defer { if numberOfThisTravel == self.travelNumber { self.aTravelIsRunning = false } }
             let labelScreenPoint = await self.stage.labelScreenPointOnceTheCameraSettles(stop.partLabel)
             guard !Task.isCancelled, generationOfThisTravel == self.travelGeneration else { return }
+            var cursorFlightSeconds: TimeInterval = 0
             if let labelScreenPoint {
-                self.stage.pointTheCursor(labelScreenPoint, stop.sentence)
+                cursorFlightSeconds = self.stage.pointTheCursor(labelScreenPoint, stop.sentence)
             }
             guard case .playingThrough = self.phase else { return }
-            // About 0.9 seconds of flight, then the dwell that lets the sentence be read.
+            // The flight, then the whole dwell that lets the sentence be read, however slow the theme's flight is.
             do {
-                try await self.stage.sleep(0.9 + replayStopDwellSeconds(for: stop.sentence))
+                try await self.stage.sleep(cursorFlightSeconds + replayStopDwellSeconds(for: stop.sentence))
             } catch {
                 return
             }

@@ -38,6 +38,14 @@ enum LiveScenePhase {
     case allLabelsShowing
 }
 
+/// Whether a video Clicky paused for a scene that failed, was cancelled, or cleared may play again. Each of those paths waits
+/// out a spoken line or a pop-out's return first, and a scene or pop-out asked for meanwhile holds the pause for itself, so the
+/// video plays only while no scene is building or on screen.
+func aSceneThatEndedMayResumeItsVideo(liveScenePhase: LiveScenePhase) -> Bool {
+    if case .idle = liveScenePhase { return true }
+    return false
+}
+
 enum LiveSceneQuizGrade: Equatable {
     case nameAndFunctionWord
     case nameOnly

@@ -470,3 +470,22 @@ struct ThemeStudioCardTextTests {
         #expect(!(try #require(ThemeRGBColor(hex: "#7C3AED")).readsBetterWithDarkInk))
     }
 }
+
+struct ThemeStudioCardExitTests {
+    private let savedIdea = clickyBlueTheme
+
+    @Test func aCardThatNeverShowedLeavesAtOnceWithNoMove() {
+        // Closed while it still Glided in, the real card never showed, so neither a Glide close nor the saved cursor's flight
+        // draws it whole.
+        #expect(themeStudioCardExit(realCardHasShown: false, reduceMotionIsOn: false, savedTileCursorIsKnown: true, reason: .dismissed) == .atOnce)
+        #expect(themeStudioCardExit(realCardHasShown: false, reduceMotionIsOn: false, savedTileCursorIsKnown: true, reason: .saved(idea: savedIdea, pictureJPEG: nil)) == .atOnce)
+    }
+
+    @Test func aCardThatShowedClosesIntoTheCursorAndASaveFliesTheCursorFirst() {
+        #expect(themeStudioCardExit(realCardHasShown: true, reduceMotionIsOn: false, savedTileCursorIsKnown: true, reason: .dismissed) == .fadeOrGlideIntoTheCursor)
+        #expect(themeStudioCardExit(realCardHasShown: true, reduceMotionIsOn: false, savedTileCursorIsKnown: true, reason: .saved(idea: savedIdea, pictureJPEG: nil)) == .savedCursorFliesThenGlide)
+        // Reduce Motion fades in place with no flight, and a save with no tile cursor to fly from closes the same way.
+        #expect(themeStudioCardExit(realCardHasShown: true, reduceMotionIsOn: true, savedTileCursorIsKnown: true, reason: .saved(idea: savedIdea, pictureJPEG: nil)) == .fadeOrGlideIntoTheCursor)
+        #expect(themeStudioCardExit(realCardHasShown: true, reduceMotionIsOn: false, savedTileCursorIsKnown: false, reason: .saved(idea: savedIdea, pictureJPEG: nil)) == .fadeOrGlideIntoTheCursor)
+    }
+}

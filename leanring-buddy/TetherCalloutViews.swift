@@ -437,20 +437,86 @@ enum SpeechCalloutLayout {
         return wordStart..<wordEnd
     }
 
-    /// One line as styled words: spoken words in white, the word being spoken in white with a 2 point accent underline, and
-    /// words not yet spoken at 60% white, which is 7.0 contrast on the Callout's surface.
-    static func styledText(of line: SpeechCalloutLine, revealedCharacterCount: Int, currentWordRange: Range<Int>?, accent: Color) -> AttributedString {
-        var styledLine = AttributedString()
-        for (characterIndex, character) in line.text.enumerated() {
+    /// Part of a line in its colors: spoken characters in white, and characters not yet spoken at 60% white, which is 7.0
+    /// contrast on the Callout's surface. `characterRange` is in offsets into the line's own text.
+    static func coloredText(of line: SpeechCalloutLine, characterRange: Range<Int>, revealedCharacterCount: Int) -> AttributedString {
+        var coloredPart = AttributedString()
+        let lineCharacters = Array(line.text)
+        for characterIndex in characterRange {
             let sentenceOffset = line.startOffset + characterIndex
-            var styledCharacter = AttributedString(String(character))
-            styledCharacter.swiftUI.foregroundColor = sentenceOffset < revealedCharacterCount ? Color.white : Color.white.opacity(0.6)
-            if let currentWordRange, currentWordRange.contains(sentenceOffset) {
-                styledCharacter.swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: accent)
-            }
-            styledLine.append(styledCharacter)
+            var coloredCharacter = AttributedString(String(lineCharacters[characterIndex]))
+            coloredCharacter.swiftUI.foregroundColor = sentenceOffset < revealedCharacterCount ? Color.white : Color.white.opacity(0.6)
+            coloredPart.append(coloredCharacter)
         }
-        return styledLine
+        return coloredPart
+    }
+
+    /// The line split around the word being spoken, in offsets into the line's own text: the part before it, the word, and
+    /// the part after it. A line that does not hold that word is all `before`, with the other two empty.
+    static func partsAroundTheSpokenWord(of line: SpeechCalloutLine, currentWordRange: Range<Int>?) -> (before: Range<Int>, word: Range<Int>, after: Range<Int>) {
+        let lineLength = line.text.count
+        guard let currentWordRange else { return (0..<lineLength, lineLength..<lineLength, lineLength..<lineLength) }
+        let wordStart = min(max(currentWordRange.lowerBound - line.startOffset, 0), lineLength)
+        let wordEnd = min(max(currentWordRange.upperBound - line.startOffset, wordStart), lineLength)
+        return (0..<wordStart, wordStart..<wordEnd, wordEnd..<lineLength)
+    }
+
+    /// One line as one `Text`, so it lays out as a single run of words: its colors from `coloredText`, and the word being
+    /// spoken marked for its 2 point accent underline (`SpokenWordUnderlineRenderer`). Before macOS 15, which has no text
+    /// renderer, the word takes the system underline in the accent color instead, whose thickness the font decides.
+    static func lineText(of line: SpeechCalloutLine, revealedCharacterCount: Int, currentWordRange: Range<Int>?, accent: Color) -> Text {
+        let parts = partsAroundTheSpokenWord(of: line, currentWordRange: currentWordRange)
+        let textBefore = Text(coloredText(of: line, characterRange: parts.before, revealedCharacterCount: revealedCharacterCount))
+        let wordText = Text(coloredText(of: line, characterRange: parts.word, revealedCharacterCount: revealedCharacterCount))
+        let textAfter = Text(coloredText(of: line, characterRange: parts.after, revealedCharacterCount: revealedCharacterCount))
+        let markedWordText: Text
+        if #available(macOS 15.0, *) {
+            markedWordText = wordText.customAttribute(SpokenWordUnderlineMark())
+        } else {
+            markedWordText = wordText.underline(true, color: accent)
+        }
+        return Text("\(textBefore)\(markedWordText)\(textAfter)")
+    }
+}
+
+/// Marks the word being spoken inside a line's `Text`, so `SpokenWordUnderlineRenderer` draws its underline.
+@available(macOS 15.0, *)
+struct SpokenWordUnderlineMark: TextAttribute {}
+
+/// Draws a speech line and a 2 point accent bar under the run marked `SpokenWordUnderlineMark`. The system underline takes
+/// its thickness from the font, so the spec's 2 points needs its own bar.
+@available(macOS 15.0, *)
+struct SpokenWordUnderlineRenderer: TextRenderer {
+    static let underlineThicknessInPoints: CGFloat = 2
+    /// How far below the baseline the bar's top sits, about where the system underline sits.
+    static let underlineGapBelowTheBaselineInPoints: CGFloat = 1.5
+    let accent: Color
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        let displayScale = max(context.environment.displayScale, 1)
+        for line in layout {
+            for run in line {
+                context.draw(run)
+                guard run[SpokenWordUnderlineMark.self] != nil else { continue }
+                let runBounds = run.typographicBounds
+                // On whole pixels, so the bar is exactly 2 points of solid color and not a blurred 3.
+                let barTop = ((runBounds.origin.y + Self.underlineGapBelowTheBaselineInPoints) * displayScale).rounded() / displayScale
+                let barRect = CGRect(x: runBounds.rect.minX, y: barTop, width: runBounds.width, height: Self.underlineThicknessInPoints)
+                context.fill(Path(barRect), with: .color(accent))
+            }
+        }
+    }
+}
+
+extension View {
+    /// Draws a speech line's spoken word underline at exactly 2 points on macOS 15 and later.
+    @ViewBuilder
+    func spokenWordUnderline(accent: Color) -> some View {
+        if #available(macOS 15.0, *) {
+            textRenderer(SpokenWordUnderlineRenderer(accent: accent))
+        } else {
+            self
+        }
     }
 }
 
@@ -495,7 +561,8 @@ struct SpeechCalloutView: View {
         } content: {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(lines[visibleRange].enumerated()), id: \.element.startOffset) { _, line in
-                    Text(SpeechCalloutLayout.styledText(of: line, revealedCharacterCount: revealedCharacterCount, currentWordRange: currentWordRange, accent: accent))
+                    SpeechCalloutLayout.lineText(of: line, revealedCharacterCount: revealedCharacterCount, currentWordRange: currentWordRange, accent: accent)
+                        .spokenWordUnderline(accent: accent)
                         .fixedSize()
                 }
             }
