@@ -122,17 +122,19 @@ const openAIResponseSchema = z.object({
 type SceneRequest = z.infer<typeof sceneRequestSchema>;
 
 /**
- * Two rules the scene kernel bakeoff of 2026-11-21 showed the judges reward (bench/README.md, "Scene kernel bakeoff"):
- * labels that never pile up, and a view that never crops the subject, such as a bicycle's saddle and front wheel.
+ * Two rules the scene kernel bakeoff of 2026-11-21 showed the judges reward for 3D models (bench/README.md, "Framing and
+ * label rules"): labels that never pile up, and a view that never crops the subject, such as a bicycle's saddle and front
+ * wheel. A 3D model's prompt carries them, and a simulation's does not, since experiments lost the blind judge 1 to 4 with them.
  */
 const labelCountAndPlacementRule =
   "Label at most 10 parts. Place the labels so no two overlap and none crowds or runs past an edge of the window.";
 const modelFramingRule =
   "Frame the whole subject so no part of it is cropped at any edge of the window, at the end of the tour and when the camera turns halfway around it, so the last move closer stops while the whole subject still fits. For an inside view, the parts around the answer part stay whole in view.";
-const experimentFramingRule =
-  "At the end of the tour and after a run, nothing the experiment needs is cropped at any edge of the window, and the equipment a readout depends on stays large in the frame.";
 
-const liveSceneInstructions = [
+/** The rules every page shares. A 3D model's lines include the two rules above, in the places they were measured. */
+function liveSceneInstructionLines(kind: LiveSceneRequestKind): string {
+  const onlyForAModel = (rule: string) => (kind === "model" ? [rule] : []);
+  return [
   "Reply with a ```html block and then a ```json block. Those two blocks are the entire reply.",
   "",
   "The html block is one complete page: a real-time three.js scene for a learning app, drawn with procedural geometry only. No external models or images.",
@@ -150,11 +152,11 @@ const liveSceneInstructions = [
   "",
   "Choose the answer part, the labels, and the question for this subject. The answer part is one a 10-year-old could name.",
   'Show HTML labels with leader lines. Every label element has class "scene-label".',
-  labelCountAndPlacementRule,
+  ...onlyForAModel(labelCountAndPlacementRule),
   'The answer part\'s label text is "?" from the start. The other labels use words a 10-year-old can read.',
   "",
   "Camera tour: hold outside the whole subject for 1 second, circle it over 3 seconds so every side shows, then over 2 seconds move closer to the answer part. For an inside view, that last move goes in beside the answer part while the outer shell fades. Keep neighboring parts in view at the end.",
-  modelFramingRule,
+  ...onlyForAModel(modelFramingRule),
   "",
   "Follow this contract exactly, because the app depends on it:",
   "1. Define window.liveScene at the top of the module script, before any await.",
@@ -171,10 +173,11 @@ const liveSceneInstructions = [
   "answerLabel is the answer part's real label, the words the learner would say out loud.",
   "functionWords is a list of lowercase words that count as saying what the part does.",
   "explanation is two short spoken sentences a 10-year-old can follow. It names the part, says what it does, and says why that matters.",
-].join("\n");
+  ].join("\n");
+}
 
 /**
- * Added after liveSceneInstructions for a simulation, so a model page's prompt stays exactly as it was and a simulation
+ * Added after the shared rules for a simulation, so a model page's prompt stays exactly as it was and a simulation
  * keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 15.
  */
 const simulationInstructions = [
@@ -191,7 +194,6 @@ const simulationInstructions = [
   "When a run ends, keep the path it took as a thin, solid, faded line, so the learner can compare runs. Keep the last 3, fading the older ones more, and keep them through setControl and reset(). A setup with no path keeps nothing.",
   'Build the part labels as in rules 2 and 3, for up to 4 parts with their real names. No label is "?", so reveal() may do nothing, but it must exist. Keep every label and its leader line hidden at first, because they cover the setup, and show them only through setLabelsVisible in rule 13.',
   "Camera tour: hold 0.5 seconds, then over 2 seconds move to a three-quarter view a little above the equipment, with the equipment large, about a third of the view's width or more, and the whole motion path in view, and stay there. Choose that view so no part hides what a readout or a run depends on in any setup the controls can make. Do not move closer to one part. The camera moves only for the tour, focusPart, rotateBy, zoomBy, a drag, and setChallengeVisible, never for setControl or run. Rules 4 to 7 still apply.",
-  experimentFramingRule,
   "Besides rules 1 to 7, window.liveScene defines these before any await:",
   "8. controls is an array of 1 to 3 objects { name, label, min, max, step, value, unit }. name is a short lowercase word, label is words a 10-year-old can read, and value is the current number, which you keep up to date. Each control is one number the learner can change, such as the launch angle in degrees. Start each at a value that makes a clear first run.",
   "9. setControl(name, value) clamps value to min and max, snaps it to step, stores it in that control's value, updates the scene to show the new setup as it stands before a run, never the run's outcome (the dashed preview of rule 14 still shows where a run will end), such as a ball at rest at its start or a meter's needle at zero, puts the simulation back at its start, and returns true. It returns false for a name that is not in controls.",
@@ -206,7 +208,7 @@ const simulationInstructions = [
 ].join("\n");
 
 function liveSceneInstructionsFor(kind: LiveSceneRequestKind): string {
-  return kind === "simulation" ? liveSceneInstructions + "\n" + simulationInstructions : liveSceneInstructions;
+  return kind === "simulation" ? liveSceneInstructionLines(kind) + "\n" + simulationInstructions : liveSceneInstructionLines(kind);
 }
 
 const judgeAnswerSystemPrompt = [

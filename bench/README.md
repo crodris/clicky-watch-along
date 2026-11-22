@@ -641,7 +641,7 @@ The bakeoff cost about $29.60: $25.68 in renders, about $0.30 in Sonnet fallback
 
 The kernel bakeoff's judges rewarded two things the kernel did, so the `page` prompt now asks for them as plain rules (`worker/src/liveScene.ts`).
 A 3D model labels at most 10 parts, placed so none overlap or crowd an edge, and its view crops no part of the subject at the end of the tour or after a half turn.
-An experiment keeps nothing it needs cropped, and the equipment a readout depends on stays large in frame.
+The bakeoff also tried a third rule for experiments, that nothing it needs is cropped and the equipment a readout depends on stays large in frame.
 
 On 2026-11-22 this prompt ran against main's, interleaved, on GPT-6.1 Sol and GPT-6.2 Sol Ultrafast.
 The baseline Worker ran this branch with a temporary switch that dropped the three rules, and its prompt was checked byte for byte against main's before any render; the switch was never committed.
@@ -658,8 +658,8 @@ Every render ran on the intended GPT model, and none fell back.
 The blind judge picked the rules 7 times and main's prompt 6 times, with 1 pair undecided (`results/framing-judge/summary.json`).
 3D models went 6 to 2 for the rules, on the heart and both bicycles, where main's bicycle was cropped and carried about 26 crowded labels.
 Experiments went 1 to 4 for main's prompt, with 1 undecided, and the reasons named what each page built, such as a lever that balances, more than its framing.
-The rules ship, since they do not lose the judge and the p50 is within 15% of main's.
-The experiment side is small enough to be noise, but it is the first place to look if experiments get worse.
+The rules ship for 3D models only, where they won 6 to 2, and a simulation's prompt stays as main's, with none of the three, since experiments lost 1 to 4.
+The p50 with the rules is within 15% of main's.
 It cost $7.26: $6.79 in renders, $0.05 in a credit check, and $0.42 for the judge.
 
 ### Task agent
