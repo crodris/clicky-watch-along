@@ -61,6 +61,11 @@ Usage: .claude/skills/verify-clicky/verify-clicky.sh <command> [args]
   grant                     Open System Settings at Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch
                             launches in Finder, so Chris can turn its switch on or drag that exact app into the list. app-launch says when it is needed.
   cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
+  lock-take <owner>         Take the app check lock (/tmp/clicky-app-check.lock, or $CLICKY_APP_CHECK_LOCK) for <owner>, such as your
+                            branch name. Fails and names the owner and how long it has held the lock while another agent holds it: wait 60
+                            seconds and try again. A lock held over 20 minutes has outlived the rule: report the app surface as unverified.
+  lock-release <owner>      Release the lock. Refuses and names the real owner when the lock is held by anyone but <owner>.
+                            Never remove the lock directory by hand: a lock you did not take is another agent's running check.
 EOF
 }
 
@@ -417,6 +422,40 @@ apply_app_secret_mode() {
   return 0
 }
 
+# `ps -axo pid=,ppid=,command=` lines for the main process of each headless Chrome. Helper processes carry --type= and
+# are left out, since one line per Chrome is enough to name it.
+headless_chrome_processes() {
+  grep -E '^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]].*Google Chrome.*--headless' <<<"$1" | grep -v -- ' --type=' || true
+}
+
+# The warning for a headless Chrome in ps output (the argument), or nothing. A headless Chrome is the process that
+# AppleScript's `tell application "Google Chrome"` reaches when it runs, ahead of Chris's Chrome, and its fresh profile
+# has JavaScript from Apple Events turned off, so every video read of Clicky's checks fails.
+headless_chrome_warning() {
+  local process_line
+  while IFS= read -r process_line; do
+    [[ -z "$process_line" ]] && continue
+    local process_id parent_process_id profile_directory parent_note="" what_to_do="Find out what started it before you stop it."
+    read -r process_id parent_process_id _ <<<"$process_line"
+    profile_directory="$(sed -n 's/.*--user-data-dir=\([^ ]*\).*/\1/p' <<<"$process_line")"
+    [[ "$parent_process_id" == "1" ]] && parent_note=", its parent is launchd"
+    # Only the bench's scene screenshot Chrome is known to be a leftover when it has no parent. Another tool's headless
+    # Chrome, such as a Playwright one started as a service, can also have launchd as its parent while it is in use.
+    if [[ "$parent_process_id" == "1" && "$profile_directory" == */scene-shots-*/chrome-profile ]]; then
+      parent_note=", orphaned (a bench scene screenshot run died and left it)"
+      what_to_do="It is orphaned, so run: kill $process_id"
+    fi
+    echo "WARNING: a headless Chrome is running (pid $process_id${parent_note}, profile ${profile_directory:-unknown})."
+    echo "  Apple Events to Chrome go to it, not to Chris's Chrome, and fail with \"Executing JavaScript through AppleScript is turned off\"."
+    echo "  That is not Chris's Chrome setting. Every video read fails: the quiz, the loop, and the pop-outs."
+    echo "  If a bench run or a render started it, wait for it to end. $what_to_do"
+  done <<<"$(headless_chrome_processes "$1")"
+}
+
+report_headless_chrome() {
+  headless_chrome_warning "$(ps -axo pid=,ppid=,command= 2>/dev/null || true)"
+}
+
 command_doctor() {
   echo "checkout: $checkout_root"
   echo "branch: $(git -C "$checkout_root" branch --show-current) at $(git -C "$checkout_root" log -1 --format='%h %s')"
@@ -483,6 +522,8 @@ command_doctor() {
   else
     echo "clicky: pid $clicky_pids, NOT launched by this script. Do not drive or quit it."
   fi
+
+  report_headless_chrome
 
   if pgrep -xq 'Google Chrome'; then
     # The full URL can hold tokens, so print only the host and whether it is a YouTube video page.
@@ -725,6 +766,7 @@ command_app_launch() {
     echo "No Worker this script started is listening on 127.0.0.1:$app_launch_worker_port, which the app calls. Run worker-up $app_launch_worker_port when that port is free. When another process holds it, run worker-up on a free port, such as 8796, and pass --worker-port with it." >&2
     exit 1
   fi
+  report_headless_chrome >&2
   local run_dir
   run_dir="$(current_run_dir)"
   move_the_previous_launch_files_aside "$run_dir"
@@ -890,11 +932,67 @@ command_shot() {
   printf 'saved %s\n' "${shot_files[@]}"
 }
 
+app_check_lock_path() {
+  echo "${CLICKY_APP_CHECK_LOCK:-/tmp/clicky-app-check.lock}"
+}
+
+# The owner a lock directory records, or nothing when it has no owner file.
+app_check_lock_owner() {
+  [[ -f "$1/owner" ]] && head -n 1 "$1/owner" || true
+}
+
+# One agent at a time may build and drive the app, and other sessions share this Mac. The take is /bin/mkdir, since plain
+# mkdir is aliased to mkdir -p in some shells and never fails on an existing directory. A lock is removed only through
+# lock-release, which refuses another owner's lock, since removing one by hand took a running agent's lock twice.
+command_lock_take() {
+  local owner="${1:-}" lock_path held_owner
+  if [[ -z "$owner" || "$owner" == *$'\n'* ]]; then echo "lock-take needs your name on one line, such as your branch name" >&2; exit 1; fi
+  lock_path="$(app_check_lock_path)"
+  if /bin/mkdir "$lock_path" 2>/dev/null; then
+    # The second line is when the lock was taken, so a refusal can say how long it has been held.
+    if ! printf '%s\n%s\n' "$owner" "$(date +%s)" >"$lock_path/owner"; then
+      rm -r -- "$lock_path"
+      echo "Could not write the owner into $lock_path, so the lock was not taken." >&2
+      exit 1
+    fi
+    echo "app check lock taken by $owner"
+    return 0
+  fi
+  if [[ ! -d "$lock_path" ]]; then echo "Could not create $lock_path" >&2; exit 1; fi
+  held_owner="$(app_check_lock_owner "$lock_path")"
+  if [[ "$held_owner" == "$owner" ]]; then
+    echo "app check lock already held by $owner"
+    return 0
+  fi
+  local held_since held_for="an unknown time"
+  held_since="$(sed -n 2p "$lock_path/owner" 2>/dev/null || true)"
+  if [[ "$held_since" =~ ^[0-9]+$ ]]; then held_for="$(( ($(date +%s) - held_since) / 60 )) minutes"; fi
+  echo "The app check lock is held by ${held_owner:-an owner that did not write its name} for $held_for. Wait 60 seconds and try again. Do not remove it. A lock held over 20 minutes has outlived the 20 minute rule: report the app surface as unverified instead of removing it." >&2
+  exit 1
+}
+
+command_lock_release() {
+  local owner="${1:-}" lock_path held_owner
+  if [[ -z "$owner" ]]; then echo "lock-release needs the name you gave lock-take" >&2; exit 1; fi
+  lock_path="$(app_check_lock_path)"
+  if [[ ! -d "$lock_path" ]]; then
+    echo "no app check lock is held"
+    return 0
+  fi
+  held_owner="$(app_check_lock_owner "$lock_path")"
+  if [[ "$held_owner" != "$owner" ]]; then
+    echo "Refusing to release the app check lock: it is held by ${held_owner:-an owner that did not write its name}, not by $owner. That agent is still running its check. Wait for it to release the lock." >&2
+    exit 1
+  fi
+  rm -r -- "$lock_path"
+  echo "app check lock released by $owner"
+}
+
 main() {
   local command_name="${1:-}"
   if [[ -z "$command_name" ]]; then usage; exit 0; fi
   shift
-  if [[ "$command_name" != "doctor" ]]; then mkdir -p "$runs_root"; fi
+  case "$command_name" in doctor|lock-take|lock-release) ;; *) mkdir -p "$runs_root" ;; esac
   case "$command_name" in
     new-run) start_new_run "${1:?new-run needs a name}" ;;
     build) command_build ;;
@@ -911,6 +1009,8 @@ main() {
     key) command_key "${1:?key name}" ;;
     grant) command_grant ;;
     cleanup) command_app_quit; command_worker_down ;;
+    lock-take) command_lock_take "${1:-}" ;;
+    lock-release) command_lock_release "${1:-}" ;;
     *) usage; exit 1 ;;
   esac
 }

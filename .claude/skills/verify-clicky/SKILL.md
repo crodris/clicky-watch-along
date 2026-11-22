@@ -57,6 +57,14 @@ It reports:
   It says when the build is older than the last commit under `leanring-buddy/`, and whether the binary contains `--live-scene-rehearsal`.
 - Running Clicky PIDs and whether this script launched them.
 - Chrome's front tab host, and whether it is a YouTube video page, which the video features read.
+- A warning for each headless Chrome that is running, with its pid and profile.
+  A headless Chrome, such as one a bench screenshot run left behind, answers Apple Events sent to "Google Chrome" in place of Chris's Chrome.
+  Its fresh profile fails them with "Executing JavaScript through AppleScript is turned off", which is not Chris's Chrome setting.
+  Every video read then fails: the quiz, the loop, and the pop-outs.
+  Wait for it when a bench run or render owns it.
+  The warning says `orphaned` and prints a `kill` command only for a scene screenshot Chrome (a `scene-shots-` profile) whose parent is launchd.
+  For any other headless Chrome, find out what started it before stopping it.
+  `app-launch` prints the same warning before it opens the app.
 
 A build older than the last app commit may not match HEAD.
 A build without `--live-scene-rehearsal` cannot be driven at all.
@@ -187,6 +195,11 @@ scroll <points>           Post one real scroll wheel event at the mouse, in pixe
                           Park the mouse over the scroll area first, such as the approval card's summary.
 grant                     Open Privacy & Security > Accessibility and show the Debug Clicky.app that app-launch launches in Finder.
 cleanup                   app-quit and worker-down. Evidence stays in .verify-clicky/runs.
+lock-take <owner>         Take the app check lock (/tmp/clicky-app-check.lock, or $CLICKY_APP_CHECK_LOCK) for <owner>, such as your
+                          branch name. Fails and names the owner and how long it has held the lock while another agent holds it: wait 60 seconds
+                          and try again. A lock held over 20 minutes has outlived the rule: report the app surface as unverified.
+lock-release <owner>      Release the lock. Refuses and names the real owner when the lock is held by anyone but <owner>.
+                          Never remove the lock directory by hand: a lock you did not take is another agent's running check.
 ```
 
 Run one helper command at a time per checkout, since two `worker-up` runs started together can race on the same PID record.
