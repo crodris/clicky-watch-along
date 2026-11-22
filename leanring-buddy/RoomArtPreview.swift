@@ -868,7 +868,7 @@ final class RoomArtPreviewController: ObservableObject {
                     return await Task.detached(priority: .userInitiated) { () -> RoomFurnitureKeyframeLayers? in
                         let composite = RoomFurniturePaintedComposite.itemLayers(painted: paintedImage, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
                         if let ratio = composite.paintedHeightRatio {
-                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured height", ratio * 100))
+                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline", ratio * 100))
                         }
                         return composite.layers
                     }.value
@@ -1450,8 +1450,12 @@ extension RoomArtPreviewController {
                 itemSizeWords: furniture.sizeInWords
             )
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            #if DEBUG
+            // Verification reads the painting the height check judged, kept or refused. Debug builds only.
+            writeThePaintingForVerification(painted)
+            #endif
             guard let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) else {
-                print("Room furniture: the painted item is not the measured height, so the look before it stays")
+                print("Room furniture: the painted item is shorter than the box's front or taller than its outline, so the look before it stays")
                 return
             }
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
@@ -1465,6 +1469,15 @@ extension RoomArtPreviewController {
             if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
         }
     }
+
+    #if DEBUG
+    private func writeThePaintingForVerification(_ painted: CGImage) {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970)).png")
+        guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.png" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(destination, painted, nil)
+        if CGImageDestinationFinalize(destination) { print("Room furniture: wrote the painting to \(fileURL.path)") }
+    }
+    #endif
 
     /// The painted composite's mask reaches this far past the box, so the item's shadow on the floor is painted too.
     fileprivate static let compositeShadowMarginPixels = 24.0

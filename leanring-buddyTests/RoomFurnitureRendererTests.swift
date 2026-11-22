@@ -183,6 +183,45 @@ struct RoomFurniturePaintedCompositeTests {
         #expect(result.layers?.look == .paintedComposite)
     }
 
+    @Test func aTableOnThinLegsIsMeasuredToTheFootOfItsLegs() throws {
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let context = try #require(CGContext(data: nil, width: keyframe.width, height: keyframe.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(keyframe, in: CGRect(x: 0, y: 0, width: keyframe.width, height: keyframe.height))
+        context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        // A top from row 300 to 330 and two legs 8 pixels wide down to row 500, in Core Graphics' y-up coordinates.
+        context.fill(CGRect(x: 510, y: keyframe.height - 330, width: 180, height: 30))
+        context.fill(CGRect(x: 512, y: keyframe.height - 500, width: 8, height: 170))
+        context.fill(CGRect(x: 680, y: keyframe.height - 500, width: 8, height: 170))
+        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: projectedBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        let result = RoomFurniturePaintedComposite.itemLayers(painted: try #require(context.makeImage()), keyframe: keyframe, maskPNG: maskPNG, projectedBox: projectedBox)
+        #expect(abs((result.paintedHeightRatio ?? 0) - 1) < 0.03)
+        #expect(result.layers != nil)
+    }
+
+    /// A chair's box: its front face spans rows 400 to 500 and its back face rows 300 to 460, so its outline is twice as
+    /// tall as its front, as a deep chair's is.
+    private let chairBox = [
+        CGPoint(x: 500, y: 400), CGPoint(x: 700, y: 400), CGPoint(x: 700, y: 500), CGPoint(x: 500, y: 500),
+        CGPoint(x: 520, y: 300), CGPoint(x: 680, y: 300), CGPoint(x: 680, y: 460), CGPoint(x: 520, y: 460),
+    ]
+
+    private func chairLayers(paintedFromRow topRow: Int) throws -> RoomFurnitureKeyframeLayers? {
+        let keyframe = try #require(roomFurnitureTestKeyframe())
+        let maskPNG = try #require(furnitureCompositeMaskPNG(projectedCorners: chairBox, frameWidth: keyframe.width, frameHeight: keyframe.height, shadowMarginPixels: 24))
+        return RoomFurniturePaintedComposite.itemLayers(painted: try painting(topRow: topRow, over: keyframe), keyframe: keyframe, maskPNG: maskPNG, projectedBox: chairBox).layers
+    }
+
+    @Test func aChairShorterThanItsBoxsOutlineButTallerThanItsFrontIsKept() throws {
+        // 140 rows: 70 percent of the outline, which an outline-only check refused, and well over the 100 row front.
+        #expect(try chairLayers(paintedFromRow: 360) != nil)
+    }
+
+    @Test func aPaintingShorterThanTheBoxsFrontIsRefused() throws {
+        // 80 rows, under 85 percent of the 100 row front.
+        #expect(try chairLayers(paintedFromRow: 420) == nil)
+    }
+
     @Test func aPaintingFarTallerThanTheMeasuredBoxIsRefused() throws {
         // A painted item from row 220 is 1.4 times the box's 200 rows. Only the pasted region, the mask grown by the
         // client's slack, is measured, since the client pasted nothing past it, so the ratio reads lower but still fails.
