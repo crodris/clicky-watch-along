@@ -68,23 +68,28 @@ enum RoomArtPictureSource {
         session: URLSession,
         deadlineSeconds: TimeInterval = downloadDeadlineSeconds
     ) async -> RoomArtPicture? {
-        // The request's own timeout only trips on silence, so a server that trickles bytes is stopped by this race.
-        let imageData = await withTaskGroup(of: Data?.self) { downloadAndDeadline in
-            downloadAndDeadline.addTask {
-                await PageImageAnimation.downloadedImageData(
-                    atImageURL: imageURL,
-                    timeoutSeconds: downloadTimeoutSeconds,
-                    session: session
-                )
-            }
-            downloadAndDeadline.addTask {
-                try? await Task.sleep(for: .seconds(deadlineSeconds))
-                return nil
-            }
-            let firstResult = await downloadAndDeadline.next() ?? nil
-            downloadAndDeadline.cancelAll()
-            return firstResult
+        // The request's own timeout only trips on silence, so a server that trickles bytes is stopped by this race. The
+        // race returns at the first result and never waits for the losing download to wind down, since a cancelled
+        // download can take as long as its idle timeout to end, and a task group would wait for it.
+        let (results, resultsContinuation) = AsyncStream.makeStream(of: Data?.self)
+        let downloadTask = Task {
+            resultsContinuation.yield(await PageImageAnimation.downloadedImageData(
+                atImageURL: imageURL,
+                timeoutSeconds: downloadTimeoutSeconds,
+                session: session
+            ))
         }
+        let deadlineTask = Task {
+            try? await Task.sleep(for: .seconds(deadlineSeconds))
+            resultsContinuation.yield(nil)
+        }
+        defer {
+            downloadTask.cancel()
+            deadlineTask.cancel()
+        }
+        // A cancelled request ends the stream, so the iterator returns nil as it does when the deadline wins.
+        var firstResults = results.makeAsyncIterator()
+        let imageData = await firstResults.next() ?? nil
         guard let imageData else { return nil }
         return picture(ofImageData: imageData)
     }
