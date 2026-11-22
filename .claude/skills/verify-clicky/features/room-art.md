@@ -42,6 +42,7 @@ Preconditions:
   With an `http://` page in Chrome's front tab, it says "I can only read store pages served over https.".
 - **Worker not reachable.** `app-launch` refuses to start without the Worker it started, so this failure is driven by the unit test, not the app.
   Run `tools/swift-check.sh --filter aWorkerThatGivesNoAnswerSaysItCouldNotBeReached`, which passes when a `URLError` from either route becomes "I couldn't reach Clicky's Worker." with the status "Couldn't reach Clicky's Worker".
+  Report the app surface as unverified and name this test as the layer that ran.
 
 ## Gotchas
 

@@ -150,13 +150,13 @@ private final class WorkerStub {
         pageRequests.append(pageRequest)
         // The page reply waits up to 2 seconds for the wall request, so a flow that read the page first and only then
         // measured the wall never has the page asked for before the wall replied.
-        _ = await conditionHolds(withinSeconds: 2) { !self.wallRequests.isEmpty }
+        _ = await conditionHolds(withinSeconds: 10) { !self.wallRequests.isEmpty }
         return try pageReading.get()
     }
 
     func measureTheWall(_ wallRequest: RoomWallRequest) async throws -> WallPlane {
         wallRequests.append(wallRequest)
-        if await conditionHolds(withinSeconds: 2, { !self.pageRequests.isEmpty }) { thePageWasAskedForBeforeTheWallReplied = true }
+        if await conditionHolds(withinSeconds: 10, { !self.pageRequests.isEmpty }) { thePageWasAskedForBeforeTheWallReplied = true }
         if secondsBeforeTheWallReplies > 0 {
             try await Task.sleep(for: .seconds(secondsBeforeTheWallReplies))
         }
@@ -179,7 +179,9 @@ private func conditionHolds(withinSeconds seconds: Double, _ condition: () -> Bo
 
 /// Waits up to `seconds` for `condition`, and on a timeout records an issue that names what never happened and stops the test.
 @MainActor
-private func waitFor(_ whatShouldHappen: String, seconds: Double = 5, _ condition: () -> Bool) async throws {
+// A wait ends as soon as its condition holds, so a long limit only costs time on a failure. The CI runner shares a Mac
+// whose load average reached 144 from parallel builds, where these tests took over 30 s and timed out at 5 s.
+private func waitFor(_ whatShouldHappen: String, seconds: Double = 120, _ condition: () -> Bool) async throws {
     guard await conditionHolds(withinSeconds: seconds, condition) else {
         Issue.record("Timed out after \(seconds) s waiting for: \(whatShouldHappen)")
         throw TimedOutWaiting()
