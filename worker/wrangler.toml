@@ -1,8 +1,0 @@
-name = "clicky-proxy"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-
-[vars]
-ELEVENLABS_VOICE_ID = "SAz9YHcvj6GT2YYXdXww"
-# The local depth service (tools/depth-service) that /room-wall forwards to.
-DEPTH_SERVICE_URL = "http://127.0.0.1:8801"
