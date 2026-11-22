@@ -225,6 +225,41 @@ struct ShirtFramingTests {
     }
 }
 
+// MARK: - Framing debounce
+
+struct ShirtFramingDebouncerTests {
+    @Test func aKindSettlesOnlyOnceItHasHeldForHalfASecond() {
+        var debouncer = ShirtFramingDebouncer()
+        #expect(debouncer.advance(to: .standBack, at: 0) == nil)
+        #expect(debouncer.advance(to: .standBack, at: 0.49) == nil)
+        #expect(debouncer.settledKind == nil)
+        #expect(debouncer.advance(to: .standBack, at: 0.5) == .standBack)
+        #expect(debouncer.settledKind == .standBack)
+        // A settled kind is reported once.
+        #expect(debouncer.advance(to: .standBack, at: 0.6) == nil)
+    }
+
+    @Test func aFlickerAcrossAThresholdNeverSettlesAndRestartsTheClock() {
+        var debouncer = ShirtFramingDebouncer()
+        _ = debouncer.advance(to: .standBack, at: 0)
+        _ = debouncer.advance(to: .standBack, at: 0.5)
+        // Ready for a moment, then back: the shirt does not appear and vanish with each frame.
+        #expect(debouncer.advance(to: .ready, at: 1.0) == nil)
+        #expect(debouncer.advance(to: .standBack, at: 1.2) == nil)
+        #expect(debouncer.advance(to: .ready, at: 1.3) == nil)
+        #expect(debouncer.advance(to: .ready, at: 1.79) == nil)
+        #expect(debouncer.settledKind == .standBack)
+        #expect(debouncer.advance(to: .ready, at: 1.8) == .ready)
+    }
+
+    @Test func eachKindTakesTheCoachingLineOfItsFraming() {
+        #expect(ShirtFramingKind(.noPerson).coachingLine == "I can't see you yet. Step in front of the camera.")
+        #expect(ShirtFramingKind(.standBack(.tooCloseForTheChest)) == .standBack)
+        #expect(ShirtFramingKind.standBack.coachingLine == "Stand back so I can see your shoulders and chest.")
+        #expect(ShirtFramingKind.ready.coachingLine == nil)
+    }
+}
+
 // MARK: - Pose smoothing
 
 struct ShirtTorsoSmootherTests {

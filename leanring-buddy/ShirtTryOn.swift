@@ -193,6 +193,60 @@ nonisolated enum ShirtFraming: Equatable, Sendable {
     }
 }
 
+/// The framing without the torso, which is all the panel's status line and spoken line need.
+nonisolated enum ShirtFramingKind: Equatable, Sendable {
+    case noPerson
+    case standBack
+    case ready
+
+    init(_ framing: ShirtFraming) {
+        switch framing {
+        case .noPerson: self = .noPerson
+        case .standBack: self = .standBack
+        case .ready: self = .ready
+        }
+    }
+
+    /// The same words `ShirtFraming.coachingLine` says, nil when ready.
+    var coachingLine: String? {
+        switch self {
+        case .noPerson: ShirtFraming.noPerson.coachingLine
+        case .standBack: ShirtFraming.standBack(.shouldersAreNotBothSeen).coachingLine
+        case .ready: nil
+        }
+    }
+}
+
+/// Holds back a change of framing until it has lasted a moment. `ShirtFraming.assess` has no hysteresis, so a learner
+/// standing at the edge of a threshold flips between two kinds from frame to frame, and the status line and the shirt
+/// would flicker with it. Pure, so a test steps it by hand.
+nonisolated struct ShirtFramingDebouncer: Equatable, Sendable {
+    /// A new kind must hold this long before it settles. Long enough to ride out a pose run that misjudges one frame, short
+    /// enough that the shirt appears about as soon as the learner steps into place.
+    static let secondsAKindMustHold = 0.5
+
+    /// The kind that last settled, nil until one has.
+    private(set) var settledKind: ShirtFramingKind?
+    private var candidateKind: ShirtFramingKind?
+    private var candidateSince: TimeInterval = 0
+
+    /// Takes this frame's kind at `time` and returns the newly settled kind when it changed, else nil.
+    mutating func advance(to kind: ShirtFramingKind, at time: TimeInterval) -> ShirtFramingKind? {
+        guard kind != settledKind else {
+            candidateKind = nil
+            return nil
+        }
+        if kind != candidateKind {
+            candidateKind = kind
+            candidateSince = time
+        }
+        guard time - candidateSince >= Self.secondsAKindMustHold else { return nil }
+        settledKind = kind
+        candidateKind = nil
+        return kind
+    }
+}
+
 // MARK: - The garment
 
 /// A color with each channel from 0 to 1, in sRGB.

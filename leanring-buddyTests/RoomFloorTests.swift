@@ -320,9 +320,9 @@ struct RoomFloorTests {
         #expect(furnitureCutout(picture: emptyPhoto, itemCorners: corners, context: CIContext()) == nil)
     }
 
-    /// Vision's foreground mask on a generated image: when it finds the red block, the cutout is the corners' bounding box,
-    /// opaque in the block's middle and transparent on the white corner. When Vision finds no subject in a generated image,
-    /// the cutout is nil, which is the same path a photo with no subject takes, and the test checks only that.
+    /// Vision's foreground mask on a generated image: when it finds the red block, the cutout is the block trimmed to its own
+    /// pixels, opaque in its middle. When Vision finds no subject in a generated image, the cutout is nil, which is the same
+    /// path a photo with no subject takes, and the test checks only that.
     @Test func theProductIsCutOutOfItsBackground() throws {
         let picture = solidImage(width: 240, height: 240, shapeInTheMiddle: true)
         // Corners a little larger than the block, so the white background is in the crop. Clamped into the photo, they crop 20 to 220.
@@ -336,8 +336,37 @@ struct RoomFloorTests {
         }
 
         print("RoomFloorTests: Vision found the generated block, so the opaque and transparent pixels were checked")
-        #expect(cutout.width == 200 && cutout.height == 200)
-        #expect(alphaOfThePixel(in: cutout, x: 100, y: 100) > 200)
-        #expect(alphaOfThePixel(in: cutout, x: 2, y: 2) < 50)
+        // The block is 120 by 144, so the white around it inside the corners is trimmed away.
+        #expect(abs(cutout.width - 120) <= 6 && abs(cutout.height - 144) <= 6, "the cutout is \(cutout.width) by \(cutout.height)")
+        #expect(alphaOfThePixel(in: cutout, x: cutout.width / 2, y: cutout.height / 2) > 200)
+    }
+
+    @Test func theOpaqueBoxIsTheSmallestRectangleHoldingEveryOpaquePixel() throws {
+        // A clear 50 by 40 image with an opaque patch from column 10 to 29 and row 5 to 34, top left origin.
+        let context = CGContext(data: nil, width: 50, height: 40, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+        // CGContext's y grows up, so rows 5 to 34 from the top are 5 to 34 from the bottom in a 40 tall image.
+        context.fill(CGRect(x: 10, y: 5, width: 20, height: 30))
+        // A faint pixel, under the 10 percent alpha floor, which the box leaves out.
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.05))
+        context.fill(CGRect(x: 45, y: 1, width: 1, height: 1))
+        let image = try #require(context.makeImage())
+
+        #expect(opaqueBoundingBox(of: image) == CGRect(x: 10, y: 5, width: 20, height: 30))
+
+        let clearContext = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        #expect(opaqueBoundingBox(of: try #require(clearContext.makeImage())) == nil)
+    }
+}
+
+struct RoomFurnitureTests {
+    @Test func theCutoutIsDrawnAtItsOwnShapeAtThePagesHeightAndTheSizeIsSaidFromThePage() throws {
+        let context = CGContext(data: nil, width: 300, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let furniture = RoomFurniture(title: "POÄNG", widthMeters: 0.68, heightMeters: 1.0, cutoutImage: try #require(context.makeImage()))
+
+        // A three quarter view photo is wider than the page's width says, and is drawn at its own shape, never squashed.
+        #expect(abs(furniture.drawnWidthMeters - 1.5) < 1e-9)
+        #expect(furniture.sizeInWords == "27 inches wide and 39.5 tall")
+        #expect(roomFurnitureSizeInWords(widthCentimeters: 80, heightCentimeters: 75) == "31.5 inches wide and 29.5 tall")
     }
 }

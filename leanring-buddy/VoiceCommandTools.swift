@@ -271,7 +271,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         case .animatePicture:
             return "Lift the video frame or the largest picture in Chrome's front tab out in 3D and show what flows through it as moving streams, such as air through an engine or blood through a heart. Over a pop-out already on screen, it animates that one. Use it only when the learner says animate this, make it move, or make it flow. A painting is left as the artist made it, and the app says so. Use answer_with_screen when they ask how to animate something in another app. It pauses a playing video by itself."
         case .showArtInMyRoom:
-            return "Try the item on Chrome's front tab in the learner's room, in their live camera view. Wall art hangs on their wall at its real size from the page. Furniture and clothes are read too, but not placed yet, and the app says so. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', also when the item is a chair or a shirt."
+            return "Try the item on Chrome's front tab in the learner's live camera view. Wall art hangs on their wall and furniture stands on their floor, each at its real size from the page, and a shirt is drawn over the shirt they wear. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', 'how would this chair look in my room', 'could I see this shirt on me', 'how would this look on me', and 'can I try this on'."
         case .closeScene:
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:

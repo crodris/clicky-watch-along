@@ -698,7 +698,16 @@
       "accept": [
         "show_art_in_my_room"
       ],
-      "why": "The room panel reads furniture and clothes too, and the app then says only wall art is placed so far. The router still hands off to it, and never answers from the screen."
+      "why": "Furniture stands on the learner's floor in the same camera panel, so the router hands off to it and never answers from the screen."
+    },
+    {
+      "id": "nothing-shirt-on-me",
+      "context": "nothing",
+      "say": "could I see this shirt on me",
+      "accept": [
+        "show_art_in_my_room"
+      ],
+      "why": "The camera panel draws a shirt from a store page over the learner's own, so \"on me\" hands off to it like \"in my room\" does, and never answers from the screen."
     },
     {
       "id": "nothing-whats-on-my-wall",

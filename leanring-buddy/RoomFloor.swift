@@ -6,9 +6,10 @@
 //  of the product photo facing the camera.
 //
 //  This file holds the pure parts: the Worker's `POST /room-floor` reply parsed at the boundary (`FloorPlane`), the
-//  furniture's corners in camera pixels from that plane and the item's size (`FloorPlane.keyframeCorners`), the client that
-//  asks the Worker (`RoomFloorClient`), and the cutout of the product from its photo (`furnitureCutout`). The panel that
-//  draws it and the tracker that keeps it still live in `RoomArtPreview.swift` and `RoomTracker.swift`.
+//  furniture's corners in camera pixels from that plane and the item's size (`FloorPlane.keyframeCorners`), the furniture
+//  as the panel stands it (`RoomFurniture`), and the cutout of the product from its photo (`furnitureCutout`). The client
+//  that asks the Worker is `RoomArtClient.measureTheFloor`, and the panel that draws it and the tracker that keeps it still
+//  live in `RoomArtPreview.swift` and `RoomTracker.swift`.
 //
 
 import CoreGraphics
@@ -124,48 +125,36 @@ extension FloorPlane {
     }
 }
 
-// MARK: - Client
+// MARK: - The furniture
 
-/// The Worker's `POST /room-floor`, with the request and the failure shape `RoomArtClient.measureTheWall` has: a non-200
-/// reply throws `RoomArtWorkerError.workerReturned`, a reply that is not a usable floor throws `RoomArtReplyError`, and a
-/// transport failure throws the `URLError`.
-///
-/// This is its own client and not an extension of `RoomArtClient`, whose Worker URLs and session are private to
-/// `RoomArt.swift`. The integration pass can fold it into `RoomArtClient` and map a failed floor measurement to a
-/// `RoomArtFailure` of its own (a 401 is the app secret, a 502 or 503 the depth service, anything else, a 422 included, a floor
-/// that could not be measured).
-@MainActor
-final class RoomFloorClient {
-    private let roomFloorURL: URL
-    private let session: URLSession
+/// Furniture as the panel stands it on the floor: its real size from the page and its cutout.
+nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
+    // @unchecked because CGImage is immutable, so sharing one across queues is safe.
+    let title: String
+    /// Across the front, from the page.
+    let widthMeters: Double
+    /// Floor to top, from the page.
+    let heightMeters: Double
+    /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on the floor.
+    let cutoutImage: CGImage
 
-    /// The same wait as `RoomArtClient`: Depth Pro takes about 14 seconds on a frame.
-    private static let timeoutSeconds: TimeInterval = 90
-
-    init(workerBaseURL: String) {
-        guard let roomFloorURL = URL(string: "\(workerBaseURL)/room-floor") else {
-            preconditionFailure("Worker base URL did not form the room-floor URL: \(workerBaseURL)")
-        }
-        self.roomFloorURL = roomFloorURL
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = Self.timeoutSeconds
-        configuration.timeoutIntervalForResource = Self.timeoutSeconds
-        session = URLSession(configuration: configuration)
+    /// How wide the cutout is drawn: its real height times the photo's own shape. A product photo is often a three quarter
+    /// view, which shows the front and a side, so stretching it to the page's width would squash it; at its own shape the
+    /// piece looks as the photo shows it, at its true height.
+    var drawnWidthMeters: Double {
+        heightMeters * Double(cutoutImage.width) / Double(max(cutoutImage.height, 1))
     }
 
-    /// `request.anchor` is the keyframe pixel the furniture's front-bottom center stands on.
-    func measureTheFloor(_ request: RoomWallRequest) async throws -> FloorPlane {
-        let (responseData, statusCode) = try await WorkerJSONPost.send(
-            try JSONEncoder().encode(request.json),
-            to: roomFloorURL,
-            using: session,
-            sendsAppSecret: true
-        )
-        guard statusCode == 200 else {
-            throw RoomArtWorkerError.workerReturned(statusCode: statusCode, body: String(decoding: responseData, as: UTF8.self))
-        }
-        return try FloorPlane(responseData: responseData)
+    /// The page's size in inches, such as "31.5 inches wide and 29.5 tall", from the measured centimeters and never the
+    /// page's free-text label.
+    var sizeInWords: String {
+        roomFurnitureSizeInWords(widthCentimeters: widthMeters * 100, heightCentimeters: heightMeters * 100)
     }
+}
+
+/// "31.5 inches wide and 29.5 tall", each rounded to the nearest half inch.
+nonisolated func roomFurnitureSizeInWords(widthCentimeters: Double, heightCentimeters: Double) -> String {
+    "\(roomArtInchesInWords(centimeters: widthCentimeters)) inches wide and \(roomArtInchesInWords(centimeters: heightCentimeters)) tall"
 }
 
 // MARK: - The cutout
@@ -191,7 +180,10 @@ nonisolated func furnitureCutout(picture: CGImage, itemCorners: RoomArtCorners, 
             croppedToInstancesExtent: false
         )
         let maskedImage = CIImage(cvPixelBuffer: maskedPixelBuffer)
-        return context.createCGImage(maskedImage, from: maskedImage.extent)
+        guard let cutout = context.createCGImage(maskedImage, from: maskedImage.extent) else { return nil }
+        // The corners are the model's guess, so the box around them can leave a margin of background under the legs. The
+        // cutout is trimmed to its own pixels, so its lowest pixel is the one that stands on the floor.
+        return opaqueBoundingBox(of: cutout).flatMap { cutout.cropping(to: $0) }
     } catch {
         print("Room floor: the furniture cutout failed: \(error)")
         return nil
@@ -233,4 +225,29 @@ nonisolated func instanceIndexToKeep(in instanceLabels: CVPixelBuffer) -> Int? {
     if labelAtTheCenter != 0 { return Int(labelAtTheCenter) }
     // A tie goes to the lower label, so the choice never depends on dictionary order.
     return pixelCountByLabel.max { ($0.value, -Int($0.key)) < ($1.value, -Int($1.key)) }.map { Int($0.key) }
+}
+
+/// The smallest rectangle holding every pixel of `image` whose alpha is over 10 percent, in the image's pixels with the
+/// origin at the top left. Nil when no pixel is that opaque.
+nonisolated func opaqueBoundingBox(of image: CGImage) -> CGRect? {
+    let width = image.width, height = image.height
+    guard width > 0, height > 0 else { return nil }
+    var alphaValues = [UInt8](repeating: 0, count: width * height)
+    let drewTheAlpha = alphaValues.withUnsafeMutableBytes { buffer -> Bool in
+        guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return false }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return true
+    }
+    guard drewTheAlpha else { return nil }
+    var left = width, right = -1, top = height, bottom = -1
+    for row in 0..<height {
+        for column in 0..<width where alphaValues[row * width + column] > 25 {
+            left = min(left, column)
+            right = max(right, column)
+            top = min(top, row)
+            bottom = max(bottom, row)
+        }
+    }
+    guard right >= left, bottom >= top else { return nil }
+    return CGRect(x: left, y: top, width: right - left + 1, height: bottom - top + 1)
 }

@@ -2,8 +2,9 @@
 //  RoomArtTests.swift
 //  leanring-buddyTests
 //
-//  "Show me how this would look in my room": the Worker replies parsed at the boundary, the art's corners from the wall
-//  plane, the bare wall spot, the wall's light, the phrase and the tool that ask for it, and the panel's phases.
+//  "Show me how this would look in my room" and "could I see this shirt on me": the Worker replies parsed at the boundary,
+//  what each reading asks for, the art's corners from the wall plane, the bare wall and floor spots, the wall's light, the
+//  phrase and the tool that ask for it, and the panel's phases for wall art, furniture, and a shirt.
 //
 
 import CoreGraphics
@@ -22,8 +23,13 @@ private func solidImage(width: Int, height: Int, red: CGFloat = 0.2) -> CGImage 
     return context.makeImage()!
 }
 
+/// One image for every artwork and piece of furniture here, since a CGImage compares by identity and the phases compare
+/// their items.
+private let sharedItemImage = solidImage(width: 4, height: 5)
+private let sharedFurnitureImage = solidImage(width: 4, height: 3)
+
 private func artwork() -> RoomArtwork {
-    RoomArtwork(title: "Water Lilies", widthMeters: 0.406, heightMeters: 0.508, includesFrame: false, flattenedImage: solidImage(width: 4, height: 5))
+    RoomArtwork(title: "Water Lilies", widthMeters: 0.406, heightMeters: 0.508, includesFrame: false, flattenedImage: sharedItemImage)
 }
 
 private let wall = WallPlane(
@@ -275,17 +281,26 @@ struct RoomArtReplyTests {
         }
     }
 
-    @Test func aDepthServiceThatIsMissingOrDownAsksWhetherItRuns() {
-        #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 503, body: "")) == .depthServiceUnavailable)
-        #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 502, body: "")) == .depthServiceUnavailable)
-        // A 422 is the service or the Worker finding no wall it can hang on, which a bare wall fixes.
-        #expect(roomArtFailure(forAFailedWallMeasurement: RoomArtWorkerError.workerReturned(statusCode: 422, body: "")) == .wallNotMeasured)
+    @Test(arguments: [RoomArtSurfaceKind.wall, .floor])
+    func aDepthServiceThatIsMissingOrDownAsksWhetherItRuns(surfaceKind: RoomArtSurfaceKind) {
+        #expect(roomArtFailure(forAFailedMeasurementOf: surfaceKind, error: RoomArtWorkerError.workerReturned(statusCode: 503, body: "")) == .depthServiceUnavailable)
+        #expect(roomArtFailure(forAFailedMeasurementOf: surfaceKind, error: RoomArtWorkerError.workerReturned(statusCode: 502, body: "")) == .depthServiceUnavailable)
+    }
+
+    @Test func a422IsTheWallOrTheFloorNotFoundForTheSurfaceThatWasMeasured() {
+        // A 422 is the service or the Worker finding no surface it can place on, which a bare wall or a floor in view fixes.
+        let noSurface = RoomArtWorkerError.workerReturned(statusCode: 422, body: "")
+        #expect(roomArtFailure(forAFailedMeasurementOf: .wall, error: noSurface) == .wallNotMeasured)
+        #expect(roomArtFailure(forAFailedMeasurementOf: .floor, error: noSurface) == .floorNotFound)
+        // A reply that is not a plane means the same.
+        #expect(roomArtFailure(forAFailedMeasurementOf: .floor, error: RoomArtReplyError(reason: "the floor's up must point up in the image")) == .floorNotFound)
+        #expect(RoomArtFailure.floorNotFound.spokenLine == "I couldn't find your floor. Tilt the screen down so the floor shows, then click the floor.")
     }
 
     @Test func aWorkerThatGivesNoAnswerSaysItCouldNotBeReached() {
         // The Worker is not running, or the request timed out, on either route.
-        #expect(roomArtFailure(forAFailedWallMeasurement: URLError(.cannotConnectToHost)) == .workerUnreachable)
-        #expect(roomArtFailure(forAFailedWallMeasurement: URLError(.timedOut)) == .workerUnreachable)
+        #expect(roomArtFailure(forAFailedMeasurementOf: .wall, error: URLError(.cannotConnectToHost)) == .workerUnreachable)
+        #expect(roomArtFailure(forAFailedMeasurementOf: .floor, error: URLError(.timedOut)) == .workerUnreachable)
         #expect(roomArtFailure(forAFailedPageRead: URLError(.cannotConnectToHost)) == .workerUnreachable)
         #expect(roomArtFailure(forAFailedPageRead: URLError(.timedOut)) == .workerUnreachable)
         #expect(RoomArtFailure.workerUnreachable.spokenLine == "I couldn't reach Clicky's Worker.")
@@ -295,7 +310,8 @@ struct RoomArtReplyTests {
     @Test func a401OnEitherRouteSaysTheAppSecretIsMissing() {
         let refused = RoomArtWorkerError.workerReturned(statusCode: 401, body: #"{"error":"Missing or wrong x-clicky-app-secret"}"#)
 
-        #expect(roomArtFailure(forAFailedWallMeasurement: refused) == .appSecretMissing)
+        #expect(roomArtFailure(forAFailedMeasurementOf: .wall, error: refused) == .appSecretMissing)
+        #expect(roomArtFailure(forAFailedMeasurementOf: .floor, error: refused) == .appSecretMissing)
         #expect(roomArtFailure(forAFailedPageRead: refused) == .appSecretMissing)
         #expect(roomArtFailure(forAFailedPageRead: RoomArtWorkerError.workerReturned(statusCode: 422, body: "")) == .pageNotRead)
         #expect(RoomArtFailure.appSecretMissing.spokenLine == "Clicky needs its app secret for this. See the README's Worker setup.")
@@ -396,6 +412,28 @@ struct RoomArtGeometryTests {
         #expect(spot.y >= 45 && spot.y <= 99)
     }
 
+    @Test func theBareFloorSpotIsTheOpenFloorLowInTheFrameAwayFromThePerson() {
+        let width = 320, height = 180
+        var pixels = [Float](repeating: 200, count: width * height)
+        var roomMask = [Float](repeating: 1, count: width * height)
+        for row in 0..<height {
+            for column in 0..<width {
+                // The learner in the middle, standing on the floor.
+                if column >= 130 && column < 190 { roomMask[row * width + column] = 0 }
+                // A rug on the left: stripes.
+                if column < 110 && row >= 100 { pixels[row * width + column] = (column / 3) % 2 == 0 ? 40 : 230 }
+                // The upper part is a busy wall, so a spot there would be wrong even though it is plain elsewhere.
+                if row < 90 { pixels[row * width + column] = (row / 2) % 2 == 0 ? 60 : 210 }
+            }
+        }
+        let spot = bareFloorSpot(grayscale: RoomGrayscaleImage(width: width, height: height, pixels: pixels), roomMask: roomMask)
+
+        // The window is 96 pixels wide, so its center keeps 48 from the person's 15 pixel margin on the right.
+        #expect(spot.x >= 190 + 15 + 48)
+        // Furniture stands low in the frame, from 62 to 86 percent of its height.
+        #expect(spot.y >= 111 && spot.y <= 155)
+    }
+
     @Test func flatteningCutsTheArtOutOfItsPhotoAtTheSizesShape() throws {
         // A 200 by 200 photo, white, with a red square from (50, 40) to (150, 140): the art.
         let context = CGContext(data: nil, width: 200, height: 200, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -444,8 +482,18 @@ struct RoomArtPhraseTests {
         // Up to two words from a closed list may sit between the look and the room phrase.
         "would this look good in my room",
         "how would this look hanging in my living room",
-        // Furniture and clothes are read too, and the app then says they are coming.
+        // Furniture stands on the floor in the same panel.
         "how would this chair look in my room",
+        // A shirt is drawn on the learner.
+        "could I see this shirt on me",
+        "how would this look on me",
+        "what would this hoodie look like on me",
+        "would this look good on me",
+        "show me this on me",
+        "can I try this on",
+        "can I try this shirt on please",
+        "try it on",
+        "let me try on this jacket",
     ])
     func aPlacingVerbOrALookOnTheItemBeforeARoomPhraseAsksForIt(transcript: String) {
         #expect(asksToSeeArtInMyRoom(transcript))
@@ -469,6 +517,14 @@ struct RoomArtPhraseTests {
         "how do I look good in my room",
         // Words outside the closed list between the look and the room phrase.
         "how would this look next to the lamp in my room",
+        // "On me" or "try on" with no item to place, or "on" that starts another phrase.
+        "what's on me",
+        "is there something on me",
+        "turn it on",
+        "let me try this on the next video",
+        "can you put the captions on for me",
+        "how do I look on camera",
+        "try on",
     ])
     func anythingElseAsksNothing(transcript: String) {
         #expect(!asksToSeeArtInMyRoom(transcript))
@@ -523,23 +579,126 @@ struct RoomArtToolTests {
     }
 }
 
+private func furniture() -> RoomFurniture {
+    RoomFurniture(title: "LACK side table", widthMeters: 0.55, heightMeters: 0.45, cutoutImage: sharedFurnitureImage)
+}
+
+/// A floor 2 m ahead and 1 m below a camera with a 1000 pixel focal length.
+private let floor = FloorPlane(
+    center: SIMD3(0, 1, 2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 1000,
+    principalPoint: SIMD2(640, 360), distanceMeters: 2.2, floorTiltDegrees: 3, planeInlierShare: 0.9
+)
+
+/// A floor whose anchor is behind the camera, where nothing can stand.
+private let floorBehindTheCamera = FloorPlane(
+    center: SIMD3(0, 1, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), forward: SIMD3(0, 0, 1), focalLengthPixels: 1000,
+    principalPoint: SIMD2(640, 360), distanceMeters: 2.2, floorTiltDegrees: 3, planeInlierShare: 0.9
+)
+
+private let pictureCorners = RoomArtCorners(topLeft: CGPoint(x: 20, y: 25), topRight: CGPoint(x: 380, y: 25), bottomRight: CGPoint(x: 380, y: 475), bottomLeft: CGPoint(x: 20, y: 475))
+
+private func clothing(garment: RoomArtGarment = .tshirt, photoShows: RoomArtGarmentPhoto = .flatLay) -> RoomArtClothingReading {
+    RoomArtClothingReading(title: "Linen shirt", garment: garment, sleeves: .short, chosenSizeLabel: "M", photoShows: photoShows, printDescription: "", whyThisSize: "M is selected.", itemCorners: pictureCorners)
+}
+
+struct RoomArtReadingPlanTests {
+    @Test func wallArtHangsAndFurnitureWithASizeStandsOnTheFloor() {
+        let wallArtReading = RoomArtWallArtReading(
+            title: "Print", chosenSize: RoomArtSize(label: "S", widthCentimeters: 20, heightCentimeters: 30), chosenSizeIncludesFrame: false,
+            whyThisSize: "Selected.", otherSizes: [], artworkCorners: pictureCorners
+        )
+        #expect(roomArtReadingPlan(for: .wallArt(wallArtReading)) == .hangOnTheWall(wallArtReading))
+        let tableSize = RoomArtFurnitureSize(label: "55x45 cm", widthCentimeters: 55, heightCentimeters: 45, depthCentimeters: 55)
+        let table = RoomArtFurnitureReading(title: "LACK", chosenSize: tableSize, whyThisSize: "Only size.", itemCorners: pictureCorners)
+        #expect(roomArtReadingPlan(for: .furniture(table)) == .standOnTheFloor(table, size: tableSize))
+    }
+
+    @Test func noSizeOnThePageFailsForWallArtAndFurnitureAlike() {
+        #expect(roomArtReadingPlan(for: .sizeNotOnThePage(title: "Print")) == .fail(.sizeNotOnThePage))
+        let unsizedTable = RoomArtFurnitureReading(title: "LACK", chosenSize: nil, whyThisSize: "No size.", itemCorners: pictureCorners)
+        #expect(roomArtReadingPlan(for: .furniture(unsizedTable)) == .fail(.sizeNotOnThePage))
+    }
+
+    @Test func onlyATopPhotographedFlatIsTriedOn() {
+        for garment in [RoomArtGarment.tshirt, .shirt, .sweater, .hoodie, .jacket] {
+            #expect(roomArtReadingPlan(for: .clothing(clothing(garment: garment))) == .tryOnTheShirt(clothing(garment: garment)))
+        }
+        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .dress))) == .fail(.onlyTopsSoFar))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(garment: .other))) == .fail(.onlyTopsSoFar))
+        // A photo on a model would bring the model's body into the cutout.
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onModel))) == .fail(.shirtPhotoOnAModel))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .onHanger))) == .fail(.shirtPhotoNotFlat))
+        #expect(roomArtReadingPlan(for: .clothing(clothing(photoShows: .other))) == .fail(.shirtPhotoNotFlat))
+    }
+
+    @Test func anythingElseCannotBeTried() {
+        #expect(roomArtReadingPlan(for: .other(title: "Brass lamp")) == .fail(.notSomethingToTry))
+        #expect(RoomArtFailure.notSomethingToTry.spokenLine == "That doesn't look like wall art, furniture, or a shirt.")
+        #expect(RoomArtFailure.shirtPhotoOnAModel.spokenLine == "I can only try on a shirt from a flat photo of it, and this photo shows it on a model.")
+    }
+}
+
 struct RoomArtPhaseTests {
     private let firstMeasurement = RoomArtMeasurementID(number: 1)
     private let secondMeasurement = RoomArtMeasurementID(number: 2)
 
-    @Test func theArtShowsOnceThePageAndTheWallAreBothInWhicheverComesFirst() {
-        let measuring = RoomArtPhase.closed.opening().startingAMeasurement(id: firstMeasurement)
-        let theArt = artwork()
-
-        let wallFirst = measuring.withWallMeasured(wall, measurementID: firstMeasurement)
-        #expect(wallFirst == .measuring(id: firstMeasurement, artwork: nil, wall: wall))
-        #expect(wallFirst.withArtworkRead(theArt, measurementID: firstMeasurement) == .showing(artwork: theArt, wall: wall, moveFailure: nil))
-
-        let pageFirst = measuring.withArtworkRead(theArt, measurementID: firstMeasurement)
-        #expect(pageFirst.statusLine == "Measuring your wall…")
-        #expect(pageFirst.withWallMeasured(wall, measurementID: firstMeasurement) == .showing(artwork: theArt, wall: wall, moveFailure: nil))
+    @Test func thePageIsReadFirstThenTheItemWaitsForTheCameraThenItsSurfaceIsMeasured() {
+        let reading = RoomArtPhase.closed.opening()
+        #expect(reading == .readingThePage)
+        #expect(reading.statusLine == "Reading the page…")
+        let waiting = reading.withTheItemReady(.wallArt(artwork()))
+        #expect(waiting == .waitingForTheCamera(.wallArt(artwork())))
+        #expect(waiting.statusLine == "Starting the camera…")
+        let measuring = waiting.startingAMeasurement(id: firstMeasurement)
+        #expect(measuring == .measuring(id: firstMeasurement, item: .wallArt(artwork())))
+        #expect(measuring.statusLine == "Measuring your wall…")
+        let showing = measuring.withTheSurfaceMeasured(.wall(wall), measurementID: firstMeasurement)
+        #expect(showing == .showing(item: .wallArt(artwork()), surface: .wall(wall), moveFailure: nil))
         // The size Clicky shows comes from the measured centimeters, never the page's own label.
-        #expect(RoomArtPhase.showing(artwork: theArt, wall: wall, moveFailure: nil).statusLine == "On your wall at 16 by 20 inches")
+        #expect(showing.statusLine == "On your wall at 16 by 20 inches")
+    }
+
+    @Test func furnitureIsMeasuredOnTheFloorAndSaysItsSizeWideAndTall() {
+        let measuring = RoomArtPhase.readingThePage.withTheItemReady(.furniture(furniture())).startingAMeasurement(id: firstMeasurement)
+        #expect(measuring.statusLine == "Measuring your floor…")
+        // A wall reply never places furniture, so a mixed-up reply changes nothing.
+        #expect(measuring.withTheSurfaceMeasured(.wall(wall), measurementID: firstMeasurement) == measuring)
+        let showing = measuring.withTheSurfaceMeasured(.floor(floor), measurementID: firstMeasurement)
+        #expect(showing == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
+        #expect(showing.statusLine == "On your floor, 21.5 inches wide and 17.5 tall")
+        #expect(RoomArtPlacedItem.furniture(furniture()).hereItIsLine == "Here it is, 21.5 inches wide and 17.5 tall.")
+        #expect(RoomArtPlacedItem.wallArt(artwork()).hereItIsLine == "Here it is at 16 by 20 inches.")
+    }
+
+    @Test func aFloorThatIsNotFoundWaitsForAClickAndTheClickMeasuresAgain() {
+        let measuring = RoomArtPhase.waitingForTheCamera(.furniture(furniture())).startingAMeasurement(id: firstMeasurement)
+
+        let waitingForAClick = measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement)
+        #expect(waitingForAClick == .waitingForAFloorClick(.furniture(furniture())))
+        #expect(waitingForAClick.statusLine == "Tilt the screen down so the floor shows, then click the floor")
+        #expect(waitingForAClick.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(waitingForAClick.aClickPlacesTheItem)
+        // A floor that cannot stand the piece means the same as one not found.
+        #expect(measuring.withTheSurfaceMeasured(.floor(floorBehindTheCamera), measurementID: firstMeasurement) == waitingForAClick)
+        // The click measures again, and a floor found stands the piece on it.
+        let measuringAgain = waitingForAClick.startingAMeasurement(id: secondMeasurement)
+        #expect(measuringAgain == .measuring(id: secondMeasurement, item: .furniture(furniture())))
+        #expect(measuringAgain.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
+        // Any other failure of the first floor measurement ends the panel.
+        #expect(measuring.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
+    }
+
+    @Test func aWallThatPlacesNothingOnTheFirstMeasurementFailsAndNeverWaitsForAClick() {
+        let measuring = RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
+        let wallBehindTheCamera = WallPlane(
+            center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
+            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
+        )
+
+        #expect(measuring.withTheSurfaceMeasured(.wall(wallBehindTheCamera), measurementID: firstMeasurement) == .failed(.wallNotMeasured))
+        // Only furniture waits for a click, so a floor failure for wall art could only end the panel.
+        #expect(measuring.afterTheMeasurementFailed(.floorNotFound, measurementID: firstMeasurement) == .failed(.floorNotFound))
+        #expect(!RoomArtPhase.failed(.wallNotMeasured).aClickPlacesTheItem)
     }
 
     @Test func theSizeIsSaidInInchesToTheNearestHalfInch() {
@@ -549,94 +708,112 @@ struct RoomArtPhaseTests {
         #expect(roomArtSizeInInches(widthCentimeters: 50, heightCentimeters: 70) == "19.5 by 27.5 inches")
     }
 
-    @Test func aFailedMovePutsTheArtBackOnItsWallAndSaysWhyInTheStatusLineOnly() {
-        let theArt = artwork()
+    @Test func aFailedMovePutsTheItemBackOnItsSurfaceAndSaysWhyInTheStatusLineOnly() {
+        let theArt = RoomArtPlacedItem.wallArt(artwork())
         let movedWall = WallPlane(
             center: SIMD3(0.5, 0, 2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
             principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
         )
-        let moving = RoomArtPhase.showing(artwork: theArt, wall: wall, moveFailure: nil).startingAMeasurement(id: secondMeasurement)
+        let moving = RoomArtPhase.showing(item: theArt, surface: .wall(wall), moveFailure: nil).startingAMeasurement(id: secondMeasurement)
 
         let afterAFailedMove = moving.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement)
-        #expect(afterAFailedMove == .showing(artwork: theArt, wall: wall, moveFailure: .depthServiceUnavailable))
-        #expect(afterAFailedMove.statusLine == "Couldn't measure the wall. Is the depth service running?")
-        #expect(afterAFailedMove.statusLineIsAFailure(theWallIsLost: false))
+        #expect(afterAFailedMove == .showing(item: theArt, surface: .wall(wall), moveFailure: .depthServiceUnavailable))
+        #expect(afterAFailedMove.statusLine == "Couldn't measure the room. Is the depth service running?")
+        #expect(afterAFailedMove.statusLineIsAFailure(theSurfaceIsLost: false))
         // A wall behind the camera places nothing, so the art stays on the wall it hung on.
         let wallBehindTheCamera = WallPlane(
             center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
             principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
         )
-        #expect(moving.withWallMeasured(wallBehindTheCamera, measurementID: secondMeasurement) == .showing(artwork: theArt, wall: wall, moveFailure: .wallNotMeasured))
+        #expect(moving.withTheSurfaceMeasured(.wall(wallBehindTheCamera), measurementID: secondMeasurement) == .showing(item: theArt, surface: .wall(wall), moveFailure: .wallNotMeasured))
         // A click after the failure tries again, and a measured wall moves the art and clears the failure.
         let movingAgain = afterAFailedMove.startingAMeasurement(id: RoomArtMeasurementID(number: 3))
-        #expect(movingAgain == .moving(id: RoomArtMeasurementID(number: 3), artwork: theArt, wallBeforeTheMove: wall))
-        #expect(movingAgain.withWallMeasured(movedWall, measurementID: RoomArtMeasurementID(number: 3)) == .showing(artwork: theArt, wall: movedWall, moveFailure: nil))
+        #expect(movingAgain == .moving(id: RoomArtMeasurementID(number: 3), item: theArt, surfaceBeforeTheMove: .wall(wall)))
+        #expect(movingAgain.withTheSurfaceMeasured(.wall(movedWall), measurementID: RoomArtMeasurementID(number: 3)) == .showing(item: theArt, surface: .wall(movedWall), moveFailure: nil))
+        // Furniture whose move finds no floor stays on the floor it stood on.
+        let movingTheTable = RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil).startingAMeasurement(id: secondMeasurement)
+        #expect(movingTheTable.afterTheMeasurementFailed(.floorNotFound, measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: .floorNotFound))
     }
 
-    @Test func theFirstMeasurementOnAWallThatPlacesNothingFails() {
-        let measuring = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement).withArtworkRead(artwork(), measurementID: firstMeasurement)
-        let wallBehindTheCamera = WallPlane(
-            center: SIMD3(0, 0, -2), right: SIMD3(1, 0, 0), up: SIMD3(0, -1, 0), focalLengthPixels: 1000,
-            principalPoint: SIMD2(640, 360), distanceMeters: 2, wallAngleDegrees: 0, planeInlierShare: 0.9
-        )
+    @Test func aLostSurfaceSaysSoWhileTheItemShowsAndTheSizeLineReturnsWhenFound() {
+        let showing = RoomArtPhase.showing(item: .wallArt(artwork()), surface: .wall(wall), moveFailure: nil)
 
-        #expect(measuring.withWallMeasured(wallBehindTheCamera, measurementID: firstMeasurement) == .failed(.wallNotMeasured))
+        #expect(showing.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the wall. Turn back, or click the wall to place it again.")
+        #expect(showing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: nil) == "On your wall at 16 by 20 inches")
+        #expect(!showing.statusLineIsAFailure(theSurfaceIsLost: true))
+        let showingTheTable = RoomArtPhase.showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil)
+        #expect(showingTheTable.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Lost the floor. Turn back, or click the floor to place it again.")
+        // Before the item shows, a lost room hides nothing, so the line keeps its own words.
+        #expect(RoomArtPhase.readingThePage.statusLine(theSurfaceIsLost: true, shirtCoachingLine: nil) == "Reading the page…")
     }
 
-    @Test func aLostWallSaysSoWhileTheArtShowsAndTheSizeLineReturnsWhenFound() {
-        let showing = RoomArtPhase.showing(artwork: artwork(), wall: wall, moveFailure: nil)
-
-        #expect(showing.statusLine(theWallIsLost: true) == "Lost the wall. Turn back, or click the wall to place it again.")
-        #expect(showing.statusLine(theWallIsLost: false) == "On your wall at 16 by 20 inches")
-        #expect(!showing.statusLineIsAFailure(theWallIsLost: true))
-        // Before the art shows, a lost room hides nothing, so the line keeps its own words.
-        #expect(RoomArtPhase.startingCamera.statusLine(theWallIsLost: true) == "Starting the camera…")
+    @Test func theShirtIsPreparedThenWaitsForTheLearnerThenShows() {
+        let preparing = RoomArtPhase.readingThePage.startingTheShirt(title: "Linen shirt")
+        #expect(preparing == .preparingTheShirt(title: "Linen shirt"))
+        #expect(preparing.statusLine == "Getting the shirt ready…")
+        // The coaching takes the status line while the learner is not where the shirt can be drawn.
+        #expect(preparing.statusLine(theSurfaceIsLost: false, shirtCoachingLine: "Stand back so I can see your shoulders and chest.") == "Stand back so I can see your shoulders and chest.")
+        let waiting = preparing.withTheGarmentReady(learnerIsInFrame: false)
+        #expect(waiting == .waitingToSeeTheLearner(title: "Linen shirt"))
+        let showing = waiting.afterTheLearnerStoodInFrame()
+        #expect(showing == .showingTheShirt(title: "Linen shirt"))
+        #expect(showing.statusLine == "On you")
+        // A learner already in view when the garment is ready sees the shirt at once.
+        #expect(preparing.withTheGarmentReady(learnerIsInFrame: true) == .showingTheShirt(title: "Linen shirt"))
+        // The learner standing in view before the garment is ready changes nothing until it is.
+        #expect(preparing.afterTheLearnerStoodInFrame() == preparing)
+        // A click does nothing on a shirt, and a garment that cannot be cut out ends the panel.
+        #expect(!showing.aClickPlacesTheItem)
+        #expect(showing.startingAMeasurement(id: firstMeasurement) == showing)
+        #expect(preparing.afterTheGarmentFailed() == .failed(.garmentNotCutOut))
+        #expect(waiting.afterTheGarmentFailed() == waiting)
     }
 
     @Test func aReplyAfterThePanelClosedChangesNothing() {
-        let closed = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement).closing()
+        let closed = RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement).closing()
 
-        #expect(closed.withWallMeasured(wall, measurementID: firstMeasurement) == .closed)
-        #expect(closed.withArtworkRead(artwork(), measurementID: firstMeasurement) == .closed)
+        #expect(closed.withTheSurfaceMeasured(.wall(wall), measurementID: firstMeasurement) == .closed)
+        #expect(closed.withTheItemReady(.wallArt(artwork())) == .closed)
+        #expect(closed.startingTheShirt(title: "Tee") == .closed)
+        #expect(closed.afterThePageFailed(.pageNotRead) == .closed)
+        #expect(closed.withTheGarmentReady(learnerIsInFrame: true) == .closed)
         #expect(closed.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .closed)
+        #expect(closed.afterTheCameraFailed(.noCamera) == .closed)
     }
 
     @Test func aReplyFromAnEarlierMeasurementChangesNothing() {
-        let theArt = artwork()
+        let theArt = RoomArtPlacedItem.wallArt(artwork())
         // The learner clicked to move the art, which started a second measurement that keeps the art.
-        let movingTheArt = RoomArtPhase.showing(artwork: theArt, wall: wall, moveFailure: nil).startingAMeasurement(id: secondMeasurement)
-        #expect(movingTheArt == .moving(id: secondMeasurement, artwork: theArt, wallBeforeTheMove: wall))
+        let movingTheArt = RoomArtPhase.showing(item: theArt, surface: .wall(wall), moveFailure: nil).startingAMeasurement(id: secondMeasurement)
+        #expect(movingTheArt == .moving(id: secondMeasurement, item: theArt, surfaceBeforeTheMove: .wall(wall)))
 
-        #expect(movingTheArt.withWallMeasured(wall, measurementID: firstMeasurement) == movingTheArt)
+        #expect(movingTheArt.withTheSurfaceMeasured(.wall(wall), measurementID: firstMeasurement) == movingTheArt)
         #expect(movingTheArt.afterTheMeasurementFailed(.wallNotMeasured, measurementID: firstMeasurement) == movingTheArt)
     }
 
-    @Test func aClickDuringAMeasurementOrBeforeTheCameraRunsIsIgnored() {
-        let measuring = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement)
+    @Test func aClickDuringAMeasurementOrBeforeTheItemIsReadIsIgnored() {
+        let measuring = RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
 
         #expect(measuring.startingAMeasurement(id: secondMeasurement) == measuring)
+        #expect(!measuring.aClickPlacesTheItem)
+        #expect(RoomArtPhase.readingThePage.startingAMeasurement(id: firstMeasurement) == .readingThePage)
         #expect(RoomArtPhase.closed.startingAMeasurement(id: firstMeasurement) == .closed)
-        #expect(RoomArtPhase.failed(.notWallArt).startingAMeasurement(id: firstMeasurement) == .failed(.notWallArt))
+        #expect(RoomArtPhase.failed(.notSomethingToTry).startingAMeasurement(id: firstMeasurement) == .failed(.notSomethingToTry))
     }
 
     @Test func aFailureSaysWhatWentWrong() {
-        let measuring = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement)
+        let measuring = RoomArtPhase.waitingForTheCamera(.wallArt(artwork())).startingAMeasurement(id: firstMeasurement)
 
         #expect(measuring.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
-        #expect(RoomArtPhase.startingCamera.afterTheCameraFailed(.cameraAccessDenied) == .failed(.cameraAccessDenied))
-        // A camera failure counts only while the camera is starting.
-        #expect(measuring.afterTheCameraFailed(.cameraAccessDenied) == measuring)
+        #expect(RoomArtPhase.readingThePage.afterThePageFailed(.sizeNotOnThePage) == .failed(.sizeNotOnThePage))
+        // The camera starts while the page is read, so its failure counts in every open phase but a failed one.
+        #expect(RoomArtPhase.readingThePage.afterTheCameraFailed(.cameraAccessDenied) == .failed(.cameraAccessDenied))
+        #expect(RoomArtPhase.preparingTheShirt(title: "Tee").afterTheCameraFailed(.noCamera) == .failed(.noCamera))
+        #expect(RoomArtPhase.failed(.sizeNotOnThePage).afterTheCameraFailed(.noCamera) == .failed(.sizeNotOnThePage))
+        // A page failure counts only while the page is read.
+        #expect(measuring.afterThePageFailed(.pageNotRead) == measuring)
         #expect(RoomArtFailure.cameraAccessDenied.spokenLine == "I need camera access for that. You can turn it on in System Settings.")
-        #expect(RoomArtFailure.depthServiceUnavailable.spokenLine == "I couldn't measure your wall. Is the depth service running?")
-        #expect(RoomArtFailure.notWallArt.spokenLine == "That doesn't look like something that hangs on a wall.")
-    }
-
-    @Test func furnitureAndClothingGetTheirOwnLineSoTheyAreNeverTakenForALamp() {
-        #expect(RoomArtFailure.onlyWallArtSoFar.spokenLine == "I can hang wall art so far. Furniture and clothes are coming next.")
-        #expect(RoomArtFailure.onlyWallArtSoFar.spokenLine != RoomArtFailure.notWallArt.spokenLine)
-        #expect(RoomArtFailure.onlyWallArtSoFar.statusLine == "Only wall art so far. Furniture and clothes are coming next")
-        let measuring = RoomArtPhase.startingCamera.startingAMeasurement(id: firstMeasurement)
-        #expect(measuring.afterTheMeasurementFailed(.onlyWallArtSoFar, measurementID: firstMeasurement) == .failed(.onlyWallArtSoFar))
+        #expect(RoomArtFailure.depthServiceUnavailable.spokenLine == "I couldn't measure your room. Is the depth service running?")
     }
 }
 
