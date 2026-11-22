@@ -443,6 +443,17 @@ final class AgentTokenDockController {
         for displayID in shownAgentIDsByDisplayID.keys where !discIDsOnScreen.contains(where: { $0.displayID == displayID }) {
             shownAgentIDsByDisplayID[displayID] = nil
         }
+        // A recap that hid the discs must not hide what is new: a disc that appeared since, or an agent that waits for the
+        // learner's OK, whose "!" badge is on a gathered disc. Either shows every gathered disc again.
+        if gatheredDiscsMustShowAgain(
+            gatheredDiscIDs: Set(gatheredDiscs.map(\.discID)),
+            gatheredDisplayID: gatheredDisplayID,
+            discIDsOnScreen: discIDsOnScreen,
+            anAgentWaitsForApproval: !store.agentIDsWaitingForApproval.isEmpty
+        ) {
+            print("Recap gather: the dock changed while the Card is open, so the discs show again")
+            sendTheDiscsBackAtOnce()
+        }
     }
 
     private var reduceMotionIsOn: Bool {
@@ -529,6 +540,8 @@ final class AgentTokenDockController {
         for disc in discsByID.values { remove(disc) }
         discsByID = [:]
         shownAgentIDsByDisplayID = [:]
+        gatheredDiscs = []
+        gatheredDisplayID = nil
     }
 
     // MARK: Serve
@@ -605,6 +618,7 @@ final class AgentTokenDockController {
     /// chip it carries shows at once.
     func finishTheServeAtOnce() {
         landTheServeAtOnce()
+        for gatherFlight in gatherFlights { gatherFlight.landAtOnce() }
         for bringBackFlight in bringBackFlights { bringBackFlight.landAtOnce() }
     }
 
@@ -643,6 +657,127 @@ final class AgentTokenDockController {
         lingeringFlight = nil
         discIDTheLingeringFlightSitsOn = nil
         refresh()
+    }
+
+    // MARK: Gather
+
+    /// One disc the recap gathered, so it can go back to the same place.
+    private struct GatheredDisc {
+        let discID: AgentTokenDiscID
+        let tokenSlot: AgentTokenSlot
+        let overflowCount: Int
+        let center: CGPoint
+    }
+
+    /// The discs on the display the mouse is on that the last gather took, and that display. Empty when none are gathered.
+    private var gatheredDiscs: [GatheredDisc] = []
+    private var gatheredDisplayID: CGDirectDisplayID?
+    /// The ghost discs in the air, so a push-to-talk press or a new gather can land them at once.
+    private var gatherFlights: [CarrierFlight] = []
+
+    /// The end-of-video recap's first move: every disc on the display the mouse is on flies to `cursorPoint` and is hidden
+    /// there, so the Card can unfold from the cursor. Each disc's ghost flies on the carrier as a Send, backward, and the real
+    /// disc is hidden as it leaves. `onGathered` runs once, when the last ghost lands, or at once when no disc shows on that
+    /// display. With Reduce Motion on, the discs fade out instead (the Send move's Reduce Motion form). A disc stays hidden
+    /// until `sendTheDiscsBack` runs.
+    func gatherTheDiscs(at cursorPoint: CGPoint, onGathered: @escaping () -> Void) {
+        sendTheDiscsBackAtOnce()
+        let mouseLocation = NSEvent.mouseLocation
+        let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
+        guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID) else {
+            onGathered()
+            return
+        }
+        let discsToGather: [GatheredDisc] = discsByID
+            .filter { discID, disc in discID.displayID == cursorDisplayID && disc.panel.isVisible }
+            .map { discID, disc in
+                GatheredDisc(discID: discID, tokenSlot: discID.tokenSlot, overflowCount: disc.overflowCount, center: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY))
+            }
+            .sorted { $0.center.x < $1.center.x }
+        guard !discsToGather.isEmpty else {
+            print("Recap gather: no disc shows on the display the mouse is on, so the Card unfolds at once")
+            onGathered()
+            return
+        }
+        gatheredDiscs = discsToGather
+        gatheredDisplayID = cursorDisplayID
+        if reduceMotionIsOn {
+            print("Recap gather: Reduce Motion is on, so \(discsToGather.count) discs fade out")
+            fadeTheGatheredDiscs(toAlpha: 0)
+            onGathered()
+            return
+        }
+        print("Recap gather: \(discsToGather.count) discs fly to the cursor in \(AgentTokenServePath.flightSeconds) s")
+        var flightsLeftToLand = discsToGather.count
+        for gatheredDisc in discsToGather {
+            playAGhostFlight(of: gatheredDisc, from: gatheredDisc.center, to: cursorPoint, onDisplay: cursorDisplayID) {
+                // The real disc stays hidden: its ghost has reached the cursor, and the Card unfolds from there.
+                flightsLeftToLand -= 1
+                if flightsLeftToLand == 0 { onGathered() }
+            }
+            // The ghost is drawn over the disc before the disc goes, so nothing blinks.
+            discsByID[gatheredDisc.discID]?.panel.alphaValue = 0
+        }
+    }
+
+    /// The recap's close: each gathered disc flies from the cursor back to its slot, and shows again as it lands. With Reduce
+    /// Motion on, the discs fade in. A disc whose agent left meanwhile is not shown again.
+    func sendTheDiscsBack(from cursorPoint: CGPoint) {
+        guard let gatheredDisplayID, !gatheredDiscs.isEmpty else { return }
+        for gatherFlight in gatherFlights { gatherFlight.landAtOnce() }
+        let discsToSendBack = gatheredDiscs
+        gatheredDiscs = []
+        self.gatheredDisplayID = nil
+        if reduceMotionIsOn {
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
+                for gatheredDisc in discsToSendBack { discsByID[gatheredDisc.discID]?.panel.animator().alphaValue = 1 }
+            }
+            return
+        }
+        for gatheredDisc in discsToSendBack {
+            // A disc may have slid since the gather, so the ghost lands where the disc is now.
+            let slotPoint = discsByID[gatheredDisc.discID].map { CGPoint(x: $0.panel.frame.midX, y: $0.panel.frame.midY) } ?? gatheredDisc.center
+            // The "+N" disc's count may have changed since the gather, so its ghost shows the current one.
+            let discToSendBack = GatheredDisc(
+                discID: gatheredDisc.discID,
+                tokenSlot: gatheredDisc.tokenSlot,
+                overflowCount: discsByID[gatheredDisc.discID]?.overflowCount ?? gatheredDisc.overflowCount,
+                center: gatheredDisc.center
+            )
+            playAGhostFlight(of: discToSendBack, from: cursorPoint, to: slotPoint, onDisplay: gatheredDisplayID) { [weak self] in
+                self?.discsByID[gatheredDisc.discID]?.panel.alphaValue = 1
+            }
+        }
+    }
+
+    /// A press or a new gather ends the recap's flights and shows every gathered disc again, with no animation.
+    private func sendTheDiscsBackAtOnce() {
+        for gatherFlight in gatherFlights { gatherFlight.landAtOnce() }
+        for gatheredDisc in gatheredDiscs { discsByID[gatheredDisc.discID]?.panel.alphaValue = 1 }
+        gatheredDiscs = []
+        gatheredDisplayID = nil
+    }
+
+    private func fadeTheGatheredDiscs(toAlpha alpha: CGFloat) {
+        NSAnimationContext.runAnimationGroup { animationContext in
+            animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
+            for gatheredDisc in gatheredDiscs { discsByID[gatheredDisc.discID]?.panel.animator().alphaValue = alpha }
+        }
+    }
+
+    /// Plays a copy of a disc along a Send arc, tethered in the theme's accent, and tracks it until it is gone.
+    private func playAGhostFlight(of gatheredDisc: GatheredDisc, from startPoint: CGPoint, to endPoint: CGPoint, onDisplay displayID: CGDirectDisplayID, onLanded: @escaping () -> Void) {
+        let tokenSide = AgentTokenMetrics.panelWidth
+        let ghostFlight = TetherCarrier.shared.play(
+            .send(along: agentTokenServePath(from: startPoint, to: endPoint), carriedSize: CGSize(width: tokenSide, height: tokenSide)),
+            carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: gatheredDisc.tokenSlot, overflowCount: gatheredDisc.overflowCount),
+            onDisplay: displayID,
+            tetherColor: NSColor(themeSettings.shownTheme.cursorColor),
+            onLanded: onLanded,
+            onGone: { [weak self] goneFlight in self?.gatherFlights.removeAll { $0 === goneFlight } }
+        )
+        gatherFlights.append(ghostFlight)
     }
 
     // MARK: Bring back
