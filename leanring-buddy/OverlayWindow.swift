@@ -78,7 +78,7 @@ struct Triangle: Shape {
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode {
-    /// Default — buddy follows the mouse cursor with spring animation
+    /// Default - buddy follows the mouse cursor with spring animation
     case followingCursor
     /// Buddy is animating toward a detected UI element location
     case navigatingToTarget
@@ -304,7 +304,7 @@ struct BlueCursorView: View {
                     .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: bubbleSize, screenSize: screenFrame.size)))
             }
 
-            // Onboarding video — always in the view tree so opacity animation works
+            // Onboarding video - always in the view tree so opacity animation works
             // reliably. When no player exists or opacity is 0, nothing is visible.
             // allowsHitTesting(false) prevents it from intercepting clicks.
             OnboardingVideoPlayerView(player: companionManager.onboardingVideoPlayer)
@@ -320,7 +320,7 @@ struct BlueCursorView: View {
                 .animation(.easeInOut(duration: 2.0), value: companionManager.onboardingVideoOpacity)
                 .allowsHitTesting(false)
 
-            // Onboarding prompt — "press control + option and say hi" streamed after video ends
+            // Onboarding prompt - "press control + option and say hi" streamed after video ends
             if onboardingPromptBubbleIsShowing {
                 SpeechCalloutView(
                     sentence: companionManager.onboardingPromptText,
@@ -386,7 +386,7 @@ struct BlueCursorView: View {
             // (which caused a visible cursor "pop").
             //
             // During cursor following: fast spring animation for snappy tracking.
-            // During navigation: NO implicit animation — the frame-by-frame bezier
+            // During navigation: NO implicit animation - the frame-by-frame bezier
             // timer controls position directly at 60fps for a smooth arc flight.
             CursorBodyLanguageView(
                 glyph: CustomCursorView(
@@ -535,7 +535,7 @@ struct BlueCursorView: View {
             self.isCursorOnThisScreen = self.screenFrame.contains(mouseLocation)
 
             // During forward flight or pointing, the buddy is NOT interrupted by
-            // mouse movement — it completes its full animation and return flight.
+            // mouse movement - it completes its full animation and return flight.
             // Only during the RETURN flight do we allow cursor movement to cancel
             // (so the buddy snaps to following if the user moves while it's flying back).
             if self.buddyNavigationMode == .navigatingToTarget && self.isReturningToCursor {
@@ -605,7 +605,7 @@ struct BlueCursorView: View {
         let targetInSwiftUI = convertScreenPointToSwiftUICoordinates(screenLocation)
 
         // Offset the target so the buddy sits beside the element rather than
-        // directly on top of it — 8px to the right, 12px below.
+        // directly on top of it - 8px to the right, 12px below.
         let offsetTarget = CGPoint(
             x: targetInSwiftUI.x + 8,
             y: targetInSwiftUI.y + 12
@@ -622,7 +622,7 @@ struct BlueCursorView: View {
         let mouseLocation = NSEvent.mouseLocation
         cursorPositionWhenNavigationStarted = convertScreenPointToSwiftUICoordinates(mouseLocation)
 
-        // Enter navigation mode — stop cursor following
+        // Enter navigation mode - stop cursor following
         buddyIsFrozenWhereItStopped = false
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = false
@@ -746,7 +746,7 @@ struct BlueCursorView: View {
         }
     }
 
-    /// Transitions to pointing mode — shows a speech bubble with a bouncy
+    /// Transitions to pointing mode - shows a speech bubble with a bouncy
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
         buddyNavigationMode = .pointingAtTarget
@@ -888,7 +888,7 @@ struct BlueCursorView: View {
     }
 
     /// Streams the navigation bubble text one character at a time with variable
-    /// delays (30–60ms) for a natural "speaking" rhythm.
+    /// delays (30-60ms) for a natural "speaking" rhythm.
     private func streamNavigationBubbleCharacter(
         phrase: String,
         characterIndex: Int,
@@ -1016,7 +1016,7 @@ struct BlueCursorView: View {
     }
 }
 
-// Manager for overlay windows — creates one per screen so the cursor
+// Manager for overlay windows - creates one per screen so the cursor
 // buddy seamlessly follows the cursor across multiple monitors.
 @MainActor
 class OverlayWindowManager {
