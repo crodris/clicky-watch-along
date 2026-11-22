@@ -433,6 +433,12 @@ struct ThemeStudioCardView: View {
 /// One idea: its cursor running its real thinking motion and streaks while it is the highlighted one, its name, its colors
 /// as swatches, a small agent token in its first agent color, and, on the highlighted tile, a speaker button that plays the
 /// idea's three sounds in a row.
+/// The size of a tile: a tile that is not highlighted sits a little smaller, so picking it springs it up with its own idea's
+/// Pop. With Reduce Motion on the size never changes.
+nonisolated func themeStudioTileScale(isHighlighted: Bool, reduceMotionIsOn: Bool) -> CGFloat {
+    isHighlighted || reduceMotionIsOn ? 1 : 0.92
+}
+
 private struct ThemeStudioTileView: View {
     let idea: ClickyTheme
     let ideaIndex: Int
@@ -455,8 +461,6 @@ private struct ThemeStudioTileView: View {
     /// A tile lands from this scale. It is larger than a Callout's Pop start (`DS.Move.popStartScale`), since a tile is
     /// large and a Pop from 0.4 would sweep over its neighbors.
     private static let landingStartScale: CGFloat = 0.85
-    /// The size of a tile that is not highlighted.
-    private static let unhighlightedScale: CGFloat = 0.92
     private var accentColor: Color { Color(hex: idea.accentHex) }
 
     /// Pop under this idea's own springs, not the shown theme's, so each tile previews the motion it would give the app.
@@ -568,7 +572,7 @@ private struct ThemeStudioTileView: View {
         .animation(ideasOwnPop, value: isStamped)
         // A tile that is not the highlighted one sits a little smaller, and picking it springs it up with its own idea's Pop,
         // so a bouncy idea visibly overshoots and a calm one settles. With Reduce Motion the size never changes.
-        .scaleEffect(isHighlighted || isDimmedWhileDesigning || reduceMotion ? 1 : Self.unhighlightedScale)
+        .scaleEffect(themeStudioTileScale(isHighlighted: isHighlighted, reduceMotionIsOn: reduceMotion))
         .animation(ideasOwnPop, value: isHighlighted)
         // Each tile lands with a Pop, 90 ms after the one before it. With Reduce Motion it only fades in.
         .opacity(hasLanded ? 1 : 0)

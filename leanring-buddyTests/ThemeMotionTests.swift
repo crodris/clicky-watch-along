@@ -6,6 +6,7 @@
 //  limits the Worker applies too, read by `DS.Move`, ignored by Reduce Motion, and kept off the bundled themes.
 //
 
+import Combine
 import Foundation
 import SwiftUI
 import Testing
@@ -104,9 +105,9 @@ struct ThemeMotionParsingTests {
     }
 
     @Test func aSpringThatIsNotANumberIsRefused() {
-        let springs = JSONValue.object(["pop": .object(["response": .string("fast"), "dampingFraction": .number(0.6)])])
+        let springsWithATextResponse = JSONValue.object(["pop": .object(["response": .string("fast"), "dampingFraction": .number(0.6)])])
 
-        #expect(throws: CustomThemeParseError.self) { try themeWithSprings(springs) }
+        #expect(throws: CustomThemeParseError.self) { try themeWithSprings(springsWithATextResponse) }
     }
 
     @Test func springsThatAreNotAnObjectAreRefused() {
@@ -132,6 +133,50 @@ struct ThemeMotionParsingTests {
         for bundledTheme in bundledThemesForTests {
             #expect(bundledTheme.motion.springs == nil, "\(bundledTheme.id)")
         }
+    }
+
+    @Test @MainActor func theShownMoveSpringsFollowAPreviewAndItsEndAndASavedThemeWithNoRepeat() throws {
+        let bouncyIdea = try themeWithSprings(springsJSON(popResponse: 0.3, popDamping: 0.6, glideResponse: 0.4, glideDamping: 0.8, pointResponse: 0.4))
+
+        let themeSettings = makeThemeSettings()
+        var springsReceived: [ThemeMoveSprings] = []
+        let subscription = themeSettings.observeShownMoveSprings { springsReceived.append($0) }
+        themeSettings.preview(bouncyIdea, picture: nil)
+        themeSettings.preview(bouncyIdea, picture: nil)
+        themeSettings.clearPreview()
+        themeSettings.theme = bouncyIdea
+        subscription.cancel()
+
+        #expect(springsReceived == [.standard, bouncyIdea.moveSprings, .standard, bouncyIdea.moveSprings])
+    }
+
+    @Test func aTileThatIsNotHighlightedSitsSmallerExceptWithReduceMotion() {
+        #expect(themeStudioTileScale(isHighlighted: true, reduceMotionIsOn: false) == 1)
+        #expect(themeStudioTileScale(isHighlighted: false, reduceMotionIsOn: false) == 0.92)
+        #expect(themeStudioTileScale(isHighlighted: false, reduceMotionIsOn: true) == 1)
+    }
+
+    @Test func aThemesFeelIsNamedFromItsPopSpring() throws {
+        func feel(_ popResponse: Double, _ popDamping: Double) throws -> String? {
+            themeMotionFeel(of: try themeWithSprings(springsJSON(popResponse: popResponse, popDamping: popDamping, glideResponse: 0.4, glideDamping: 0.8, pointResponse: 0.4)).moveSprings)
+        }
+
+        #expect(try feel(0.3, 0.55) == "bouncy motion")
+        #expect(try feel(0.42, 1) == "calm motion")
+        #expect(try feel(0.2, 0.9) == "snappy motion")
+        #expect(try feel(0.32, 0.8) == "custom motion")
+        #expect(themeMotionFeel(of: .standard) == nil)
+    }
+
+    @Test func theStudiosTagsNameABouncyIdeaAndKeepTheSoundsLast() throws {
+        let bouncyIdea = try themeWithSprings(springsJSON(popResponse: 0.3, popDamping: 0.55, glideResponse: 0.4, glideDamping: 0.8, pointResponse: 0.4))
+        let plainIdea = try ClickyTheme.parse(themeJSON: goodVersion2ThemeJSON, id: "idea-1", pictureIsAvailable: false)
+
+        let bouncyTags = themeStudioTags(for: bouncyIdea)
+
+        #expect(bouncyTags.contains("bouncy motion"))
+        #expect(bouncyTags.last?.hasPrefix("sounds:") == true)
+        #expect(!themeStudioTags(for: plainIdea).contains { $0.hasSuffix("motion") })
     }
 
     @Test func anIdeaPreviewedOnTheStudioSetsTheSpringsTheShownThemeCarries() async throws {

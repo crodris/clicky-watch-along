@@ -476,11 +476,10 @@ final class CompanionManager: ObservableObject {
         VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
             self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
         }
-        // $theme and $previewTheme publish the new value before the stored one changes, so the sink reads its arguments.
-        themeSpringsCancellable = themeSettings.$theme.combineLatest(themeSettings.$previewTheme)
-            .sink { savedTheme, previewTheme in
-                DS.Move.themeSprings = (previewTheme ?? savedTheme).moveSprings
-            }
+        themeSpringsCancellable = themeSettings.observeShownMoveSprings { shownSprings in
+            DS.Move.themeSprings = shownSprings
+            print("Theme motion: Pop \(shownSprings.pop.response) and \(shownSprings.pop.dampingFraction), Glide \(shownSprings.glide.response) and \(shownSprings.glide.dampingFraction), Point \(shownSprings.pointResponse)")
+        }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.
         if voiceCommandBackend.runsInTheHarness {
