@@ -949,7 +949,9 @@ const render = (now) => {
     yaw = tourEndYaw * move;
     pitch = tourEndPitch * move;
     cameraDistance = pageDistance + (endDistance - pageDistance) * move;
-    target.lerpVectors(new THREE.Vector3(0, 0, 0), subjectCenter(), move);
+    // The tour ends with the subject's box over the video's center, where the view rests after it, so a model wider than the
+    // window's free side does not lean over a video page's sidebar. The point is worked out at this frame's pose.
+    target.lerpVectors(new THREE.Vector3(0, 0, 0), targetThatCentersTheSubjectOnTheMedia(), move);
     if (seconds > 4.5) finishTour();
   } else {
     if (liftNow !== 1) applyLift(1);
@@ -967,7 +969,8 @@ const render = (now) => {
       pitch += (draggedPitch - pitch) * easeToDrag;
       cameraDistance += (restingCameraDistance - cameraDistance) * easeToDrag;
     }
-    const restingTarget = heldTarget ?? (focusedEntry ? focusTargetThatKeepsTheSubjectOverTheMedia(focusedEntry) : subjectCenter());
+    // With no part focused the subject's box stays centered on the video at every pose, so a drag turns it in place there.
+    const restingTarget = heldTarget ?? (focusedEntry ? focusTargetThatKeepsTheSubjectOverTheMedia(focusedEntry) : targetThatCentersTheSubjectOnTheMedia());
     if (focusMove) {
       const progress = reducedMotionQuery.matches ? 1 : Math.min(1, (now - focusMove.startedAt) / 1500);
       if (!focusMove.from) focusMove.from = target.clone();

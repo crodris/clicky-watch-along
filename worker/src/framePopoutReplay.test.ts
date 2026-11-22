@@ -153,6 +153,12 @@ describe("frame-popout.html focus wiring", () => {
     expect(focusTargetSource).toContain("const fromPoint = targetThatCentersTheSubjectOnTheMedia()");
     expect(focusTargetSource).toContain("overflowOnEachSide(subjectBoxOnPage(candidate.lerpVectors(fromPoint, toPoint, share)), roomForTheFocusedSubject)");
   });
+
+  it("ends the tour and rests with no part focused with the subject over the video, not the window's center", () => {
+    // A wide model centered in the window reached over a video page's sidebar after the tour, until a part was focused.
+    expect(framePopoutSource).toContain("target.lerpVectors(new THREE.Vector3(0, 0, 0), targetThatCentersTheSubjectOnTheMedia(), move);");
+    expect(framePopoutSource).toContain(": targetThatCentersTheSubjectOnTheMedia());");
+  });
 });
 
 describe("frame-popout.html endFocus", () => {
