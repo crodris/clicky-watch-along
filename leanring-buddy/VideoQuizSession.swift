@@ -443,6 +443,13 @@ final class VideoQuizSession {
     /// Called when a quiz starts, after each finished question, and with nil when it stops.
     var onProgressChanged: ((VideoQuizProgress?) -> Void)?
 
+    /// The address of the video the last quiz ran on and the questions it finished, kept until the next quiz starts. Nil before
+    /// any question was finished. The end-of-video recap sums up this quiz, since only its pop-outs can be shown again.
+    var lastQuizVideoURLAndResults: (videoURL: String, results: [StudyGuideQuizResult])? {
+        guard let currentVideoTab, !quizResultsOfThisQuiz.isEmpty else { return nil }
+        return (currentVideoTab.url, quizResultsOfThisQuiz)
+    }
+
     init(
         workerBaseURL: String,
         canAskQuestionNow: @escaping @MainActor () -> Bool,
@@ -1598,6 +1605,14 @@ struct ChromeVideoTab {
     @discardableResult
     static func runJavaScript(_ javaScript: String, in videoTab: ChromeVideoTab, timeoutSeconds: Int = defaultJavaScriptTimeoutSeconds) throws -> String {
         try runAppleScript(appleScriptToRunJavaScript(javaScript, tabId: videoTab.tabId, windowId: videoTab.windowId, timeoutSeconds: timeoutSeconds))
+    }
+
+    /// Whether the largest video of Chrome's front tab has played to its end, and the tab's address, in one Apple Event. Nil
+    /// when the page has no video or Chrome has no window. Throws when Chrome refuses the script.
+    @MainActor
+    static func readWhetherTheFrontVideoHasEnded() throws -> FrontVideoEndReading? {
+        let scriptReply = try runAppleScript(appleScriptToRunJavaScriptInTheFrontTab(FrontVideoEndReading.pageScript, timeoutSeconds: defaultJavaScriptTimeoutSeconds))
+        return FrontVideoEndReading(scriptReply: scriptReply)
     }
 
     /// Whether Chrome is open. Tests replace it, since a developer's Chrome is usually running.
