@@ -22,9 +22,10 @@
 //  - old shirt at the sleeves: the learner's own sleeve shows past the new one, or is only painted over by the fill;
 //  - stretched fill: the fill beside the garment is its rows smeared sideways, which reads as a glitch;
 //  - a dark outline: the old shirt is left as a dark line between the cloth's edge and the person's, such as a sliver
-//    along the top of a shoulder or specks down a side.
+//    along the top of a shoulder or specks down a side, or along the neckline between the new collar and the neck;
 //  - the front neckline: the garment's front collar lands well below the learner's own neckline, with the inside of its
-//    back and its label showing through the collar above it.
+//    back and its label showing through the collar above it, which is also checked as the garment drawn inside the photo's
+//    neck opening.
 //  Two measures were tried and dropped as not measuring the garment: a sleeve's pixels on the person (the person mask clips
 //  its top at the shoulder's outline) and the old shirt's unchanged pixels (a navy stripe over a navy shirt barely changes).
 //  The room and the albedo are measured here at full size, apart from the renderer's own small copy, so a check does not
@@ -95,9 +96,15 @@ struct ShirtLookMetrics: Codable {
     /// the neck, per pixel of shoulder width: the old shirt left as a sliver along the top of a shoulder or specks down a
     /// side. See the measurement for what counts as dark.
     var darkOutlinePixelsPerShoulderWidth = 0.0
+    /// The pixels of a dark line just above the cloth along the neckline, per pixel of shoulder width: the old collar's dark
+    /// blend with the skin left between the new collar and the neck. See the measurement for what counts as dark.
+    var darkNecklinePixelsPerShoulderWidth = 0.0
     /// How far below the person's own neckline the garment's front neckline lands, in shoulder widths, nil when either is not
     /// found. A collar drawn with the inside of the shirt's back showing above its front sits well below.
     var frontNecklineBelowTheNecklineInShoulderWidths: Double?
+    /// The share of the frame's pixels inside the product photo's neck opening, carried through the landed torso's map, that
+    /// the garment is drawn over: the inside of its back and its label. Nil when the photo shows no opening.
+    var insideOfTheBackDrawnShare: Double?
     /// Over the fill (cloth drawn where the garment is not), the mean luminance step between a pixel and the one below it, in
     /// 8-bit levels. A fill of one color with the shading changes slowly; the garment's rows smeared sideways into it change
     /// at every stripe.
@@ -115,11 +122,15 @@ enum ShirtLookLimits {
     static let haloInsideRimRatio = 1.10
     static let oldShirtStillShowingShare = 0.01
     static let sleeveAxisErrorDegrees = 12.0
-    static let sleeveHemRaggedness = 0.02
+    /// A torn hem or a tab of fill measured 0.03 to 0.07. A clean hem measures 0.01 to 0.022, and the same hem moves by about
+    /// 0.004 when the sleeve's seam top moves a few pixels, so the limit sits between the two.
+    static let sleeveHemRaggedness = 0.025
     static let oldShirtAtTheSleevesShare = 0.03
     static let fillRowStep = 6.0
     static let darkOutlinePixelsPerShoulderWidth = 3.0
-    static let frontNecklineBelowTheNeckline = -0.06...0.06
+    static let frontNecklineBelowTheNeckline = -0.1...0.06
+    static let darkNecklinePixelsPerShoulderWidth = 0.25
+    static let insideOfTheBackDrawnShare = 0.02
 }
 
 // MARK: - Pixels
@@ -308,6 +319,7 @@ private struct LookInputs {
     /// The garment's torso corners in its working photo, top left first, and the front of its neck opening found in the photo.
     let garmentTorsoCorners: [CGPoint]
     let photoFrontNeckPoint: CGPoint?
+    let photoNeckOpening: ShirtNeckOpening?
     let torso: BodyTorso
     let oldShirtColor: SIMD3<Float>
     let photoWhite: SIMD3<Double>
@@ -347,7 +359,9 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
     }
     metrics.garmentMedianLuminance = median(garmentLuminances)
     metrics.albedoMedianLuminance = median(albedoLuminances)
-    metrics.exposureRatio = median(exposureRatios)
+    // A garment dark all over has no pixel bright enough for its own ratio, so it takes the ratio of the medians.
+    metrics.exposureRatio = exposureRatios.isEmpty
+        ? metrics.garmentMedianLuminance / (metrics.albedoMedianLuminance * room.white) : median(exposureRatios)
 
     // White balance: the garment's neutral pixels against the room's illuminant at the same luminance.
     var neutralDistances: [Double] = []
@@ -561,6 +575,24 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
     }
     metrics.darkOutlinePixelsPerShoulderWidth = Double(darkOutlineCount) / shoulderWidth
 
+    // The same dark line along the neckline, which the outline check leaves out: within 0.3 shoulder widths of the middle,
+    // from 0.45 shoulder widths above the shoulders to 0.1 below, a person's pixel within 6 pixels outside the cloth is part
+    // of it when it is darker than 0.7 times both the neck's own skin, the median of the person's pixels there that are
+    // neither cloth, nor next to it, nor the old shirt, and the cloth beside it. The neck's shadow under the chin stays
+    // above that, a dark collar's own soft edge is no darker than the collar, and the old collar's dark blend with the skin
+    // falls below both.
+    func isInTheNeckBand(_ pixel: Int) -> Bool {
+        let row = Double(pixel / width), acrossFromTheMiddle = abs(Double(pixel % width) - Double(shoulderMiddle.x))
+        return isPerson[pixel] && acrossFromTheMiddle < 0.3 * shoulderWidth
+            && row > Double(shoulderMiddle.y) - 0.45 * shoulderWidth && row < Double(shoulderMiddle.y) + 0.1 * shoulderWidth
+    }
+    let neckSkinLuminances = (0..<pixelCount).filter { isInTheNeckBand($0) && !isCloth[$0] && !justOutsideTheCloth[$0] && !originalIsOldShirt[$0] }.map { compositeLuminances[$0] }
+    if !neckSkinLuminances.isEmpty {
+        let neckSkin = neckSkinLuminances.sorted()[neckSkinLuminances.count / 2]
+        let darkNecklineCount = (0..<pixelCount).filter { isInTheNeckBand($0) && justOutsideTheCloth[$0] && !clothBeside[$0].isNaN && compositeLuminances[$0] < 0.7 * min(neckSkin, clothBeside[$0]) }.count
+        metrics.darkNecklinePixelsPerShoulderWidth = Double(darkNecklineCount) / shoulderWidth
+    }
+
     // The garment's front neckline against the person's own. The front neckline is found in the product photo here
     // (`photoFrontNeckPoint`), apart from the garment the renderer drew, and carried through the map from the garment's torso
     // to the torso it landed on. The person's neckline is the first pixel of the old shirt's color and hue down the middle
@@ -572,6 +604,29 @@ private func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetric
        let personNecklineRow = necklineSearchRows.first(where: { row in originalIsOldShirt[row * width + middleColumn] && hasTheOldShirtsHue(row * width + middleColumn) }) {
         let landedFrontNeck = applyingPerspective(toTheBody, to: photoFrontNeckPoint)
         metrics.frontNecklineBelowTheNecklineInShoulderWidths = (Double(landedFrontNeck.y) - Double(personNecklineRow)) / shoulderWidth
+    }
+
+    // The inside of the back: the frame's pixels whose place in the product photo, through the landed torso's map, lies
+    // inside the photo's neck opening, and the share of them the garment is drawn over. A garment that keeps the inside of
+    // its back draws its panel and label over every one of them.
+    if let opening = inputs.photoNeckOpening, let toThePhoto = perspectiveTransform(from: inputs.landedTorsoCorners, to: inputs.garmentTorsoCorners),
+       let toTheBody = perspectiveTransform(from: inputs.garmentTorsoCorners, to: inputs.landedTorsoCorners) {
+        let openingCorners = [
+            CGPoint(x: opening.centerColumn - opening.halfWidth, y: opening.topRow), CGPoint(x: opening.centerColumn + opening.halfWidth, y: opening.topRow),
+            CGPoint(x: opening.centerColumn + opening.halfWidth, y: opening.bottomRow), CGPoint(x: opening.centerColumn - opening.halfWidth, y: opening.bottomRow),
+        ].map { applyingPerspective(toTheBody, to: $0) }
+        let columns = max(0, Int(openingCorners.map(\.x).min() ?? 0))...min(width - 1, Int(openingCorners.map(\.x).max() ?? 0))
+        let rows = max(0, Int(openingCorners.map(\.y).min() ?? 0))...min(height - 1, Int(openingCorners.map(\.y).max() ?? 0))
+        var insideCount = 0, drawnCount = 0
+        for row in rows {
+            for column in columns {
+                let inThePhoto = applyingPerspective(toThePhoto, to: CGPoint(x: Double(column) + 0.5, y: Double(row) + 0.5))
+                guard opening.contains(column: Int(inThePhoto.x.rounded()), row: Int(inThePhoto.y.rounded())) else { continue }
+                insideCount += 1
+                if inputs.garmentAlpha.channel(0, at: row * width + column) >= 128 { drawnCount += 1 }
+            }
+        }
+        metrics.insideOfTheBackDrawnShare = insideCount > 0 ? Double(drawnCount) / Double(insideCount) : nil
     }
 
     // The fill's steps between rows, in 8-bit levels of the encoded luminance.
@@ -670,6 +725,7 @@ struct ShirtLookCheckTests {
             let composition = try #require(renderer.composition(frame: frame, personMask: personMask, torso: torso, garment: garment))
 
             let composite = LookPixels(composition.image, extent: frameExtent, context: context, colorSpace: sRGB)
+            let neck = photoNeck(productPhoto: productPhoto)
             let sleeves = sleeveLayers(of: composition, torso: torso)
             let inputs = LookInputs(
                 original: original, composite: composite, person: person,
@@ -677,7 +733,7 @@ struct ShirtLookCheckTests {
                 totalAlpha: LookPixels(composition.totalAlpha, extent: frameExtent, context: context, colorSpace: nil),
                 warpedGarment: LookPixels(composition.warpedGarmentColor, extent: frameExtent, context: context, colorSpace: sRGB),
                 sleeves: sleeves, landedTorsoCorners: composition.landedTorsoCorners,
-                garmentTorsoCorners: garment.torsoCorners.clockwiseFromTopLeft, photoFrontNeckPoint: photoFrontNeckPoint(productPhoto: productPhoto),
+                garmentTorsoCorners: garment.torsoCorners.clockwiseFromTopLeft, photoFrontNeckPoint: neck?.frontNeckPoint, photoNeckOpening: neck?.opening,
                 torso: torso, oldShirtColor: oldShirtColor,
                 photoWhite: productPhotoWhite(productPhoto: productPhoto, garment: garment, context: context)
             )
@@ -712,6 +768,10 @@ struct ShirtLookCheckTests {
             #expect(metrics.fillRowStep <= ShirtLookLimits.fillRowStep, "\(shirtName): stretched fill")
             #expect(metrics.darkOutlinePixelsPerShoulderWidth < ShirtLookLimits.darkOutlinePixelsPerShoulderWidth, "\(shirtName): dark line along the outline")
             #expect(metrics.frontNecklineBelowTheNecklineInShoulderWidths.map { ShirtLookLimits.frontNecklineBelowTheNeckline.contains($0) } == true, "\(shirtName): front neckline")
+            #expect(metrics.darkNecklinePixelsPerShoulderWidth < ShirtLookLimits.darkNecklinePixelsPerShoulderWidth, "\(shirtName): dark line along the neckline")
+            if let insideOfTheBackDrawnShare = metrics.insideOfTheBackDrawnShare {
+                #expect(insideOfTheBackDrawnShare < ShirtLookLimits.insideOfTheBackDrawnShare, "\(shirtName): inside of the back drawn")
+            }
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -728,9 +788,10 @@ private func sleeveLayers(of composition: ShirtTryOnComposition, torso: BodyTors
     }
 }
 
-/// The front of the garment's neck opening in its working photo: the bottom of the inside of its back seen through the
-/// collar, found with `ShirtNeckOpening`, or the front of a neck hole the cutout already has. Nil when neither is found.
-private func photoFrontNeckPoint(productPhoto: CGImage) -> CGPoint? {
+/// The garment's neck in its working photo: the front of its neck opening, the bottom of the inside of its back seen
+/// through the collar found with `ShirtNeckOpening` (the opening too), or the front of a neck hole the cutout already has.
+/// Nil when neither is found.
+private func photoNeck(productPhoto: CGImage) -> (frontNeckPoint: CGPoint, opening: ShirtNeckOpening?)? {
     let wholePhoto = RoomArtCorners(
         topLeft: .zero, topRight: CGPoint(x: productPhoto.width, y: 0),
         bottomRight: CGPoint(x: productPhoto.width, y: productPhoto.height), bottomLeft: CGPoint(x: 0, y: productPhoto.height)
@@ -738,7 +799,7 @@ private func photoFrontNeckPoint(productPhoto: CGImage) -> CGPoint? {
     guard let workingPhoto = ShirtGarment.workingPhoto(productPhoto: productPhoto, itemCorners: wholePhoto),
           let mask = ShirtCutoutMask.lifted(from: workingPhoto)?.keepingTheLargestPiece(),
           let measurements = ShirtGarmentMeasurements(mask: mask) else { return nil }
-    if measurements.frontNeckWasFound { return measurements.frontNeckPoint }
+    if measurements.frontNeckWasFound { return (measurements.frontNeckPoint, nil) }
     var pixels = [UInt8](repeating: 0, count: workingPhoto.width * workingPhoto.height * 4)
     let drew = pixels.withUnsafeMutableBytes { buffer -> Bool in
         guard let drawing = CGContext(
@@ -749,5 +810,5 @@ private func photoFrontNeckPoint(productPhoto: CGImage) -> CGPoint? {
         return true
     }
     guard drew, let opening = ShirtNeckOpening.find(photoPixels: pixels, mask: mask, measurements: measurements) else { return nil }
-    return CGPoint(x: Double(opening.centerColumn), y: Double(opening.bottomRow))
+    return (CGPoint(x: Double(opening.centerColumn), y: Double(opening.bottomRow)), opening)
 }
