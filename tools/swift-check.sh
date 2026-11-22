@@ -4,6 +4,10 @@
 # Arguments pass through to `swift test`, such as --filter Voice.
 set -euo pipefail
 
+# The build uses every core, and several worktrees often check at once, which made the whole Mac slow.
+# A nice value 10 higher than the caller's lets the apps in use run first, and every compile and test process inherits it.
+renice -n 10 -p $$ >/dev/null
+
 checkout_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 check_files="$checkout_root/tools/swift-check"
 package_dir="${TMPDIR:-/tmp}/clicky-swift-check-$(printf '%s' "$checkout_root" | shasum | cut -c1-12)"
