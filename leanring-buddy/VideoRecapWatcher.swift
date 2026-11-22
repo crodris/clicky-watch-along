@@ -166,6 +166,9 @@ final class VideoRecapWatcher {
             print("Video recap: could not read the front tab, so the watch waits \(Int(videoEndWatchSecondsToWaitAfterAFailedRead)) s: \(error)")
             return
         }
+        // The reads run off the main actor, so a press, a scene, or an app switch may have come meanwhile. The ending stays
+        // unhandled then, and the next read shows its recap once Clicky is free again.
+        guard chromeIsTheFrontApp(), !clickyIsBusy() else { return }
         let step = videoEndWatchStep(reading: reading, videoKeysWithSomethingToRecap: videoKeysWithSomethingToRecap, state: watchState)
         watchState = step.state
         guard case .showTheRecap(let videoKey) = step.decision, let videoURL = reading?.pageURL else { return }

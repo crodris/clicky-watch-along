@@ -46,7 +46,7 @@ final class WorkerReachability: ObservableObject {
     private let workerRootURL: URL?
     private let session: URLSession
 
-    /// How long the panel waits between checks while the Worker cannot be reached and the panel is open.
+    /// How long the panel waits between checks while the Worker cannot be reached.
     static let secondsBetweenChecksWhileUnreachable: TimeInterval = 10
 
     init(workerBaseURL: String) {

@@ -443,6 +443,11 @@ final class AgentListPanelController {
             let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
             if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
                 agentListPanel.ignoresMouseEvents = passesTheMouseThrough
+                // The pointer entered the Card while the window ignored the mouse, so no row saw it enter: each one reads where
+                // the mouse is now, and a row under it shows its hover and the pointing hand.
+                if !passesTheMouseThrough, let contentView = agentListPanel.contentView {
+                    for hoverView in hoverAndPointerViews(in: contentView) { hoverView.reportTheHoverWhereTheMouseAlreadyIs() }
+                }
             }
         }
         updateWhetherThePanelTakesTheMouse()
@@ -730,7 +735,9 @@ final class HoverAndPointerNSView: NSView {
     /// no mouse to read.
     var mouseLocationInTheWindow: (NSWindow) -> CGPoint = { $0.mouseLocationOutsideOfEventStream }
 
-    private func reportTheHoverWhereTheMouseAlreadyIs() {
+    /// Also run by the agent list when its window starts taking the mouse again, since an entry that crossed the Card's edge
+    /// while the window ignored the mouse never reached this view's tracking area.
+    func reportTheHoverWhereTheMouseAlreadyIs() {
         guard let window, window.isVisible else { return }
         reportTheHover(atMouseLocationInTheView: convert(mouseLocationInTheWindow(window), from: nil))
     }
@@ -762,6 +769,13 @@ final class HoverAndPointerNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// Every hover view inside a view, at any depth.
+func hoverAndPointerViews(in view: NSView) -> [HoverAndPointerNSView] {
+    view.subviews.flatMap { subview -> [HoverAndPointerNSView] in
+        (subview as? HoverAndPointerNSView).map { [$0] } ?? hoverAndPointerViews(in: subview)
+    }
 }
 
 private struct HoverAndPointerView: NSViewRepresentable {

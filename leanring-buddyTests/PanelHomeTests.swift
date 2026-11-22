@@ -226,6 +226,8 @@ struct PanelHomeTests {
         let agentID = UUID()
         let pausedDiscs = [AgentTokenDiscID(displayID: 1, tokenSlot: .paused), AgentTokenDiscID(displayID: 2, tokenSlot: .paused)]
         #expect(agentDiscIDTakingTheKeyboardFocus(among: pausedDiscs, agentID: agentID, mouseDisplayID: 2) == pausedDiscs[1])
+        // A menu item run for the agent never takes the paused disc, so its list opens next to the mouse with the row expanded.
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: pausedDiscs, agentID: agentID, mouseDisplayID: 2, thePausedDiscMayStandForTheAgent: false) == nil)
         let resumedDiscs = [AgentTokenDiscID(displayID: 2, tokenSlot: .agent(agentID))]
         #expect(agentDiscIDTakingTheKeyboardFocus(among: resumedDiscs, agentID: agentID, mouseDisplayID: 2) == resumedDiscs[0])
     }

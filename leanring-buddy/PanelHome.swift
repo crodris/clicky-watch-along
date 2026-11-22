@@ -242,15 +242,19 @@ func agentDiscAccessibilityLabel(agentName: String, peekContent: AgentTokenPeekC
 /// disc on any display. While every agent is paused the paused disc stands for each of them, so the focus goes there, and
 /// after "go ahead" it comes back to the agent's own disc. A disc the end-of-video recap hid (`hiddenDiscIDs`) never takes
 /// it, since its ring and peek card would show under a disc that is not there. None is left for an agent counted in "+N".
+/// A menu item run for the agent passes `thePausedDiscMayStandForTheAgent` false, since the paused disc's list opens with no
+/// row expanded, and an agent with no disc of its own gets the list next to the mouse with its row expanded.
 func agentDiscIDTakingTheKeyboardFocus(
     among discIDs: [AgentTokenDiscID],
     agentID: UUID,
     mouseDisplayID: CGDirectDisplayID?,
-    hiddenDiscIDs: Set<AgentTokenDiscID> = []
+    hiddenDiscIDs: Set<AgentTokenDiscID> = [],
+    thePausedDiscMayStandForTheAgent: Bool = true
 ) -> AgentTokenDiscID? {
     let shownDiscIDs = discIDs.filter { !hiddenDiscIDs.contains($0) }
     let discIDsOfTheAgent = shownDiscIDs.filter { $0.tokenSlot == .agent(agentID) }
-    let candidates = discIDsOfTheAgent.isEmpty ? shownDiscIDs.filter { $0.tokenSlot == .paused } : discIDsOfTheAgent
+    let pausedDiscIDs = thePausedDiscMayStandForTheAgent ? shownDiscIDs.filter { $0.tokenSlot == .paused } : []
+    let candidates = discIDsOfTheAgent.isEmpty ? pausedDiscIDs : discIDsOfTheAgent
     return candidates.first { $0.displayID == mouseDisplayID } ?? candidates.first
 }
 

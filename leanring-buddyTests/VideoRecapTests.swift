@@ -195,6 +195,7 @@ struct VideoRecapTests {
         var frontTabURL = "https://www.youtube.com/watch?v=L24Wf0VlTE0"
         var reading: FrontVideoEndReading?
         var readsFail = false
+        var becomesBusyDuringTheRead = false
         var recap: VideoRecap?
         var clock = Date(timeIntervalSince1970: 1_000_000)
         var urlReadCount = 0
@@ -208,7 +209,11 @@ struct VideoRecapTests {
                 if readsFail { throw ChromeRefusedTheScript() }
                 return frontTabURL
             },
-            readTheFrontVideo: { [unowned self] in readCount += 1; return reading },
+            readTheFrontVideo: { [unowned self] in
+                readCount += 1
+                if becomesBusyDuringTheRead { isBusy = true }
+                return reading
+            },
             now: { [unowned self] in clock },
             recapForVideo: { [unowned self] _ in recap },
             showTheRecapAtTheEnd: { [unowned self] recap, _ in shownRecaps.append(recap) }
@@ -288,6 +293,22 @@ struct VideoRecapTests {
         fixture.clock.addTimeInterval(videoEndWatchSecondsToWaitAfterAFailedRead)
         await fixture.watcher.readTheFrontVideoOnce()
         #expect(fixture.urlReadCount == 2)
+    }
+
+    @Test func aRecapThatTurnsBusyDuringTheReadWaitsAndShowsAtTheNextRead() async throws {
+        let fixture = WatchFixture()
+        fixture.reading = endedReading(true)
+        fixture.recap = try #require(VideoRecap(quizResults: [quizResult("A?", at: 10, .gotIt)], studyGuideRecord: nil))
+        fixture.watcher.startWatching(forVideoURL: videoURL)
+        // A press lands while the page script runs off the main actor.
+        fixture.becomesBusyDuringTheRead = true
+        await fixture.watcher.readTheFrontVideoOnce()
+        #expect(fixture.shownRecaps.isEmpty)
+        // The ending was not used up, so once Clicky is free the same ending shows its recap.
+        fixture.becomesBusyDuringTheRead = false
+        fixture.isBusy = false
+        await fixture.watcher.readTheFrontVideoOnce()
+        #expect(fixture.shownRecaps.count == 1)
     }
 
     @Test func aHeldBackRecapIsNotMarkedSeenSoItStillShowsAtTheNextEnding() async throws {

@@ -1014,33 +1014,38 @@ final class AgentTokenDockController {
     private var discIDWithTheKeyboardFocus: AgentTokenDiscID?
     private var agentIDWithTheKeyboardFocus: UUID?
 
-    /// The disc that stands for an agent: its own disc, on the display with the mouse when it has one there, or the paused
-    /// disc during a pause. A disc the recap hid stands for none.
-    private func discID(of agentID: UUID) -> AgentTokenDiscID? {
+    /// The disc that stands for an agent: its own disc, on the display with the mouse when it has one there, or, for the
+    /// keyboard focus only, the paused disc during a pause. A disc the recap hid stands for none.
+    private func discID(of agentID: UUID, thePausedDiscMayStandForTheAgent: Bool = true) -> AgentTokenDiscID? {
         agentDiscIDTakingTheKeyboardFocus(
             among: Array(discsByID.keys),
             agentID: agentID,
             mouseDisplayID: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayID,
-            hiddenDiscIDs: Set(recapGather.gatheredDiscs.map(\.discID))
+            hiddenDiscIDs: Set(recapGather.gatheredDiscs.map(\.discID)),
+            thePausedDiscMayStandForTheAgent: thePausedDiscMayStandForTheAgent
         )
     }
 
     /// After a refresh, the ring moves to the disc that now stands for the focused agent, such as the paused disc after
-    /// "hold on" or the agent's own disc after "go ahead". It stays put when that disc did not change.
+    /// "hold on" or the agent's own disc after "go ahead". It stays put when that disc did not change. Only the ring moves:
+    /// the new disc is still fading in or flying back, so its peek card would show beside an empty slot, and the old disc's
+    /// peek card goes with the ring.
     private func moveTheKeyboardFocusIfItsDiscChanged() {
         guard let agentIDWithTheKeyboardFocus, discID(of: agentIDWithTheKeyboardFocus) != discIDWithTheKeyboardFocus else { return }
-        showTheKeyboardFocus(onTheDiscOf: agentIDWithTheKeyboardFocus)
+        if let discIDWithTheKeyboardFocus, discIDOfThePeek == discIDWithTheKeyboardFocus { hideThePeek() }
+        showTheKeyboardFocus(onTheDiscOf: agentIDWithTheKeyboardFocus, showsThePeek: false)
     }
 
     /// The keyboard moved the focus to the panel's chip for an agent: its disc shows the focus ring and its peek card at
     /// once, as a rested hover does.
-    func showTheKeyboardFocus(onTheDiscOf agentID: UUID) {
+    func showTheKeyboardFocus(onTheDiscOf agentID: UUID, showsThePeek: Bool = true) {
         if let discIDWithTheKeyboardFocus { discsByID[discIDWithTheKeyboardFocus]?.discModel.hasTheKeyboardFocus = false }
         discIDWithTheKeyboardFocus = nil
         agentIDWithTheKeyboardFocus = agentID
         guard let focusedDiscID = discID(of: agentID), let focusedDisc = discsByID[focusedDiscID] else { return }
         discIDWithTheKeyboardFocus = focusedDiscID
         focusedDisc.discModel.hasTheKeyboardFocus = true
+        guard showsThePeek else { return }
         peekDelayTask?.cancel()
         showThePeek(forDiscWithID: focusedDiscID)
     }
@@ -1062,7 +1067,7 @@ final class AgentTokenDockController {
     func run(_ menuItem: AgentDiscMenuItem, forTheDiscOf agentID: UUID) -> Bool {
         endTheKeyboardFocus(onTheDiscOf: nil)
         let agent = store.agents.first { $0.id == agentID }
-        if let agentDiscID = discID(of: agentID) {
+        if let agentDiscID = discID(of: agentID, thePausedDiscMayStandForTheAgent: false) {
             run(menuItem, forDiscWithID: agentDiscID, agent: agent)
             return true
         }

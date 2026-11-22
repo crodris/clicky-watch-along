@@ -152,6 +152,23 @@ struct AgentListLiveLineTests {
     }
 }
 
+@MainActor
+struct AgentListHoverViewTests {
+    @Test func theListFindsEveryRowsHoverViewAtAnyDepth() {
+        let contentView = NSView()
+        let nestedContainer = NSView()
+        let topLevelHoverView = HoverAndPointerNSView()
+        let nestedHoverView = HoverAndPointerNSView()
+        contentView.addSubview(topLevelHoverView)
+        contentView.addSubview(nestedContainer)
+        nestedContainer.addSubview(NSView())
+        nestedContainer.addSubview(nestedHoverView)
+        let foundHoverViews = hoverAndPointerViews(in: contentView)
+        #expect(foundHoverViews.count == 2)
+        #expect(foundHoverViews.contains { $0 === topLevelHoverView } && foundHoverViews.contains { $0 === nestedHoverView })
+    }
+}
+
 struct AgentListDiscClickTests {
     @Test func aClickOnTheDiscTheListIsOpenFromClosesItButAMenuItemThatOpensItKeepsIt() {
         #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: true, theClickOnlyOpens: false) == .close)

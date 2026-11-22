@@ -231,9 +231,9 @@ struct MenuBarAndDiscTests {
         var agent = runningAgent(kind: .task)
         agent.phase = .cancelled
         // Points from the disc's center, which is the render's center, since the padding is the same on every side.
-        func pixel(_ mark: AgentTokenApprovalSettledMark, pointsRightOfTheCenter x: CGFloat, pointsBelowTheCenter y: CGFloat) throws -> NSColor {
+        func pixel(_ mark: AgentTokenApprovalSettledMark, pointsRightOfTheCenter: CGFloat, pointsBelowTheCenter: CGFloat) throws -> NSColor {
             let pixels = try renderedPixels(of: AgentTokenDiscView(agent: agent, approvalSettledMark: mark).frame(width: AgentTokenMetrics.discDiameter, height: AgentTokenMetrics.discDiameter))
-            return try #require(pixels.colorAt(x: pixels.pixelsWide / 2 + Int(x * 2), y: pixels.pixelsHigh / 2 + Int(y * 2))?.usingColorSpace(.sRGB))
+            return try #require(pixels.colorAt(x: pixels.pixelsWide / 2 + Int(pointsRightOfTheCenter * 2), y: pixels.pixelsHigh / 2 + Int(pointsBelowTheCenter * 2))?.usingColorSpace(.sRGB))
         }
         // The check's face is green near its top edge, above the white check.
         let checkFace = try pixel(.allowed, pointsRightOfTheCenter: 0, pointsBelowTheCenter: -6)
