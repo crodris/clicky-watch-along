@@ -27,6 +27,14 @@ func videoQuizSummaryGlideOrigin(videoRect: CGRect?, mouseLocation: CGPoint) -> 
     return CGPoint(x: videoRect.midX, y: videoRect.maxY)
 }
 
+/// The point the Card of a video's end Glides out of: where the discs landed, so the Card unfolds from them, unless that point is
+/// off the Card's display, since a carrier move stays on one display, or there is none, and then the video's top edge or the mouse,
+/// as for a quiz's end. The screen frame comes in as an input, so a test passes its own and never reads the real displays.
+func videoRecapGlideOrigin(cursorPoint: CGPoint?, cardScreenFrame: CGRect, videoRect: CGRect?, mouseLocation: CGPoint) -> CGPoint {
+    if let cursorPoint, cardScreenFrame.contains(cursorPoint) { return cursorPoint }
+    return videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
+}
+
 /// A Chrome screen rect (top-left origin on the main display) in global AppKit coordinates (bottom-left origin).
 func appKitRect(of screenRect: ScreenRectInChromeCoordinates, mainDisplayHeight: CGFloat) -> CGRect {
     CGRect(x: screenRect.rectX, y: mainDisplayHeight - (screenRect.rectY + screenRect.rectHeight), width: screenRect.rectWidth, height: screenRect.rectHeight)
@@ -310,12 +318,7 @@ final class VideoQuizSummaryPanelController {
         case .quizEnded:
             glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
         case .videoEnded:
-            // The discs gathered at the cursor glyph, so the Card unfolds from the point they landed on.
-            if let cursorPoint, screen.frame.contains(cursorPoint) {
-                glideOrigin = cursorPoint
-            } else {
-                glideOrigin = videoQuizSummaryGlideOrigin(videoRect: videoRect, mouseLocation: mouseLocation)
-            }
+            glideOrigin = videoRecapGlideOrigin(cursorPoint: cursorPoint, cardScreenFrame: screen.frame, videoRect: videoRect, mouseLocation: mouseLocation)
         }
         print("Video quiz summary: showing the Card at \(cardFrame.integral) after \(moment == .videoEnded ? "the video ended" : "the quiz ended"), \(videoRect == nil ? "with no video in front" : "over the video")")
 
