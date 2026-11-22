@@ -249,6 +249,14 @@ struct BlueCursorView: View {
     /// has already reset its hold by the time the location clears, so the view keeps its own copy.
     @State private var currentTargetHoldsUntilReleased: Bool = false
 
+    /// True after an instant replay ended with the buddy stopped where it was, mid-flight included. The buddy stays
+    /// there until the mouse moves `frozenBuddyReleaseDistance` points, then flies back to it.
+    @State private var buddyIsFrozenWhereItStopped = false
+    /// How the pointing bubble leaves: a fade-rise, or a Recall into the cursor when the learner interrupted.
+    @State private var navigationBubbleExit: TetherCalloutExit = .fadeRise
+    @State private var mouseLocationWhenTheBuddyFroze: CGPoint = .zero
+    private let frozenBuddyReleaseDistance: CGFloat = 100
+
     // MARK: - Onboarding Video Layout
 
     private let onboardingVideoPlayerWidth: CGFloat = 330
@@ -333,7 +341,8 @@ struct BlueCursorView: View {
 
             // Navigation pointer bubble - shown when buddy arrives at a detected element, and while a narration
             // speaks. A Callout above the cursor whose tail points at the triangle: it pops out of the tail's tip,
-            // its words brighten as the voice reaches them, and it leaves with a fade and a 6 point rise.
+            // its words brighten as the voice reaches them, and it leaves with a fade and a 6 point rise, or shrinks
+            // into the cursor when a push-to-talk press interrupted the narration (`navigationBubbleExit`).
             if navigationBubbleIsShowing {
                 SpeechCalloutView(
                     sentence: navigationBubblePhrase,
@@ -347,7 +356,7 @@ struct BlueCursorView: View {
                     }
                     .position(speechCalloutCenter(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size))
                     .animation(.spring(response: 0.2, dampingFraction: 0.6, blendDuration: 0), value: cursorPosition)
-                    .transition(.tetherCalloutPopAndFadeRise(reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size)))
+                    .transition(.tetherCalloutPop(andLeave: navigationBubbleExit, reduceMotionIsOn: reduceMotionIsOn, pivotInTheView: speechCalloutPivot(cursorPosition: cursorPosition, calloutSize: navigationBubbleSize, screenSize: screenFrame.size)))
             }
 
             // The ring on the target the buddy landed on, under the cursor so the triangle stays on top.
@@ -427,8 +436,9 @@ struct BlueCursorView: View {
                     value: cursorPosition
                 )
         }
-        // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`).
-        .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
+        // Each speech Callout pops in as it enters the tree and leaves with a fade-rise (see `.tetherCalloutPopAndFadeRise`),
+        // and the pointing bubble leaves the way `navigationBubbleExit` says (`.tetherCalloutPop(andLeave:)`).
+        .animation(tetherCalloutAnimation(isAppearing: navigationBubbleIsShowing, exit: navigationBubbleExit, reduceMotionIsOn: reduceMotionIsOn), value: navigationBubbleIsShowing)
         .animation(tetherCalloutAnimation(isAppearing: welcomeBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: welcomeBubbleIsShowing)
         .animation(tetherCalloutAnimation(isAppearing: onboardingPromptBubbleIsShowing, exit: .fadeRise, reduceMotionIsOn: reduceMotionIsOn), value: onboardingPromptBubbleIsShowing)
         .frame(width: screenFrame.width, height: screenFrame.height)
@@ -474,6 +484,9 @@ struct BlueCursorView: View {
             navigationBubbleText = ""
             typeNavigationBubble(phrase: newBubbleText)
         }
+        .onChange(of: companionManager.buddyFreezeCount) { _ in
+            freezeTheBuddyWhereItIs()
+        }
         .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
             // When a UI element location is detected, navigate the buddy to
             // that position so it points at the element.
@@ -486,8 +499,7 @@ struct BlueCursorView: View {
             }
 
             // Only navigate if the target is on THIS screen
-            guard screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY))
-                  || displayFrame == screenFrame else {
+            guard targetDisplayIsThisScreen(displayFrame) else {
                 return
             }
 
@@ -534,6 +546,16 @@ struct BlueCursorView: View {
                 )
                 if distanceFromNavigationStart > 100 {
                     cancelNavigationAndResumeFollowing()
+                }
+                return
+            }
+
+            // A buddy an instant replay froze waits where it stopped until the mouse moves away from where it was then.
+            if self.buddyIsFrozenWhereItStopped {
+                let distanceSinceTheFreeze = hypot(mouseLocation.x - self.mouseLocationWhenTheBuddyFroze.x, mouseLocation.y - self.mouseLocationWhenTheBuddyFroze.y)
+                if distanceSinceTheFreeze > self.frozenBuddyReleaseDistance {
+                    self.buddyIsFrozenWhereItStopped = false
+                    self.companionManager.releaseTheBuddyTheReplayFroze()
                 }
                 return
             }
@@ -601,6 +623,7 @@ struct BlueCursorView: View {
         cursorPositionWhenNavigationStarted = convertScreenPointToSwiftUICoordinates(mouseLocation)
 
         // Enter navigation mode — stop cursor following
+        buddyIsFrozenWhereItStopped = false
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = false
         endTheLandingRing()
@@ -727,6 +750,7 @@ struct BlueCursorView: View {
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
         buddyNavigationMode = .pointingAtTarget
+        navigationBubbleExit = .fadeRise
         // Marks the target for the whole time the buddy points at it. Reduce Motion fades it in and leaves it still.
         landingRing = CursorLandingRing(center: pointedTargetCenter, landedAt: Date(), endedAt: nil)
 
@@ -799,6 +823,23 @@ struct BlueCursorView: View {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
+    /// An instant replay that ends stops the buddy where it is, mid-flight included, with no ease: the flight timer stops,
+    /// the bubble hides, and the buddy keeps its position and heading. A buddy following the mouse has nothing to stop.
+    private func freezeTheBuddyWhereItIs() {
+        guard buddyNavigationMode != .followingCursor, !isReturningToCursor else { return }
+        navigationAnimationTimer?.invalidate()
+        navigationAnimationTimer = nil
+        navigationBubbleTypingGeneration += 1
+        navigationBubbleOpacity = 0.0
+        // A buddy stopped mid-flight stands still, so it loses the flight's stretch.
+        buddyFlightSpeedShare = 0
+        flightFadeOpacity = 1.0
+        buddyNavigationMode = .pointingAtTarget
+        currentTargetHoldsUntilReleased = true
+        buddyIsFrozenWhereItStopped = true
+        mouseLocationWhenTheBuddyFroze = NSEvent.mouseLocation
+    }
+
     /// A held target ends when CompanionManager clears the location, once Clicky stops talking about that part.
     /// Only the screen whose buddy is at or flying to the target has anything to release.
     private func flyBackFromAReleasedHeldTarget() {
@@ -806,8 +847,44 @@ struct BlueCursorView: View {
               buddyNavigationMode != .followingCursor,
               !isReturningToCursor else { return }
         currentTargetHoldsUntilReleased = false
-        navigationBubbleOpacity = 0.0
-        startFlyingBackToCursor()
+        let exitOfTheBubble = companionManager.takeThePointingBubbleExit()
+        guard exitOfTheBubble == .recall else {
+            navigationBubbleExit = .fadeRise
+            navigationBubbleOpacity = 0.0
+            startFlyingBackToCursor()
+            return
+        }
+        // SwiftUI removes a view with the transition it had on the last render, so the Recall is set one turn before the
+        // bubble leaves the tree, and the cursor's flight back waits for that turn too.
+        navigationBubbleExit = .recall
+        // A flight still on its way to the part would land in that turn and type a new bubble, so it stops here.
+        navigationAnimationTimer?.invalidate()
+        navigationAnimationTimer = nil
+        DispatchQueue.main.async {
+            let newPointingDisplayFrame = companionManager.detectedElementDisplayFrame
+            // startNavigatingToElement refuses a target while the first-launch welcome types.
+            let thisScreenFliesToTheNewPointing = newPointingDisplayFrame.map(targetDisplayIsThisScreen) == true
+                && (!showWelcome || welcomeText.isEmpty)
+            switch pointingBubbleRecallStep(
+                buddyIsAwayFromTheMouse: buddyNavigationMode != .followingCursor && !isReturningToCursor,
+                aNewPointingIsSet: companionManager.detectedElementScreenLocation != nil,
+                thisScreenFliesToTheNewPointing: thisScreenFliesToTheNewPointing
+            ) {
+            case .nothingLeftToDo, .leaveTheBuddyToTheNewPointing:
+                return
+            case .flyBackToTheMouse:
+                navigationBubbleOpacity = 0.0
+                startFlyingBackToCursor()
+            case .giveWayToThePointingElsewhere:
+                // The buddy shows on the target's screen, so this one goes back to following the mouse, out of sight,
+                // and leaves the shared pointing to that screen.
+                finishNavigationAndResumeFollowing(clearingTheSharedPointing: false)
+            }
+        }
+    }
+
+    private func targetDisplayIsThisScreen(_ displayFrame: CGRect) -> Bool {
+        screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY)) || displayFrame == screenFrame
     }
 
     /// Streams the navigation bubble text one character at a time with variable
@@ -875,9 +952,12 @@ struct BlueCursorView: View {
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
-    private func finishNavigationAndResumeFollowing() {
+    /// `clearingTheSharedPointing` is false only when this screen gives way to a pointing on another display, which that
+    /// display's buddy is about to show.
+    private func finishNavigationAndResumeFollowing(clearingTheSharedPointing: Bool = true) {
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = nil
+        buddyIsFrozenWhereItStopped = false
         buddyNavigationMode = .followingCursor
         isReturningToCursor = false
         currentTargetHoldsUntilReleased = false
@@ -890,7 +970,9 @@ struct BlueCursorView: View {
         flightFadeOpacity = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        companionManager.clearDetectedElementLocation()
+        if clearingTheSharedPointing {
+            companionManager.clearDetectedElementLocation()
+        }
     }
 
     // MARK: - Welcome Animation

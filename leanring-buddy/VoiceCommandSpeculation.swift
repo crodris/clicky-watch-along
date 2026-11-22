@@ -19,6 +19,8 @@ nonisolated enum TranscriptRoute: Equatable {
     case videoQuizCommand(VideoQuizVoiceCommand)
     /// "Put it back" sends a pop-out or scene back into its video.
     case putTheSceneBack
+    /// "Show me again" replays the narration's recorded stops with no model call.
+    case replayTheExplanation
     /// "Animate this", "let me try it", and "change my theme" run with no model call.
     case keywordBranch(KeywordBranchAheadOfTheRouter)
     /// The voice command router, on the harness brain or the Worker.
@@ -42,6 +44,8 @@ nonisolated struct TranscriptRouteContext: Equatable, Sendable {
     var backgroundAgentIsRunning: Bool
     /// The learner paused every agent, so "go ahead" reaches the router with nothing else on screen.
     var backgroundAgentsArePaused: Bool
+    /// The narration of the pop-out on screen recorded stops, so "show me again" replays them.
+    var replayStopsAreRecorded: Bool = false
 }
 
 /// The route of a transcript, checked in the order the app has always checked it. `videoIsInFront` is asked only for a
@@ -60,6 +64,14 @@ nonisolated func transcriptRoute(
     // "Put it back" has its own tested phrase match, which keeps "put it back together" for the router.
     if asksToPutTheSceneBack(transcript), context.liveSceneIsUpWithNoQuizQuestion {
         return .putTheSceneBack
+    }
+    if replayPhraseRunsAheadOfTheRouter(
+        asksToReplay: asksToReplayTheExplanation(transcript),
+        stopsAreRecorded: context.replayStopsAreRecorded,
+        quizQuestionIsOpen: context.phaseIsWaitingForAQuizAnswer,
+        themeStudioIsOpen: context.themeStudioIsOpen
+    ) {
+        return .replayTheExplanation
     }
     if let keywordBranch = keywordBranchAheadOfTheRouter(
         for: transcript,

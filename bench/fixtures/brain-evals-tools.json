@@ -234,6 +234,38 @@
       "readOnly": false
     },
     {
+      "name": "replay_explanation",
+      "description": "Replay Clicky's last explanation of the pop-out on screen, silently: the camera turns back to each part it named and the cursor points at it with the same sentence, with no new model call. Use it when the learner asks to see it again, such as \"show me again\", \"replay that\", or \"can you go through that again\". The replay is silent, so the confirmation is never spoken.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "readOnly": false
+    },
+    {
+      "name": "replay_step",
+      "description": "Step through the instant replay that is open. step is next for the next part, back for the part before, or end to stop the replay and leave the pop-out where it is. While a replay is open, next, back, previous, go back, stop, and that's enough mean this tool, never seek_relative or close_scene. The replay is silent, so the confirmation is never spoken.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "next",
+              "back",
+              "end"
+            ],
+            "description": "next, back, or end."
+          }
+        },
+        "required": [
+          "step"
+        ]
+      },
+      "readOnly": false
+    },
+    {
       "name": "pause_video",
       "description": "Pause the video in Chrome's front tab.",
       "inputSchema": {
