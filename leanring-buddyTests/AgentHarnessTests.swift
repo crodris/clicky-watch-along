@@ -417,8 +417,6 @@ struct AgentHarnessTests {
             scheduled.append((afterSeconds, work, false))
         }
 
-        func scheduledCount(afterSeconds: Double) -> Int { scheduled.filter { $0.afterSeconds == afterSeconds }.count }
-
         /// Runs the earliest scheduled delay of this length that has not run, and says whether there was one.
         @discardableResult
         func runTheNext(afterSeconds: Double) -> Bool {
@@ -460,7 +458,9 @@ struct AgentHarnessTests {
         desk.receive(anApprovalRequest("approval-answered"))
         #expect(desk.answer(approvalID: "approval-answered", approved: false, scope: .once))
 
-        for _ in 1...3 { delays.runTheNext(afterSeconds: 1) }
+        #expect(delays.runTheNext(afterSeconds: 1))
+        #expect(delays.runTheNext(afterSeconds: 1))
+        #expect(delays.runTheNext(afterSeconds: 1))
         #expect(desk.answeringApprovalIDs.count == 3, "the timeout declined the two requests no one answered")
 
         desk.settle(approvalID: "approval-timed-out", approved: false, scope: .once)

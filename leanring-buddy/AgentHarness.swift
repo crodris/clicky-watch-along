@@ -473,14 +473,14 @@ final class HarnessApprovalDesk: ObservableObject {
     private let currentDate: () -> Date
     /// Runs `work` on the main actor after `seconds`, for the request timeout, the answer's settle grace, and the ended
     /// card's stay. A test passes one it fires by hand, so no test waits on a clock a busy machine can starve.
-    private let scheduleAfter: (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void
+    private let scheduleAfter: @MainActor (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void
 
     init(
         timeoutSeconds: Double = HarnessApprovalDesk.defaultTimeoutSeconds,
         answerSettleGraceSeconds: Double = HarnessApprovalDesk.defaultAnswerSettleGraceSeconds,
         secondsAnEndedCardStays: Double = HarnessApprovalDesk.defaultSecondsAnEndedCardStays,
         currentDate: @escaping () -> Date = Date.init,
-        scheduleAfter: @escaping (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void = HarnessApprovalDesk.scheduleOnTheMainActor,
+        scheduleAfter: @escaping @MainActor (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void = HarnessApprovalDesk.scheduleOnTheMainActor,
         sendAnswer: @escaping (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     ) {
         self.timeoutSeconds = timeoutSeconds
