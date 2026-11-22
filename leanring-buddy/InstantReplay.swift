@@ -249,6 +249,9 @@ final class InstantReplayController: ObservableObject {
     /// True while a travel turns the camera, flies the cursor, or dwells on a stop, and false once it finished or a press,
     /// a step, or an end cancelled it.
     private var aTravelIsRunning = false
+    /// Counts every travel, a play-through's next stop included, which starts inside the old travel's task with the same
+    /// generation, so only the newest travel's end clears `aTravelIsRunning`.
+    private var travelNumber = 0
     private let stage: InstantReplayStage
 
     init(stage: InstantReplayStage) {
@@ -350,8 +353,6 @@ final class InstantReplayController: ObservableObject {
         return true
     }
 
-    /// A push-to-talk press stops the travel and the camera where they are and keeps the replay open at its stop, so the
-    /// learner can say "next" or "back". The press itself sends the cursor back to the mouse, where the ring listens.
     /// Another answer is about to be spoken, from any surface. A travel still running stops the camera and the cursor where
     /// they are, as Escape does, so neither moves under the answer. With no travel running, such as after a push-to-talk
     /// press, the camera is left alone, since a voice command's own turn or zoom may be easing it, and the cursor goes back
@@ -366,6 +367,8 @@ final class InstantReplayController: ObservableObject {
         }
     }
 
+    /// A push-to-talk press stops the travel and the camera where they are and keeps the replay open at its stop, so the
+    /// learner can say "next" or "back". The press itself sends the cursor back to the mouse, where the ring listens.
     func stopTheTravelForAPress() {
         guard isOpen else { return }
         cancelTheTravel()
@@ -438,11 +441,13 @@ final class InstantReplayController: ObservableObject {
             stage.showStopNumbers(stops.map(\.partLabel), stopIndex)
         }
         stage.focusStop(stop)
+        travelNumber += 1
+        let numberOfThisTravel = travelNumber
         aTravelIsRunning = true
         travelTask = Task { [weak self] in
             guard let self else { return }
-            // Only this travel's end clears the flag, since a newer travel may already be running.
-            defer { if generationOfThisTravel == self.travelGeneration { self.aTravelIsRunning = false } }
+            // Only this travel's end clears the flag, since a newer travel, such as the next stop's, may already be running.
+            defer { if numberOfThisTravel == self.travelNumber { self.aTravelIsRunning = false } }
             let labelScreenPoint = await self.stage.labelScreenPointOnceTheCameraSettles(stop.partLabel)
             guard !Task.isCancelled, generationOfThisTravel == self.travelGeneration else { return }
             if let labelScreenPoint {

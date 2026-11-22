@@ -333,6 +333,18 @@ struct InstantReplayTests {
         #expect(recorder.calls.suffix(3) == ["endFocus", "freeze", "hideNumbers"])
         #expect(replay.phase == .notOpen)
 
+        // The same holds at the second stop, whose travel starts inside the first stop's task.
+        let atTheSecondStop = RecordingReplayStage()
+        let movingOn = InstantReplayController(stage: atTheSecondStop.stage)
+        movingOn.offer(threeStops, sceneNumber: 4)
+        movingOn.playFromTheStart()
+        await letTheReplayRun()
+        atTheSecondStop.finishTheNextSleep()
+        await letTheReplayRun()
+        #expect(movingOn.phase == .playingThrough(stopIndex: 1))
+        movingOn.endForAnotherAnswer()
+        #expect(atTheSecondStop.calls.suffix(3) == ["endFocus", "freeze", "hideNumbers"])
+
         // The review of PR 88 found that after a press, a camera command's spoken confirmation stopped the turn it confirmed.
         let afterAPress = RecordingReplayStage()
         let pressedReplay = InstantReplayController(stage: afterAPress.stage)
