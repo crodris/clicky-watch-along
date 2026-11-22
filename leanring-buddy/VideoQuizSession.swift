@@ -1661,14 +1661,6 @@ struct ChromeVideoTab {
         try runAppleScript(appleScriptToRunJavaScript(javaScript, tabId: videoTab.tabId, windowId: videoTab.windowId, timeoutSeconds: timeoutSeconds))
     }
 
-    /// Whether the largest video of Chrome's front tab has played to its end, and the tab's address, in one Apple Event. Nil
-    /// when the page has no video or Chrome has no window. Throws when Chrome refuses the script.
-    @MainActor
-    static func readWhetherTheFrontVideoHasEnded() throws -> FrontVideoEndReading? {
-        let scriptReply = try runAppleScript(appleScriptToRunJavaScriptInTheFrontTab(FrontVideoEndReading.pageScript, timeoutSeconds: defaultJavaScriptTimeoutSeconds))
-        return FrontVideoEndReading(scriptReply: scriptReply)
-    }
-
     /// Whether Chrome is open. Tests replace it, since a developer's Chrome is usually running.
     static var chromeIsRunning: () -> Bool = { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
 

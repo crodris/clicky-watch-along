@@ -53,12 +53,6 @@ func agentTokenStillRingDiameter(panelHeight: CGFloat) -> CGFloat {
     min(AgentTokenMetrics.panelWidth - 2, panelHeight - 1.5)
 }
 
-/// Whether the tether of a flight that has left must end at once. It must when a disc had to wait under that very flight, since
-/// that disc slides now and the fading line would end where the disc used to be. Another flight's tether stays.
-func agentTokenTetherMustEnd<Flight: AnyObject>(flightWhoseDiscWaited: Flight?, goneFlight: Flight) -> Bool {
-    flightWhoseDiscWaited === goneFlight
-}
-
 // MARK: - Arc
 
 /// A quadratic bezier arc from the cursor to a slot, shaped like the one the cursor flies when it points at something.
@@ -116,11 +110,67 @@ func agentTokenServeEasedProgress(_ linearProgress: Double) -> Double {
 
 // MARK: - A disc under a flight stays put
 
-/// Whether a disc has to stay where it is for now. A disc that a token is flying to, or that a landed token still covers on
-/// the carrier for a moment, does not slide to close a gap until the carried token has left. That token stays at the old
-/// slot, so a slide before then shows the token there and in the disc that slides away.
-func agentTokenDiscMustWaitForItsFlight<DiscID: Equatable>(_ discID: DiscID, flightLandsOn: DiscID?, lingeringFlightSitsOn: DiscID?) -> Bool {
-    discID == flightLandsOn || discID == lingeringFlightSitsOn
+/// The dock's record of the serve's flights: the one in the air and the disc it lands on, the one that landed but whose
+/// carried token still covers its disc for a moment, and the flight a disc had to wait under. A disc that a token is flying to,
+/// or that a landed token still covers, does not slide to close a gap until the carried token has left, since a slide before
+/// then shows the token at the old slot and in the disc that slides away. When that flight goes, the disc slides, so the
+/// flight's tether, which still fades for a moment, ends at once instead of ending where the disc used to be.
+///
+/// Generic over the flight and the disc ID, so tests drive it with plain objects and numbers.
+struct AgentTokenServeFlights<Flight: AnyObject, DiscID: Equatable> {
+    /// What the dock does when a flight's carried token has left the screen.
+    struct WhenAFlightIsGone: Equatable {
+        /// A disc waited under this flight and slides now, so the flight's tether ends now.
+        var endsTheTether: Bool
+        /// The layout may have moved a disc meanwhile, so the dock refreshes to slide it.
+        var refreshesTheDock: Bool
+    }
+
+    private(set) var flyingFlight: Flight?
+    private(set) var discIDTheFlightLandsOn: DiscID?
+    private(set) var lingeringFlight: Flight?
+    private(set) var discIDTheLingeringFlightSitsOn: DiscID?
+    private var flightWhoseDiscWaitedToSlide: Flight?
+
+    mutating func flightStarted(_ flight: Flight, landingOn discID: DiscID) {
+        flyingFlight = flight
+        discIDTheFlightLandsOn = discID
+    }
+
+    /// The flying token reached its disc. Its carried copy stays over the disc for a moment, so the flight lingers there.
+    mutating func flightLanded() {
+        lingeringFlight = flyingFlight
+        discIDTheLingeringFlightSitsOn = discIDTheFlightLandsOn
+        flyingFlight = nil
+        discIDTheFlightLandsOn = nil
+    }
+
+    /// Whether a disc the layout moved has to stay where it is for now. A disc that waits is named for the flight it waits
+    /// under: the lingering one when it sits on this disc, else the one in the air.
+    mutating func discMustWaitBeforeSliding(_ discID: DiscID) -> Bool {
+        if discID == discIDTheLingeringFlightSitsOn {
+            flightWhoseDiscWaitedToSlide = lingeringFlight
+            return true
+        }
+        if discID == discIDTheFlightLandsOn {
+            flightWhoseDiscWaitedToSlide = flyingFlight
+            return true
+        }
+        return false
+    }
+
+    /// A flight's carried token has left. A newer flight that landed since stays lingering, but a disc that waited under
+    /// this one still slides and its tether still ends.
+    mutating func flightIsGone(_ goneFlight: Flight) -> WhenAFlightIsGone {
+        let endsTheTether = flightWhoseDiscWaitedToSlide === goneFlight
+        if endsTheTether { flightWhoseDiscWaitedToSlide = nil }
+        guard lingeringFlight === goneFlight else {
+            return WhenAFlightIsGone(endsTheTether: endsTheTether, refreshesTheDock: endsTheTether)
+        }
+        lingeringFlight = nil
+        discIDTheLingeringFlightSitsOn = nil
+        return WhenAFlightIsGone(endsTheTether: endsTheTether, refreshesTheDock: true)
+    }
 }
 
 // MARK: - Where it starts and which display
