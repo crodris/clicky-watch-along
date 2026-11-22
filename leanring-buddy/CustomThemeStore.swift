@@ -274,14 +274,13 @@ nonisolated struct CustomThemeStore: Sendable {
     }
 
     /// Reads an open file, which it closes, only when the file itself is a regular file of at most `mostBytes`. The read stops
-    /// at `mostBytes + 1`, so a file that grows after the size check is still refused.
+    /// at `mostBytes + 1` bytes, so a larger file is refused without reading the rest of it.
     private static func boundedRegularFileData(openFileDescriptor fileDescriptor: Int32, relativePath: String, mostBytes: Int) throws -> Data {
         let fileHandle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
         var fileStatus = stat()
         guard fstat(fileDescriptor, &fileStatus) == 0, fileStatus.st_mode & S_IFMT == S_IFREG else {
             throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
         }
-        guard fileStatus.st_size <= mostBytes else { throw CustomThemeStoreError.packageFileIsTooLarge(relativePath) }
         let fileData = try fileHandle.read(upToCount: mostBytes + 1) ?? Data()
         guard fileData.count <= mostBytes else { throw CustomThemeStoreError.packageFileIsTooLarge(relativePath) }
         return fileData
