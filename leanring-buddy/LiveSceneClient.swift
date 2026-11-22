@@ -34,13 +34,22 @@ final class LiveSceneClient {
         self.liveSceneURL = liveSceneURL
         self.judgeAnswerURL = judgeAnswerURL
 
-        // Sol Ultrafast builds a scene in 14 to 20 seconds. Test runs use Sonnet, which takes about 27.
-        self.liveSceneSession = Self.session(timeoutInterval: 60)
+        self.liveSceneSession = Self.session(timeoutInterval: Self.liveSceneRequestTimeoutSeconds)
         // Sonnet grades in about 3 seconds and sometimes takes 6. Past this the app falls back to a word match.
         self.judgeAnswerSession = Self.session(timeoutInterval: 8)
     }
 
-    /// Past 60 seconds the request times out and Clicky says it couldn't build the scene.
+    /// How long a `POST /live-scene` request may take before it fails, and Clicky says it couldn't build the scene.
+    /// It covers the Worker's worst case: two attempts, since a page that fails the check is asked for once more, of the
+    /// slowest build measured. GPT-6.1 Sol Ultrafast builds a model in 14 to 20 seconds and GPT-6.2 Sol a simulation in
+    /// about 35, but Sonnet at low effort, which test runs and the OpenAI fallback use, sometimes thinks before it writes
+    /// the page. On 2026-11-21 and 2026-11-22 simulation builds that thought for 3,000 to 7,000 tokens took 66 to 99
+    /// seconds in one attempt, and the old 60 second limit failed every "let me try it" that thought.
+    /// A learner waiting on a scene ends the wait with a new request.
+    static let slowestMeasuredLiveSceneAttemptSeconds: TimeInterval = 99
+    static let liveSceneRequestTimeoutSeconds: TimeInterval = 240
+
+    /// Past `liveSceneRequestTimeoutSeconds` the request times out and Clicky says it couldn't build the scene.
     /// `sceneKind` picks a 3D model or, for `.simulation`, a page the learner can run.
     func requestLiveScene(question: String, cursorScreenJPEGData: Data, sceneKind: LiveSceneKind) async throws -> LiveScenePage {
         let body = try sceneRequestBody(question: question, cursorScreenJPEGData: cursorScreenJPEGData, sceneKind: sceneKind)

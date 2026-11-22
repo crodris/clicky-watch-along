@@ -2257,6 +2257,15 @@ struct leanring_buddyTests {
         #expect(store.agents[0].stepStatuses.isEmpty)
     }
 
+    @Test func aLiveSceneRequestWaitsForTwoAttemptsOfTheSlowestMeasuredBuild() {
+        // The Worker asks the model once more when a page fails its check (maximumLiveSceneAttempts in worker/src/liveScene.ts).
+        let workerAttemptsPerRequest: TimeInterval = 2
+        #expect(
+            LiveSceneClient.liveSceneRequestTimeoutSeconds
+                >= workerAttemptsPerRequest * LiveSceneClient.slowestMeasuredLiveSceneAttemptSeconds
+        )
+    }
+
     @Test func tryItPhrasesBuildASimulationAndOrdinaryTalkDoesNot() async throws {
         for transcript in ["let me try it", "Let me try it.", "let me play with it", "Can I try this?", "can I try", "Let me try.", "simulate this", "okay, let me try this out"] {
             #expect(liveSceneKind(for: transcript) == .simulation, "\(transcript)")

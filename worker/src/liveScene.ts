@@ -27,6 +27,7 @@ import {
 import { benchModelOverride } from "./benchModelOverride";
 import { checkLiveSceneModelReply, liveSceneRequestKindSchema, type LiveSceneRequestKind } from "./liveSceneReply";
 
+// The app's request limit (LiveSceneClient.liveSceneRequestTimeoutSeconds) waits for this many attempts, so change both together.
 const maximumLiveSceneAttempts = 2;
 
 const liveSceneModelSettingSchema = z.enum(["gpt", "sonnet", "opus", "fable"]).default("gpt");
