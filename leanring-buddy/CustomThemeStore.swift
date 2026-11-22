@@ -172,15 +172,15 @@ nonisolated struct CustomThemeStore: Sendable {
         let portraitDataByFileName: [String: Data]
     }
 
-    /// Reads and parses a package: `theme.json`, `picture.jpg` when there is one, and each roster portrait it names. Every
-    /// file is read as a plain file within its size cap (`plainFileData`).
+    /// Reads and parses a package: `theme.json`, `picture.jpg` when there is one, and each roster portrait it names. The
+    /// package folder is opened once, and every file is read from that open folder as a plain file within its size cap
+    /// (`OpenedPackageFolder.plainFileData`).
     private func readPackage(at packageURL: URL) throws -> ReadPackage {
-        var packageIsAFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: packageURL.path, isDirectory: &packageIsAFolder), packageIsAFolder.boolValue,
-              let themeFileData = try Self.plainFileData(atRelativePath: Self.themeFileName, inPackageAt: packageURL, mostBytes: Self.mostThemeFileBytes) else {
+        guard let packageFolder = OpenedPackageFolder(openingFolderAt: packageURL),
+              let themeFileData = try packageFolder.plainFileData(atRelativePath: Self.themeFileName, mostBytes: Self.mostThemeFileBytes) else {
             throw CustomThemeStoreError.packageIsNotAThemeFolder
         }
-        let pictureJPEG = try Self.plainFileData(atRelativePath: Self.pictureFileName, inPackageAt: packageURL, mostBytes: Self.mostPictureBytes)
+        let pictureJPEG = try packageFolder.plainFileData(atRelativePath: Self.pictureFileName, mostBytes: Self.mostPictureBytes)
         let packagedTheme = try ClickyTheme.parse(
             themeJSON: try JSONDecoder().decode(JSONValue.self, from: themeFileData),
             id: "installing",
@@ -190,7 +190,7 @@ nonisolated struct CustomThemeStore: Sendable {
         var portraitDataByFileName: [String: Data] = [:]
         if case .roster(let players) = packagedTheme.agents.faces {
             for portraitFileName in players.compactMap(\.portraitFileName) where portraitDataByFileName[portraitFileName] == nil {
-                portraitDataByFileName[portraitFileName] = try Self.plainFileData(atRelativePath: portraitFileName, inPackageAt: packageURL, mostBytes: Self.mostPortraitBytes)
+                portraitDataByFileName[portraitFileName] = try packageFolder.plainFileData(atRelativePath: portraitFileName, mostBytes: Self.mostPortraitBytes)
             }
         }
 
@@ -237,45 +237,16 @@ nonisolated struct CustomThemeStore: Sendable {
         return installedTheme
     }
 
-    /// The bytes of the file at `relativePath` inside a package, or nil when nothing is there. The path is walked one name at
-    /// a time with `openat`, each folder opened from the folder before it with `O_NOFOLLOW`, and the file opened from the last
-    /// folder the same way, so a symbolic link, a named pipe, or a device file throws instead of being read. Every name is
-    /// looked up once, relative to a folder already open, so a folder swapped for a link between two steps cannot send the
-    /// read outside the package. That is the parent folder race a hostile network volume could run, where the server can
-    /// change what a path names between two calls: a check of the path followed by a later open of it would follow the swap,
-    /// and this walk never resolves a checked path a second time. The bytes come from the opened file, at most `mostBytes`.
+    /// The bytes of the file at `relativePath` inside a package, or nil when nothing is there, read as
+    /// `OpenedPackageFolder.plainFileData` reads it. A caller that reads several files of one package opens the folder once
+    /// instead, so they all come from the same folder.
     static func plainFileData(atRelativePath relativePath: String, inPackageAt packageURL: URL, mostBytes: Int) throws -> Data? {
-        let pathParts = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        // The theme's own rules already refuse such a path. An empty name, "." or ".." here would name the folder itself or
-        // its parent, so this refuses one again rather than trust every caller.
-        guard !pathParts.isEmpty, pathParts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
-        }
-        // The package itself is the folder the learner opened, so a link to it is followed, as Finder follows it.
-        var folderDescriptor = open(packageURL.path, O_RDONLY | O_DIRECTORY)
-        guard folderDescriptor >= 0 else { return nil }
-        defer { close(folderDescriptor) }
-        for folderName in pathParts.dropLast() {
-            let nextFolderDescriptor = openat(folderDescriptor, folderName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-            guard nextFolderDescriptor >= 0 else {
-                if errno == ENOENT { return nil }
-                throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
-            }
-            close(folderDescriptor)
-            folderDescriptor = nextFolderDescriptor
-        }
-        // `O_NONBLOCK` keeps a named pipe from blocking the open.
-        let fileDescriptor = openat(folderDescriptor, pathParts[pathParts.count - 1], O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-        guard fileDescriptor >= 0 else {
-            if errno == ENOENT { return nil }
-            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
-        }
-        return try boundedRegularFileData(openFileDescriptor: fileDescriptor, relativePath: relativePath, mostBytes: mostBytes)
+        try OpenedPackageFolder(openingFolderAt: packageURL)?.plainFileData(atRelativePath: relativePath, mostBytes: mostBytes)
     }
 
     /// Reads an open file, which it closes, only when the file itself is a regular file of at most `mostBytes`. The read stops
     /// at `mostBytes + 1` bytes, so a larger file is refused without reading the rest of it.
-    private static func boundedRegularFileData(openFileDescriptor fileDescriptor: Int32, relativePath: String, mostBytes: Int) throws -> Data {
+    fileprivate static func boundedRegularFileData(openFileDescriptor fileDescriptor: Int32, relativePath: String, mostBytes: Int) throws -> Data {
         let fileHandle = FileHandle(fileDescriptor: fileDescriptor, closeOnDealloc: true)
         var fileStatus = stat()
         guard fstat(fileDescriptor, &fileStatus) == 0, fileStatus.st_mode & S_IFMT == S_IFREG else {
@@ -288,15 +259,17 @@ nonisolated struct CustomThemeStore: Sendable {
 
     // MARK: - Exporting a package
 
-    /// The package's file name for a theme, such as "Moonlit.clickytheme". A name can hold a slash or a colon, which a file
-    /// name cannot, and a leading dot would hide the file in Finder, so those become hyphens.
+    /// The package's file name for a theme, such as "Moonlit.clickytheme". A name can hold a slash, a colon, or a control
+    /// character, which a file name should not, so those become hyphens. The name is trimmed first, so a dot at its start
+    /// after the spaces also becomes a hyphen, since a leading dot would hide the file in Finder. Only the control category
+    /// counts, so an emoji joined with a zero-width joiner stays whole.
     static func exportedPackageFileName(forThemeName themeName: String) -> String {
-        var fileName = String(themeName.map { character in
-            character == "/" || character == ":" || character.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) ? "-" : character
+        var fileName = String(themeName.trimmingCharacters(in: .whitespaces).map { character in
+            let isAControlCharacter = character.unicodeScalars.contains { $0.properties.generalCategory == .control }
+            return character == "/" || character == ":" || isAControlCharacter ? "-" : character
         })
         while fileName.hasPrefix(".") { fileName = "-" + fileName.dropFirst() }
-        let trimmedFileName = fileName.trimmingCharacters(in: .whitespaces)
-        return "\(trimmedFileName.isEmpty ? "Theme" : trimmedFileName).\(packageExtension)"
+        return "\(fileName.isEmpty ? "Theme" : fileName).\(packageExtension)"
     }
 
     /// What an exported package holds: theme.json, the picture when the theme uses it, and the roster portraits the theme
@@ -310,14 +283,14 @@ nonisolated struct CustomThemeStore: Sendable {
     }
 
     static func exportedPackage(of theme: ClickyTheme) throws -> ExportedPackage {
-        let themeFolderURL: URL?
+        let themeFolder: OpenedPackageFolder?
         switch theme.origin {
         case .idea: throw CustomThemeStoreError.anIdeaCannotBeExported
-        case .bundled: themeFolderURL = nil
-        case .saved(let folderURL): themeFolderURL = folderURL
+        case .bundled: themeFolder = nil
+        case .saved(let folderURL): themeFolder = OpenedPackageFolder(openingFolderAt: folderURL)
         }
-        let pictureJPEG = try themeFolderURL.flatMap { folderURL in
-            theme.usesPicture ? try plainFileData(atRelativePath: pictureFileName, inPackageAt: folderURL, mostBytes: mostPictureBytes) : nil
+        let pictureJPEG = try themeFolder.flatMap { themeFolder in
+            theme.usesPicture ? try themeFolder.plainFileData(atRelativePath: pictureFileName, mostBytes: mostPictureBytes) : nil
         }
         if theme.usesPicture && pictureJPEG == nil { throw CustomThemeStoreError.themeUsesAPictureButNoneWasGiven }
 
@@ -326,7 +299,7 @@ nonisolated struct CustomThemeStore: Sendable {
         }
         var portraitDataByFileName: [String: Data] = [:]
         for portraitFileName in players.compactMap(\.portraitFileName) where portraitDataByFileName[portraitFileName] == nil {
-            if let themeFolderURL, let portraitData = try plainFileData(atRelativePath: portraitFileName, inPackageAt: themeFolderURL, mostBytes: mostPortraitBytes) {
+            if let themeFolder, let portraitData = try themeFolder.plainFileData(atRelativePath: portraitFileName, mostBytes: mostPortraitBytes) {
                 portraitDataByFileName[portraitFileName] = portraitData
             }
         }
@@ -495,5 +468,57 @@ nonisolated struct CustomThemeStore: Sendable {
         )
         let savedDate = (try? themeFileURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
         return SavedCustomTheme(theme: theme, savedDate: savedDate)
+    }
+}
+
+/// A package's folder, opened once, so every file one read takes from the package comes from the same folder. Opening the
+/// folder's path again for each file would let a hostile network volume swap the folder, or a folder above it, for a link
+/// to somewhere else between two files. The descriptor closes when the value goes away.
+nonisolated final class OpenedPackageFolder {
+    private let folderDescriptor: Int32
+
+    /// Nil when nothing is at the path or it is not a folder. The package is the folder the learner opened, so a link to
+    /// it is followed, as Finder follows it.
+    init?(openingFolderAt folderURL: URL) {
+        let openedDescriptor = open(folderURL.path, O_RDONLY | O_DIRECTORY)
+        guard openedDescriptor >= 0 else { return nil }
+        folderDescriptor = openedDescriptor
+    }
+
+    deinit { close(folderDescriptor) }
+
+    /// The bytes of the file at `relativePath` in this folder, or nil when nothing is there. The path is walked one name at a
+    /// time with `openat`, each folder opened from the folder before it with `O_NOFOLLOW`, and the file opened from the last
+    /// folder the same way, so a symbolic link, a named pipe, or a device file throws instead of being read. Every name is
+    /// looked up once, relative to a folder already open, so a folder swapped for a link between two steps cannot send the
+    /// read outside the package. That is the parent folder race a hostile network volume could run, where the server can
+    /// change what a path names between two calls: a check of the path followed by a later open of it would follow the swap.
+    /// The bytes come from the opened file, at most `mostBytes`.
+    func plainFileData(atRelativePath relativePath: String, mostBytes: Int) throws -> Data? {
+        let pathParts = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        // The theme's own rules already refuse such a path. An empty name, "." or ".." here would name the folder itself or
+        // its parent, so this refuses one again rather than trust every caller.
+        guard !pathParts.isEmpty, pathParts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+        }
+        // Each inner folder this walk opens is closed when the walk moves past it or ends. The package folder stays open.
+        var currentFolderDescriptor = folderDescriptor
+        defer { if currentFolderDescriptor != folderDescriptor { close(currentFolderDescriptor) } }
+        for folderName in pathParts.dropLast() {
+            let nextFolderDescriptor = openat(currentFolderDescriptor, folderName, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+            guard nextFolderDescriptor >= 0 else {
+                if errno == ENOENT { return nil }
+                throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+            }
+            if currentFolderDescriptor != folderDescriptor { close(currentFolderDescriptor) }
+            currentFolderDescriptor = nextFolderDescriptor
+        }
+        // `O_NONBLOCK` keeps a named pipe from blocking the open.
+        let fileDescriptor = openat(currentFolderDescriptor, pathParts[pathParts.count - 1], O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fileDescriptor >= 0 else {
+            if errno == ENOENT { return nil }
+            throw CustomThemeStoreError.packageFileIsNotAPlainFile(relativePath)
+        }
+        return try CustomThemeStore.boundedRegularFileData(openFileDescriptor: fileDescriptor, relativePath: relativePath, mostBytes: mostBytes)
     }
 }

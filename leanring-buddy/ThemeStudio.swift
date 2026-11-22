@@ -138,7 +138,6 @@ nonisolated func themeSoundPreviewPlan(for idea: ClickyTheme, secondsBetweenSoun
     }
 }
 
-
 nonisolated extension ThemeRGBColor {
     /// Whether dark letters read better than white ones on this color, by WCAG contrast: dark wins above a luminance of about
     /// 0.18. The Save button fills with the idea's accent, so its letters take this instead of the idea's own contrast color,

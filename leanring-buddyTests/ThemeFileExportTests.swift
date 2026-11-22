@@ -148,12 +148,16 @@ struct ThemeFileExportTests {
         #expect(CustomThemeStore.exportedPackageFileName(forThemeName: "Night/Day: 2") == "Night-Day- 2.clickytheme")
         #expect(CustomThemeStore.exportedPackageFileName(forThemeName: "..hidden") == "-.hidden.clickytheme")
         #expect(CustomThemeStore.exportedPackageFileName(forThemeName: "Tab\there") == "Tab-here.clickytheme")
+        // A dot after leading spaces still hides nothing, and an emoji with a zero-width joiner stays whole.
+        #expect(CustomThemeStore.exportedPackageFileName(forThemeName: " .x") == "-x.clickytheme")
+        #expect(CustomThemeStore.exportedPackageFileName(forThemeName: "Coder 👩‍💻") == "Coder 👩‍💻.clickytheme")
     }
 
     @Test func aDragWritesTheLatestPackageOnlyAndItInstalls() throws {
-        let firstPackageURL = try ThemeFileDrag.writePromisedPackage(of: clickyBlueTheme, named: "Clicky blue.clickytheme")
-        let secondPackageURL = try ThemeFileDrag.writePromisedPackage(of: bundledTheme("school-karasuno"), named: "Karasuno.clickytheme")
-        defer { try? FileManager.default.removeItem(at: ThemeFileDrag.exportsFolderURL) }
+        let exportsFolderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-drag-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: exportsFolderURL) }
+        let firstPackageURL = try ThemeFileDrag.writePromisedPackage(of: clickyBlueTheme, named: "Clicky blue.clickytheme", exportsFolderURL: exportsFolderURL)
+        let secondPackageURL = try ThemeFileDrag.writePromisedPackage(of: bundledTheme("school-karasuno"), named: "Karasuno.clickytheme", exportsFolderURL: exportsFolderURL)
         #expect(secondPackageURL.lastPathComponent == "Karasuno.clickytheme")
         #expect(!FileManager.default.fileExists(atPath: firstPackageURL.path))
         try withATemporaryThemeStore { store in

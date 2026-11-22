@@ -509,6 +509,24 @@ struct CustomThemeStoreRenameAndDeleteTests {
         #expect(throws: CustomThemeStoreError.packageFileIsNotAPlainFile("inner//nested.jpg")) { try read("inner//nested.jpg") }
     }
 
+    @Test func everyFileOfOneReadComesFromTheFolderOpenedFirst() throws {
+        // A hostile network volume can swap the package folder for another between two files of one read. The opened
+        // folder keeps reading from the folder it opened, whatever the path names now.
+        let parentFolderURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-test-swap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: parentFolderURL) }
+        let packageURL = parentFolderURL.appendingPathComponent("Shared.clickytheme", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try Data("first".utf8).write(to: packageURL.appendingPathComponent("picture.jpg"))
+        let packageFolder = try #require(OpenedPackageFolder(openingFolderAt: packageURL))
+
+        try FileManager.default.moveItem(at: packageURL, to: parentFolderURL.appendingPathComponent("moved", isDirectory: true))
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: false)
+        try Data("swapped".utf8).write(to: packageURL.appendingPathComponent("picture.jpg"))
+
+        #expect(try packageFolder.plainFileData(atRelativePath: "picture.jpg", mostBytes: 100) == Data("first".utf8))
+        #expect(OpenedPackageFolder(openingFolderAt: packageURL.appendingPathComponent("picture.jpg")) == nil)
+    }
+
     @Test func aPortraitOverItsSizeCapIsRefusedAndNothingIsInstalled() throws {
         try withATemporaryThemeStore { store in
             let rosterJSON = replacingField(in: goodVersion2ThemeJSON, at: ["agents"], with: .object([
