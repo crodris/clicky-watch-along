@@ -167,6 +167,23 @@ struct PointingBubbleExitRecord: Equatable {
     }
 }
 
+/// What the buddy does when the turn its Recall waited for comes. A buddy already following the mouse or flying back has
+/// nothing left to do. With no new pointing it flies back to the mouse. A new pointing whose target this screen flies to
+/// owns the buddy. A new pointing elsewhere, or one this screen refuses, means this buddy gives way, so it never stays
+/// stopped next to the new one.
+enum PointingBubbleRecallStep: Equatable {
+    case nothingLeftToDo
+    case flyBackToTheMouse
+    case leaveTheBuddyToTheNewPointing
+    case giveWayToThePointingElsewhere
+}
+
+func pointingBubbleRecallStep(buddyIsAwayFromTheMouse: Bool, aNewPointingIsSet: Bool, thisScreenFliesToTheNewPointing: Bool) -> PointingBubbleRecallStep {
+    guard buddyIsAwayFromTheMouse else { return .nothingLeftToDo }
+    guard aNewPointingIsSet else { return .flyBackToTheMouse }
+    return thisScreenFliesToTheNewPointing ? .leaveTheBuddyToTheNewPointing : .giveWayToThePointingElsewhere
+}
+
 extension AnyTransition {
     /// For a Callout that a view's own condition puts in and takes out of the tree: it pops from its tail's tip going in, and
     /// leaves with a 6 point rise and a fade. With Reduce Motion on, both are a fade in place.

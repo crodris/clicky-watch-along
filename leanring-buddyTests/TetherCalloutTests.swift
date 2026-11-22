@@ -33,6 +33,14 @@ struct TetherCalloutTests {
         #expect(exitRecord.takeTheExit() == .fadeRise)
     }
 
+    @Test func theRecallsTurnLeavesNoBuddyStoppedNextToANewPointing() {
+        #expect(pointingBubbleRecallStep(buddyIsAwayFromTheMouse: true, aNewPointingIsSet: false, thisScreenFliesToTheNewPointing: false) == .flyBackToTheMouse)
+        #expect(pointingBubbleRecallStep(buddyIsAwayFromTheMouse: true, aNewPointingIsSet: true, thisScreenFliesToTheNewPointing: true) == .leaveTheBuddyToTheNewPointing)
+        // A new pointing on another display, or one this screen refuses, leaves no second buddy stopped here.
+        #expect(pointingBubbleRecallStep(buddyIsAwayFromTheMouse: true, aNewPointingIsSet: true, thisScreenFliesToTheNewPointing: false) == .giveWayToThePointingElsewhere)
+        #expect(pointingBubbleRecallStep(buddyIsAwayFromTheMouse: false, aNewPointingIsSet: false, thisScreenFliesToTheNewPointing: false) == .nothingLeftToDo)
+    }
+
     @Test func aCalloutPanelPutsTheTailsTipOnTheTipPoint() {
         let screenFrame = CGRect(x: 0, y: 0, width: 1710, height: 1107)
         let tipPoint = CGPoint(x: 600, y: 400)

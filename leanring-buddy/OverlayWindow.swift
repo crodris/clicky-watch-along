@@ -466,8 +466,7 @@ struct BlueCursorView: View {
             }
 
             // Only navigate if the target is on THIS screen
-            guard screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY))
-                  || displayFrame == screenFrame else {
+            guard targetDisplayIsThisScreen(displayFrame) else {
                 return
             }
 
@@ -819,13 +818,29 @@ struct BlueCursorView: View {
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = nil
         DispatchQueue.main.async {
-            // A new pointing that arrived in that turn owns the buddy now, so the recall leaves it alone.
-            guard companionManager.detectedElementScreenLocation == nil,
-                  buddyNavigationMode != .followingCursor,
-                  !isReturningToCursor else { return }
-            navigationBubbleOpacity = 0.0
-            startFlyingBackToCursor()
+            let newPointingDisplayFrame = companionManager.detectedElementDisplayFrame
+            // startNavigatingToElement refuses a target while the first-launch welcome types.
+            let thisScreenFliesToTheNewPointing = newPointingDisplayFrame.map(targetDisplayIsThisScreen) == true
+                && (!showWelcome || welcomeText.isEmpty)
+            switch pointingBubbleRecallStep(
+                buddyIsAwayFromTheMouse: buddyNavigationMode != .followingCursor && !isReturningToCursor,
+                aNewPointingIsSet: companionManager.detectedElementScreenLocation != nil,
+                thisScreenFliesToTheNewPointing: thisScreenFliesToTheNewPointing
+            ) {
+            case .nothingLeftToDo, .leaveTheBuddyToTheNewPointing:
+                return
+            case .flyBackToTheMouse:
+                navigationBubbleOpacity = 0.0
+                startFlyingBackToCursor()
+            case .giveWayToThePointingElsewhere:
+                // The buddy shows on the target's screen, so this one goes back to following the mouse, out of sight.
+                finishNavigationAndResumeFollowing()
+            }
         }
+    }
+
+    private func targetDisplayIsThisScreen(_ displayFrame: CGRect) -> Bool {
+        screenFrame.contains(CGPoint(x: displayFrame.midX, y: displayFrame.midY)) || displayFrame == screenFrame
     }
 
     /// Streams the navigation bubble text one character at a time with variable
