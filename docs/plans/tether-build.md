@@ -104,10 +104,10 @@ Never change a system setting such as Reduce Motion; check Reduce Motion paths w
 | 10 Quiz, scenes, edges | Merged: [#85](https://github.com/crodris/clicky-watch-along/pull/85). The quiz states and the summary Card are not yet seen in the app, since Chrome's "Allow JavaScript from Apple Events" was off. |
 | 11 Instant replay | Open: [#88](https://github.com/crodris/clicky-watch-along/pull/88) |
 | 8 Panel, onboarding, keyboard | Building |
-| 13 Theme Studio designs motion | Building |
+| 13 Theme Studio designs motion | Merged: [#92](https://github.com/crodris/clicky-watch-along/pull/92). The Debug app check and the motion recording are still owed, since Xcode would not load the project |
 | 14 The loop carries background work | Building |
 | 15 End-of-video recap | Building |
-| 16 Pause every agent by voice | Building |
+| 16 Pause every agent by voice | Open: [#94](https://github.com/crodris/clicky-watch-along/pull/94). CI and review pass, and the Debug app check waits for Xcode to load the project |
 | 17 Scrub by voice | Starts when PR 11 merges |
 | 18 Share themes as files | Starts when PR 8 merges, since it drags the panel's theme cards |
 | 19 Tether polish | After the build order: what earlier PRs left open that no later PR owns |

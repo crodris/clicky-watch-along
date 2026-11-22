@@ -464,6 +464,8 @@ final class CompanionManager: ObservableObject {
     private var approvalAtThePress: ApprovalAtPress?
     private var escapeKeyCancellable: AnyCancellable?
     private var settingsDialCancellable: AnyCancellable?
+    /// Keeps `DS.Move.themeSprings` equal to the shown theme's springs, the studio's preview included.
+    private var themeSpringsCancellable: AnyCancellable?
     private var pinchCancellable: AnyCancellable?
     private var scrollWheelCancellable: AnyCancellable?
     private var cursorLoopVoiceStateCancellable: AnyCancellable?
@@ -533,6 +535,10 @@ final class CompanionManager: ObservableObject {
         // A voice tool call's chip takes the accent of the theme on screen, preview included.
         VoiceToolCallChip.shared.themeAccentProvider = { [weak self] in
             self?.themeSettings.shownTheme.cursorColor ?? DS.Colors.overlayCursorBlue
+        }
+        themeSpringsCancellable = themeSettings.observeShownMoveSprings { shownSprings in
+            DS.Move.themeSprings = shownSprings
+            print("Theme motion: Pop \(shownSprings.pop.response) and \(shownSprings.pop.dampingFraction), Glide \(shownSprings.glide.response) and \(shownSprings.glide.dampingFraction), Point \(shownSprings.pointResponse)")
         }
         agentTokenDockController.start()
         // The brain runs in the harness process, so the first voice command must not pay its launch.

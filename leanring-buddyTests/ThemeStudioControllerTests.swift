@@ -420,20 +420,18 @@ struct ThemeStudioTetherTests {
     }
 
     @Test func aSaveClosesTheCardForASaveAndStampsTheTile() async throws {
-        try await withATemporaryThemeStore { store in
-            let harness = StudioHarness(themeSettings: makeThemeSettings(customThemeStore: store))
-            harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
-            harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
-            await harness.studio.waitForTheDesign()
-            guard case .showingIdeas(let ideas) = harness.studio.state else { Issue.record("no ideas"); return }
-            #expect(!harness.studio.isStampingTheSavedIdea)
+        let harness = StudioHarness()
+        harness.workerReplies = [{ try reply(names: ["Ember", "Moonlit", "Forest"]) }]
+        harness.studio.design(request: "cozy", basedOnIdea: nil, pictureChoice: .none)
+        await harness.studio.waitForTheDesign()
+        guard case .showingIdeas(let ideas) = harness.studio.state else { Issue.record("no ideas"); return }
+        #expect(!harness.studio.isStampingTheSavedIdea)
 
-            #expect(harness.studio.saveTheHighlightedIdea() == .saved(themeName: ideas.highlightedIdea.name))
-            #expect(harness.studio.isStampingTheSavedIdea)
-            #expect(harness.presenter.lastClosingReason == .saved(idea: ideas.highlightedIdea, pictureJPEG: nil))
-            // The card draws its last open state while it closes on the carrier.
-            #expect(harness.studio.lastOpenState == .showingIdeas(ideas))
-        }
+        #expect(harness.studio.saveTheHighlightedIdea() == .saved(themeName: ideas.highlightedIdea.name))
+        #expect(harness.studio.isStampingTheSavedIdea)
+        #expect(harness.presenter.lastClosingReason == .saved(idea: ideas.highlightedIdea, pictureJPEG: nil))
+        // The card draws its last open state while it closes on the carrier.
+        #expect(harness.studio.lastOpenState == .showingIdeas(ideas))
     }
 
     @Test func everyCloseThatIsNotASaveClosesTheCardAsDismissed() async throws {

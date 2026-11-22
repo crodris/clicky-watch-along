@@ -159,8 +159,19 @@ nonisolated func themeStudioTags(for idea: ClickyTheme) -> [String] {
     case .wobble: tags.append("wobbles while thinking")
     }
     if idea.motion.whileListening == .pulse { tags.append("pulses while you talk") }
+    if let springs = idea.motion.springs, let feel = themeMotionFeel(of: springs) { tags.append(feel) }
     tags.append("sounds: \(idea.sounds.done.rawValue), \(idea.sounds.correct.rawValue), \(idea.sounds.needsYourOK.rawValue)")
     return tags
+}
+
+/// The word for how a theme's springs feel, from its Pop spring, or nil for Clicky's own. The Worker's prompt asks for these
+/// ranges when the learner says bouncy, calm, or snappy, so the card repeats the word they used.
+nonisolated func themeMotionFeel(of springs: ThemeMoveSprings) -> String? {
+    guard springs != .standard else { return nil }
+    if springs.pop.dampingFraction < 0.65 { return "bouncy motion" }
+    if springs.pop.response >= 0.38 && springs.pop.dampingFraction >= 0.95 { return "calm motion" }
+    if springs.pop.response <= 0.25 { return "snappy motion" }
+    return "custom motion"
 }
 
 nonisolated extension ThemeRGBColor {
