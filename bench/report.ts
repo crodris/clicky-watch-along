@@ -27,6 +27,8 @@ const caseLabels: Record<string, string> = {
   landmark: "Landmark lookup",
   "landmark-not-a-place": "Landmark lookup, not a place",
   "live-scene": "3D live scene",
+  "live-scene-engine": "3D live scene, jet engine",
+  "live-scene-bicycle": "3D live scene, bicycle",
   "simulation-projectile": "Simulation, projectile",
   "simulation-lever": "Simulation, lever",
   "simulation-pendulum": "Simulation, pendulum",

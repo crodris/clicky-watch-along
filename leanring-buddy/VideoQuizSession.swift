@@ -1452,7 +1452,9 @@ struct ChromeVideoTab {
     /// (not loaded, hidden, or fully transparent) are skipped. A loaded image with no natural width is skipped
     /// too, except an SVG, which can have only a viewBox and so no natural width. Returns the window's and
     /// the element's raw page geometry as JSON, or 'none' under 160x90 visible. An image wholly inside the
-    /// viewport and stretched to its box also returns its URL, since only then do its own frames line up with the capture.
+    /// viewport and stretched to its box also returns its URL (`imageSourceURL`), since only then do its own frames line up
+    /// with the capture. Any visible image also returns its file's URL (`imageFileURL`), cropped or partly scrolled out of
+    /// view, since room art wants the whole file and not what the screen shows of it (a cookie banner over a product photo).
     /// Only a short https URL comes back, so a large data: URL never travels through AppleScript.
     /// A video the page has not started can sit above the player that shows its thumbnail, with only a thin slice of the
     /// element in the viewport. When under half of a video is visible and a close ancestor of about its size is almost
@@ -1495,10 +1497,11 @@ struct ChromeVideoTab {
         "var score = visibleArea * (isVideo ? 4 : 1);",
         "var isWhollyVisible = rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight;",
         "var imageSourceURL = !isVideo && isWhollyVisible && style.objectFit === 'fill' && /^https:/i.test(element.currentSrc) && element.currentSrc.length < 2048 ? element.currentSrc : null;",
-        "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea, imageSourceURL: imageSourceURL }; }",
+        "var imageFileURL = !isVideo && /^https:/i.test(element.currentSrc) && element.currentSrc.length < 2048 ? element.currentSrc : null;",
+        "if (score > bestScore) { bestScore = score; best = { left: left, top: top, width: right - left, height: bottom - top, visibleArea: visibleArea, imageSourceURL: imageSourceURL, imageFileURL: imageFileURL }; }",
         "}",
         "if (!best || best.visibleArea < 160 * 90) { return 'none'; }",
-        "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL });",
+        "return JSON.stringify({ screenX: window.screenX, screenY: window.screenY, outerWidth: window.outerWidth, outerHeight: window.outerHeight, innerWidth: window.innerWidth, innerHeight: window.innerHeight, devicePixelRatio: window.devicePixelRatio, left: best.left, top: best.top, width: best.width, height: best.height, imageSourceURL: best.imageSourceURL, imageFileURL: best.imageFileURL });",
         "})()",
     ].joined(separator: " ")
 

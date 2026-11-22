@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -268,5 +268,61 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     assert.equal(scratchFolders().length, 1);
     next.driver.kill("SIGTERM");
     await next.exited;
+  });
+});
+
+describe("SceneCamera drives a page through the fake Chrome's DevTools", { timeout: 60_000 }, () => {
+  let sandbox = "";
+  before(() => {
+    sandbox = mkdtempSync(join(tmpdir(), "scene-camera-devtools-test-"));
+  });
+  after(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  // Runs the driver with one call on the fake page, each run in its own temporary folder, and returns what it printed.
+  async function runTheDriver(name: string, call: "shoot" | "probe", fakeChromeSettings: Record<string, string>): Promise<string> {
+    const runFolder = join(sandbox, name);
+    mkdirSync(runFolder);
+    const fakeChromeLauncher = join(runFolder, "chrome");
+    writeFileSync(fakeChromeLauncher, `#!/bin/sh\nexec node ${join(import.meta.dirname, "fixtures", "fake-chrome.ts")} "$@"\n`);
+    chmodSync(fakeChromeLauncher, 0o755);
+    const driver = spawn("node", [join(import.meta.dirname, "fixtures", "open-scene-camera.ts"), call], {
+      env: { ...process.env, TMPDIR: runFolder, CHROME_PATH: fakeChromeLauncher, FAKE_CHROME_PID_FILE: join(runFolder, "chrome.pid"), FAKE_CHROME_DEVTOOLS: "1", ...fakeChromeSettings },
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let output = "";
+    driver.stdout?.on("data", (chunk) => {
+      output += String(chunk);
+    });
+    await new Promise<void>((resolve) => driver.once("exit", () => resolve()));
+    return output;
+  }
+
+  it("tries a refused screenshot capture again, so two refusals in a row still give the picture", async () => {
+    const output = await runTheDriver("two-refusals", "shoot", { FAKE_CHROME_CAPTURE_FAILURES: "2" });
+
+    assert.match(output, /^shot \{.*"secondShot":"after a half turn"/m);
+  });
+
+  it("gives up on the third refusal in a row, and says why", async () => {
+    const output = await runTheDriver("three-refusals", "shoot", { FAKE_CHROME_CAPTURE_FAILURES: "3" });
+
+    assert.match(output, /^shot failed: Page\.captureScreenshot: Unable to capture screenshot$/m);
+  });
+
+  it("probes a page with no focusPart and still reports the tour, the page's errors, and what the page lacks", async () => {
+    const output = await runTheDriver("probe-no-focus-part", "probe", { FAKE_CHROME_PAGE_ERROR: "TypeError: parts is not iterable\n    at stepTour" });
+    const probeLine = output.split("\n").find((line) => line.startsWith("probe "));
+    assert.ok(probeLine !== undefined, `the driver printed no probe line: ${output}`);
+
+    // JSON.parse returns any, and each assertion below checks the field it reads.
+    const probe = JSON.parse(probeLine.slice("probe ".length)) as Record<string, unknown>;
+    assert.equal(probe.tourFinished, true);
+    assert.deepEqual(probe.pageErrors, ["TypeError: parts is not iterable"]);
+    assert.deepEqual(probe.missing, ["focusPart"]);
+    assert.equal(probe.focusFindsAPart, false);
+    assert.equal(probe.rotateTurns, true);
+    assert.equal(probe.questionMarkAfterReveal, false);
   });
 });

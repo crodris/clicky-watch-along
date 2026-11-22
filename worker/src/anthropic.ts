@@ -52,6 +52,16 @@ export function zodIssuesOnOneLine(zodError: z.ZodError): string {
     .replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ");
 }
 
+/**
+ * Names each issue by its field path and Zod issue code only, such as "functionWords.1: invalid_type", and never by Zod's
+ * message, which quotes the received value for an enum, a literal, or an unrecognized key. Use it for a reason that is
+ * sent back to a model or to the app, where a model-written value could carry instructions. The path comes from the
+ * schema (a record key from the reply would not), and an issue at the top level is named "reply".
+ */
+export function zodIssueCodesByPath(zodError: z.ZodError): string {
+  return zodError.issues.map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "reply"}: ${issue.code}`).join("; ");
+}
+
 export function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,

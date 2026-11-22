@@ -14,6 +14,7 @@ Only wall art is placed so far, so a chair or a shirt gets "I can hang wall art 
 - `room-art-tracking` keeps the art on the wall while the camera turns, and says "Lost the wall. Turn back, or click the wall to place it again." while the art hides.
 - `room-art-loop` is Clicky's loop around the wall spot while the wall is measured: the cursor loop's line and spark in the theme's accent, following the wall as the camera turns, and leaving with a 0.35 s fade when the art shows or the measurement fails.
 - `room-art-kinds` are the lines for what the page shows: "I can hang wall art so far. Furniture and clothes are coming next." for furniture and clothing, and "That doesn't look like something that hangs on a wall." for anything else.
+- `room-art-picture` is the picture room art hangs and sends to `/try-it-item`: the image file the page names (downloaded over https, at most 8 MB, scaled to a long side of 1280), so a cookie banner or any other element over the photo never hangs with the art, and a screen capture of the picture only when there is no file to use.
 - `room-art-checks` are the lines before the camera opens: no app secret, a page that is not https, and page text that could not be read.
 
 ## How to get to it (user POV)
@@ -41,6 +42,9 @@ Preconditions:
   The log shows `Room art:` lines for the page read and the wall, then `Room art: N fps, track N ms, segment N ms` every 5 s.
   Run `$V shot room-art-loop` in the first seconds, while the wall is measured: Clicky's loop outlines a bare patch of wall in the theme's accent, with the white spark on it, and it is gone about a second after the art shows.
   Run `$V shot room-art` once the line "Here it is at <size>." plays: the art hangs on the wall in the panel, and a person in the video stays in front of it.
+- **Picture from the image file.** Leave a cookie banner up over the product photo, such as IKEA's, and run `$V app-launch --room-camera-file <video of a room> "how would this look in my room"`.
+  The log says `Room art: used the page's image file (WxH) from <host>` with a long side of at most 1280, and `$V shot room-art` shows the art with no banner on it.
+  A picture with no usable file (a page whose image is not https, is under 160 pixels, or is hosted on localhost or a private address) logs `Room art: ... so the picture is a screen capture` and falls back to the capture.
 - **Tracking.** Launch with a video that turns, and once "Here it is" plays, take two shots a second apart.
   Run `$V app-launch --room-camera-file <video that turns> "how would this look in my room"`, then `$V shot room-art-tracking-1; sleep 1; $V shot room-art-tracking-2`.
   The art moves with the wall between the two shots, not with the frame, and the log has a `Room art: N fps` line every 5 s.

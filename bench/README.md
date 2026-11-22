@@ -566,6 +566,108 @@ Across the 9 simulation pairs it won 14-2, and 6.1 Sol's lever and pendulum runs
 3D models stay on GPT-6.1 Sol, since Astra costs 2.5 times as much.
 Its replies go to `bench/replies/render/`, apart from the other routes' replies, so the judge pairs only this run.
 
+### Scene kernel bakeoff
+
+A scene kernel was tried on the branch `feature/scene-kernel` (head `6f949886`), and it was not merged.
+There, `LIVE_SCENE_FORMAT=kernel` asked the model only for a `build(kit)` function, and the Worker wrapped it into a page that imported a bundled `scene-kernel.js`, which owned the renderer, camera, lights, tour, labels, and the `window.liveScene` contract.
+It ran against `page`, the whole-page format, on 2026-11-21.
+The branch stays pushed, so the kernel can be revived.
+
+Before any prototype, a `page` render of the heart and of the cannon was split statement by statement.
+The kernel could own 62% of the heart page and 73% of the cannon page by characters, and reasoning was 15 to 17% of the output tokens.
+
+Two prototypes ran twice each on the heart and the cannon at Ultrafast (`results/protoA-kernel-*`, `results/protoB-recipe-*`, and `results/k1-page-*` for `page`).
+
+| Format | Heart output tokens | Heart time | Cannon output tokens | Cannon time |
+|---|---|---|---|---|
+| `page` | 6,257 | 20.7 s | 7,007 | 29.4 s |
+| A, kernel and `build(kit)` | 4,986 and 5,545 | 15.3 and 17.1 s | 2,745 and 3,288 | 13.0 and 14.6 s |
+| B, a JSON recipe of shapes | 7,929 and 6,357 | 16.5 and 15.2 s | 4,140 and 5,213 | 13.6 and 16.8 s |
+
+B wrote more tokens than code, since JSON repeats its keys for every shape, and a recipe holds no physics, so its readouts ignored the controls.
+`node bench/sceneProbe.ts <page.html>` found that by running each page at both ends of its first control's range, so B's code was deleted.
+
+On that branch, the bakeoff interleaved a `page` Worker and a `kernel` Worker request by request: 3 runs of 3 model cases on GPT-6.1 Sol, and 2 runs of 5 experiments on GPT-6.2 Sol, all at Ultrafast.
+
+```bash
+$V worker-up 8798 -- --inspector-port 9318 --var LIVE_SCENE_FORMAT:kernel
+$V worker-up 8781 -- --inspector-port 9311
+node bench/bench.ts worker --pages-dir bench/replies/bakeoff --label m3d --runs 3 --only live-scene,live-scene-engine,live-scene-bicycle \
+  --side m3d-page:8781:$C --side m3d-kernel:8798:$C
+node bench/bench.ts worker --pages-dir bench/replies/bakeoff --label sim --runs 2 \
+  --only simulation-projectile,simulation-lever,simulation-pendulum,simulation-dissolving,simulation-cooling --side sim-page:8781:$C --side sim-kernel:8798:$C
+node bench/decisionRule.ts --baseline <page result files> --challenger <kernel result files> --allowed-models gpt-6.1-sol,gpt-6.2-sol
+node bench/judge.ts --replies bench/replies/bakeoff --routes /live-scene --baseline page --pairs-per-case 3
+```
+
+`decisionRule.ts` drops a render whose usage line names any other model.
+That matters because a scene OpenAI cannot answer falls back to Sonnet with an HTTP 200, which happened when the OpenAI credit ran out during the first experiment run.
+
+| Renders (`results/m3d-*-7b0c1ad86889`, `results/sim-*-15e448dc1c6c`) | `page` p50 | `kernel` p50 | `page` p95 | `kernel` p95 | `page` cost | `kernel` cost | `page` output tokens | `kernel` output tokens |
+|---|---|---|---|---|---|---|---|---|
+| 3D models, 9 a side | 20.9 s | 14.7 s | 23.7 s | 19.1 s | $0.43 | $0.31 | 7,111 | 4,989 |
+| Experiments, 10 a side | 32.3 s | 17.7 s | 39.4 s | 24.0 s | $0.50 | $0.28 | 7,590 | 4,133 |
+| Both | 25.1 s | 15.8 s | 39.4 s | 24.0 s | $0.47 | $0.29 | 7,363 | 4,538 |
+
+`results/sim-page-worker-156b21bc7d43.json` and `results/sim-kernel-worker-156b21bc7d43.json` are the first experiment run, the one judge round 1 scored, from before the kernel prompt stopped forbidding the numbers on an instrument's scale.
+The table uses the second run, `results/sim-*-15e448dc1c6c`, which rendered both sides again with that prompt fixed.
+
+The time arm of the decision rule passes: the p50 is 37% lower and the p95 is lower too.
+The blind judge prefers `page`, so the kernel was not merged.
+
+| Judge round | Kernel at | Kernel wins | `page` wins | Undecided | 3D models | Experiments |
+|---|---|---|---|---|---|---|
+| 1 | `7b0c1ad8` | 2 | 33 | 3 | 2 to 16 | 0 to 17 |
+| 2 | `15e448dc` | 13 | 21 | 4 | 9 to 8 | 4 to 13 |
+| 3 | `7c27d72b` | 10 | 20 | 6 | 9 to 7 | 1 to 13 |
+
+The judge summaries are in `results/scene-kernel-judge/`, and round 3's counts there include the pair left out below.
+A kernel page imports the kernel when it loads, so each round drew the same saved kernel replies with that round's kernel.
+Round 2 also rendered both sides' experiments again, after the kernel prompt stopped forbidding the numbers on an instrument's scale.
+What the judges' reasons named, and what changed:
+
+- Round 1: the tour's last move turned the bicycle and the engine end-on, labels overlapped, and labels of hidden parts showed. Round 2 frames a model from its broad side and puts labels in two columns.
+- Round 2: 4 experiment tours did not finish in 20 seconds on Chrome's software renderer, because every mesh had the physical shader and every tick mark cast a shadow. Round 3 fixed that, and the slowest tour went from 18.1 s to 2.9 s.
+- Round 3: framing the whole lab bench made the equipment small, and the kernel experiments are thinner, such as a lever that only tips where the `page` lever fills a cup until it balances.
+
+The kernel cut 3D model output by 30%, less than its 62% share of the heart page, because the model spends the freed tokens on detail: up to 17 labeled parts before the kernel prompt capped them at 10.
+The 3D models came out even, but one fixture went 6 to 0 each way, so a kernel for 3D models alone needs a larger judged sample before it ships.
+
+In round 3, the after-a-run screenshot of one kernel experiment showed another browser's page, an IKEA product page, instead of the scene, and it went to both judge models.
+That pair is left out of the round 3 counts, and the image was deleted.
+The cause is not known.
+One guess, not tested, is a headless Chrome left over from the earlier judge run that stopped on a failed capture, which `removeStaleSceneShots` in `sceneShots.ts` now kills.
+
+The bakeoff cost about $29.60: $25.68 in renders, about $0.30 in Sonnet fallbacks, $0.10 in two credit checks, and $3.53 in three judge runs.
+
+### Framing and label rules
+
+The kernel bakeoff's judges rewarded two things the kernel did, so the `page` prompt now asks for them as plain rules (`worker/src/liveScene.ts`).
+A 3D model labels at most 10 parts, placed so none overlap or crowd an edge, and its view crops no part of the subject at the end of the tour or after a half turn.
+The bakeoff also tried a third rule for experiments, that nothing it needs is cropped and the equipment a readout depends on stays large in frame.
+
+On 2026-11-22 this prompt ran against main's, interleaved, on GPT-6.1 Sol and GPT-6.2 Sol Ultrafast.
+The baseline Worker ran this branch with a temporary switch that dropped the three rules, and its prompt was checked byte for byte against main's before any render; the switch was never committed.
+Round one ran the heart, the engine, the bicycle, the cannon, and the lever once each (`results/fr1-*`), and round two ran the bicycle and the cannon again (`results/fr2-*`), to stay inside an $8 budget.
+Every render ran on the intended GPT model, and none fell back.
+
+| 7 pairs | Main's prompt | With the rules |
+|---|---|---|
+| p50 | 24.6 s | 26.0 s |
+| p95 | 41.1 s | 33.3 s |
+| Cost a render | $0.50 | $0.47 |
+| Output tokens | 7,810 | 7,478 |
+
+The two judges gave 14 verdicts over the 7 pairs, one each per pair, counted only when a judge picked the same reply in both orders: 7 for the rules, 6 for main's prompt, and 1 undecided, where a judge picked differently in the two orders (`results/framing-judge/summary.json`).
+3D models went 6 to 2 for the rules, on the heart and both bicycles, where main's bicycle was cropped and carried about 26 crowded labels.
+Experiments went 1 to 4 for main's prompt, with 1 undecided, and the reasons named what each page built, such as a lever that balances, more than its framing.
+The rules ship for 3D models only, where they won 6 to 2, and a simulation's prompt stays as main's, with none of the three, since experiments lost 1 to 4.
+On 3D models alone, the decision rule passes on its judged arm: a win rate of 6 of 8 decided verdicts, 0.75, with the p50 going from 23.0 s to 19.0 s over the 4 renders a side.
+Those numbers were worked out by hand from the heart, engine, and bicycle samples of `results/fr1-*` and `results/fr2-*` with the same nearest-rank p50 `decisionRule.ts` uses, since the script has no case filter, and the 6 of 8 comes from the judge's per-case reasons, since `framing-judge/summary.json` holds only the total.
+Over every pair it would not pass: 7 of 13 decided verdicts is 0.54, under the 0.6 the judged arm needs, and the p50 rose from 24.6 s to 26.0 s, so the faster arm fails too.
+That is why only 3D models get the rules.
+It cost $7.26: $6.79 in renders, $0.05 in a credit check, and $0.42 for the judge.
+
 ### Task agent
 
 The task agent is the one model call `bench.ts` does not cover, because its loop runs in the Go harness, which talks to the Worker's `POST /v1/messages` passthrough.
