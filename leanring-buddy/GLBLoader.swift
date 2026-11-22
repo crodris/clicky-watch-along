@@ -38,6 +38,13 @@ nonisolated enum GLBLoader {
     static let deepestNodeNesting = 64
     static let mostImagesDecodedFromAFile = 32
     static let largestImageSideInPixels = 4096
+    /// A file may list at most this many materials and primitives. A real product model has a few dozen of each.
+    static let mostMaterialsInAFile = 256
+    static let mostPrimitivesInAFile = 4096
+    /// Every decoded image and every image derived from one (an alpha-flattened base color, a roughness or metalness channel)
+    /// counts its pixels against this budget, about 256 MB of RGBA, so many materials pointing at one large packed texture
+    /// cannot multiply its memory. A model past it is refused, and the furniture falls back to its next look.
+    static let mostPixelsDecodedAndDerived = 64_000_000
 
     /// A root node holding the whole scene of the GLB (the default scene, else scene 0, else every root node), in glTF's own
     /// units and axes (meters, y up, +z front). Throws GLBLoadError for anything it cannot read.
@@ -330,6 +337,20 @@ private nonisolated final class GLBSceneBuilder {
     private var geometriesByMeshIndex: [Int: [SCNGeometry]] = [:]
     private var materialsByMaterialIndex: [Int: SCNMaterial] = [:]
     private var imagesByImageIndex: [Int: CGImage] = [:]
+    /// Images made from a decoded image, made once per image and kind however many materials ask for them.
+    private var derivedImagesByKey: [DerivedImageKey: CGImage] = [:]
+    /// The pixels of every image decoded and derived so far, held to `GLBLoader.mostPixelsDecodedAndDerived`.
+    private var pixelsDecodedAndDerived = 0
+
+    private enum DerivedImageKind: Hashable {
+        case withoutAlpha
+        case channel(index: Int)
+    }
+
+    private struct DerivedImageKey: Hashable {
+        let imageIndex: Int
+        let kind: DerivedImageKind
+    }
     private var totalVertexCount = 0
     private var totalIndexCount = 0
 
@@ -347,6 +368,12 @@ private nonisolated final class GLBSceneBuilder {
         }
         guard nodes.count <= GLBLoader.mostNodesInAFile else {
             throw GLBLoadError(reason: "The GLB has more than \(GLBLoader.mostNodesInAFile) nodes.")
+        }
+        guard (document.materials?.count ?? 0) <= GLBLoader.mostMaterialsInAFile else {
+            throw GLBLoadError(reason: "The GLB has more than \(GLBLoader.mostMaterialsInAFile) materials.")
+        }
+        guard (document.meshes ?? []).reduce(0, { $0 + $1.primitives.count }) <= GLBLoader.mostPrimitivesInAFile else {
+            throw GLBLoadError(reason: "The GLB has more than \(GLBLoader.mostPrimitivesInAFile) primitives.")
         }
 
         let rootNode = SCNNode()
@@ -765,7 +792,9 @@ private nonisolated final class GLBSceneBuilder {
         if let baseColorReference = metallicRoughness.baseColorTexture {
             let baseColorTexture = try textureImage(for: baseColorReference)
             // An opaque material ignores the alpha of its texture, so the alpha is flattened away.
-            material.diffuse.contents = usesAlpha ? baseColorTexture.image : Self.imageWithoutAlpha(baseColorTexture.image)
+            material.diffuse.contents = usesAlpha
+                ? baseColorTexture.image
+                : try derivedImage(.withoutAlpha, ofImageIndex: baseColorTexture.imageIndex, from: baseColorTexture.image)
             Self.apply(baseColorTexture.sampler, to: material.diffuse)
             // With a texture the factor tints it. `multiply` applies the factor to the sampled color without touching the pixels.
             if baseColorFactor[0] != 1 || baseColorFactor[1] != 1 || baseColorFactor[2] != 1 {
@@ -785,8 +814,8 @@ private nonisolated final class GLBSceneBuilder {
         if let metallicRoughnessReference = metallicRoughness.metallicRoughnessTexture {
             let packedTexture = try textureImage(for: metallicRoughnessReference)
             // glTF packs roughness in green and metalness in blue, and SceneKit wants one grayscale image per property.
-            material.roughness.contents = try Self.grayscaleImage(from: packedTexture.image, channelIndex: 1)
-            material.metalness.contents = try Self.grayscaleImage(from: packedTexture.image, channelIndex: 2)
+            material.roughness.contents = try derivedImage(.channel(index: 1), ofImageIndex: packedTexture.imageIndex, from: packedTexture.image)
+            material.metalness.contents = try derivedImage(.channel(index: 2), ofImageIndex: packedTexture.imageIndex, from: packedTexture.image)
             Self.apply(packedTexture.sampler, to: material.roughness)
             Self.apply(packedTexture.sampler, to: material.metalness)
             // The factors scale the texture's values.
@@ -816,7 +845,7 @@ private nonisolated final class GLBSceneBuilder {
 
     // MARK: Textures
 
-    private func textureImage(for reference: GLTFTextureReference) throws -> (image: CGImage, sampler: GLTFSampler?) {
+    private func textureImage(for reference: GLTFTextureReference) throws -> (image: CGImage, imageIndex: Int, sampler: GLTFSampler?) {
         guard (reference.texCoord ?? 0) == 0 else {
             throw GLBLoadError(reason: "A texture uses a texture coordinate set other than TEXCOORD_0.")
         }
@@ -834,7 +863,7 @@ private nonisolated final class GLBSceneBuilder {
             }
             sampler = samplers[samplerIndex]
         }
-        return (try decodedImage(atImageIndex: imageIndex), sampler)
+        return (try decodedImage(atImageIndex: imageIndex), imageIndex, sampler)
     }
 
     /// An embedded PNG or JPEG, decoded once however many materials use it. Its size is read before it is decoded, since a
@@ -874,11 +903,34 @@ private nonisolated final class GLBSceneBuilder {
               pixelWidth <= GLBLoader.largestImageSideInPixels, pixelHeight <= GLBLoader.largestImageSideInPixels else {
             throw GLBLoadError(reason: "An image is missing a size or is larger than \(GLBLoader.largestImageSideInPixels) pixels on a side.")
         }
+        try countPixels(pixelWidth * pixelHeight)
         guard let decodedImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
             throw GLBLoadError(reason: "An image could not be decoded.")
         }
         imagesByImageIndex[imageIndex] = decodedImage
         return decodedImage
+    }
+
+    /// An image made from the decoded image at `imageIndex`, made once and then shared by every material that asks.
+    private func derivedImage(_ kind: DerivedImageKind, ofImageIndex imageIndex: Int, from sourceImage: CGImage) throws -> CGImage {
+        let key = DerivedImageKey(imageIndex: imageIndex, kind: kind)
+        if let cachedImage = derivedImagesByKey[key] { return cachedImage }
+        try countPixels(sourceImage.width * sourceImage.height)
+        let madeImage: CGImage
+        switch kind {
+        case .withoutAlpha: madeImage = Self.imageWithoutAlpha(sourceImage)
+        case .channel(let channelIndex): madeImage = try Self.grayscaleImage(from: sourceImage, channelIndex: channelIndex)
+        }
+        derivedImagesByKey[key] = madeImage
+        return madeImage
+    }
+
+    /// Adds an image's pixels to the running total, before the image is made, and refuses the model past the budget.
+    private func countPixels(_ pixelCount: Int) throws {
+        pixelsDecodedAndDerived += pixelCount
+        guard pixelsDecodedAndDerived <= GLBLoader.mostPixelsDecodedAndDerived else {
+            throw GLBLoadError(reason: "The GLB's images need more than \(GLBLoader.mostPixelsDecodedAndDerived) pixels decoded and derived.")
+        }
     }
 
     private static func apply(_ sampler: GLTFSampler?, to property: SCNMaterialProperty) {
