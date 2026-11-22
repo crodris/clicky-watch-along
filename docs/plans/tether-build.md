@@ -169,10 +169,16 @@ A page can choose the line's geometry, since the script runs in the page, so it 
 Every PR in the build order and every bigger idea has merged.
 The leftover paragraphs above are a record; this list is what is still open, and a follow-up PR takes the code items.
 
-- The Quick Look extensions draw their own copy of the still cursor; `Triangle` and `CursorGlyphShade` can now move into a file the extensions compile.
-- Two video resume paths after a failure do not check that a newer scene took the pause, as the three paths PR 19b fixed now do.
-- With no part focused, a wide model after a pop-out's tour still centers in the window and can reach over a video page's sidebar.
-- The Theme Studio card's `hidingTheCarriedView: true` argument has no test of its own.
-- Not yet seen in the app: the stacked chips, the scrub's Reduce Motion fade, a close during the Theme Studio card's glide-in, the approval card's Glide into its disc, and the recap gather.
+- Closed by the follow-up PR: the Quick Look preview draws the app's own shaded triangle from `CursorGlyph.swift`, which both extensions compile; the failed pop-out and the failed scene build leave the video's pause to a newer scene (`aSceneThatEndedMayResumeItsVideo`); the Theme Studio card's close during its glide-in has a test; and a bench suite that times out no longer leaks its fake Chrome.
+- With no part focused, the pop-out's tour now ends with the model centered on its video, and the view keeps it there as the learner drags, stopping 10 points inside the window's edge.
+  A model larger than the video still reaches out evenly on both sides, unless that would cross the window's edge, since moving the camera out to fit it would shrink the tour's framing of the subject at 62 percent of the window's height.
+- Seen in the app by the follow-up PR: the stacked chips ("Turning it left" one step above "Zooming in"), the pop-out resting over the video instead of the sidebar, the approval card's "Allowed once" ending and its Glide into its disc along a tether in the agent's color, and the Theme Studio card gone with no stray copy after an Escape sent as it opened.
+  A screenshot cannot catch the 0.42 second glide-in, so the close during it is checked by its unit test.
+- The focused pan toward a part has no window limit of its own: it holds each side of the model inside the video, so a video that hangs partly off the window, as on a page scrolled past it, can still carry the model past the window's edge.
+  This predates the follow-up PR, which limits only the start of the pan.
+- The Quick Look extensions still keep their own copy of Clicky blue's palette order (`ThemeFilePreviewView.perKindAgentColors`, the same colors as `AgentPaletteColor`), since the palette lives in AgentTokenLayout.swift with app-only types.
+- Not yet seen in the app: the scrub's Reduce Motion fade (only a render and a unit test can check it, since no agent may change Reduce Motion) and the recap gather, which needs a finished quiz or a new study guide before the video ends.
+- An ended approval card leaves at once, with no Glide, when its task ends within the card's 2 second ending, as a fast task does.
+  The agent's bring back spark from its disc plays then instead.
 - Known limits, kept: the recap covers only the last quiz and can miss a playlist's end; the scrub was not seen on a non-YouTube player or a second display; a page can steer where the scrub line sits on its own display; a scene build the learner watches waits 60 seconds, which a slow Sonnet test Worker can pass.
 - For Chris by hand: the dark, tinted, and clear app icon modes need the layers imported into Icon Composer, and macOS asks whether Clicky may bypass the system private window picker.

@@ -42,7 +42,8 @@ final class ThemeStudioPanelController {
     private var resizeObserver: NSObjectProtocol?
     /// The center of the highlighted tile's cursor in the window's coordinates (y grows down), which a save flies from.
     private var highlightedTileCursorCenterInTheWindow: CGPoint?
-    private var openingFlight: CarrierFlight?
+    /// The Glide out of the cursor while it plays, which a test reads to see that a close during it shows nothing whole.
+    private(set) var openingFlight: CarrierFlight?
     /// The studio whose card this is, which a card that closes plays its move with.
     private weak var studio: ThemeStudioController?
 

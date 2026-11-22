@@ -77,7 +77,7 @@ ARC_LAYER = """\
 RING_LAYER = """\
 <circle cx="668" cy="430" r="150" fill="none" stroke="#9cc0ff" stroke-width="14" opacity=".75"/>"""
 
-# The cursor is the app's own triangle (`Triangle` in OverlayWindow.swift): equilateral, centered on its centroid, and
+# The cursor is the app's own triangle (`Triangle` in CursorGlyph.swift): equilateral, centered on its centroid, and
 # turned to the app's pointer angle, its tip up and to the left. The app draws its tip straight up and turns it 35 degrees
 # to the left. Here the tip lies along +x, so the same direction is a turn of -125 degrees (90 + 35, to the left).
 CURSOR_ROTATION_DEGREES = -125

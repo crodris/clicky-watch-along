@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { aChromeOnTheFolderHasALiveParent, pageWithLocalThree, sceneShotsChromeProcesses, sceneShotsFolderIsStale, scenePageContentSecurityPolicy } from "./sceneShots.ts";
@@ -105,6 +105,41 @@ describe("sceneShotsFolderIsStale", () => {
   });
 });
 
+/**
+ * The fake or real Chromes that run on a scene-shots folder inside `folder`, found by their profile path in `ps`. A folder
+ * that is not an absolute path, such as a suite's sandbox before `before` made it, matches nothing, so a cleanup after a
+ * failed `before` never reaches another run's Chrome.
+ */
+function chromesInside(folder: string) {
+  if (!isAbsolute(folder) || folder === "/") return [];
+  return sceneShotsChromeProcesses(execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" })).filter((chromeProcess) =>
+    chromeProcess.scratchDirectory.startsWith(`${folder}/`),
+  );
+}
+
+/**
+ * Ends every process a test suite started, before the suite deletes its folder. A driver is killed by its pid. A Chrome
+ * that a driver started is found by its profile folder instead, since a suite that times out while a camera opens has
+ * no pid file for it yet: on 2026-11-21 such a fake Chrome outlived its run by 7 hours, after it made the deleted
+ * folder again to write its pid file.
+ */
+function endEveryProcessInside(folder: string, startedProcessIds: Iterable<number>) {
+  for (const processId of startedProcessIds) {
+    try {
+      process.kill(processId, "SIGKILL");
+    } catch {
+      // It already ended.
+    }
+  }
+  for (const chromeProcess of chromesInside(folder)) {
+    try {
+      process.kill(chromeProcess.pid, "SIGKILL");
+    } catch {
+      // It already ended.
+    }
+  }
+}
+
 // Each test runs fixtures/open-scene-camera.ts with fixtures/fake-chrome.ts as Chrome, in a temporary TMPDIR of its own
 // (see openCamera). The fake Chrome is a node process, so its flags show in `ps` like Chrome's. A process that ignores
 // its signal would hang a test forever, so each test has a timeout that fails it instead.
@@ -116,13 +151,7 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     sandbox = mkdtempSync(join(tmpdir(), "scene-camera-test-"));
   });
   after(() => {
-    for (const processId of startedProcessIds) {
-      try {
-        process.kill(processId, "SIGKILL");
-      } catch {
-        // It already ended.
-      }
-    }
+    endEveryProcessInside(sandbox, startedProcessIds);
     rmSync(sandbox, { recursive: true, force: true });
   });
 
@@ -135,7 +164,7 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     }
   };
 
-  async function openCamera(name: string, argument: "wait" | "throw" | "close-on-stdin") {
+  function startTheDriver(name: string, argument: "wait" | "throw" | "close-on-stdin") {
     const pidFile = join(sandbox, `${name}.pid`);
     const fakeChromeLauncher = join(sandbox, `${name}-chrome`);
     // CHROME_PATH is one executable, so a small script starts the fake Chrome with the flags SceneCamera gives it.
@@ -149,6 +178,11 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     if (driver.pid !== undefined) {
       startedProcessIds.add(driver.pid);
     }
+    return { driver, pidFile };
+  }
+
+  async function openCamera(name: string, argument: "wait" | "throw" | "close-on-stdin") {
+    const { driver, pidFile } = startTheDriver(name, argument);
     const exited = new Promise<void>((resolve) => driver.once("exit", () => resolve()));
     let output = "";
     await new Promise<void>((resolve, reject) => {
@@ -255,6 +289,26 @@ describe("SceneCamera ends its Chrome", { timeout: 30_000 }, () => {
     await Promise.all([olderCodeRun.exited, next.exited]);
   });
 
+  it("ends a Chrome that is still starting when the suite cleans up, so a suite that times out leaves none running", async () => {
+    const { driver } = startTheDriver("still-starting", "wait");
+    for (let attempt = 0; attempt < 100 && chromesInside(sandbox).length === 0; attempt += 1) {
+      await sleep(100);
+    }
+    assert.notDeepEqual(chromesInside(sandbox), [], "the driver started no Chrome");
+    // A suite whose `before` failed still has an empty sandbox, which must match no Chrome, this one included.
+    assert.deepEqual(chromesInside(""), []);
+
+    // The cleanup knows only the driver, as when the suite's timeout ends it before the pid file is read.
+    endEveryProcessInside(sandbox, driver.pid === undefined ? [] : [driver.pid]);
+    await waitUntil(() => chromesInside(sandbox).length === 0);
+
+    assert.deepEqual(chromesInside(sandbox), []);
+    // A SIGKILLed driver leaves its folder, which the tests after this one would count.
+    for (const scratchFolder of scratchFolders()) {
+      rmSync(join(sandbox, scratchFolder), { recursive: true, force: true });
+    }
+  });
+
   it("kills the Chrome that a SIGKILLed run on older code left, which is how the 3.5 hour leak happened", async () => {
     const olderCodeRun = await openCamera("older-code-killed", "wait");
     makeItLookLikeOlderCode(scratchFolders()[0] ?? "");
@@ -276,7 +330,9 @@ describe("SceneCamera drives a page through the fake Chrome's DevTools", { timeo
   before(() => {
     sandbox = mkdtempSync(join(tmpdir(), "scene-camera-devtools-test-"));
   });
+  const startedDriverIds = new Set<number>();
   after(() => {
+    endEveryProcessInside(sandbox, startedDriverIds);
     rmSync(sandbox, { recursive: true, force: true });
   });
 
@@ -291,6 +347,9 @@ describe("SceneCamera drives a page through the fake Chrome's DevTools", { timeo
       env: { ...process.env, TMPDIR: runFolder, CHROME_PATH: fakeChromeLauncher, FAKE_CHROME_PID_FILE: join(runFolder, "chrome.pid"), FAKE_CHROME_DEVTOOLS: "1", ...fakeChromeSettings },
       stdio: ["ignore", "pipe", "ignore"],
     });
+    if (driver.pid !== undefined) {
+      startedDriverIds.add(driver.pid);
+    }
     let output = "";
     driver.stdout?.on("data", (chunk) => {
       output += String(chunk);

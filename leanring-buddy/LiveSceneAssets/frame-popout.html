@@ -862,11 +862,28 @@ function slideThatCentersTheBoxOnTheMedia(box, mediaRect) {
     down: mediaRect.top + mediaRect.height / 2 - (box.top + box.bottom) / 2,
   };
 }
+// The slide, cut short where it would carry the box past the window's edge, so a model over media near a screen edge stays
+// whole on the screen. The margin keeps the box this many points inside each edge. A box larger than the window along one
+// axis is centered on the window along that axis, which is where it sat before the slide.
+function slideKeptInsideTheWindow(slide, box, windowWidth, windowHeight, margin) {
+  const keepInside = (move, lowEdge, highEdge, windowLength) => {
+    const smallestMove = margin - lowEdge;
+    const largestMove = windowLength - margin - highEdge;
+    if (smallestMove > largestMove) return (windowLength - lowEdge - highEdge) / 2;
+    return Math.min(largestMove, Math.max(smallestMove, move));
+  };
+  return {
+    right: keepInside(slide.right, box.left, box.right, windowWidth),
+    down: keepInside(slide.down, box.top, box.bottom, windowHeight),
+  };
+}
 // END pan clamp math
 
 // While a part is focused the lifted subject stays inside the paused video with this margin, so the replay control under the
 // video and the page beside it, such as a video site's sidebar, never sit under the model.
 const subjectMarginInsideTheMedia = 10;
+// The subject centered on the media stays this far inside the window, so media near a screen edge never pushes it off.
+const subjectMarginInsideTheWindow = 10;
 const roomForTheFocusedSubject = {
   left: shownLeft + subjectMarginInsideTheMedia, top: shownTop + subjectMarginInsideTheMedia,
   width: Math.max(1, shownWidth - 2 * subjectMarginInsideTheMedia), height: Math.max(1, shownHeight - 2 * subjectMarginInsideTheMedia),
@@ -893,7 +910,8 @@ const cameraDistanceThatFitsTheFocusedSubject = (cameraYaw, cameraPitch, chosenD
 // the near side of the box larger. Moving the point right slides the subject left on the page, and up slides it down.
 const targetThatCentersTheSubjectOnTheMedia = () => {
   const center = subjectCenter();
-  const slide = slideThatCentersTheBoxOnTheMedia(subjectBoxOnPage(center), roomForTheFocusedSubject);
+  const box = subjectBoxOnPage(center);
+  const slide = slideKeptInsideTheWindow(slideThatCentersTheBoxOnTheMedia(box, roomForTheFocusedSubject), box, pageWidth, pageHeight, subjectMarginInsideTheWindow);
   const worldUnitsPerPagePoint = 2 * cameraDistance * halfFieldTangent / pageHeight;
   const cameraRight = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
   const cameraUp = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
@@ -949,7 +967,9 @@ const render = (now) => {
     yaw = tourEndYaw * move;
     pitch = tourEndPitch * move;
     cameraDistance = pageDistance + (endDistance - pageDistance) * move;
-    target.lerpVectors(new THREE.Vector3(0, 0, 0), subjectCenter(), move);
+    // The tour ends with the subject's box over the video's center, where the view rests after it, so a model wider than the
+    // window's free side does not lean over a video page's sidebar. The point is worked out at this frame's pose.
+    target.lerpVectors(new THREE.Vector3(0, 0, 0), targetThatCentersTheSubjectOnTheMedia(), move);
     if (seconds > 4.5) finishTour();
   } else {
     if (liftNow !== 1) applyLift(1);
@@ -967,7 +987,8 @@ const render = (now) => {
       pitch += (draggedPitch - pitch) * easeToDrag;
       cameraDistance += (restingCameraDistance - cameraDistance) * easeToDrag;
     }
-    const restingTarget = heldTarget ?? (focusedEntry ? focusTargetThatKeepsTheSubjectOverTheMedia(focusedEntry) : subjectCenter());
+    // With no part focused the subject's box stays centered on the video at every pose, so a drag turns it in place there.
+    const restingTarget = heldTarget ?? (focusedEntry ? focusTargetThatKeepsTheSubjectOverTheMedia(focusedEntry) : targetThatCentersTheSubjectOnTheMedia());
     if (focusMove) {
       const progress = reducedMotionQuery.matches ? 1 : Math.min(1, (now - focusMove.startedAt) / 1500);
       if (!focusMove.from) focusMove.from = target.clone();

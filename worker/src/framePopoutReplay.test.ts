@@ -14,12 +14,13 @@ function loadThePanClampMath() {
   expect(blockEnd).toBeGreaterThan(blockStart);
   const blockSource = framePopoutSource.slice(blockStart, blockEnd);
   return new Function(
-    `${blockSource}; return { overflowOnEachSide, largestPanShareThatKeepsTheSubjectInside, cameraDistanceThatFitsTheSubject, slideThatCentersTheBoxOnTheMedia };`,
+    `${blockSource}; return { overflowOnEachSide, largestPanShareThatKeepsTheSubjectInside, cameraDistanceThatFitsTheSubject, slideThatCentersTheBoxOnTheMedia, slideKeptInsideTheWindow };`,
   )() as {
     overflowOnEachSide: (box: Box, mediaRect: MediaRect) => OverflowOnEachSide;
     largestPanShareThatKeepsTheSubjectInside: (overflowOnEachSideAtShare: (share: number) => OverflowOnEachSide) => number;
     cameraDistanceThatFitsTheSubject: (chosenDistance: number, subjectBoxAtDistance: (distance: number) => Box, roomRect: MediaRect) => number;
     slideThatCentersTheBoxOnTheMedia: (box: Box, mediaRect: MediaRect) => { right: number; down: number };
+    slideKeptInsideTheWindow: (slide: { right: number; down: number }, box: Box, windowWidth: number, windowHeight: number, margin: number) => { right: number; down: number };
   };
 }
 
@@ -32,6 +33,31 @@ const boxThatShrinksWithDistance = (widthAt1000: number, heightAt1000: number, c
   right: centerX + (widthAt1000 * 1000) / distance / 2,
   top: centerY - (heightAt1000 * 1000) / distance / 2,
   bottom: centerY + (heightAt1000 * 1000) / distance / 2,
+});
+
+describe("frame-popout.html slide kept inside the window", () => {
+  it("cuts short a slide toward media near the window's edge, so the model stays whole on the screen", () => {
+    // A Wikipedia infobox cutaway centered near x 1250 on a 1512 point window, with an 812 point wide subject in the middle.
+    const { slideThatCentersTheBoxOnTheMedia, slideKeptInsideTheWindow } = loadThePanClampMath();
+    const box: Box = { left: 350, right: 1162, top: 150, bottom: 759 };
+    const infoboxMedia: MediaRect = { left: 1100, top: 200, width: 300, height: 225 };
+    const slide = slideKeptInsideTheWindow(slideThatCentersTheBoxOnTheMedia(box, infoboxMedia), box, 1512, 900, 10);
+    expect(box.right + slide.right).toBe(1502);
+    expect(box.top + slide.down).toBe(10);
+  });
+
+  it("leaves a slide that keeps the box inside the window as it is", () => {
+    const { slideKeptInsideTheWindow } = loadThePanClampMath();
+    const box: Box = { left: 400, right: 800, top: 300, bottom: 600 };
+    expect(slideKeptInsideTheWindow({ right: -150, down: 40 }, box, 1512, 900, 10)).toEqual({ right: -150, down: 40 });
+  });
+
+  it("centers a box larger than the window along that axis", () => {
+    const { slideKeptInsideTheWindow } = loadThePanClampMath();
+    const box: Box = { left: -100, right: 1700, top: 300, bottom: 600 };
+    const slide = slideKeptInsideTheWindow({ right: -300, down: 0 }, box, 1512, 900, 10);
+    expect(box.left + slide.right).toBe(1512 - (box.right + slide.right));
+  });
 });
 
 describe("frame-popout.html instant replay pan clamp", () => {
@@ -152,6 +178,14 @@ describe("frame-popout.html focus wiring", () => {
     const focusTargetSource = framePopoutSource.slice(framePopoutSource.indexOf("const focusTargetThatKeepsTheSubjectOverTheMedia"));
     expect(focusTargetSource).toContain("const fromPoint = targetThatCentersTheSubjectOnTheMedia()");
     expect(focusTargetSource).toContain("overflowOnEachSide(subjectBoxOnPage(candidate.lerpVectors(fromPoint, toPoint, share)), roomForTheFocusedSubject)");
+  });
+
+  it("ends the tour and rests with no part focused with the subject over the video, not the window's center", () => {
+    // A wide model centered in the window reached over a video page's sidebar after the tour, until a part was focused.
+    expect(framePopoutSource).toContain("target.lerpVectors(new THREE.Vector3(0, 0, 0), targetThatCentersTheSubjectOnTheMedia(), move);");
+    expect(framePopoutSource).toContain(": targetThatCentersTheSubjectOnTheMedia());");
+    // The slide toward the media stops at the window's edge, so media near a screen edge never pushes the model off it.
+    expect(framePopoutSource).toContain("slideKeptInsideTheWindow(slideThatCentersTheBoxOnTheMedia(box, roomForTheFocusedSubject), box, pageWidth, pageHeight, subjectMarginInsideTheWindow)");
   });
 });
 
