@@ -279,6 +279,18 @@ struct CursorDrawsTheLoopTests {
         #expect(controller.screenFrameWhereTheBuddyDrawsTheLoop == nil)
     }
 
+    @Test func aBuddyAwayForALoopComesBackOnlyWhenAnotherScreensBuddyLeavesForANewerOne() {
+        let thisScreensToken = UUID()
+        let anotherScreensToken = UUID()
+        #expect(theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: anotherScreensToken))
+        // The record naming this screen's own draw, as when it starts one, leaves it alone.
+        #expect(!theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: thisScreensToken))
+        // The record clearing, as when this screen releases its own draw, leaves it alone.
+        #expect(!theLoopDrawLandsForAnotherDraw(heldToken: thisScreensToken, newRecordToken: nil))
+        // A screen whose buddy is at the mouse has nothing to bring back.
+        #expect(!theLoopDrawLandsForAnotherDraw(heldToken: nil, newRecordToken: anotherScreensToken))
+    }
+
     // MARK: - The overlay's line at 2x
 
     @MainActor

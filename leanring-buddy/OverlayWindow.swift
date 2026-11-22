@@ -520,7 +520,7 @@ struct BlueCursorView: View {
         .onChange(of: cursorLoopController.buddyAwayForTheLoop) { newBuddyAwayForTheLoop in
             // Another screen's buddy left to draw a newer loop, so a buddy still flying back here comes back at once, and
             // only one buddy shows.
-            guard let loopDrawAwayToken, newBuddyAwayForTheLoop?.token != loopDrawAwayToken else { return }
+            guard theLoopDrawLandsForAnotherDraw(heldToken: loopDrawAwayToken, newRecordToken: newBuddyAwayForTheLoop?.token) else { return }
             landTheLoopDrawAtOnce(sendingTheBuddyBack: true, evenWhileItFliesBack: true)
         }
         .onChange(of: companionManager.buddyFreezeCount) { _ in

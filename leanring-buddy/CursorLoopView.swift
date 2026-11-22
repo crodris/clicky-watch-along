@@ -111,6 +111,14 @@ struct BuddyLoopDraw: Equatable {
     }
 }
 
+/// Whether this screen's buddy, away for a loop with `heldToken`, comes back because the controller's record of the buddy away
+/// changed to `newRecordToken`. Another screen's buddy left for a newer loop when the record names another token. The record
+/// naming this screen's own token, or none, never sends it back.
+func theLoopDrawLandsForAnotherDraw(heldToken: UUID?, newRecordToken: UUID?) -> Bool {
+    guard let heldToken, let newRecordToken else { return false }
+    return newRecordToken != heldToken
+}
+
 struct CursorLoopView: View {
     let loop: CursorLoopOnScreen
     let ink: CursorLoopInk
