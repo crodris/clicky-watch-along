@@ -212,30 +212,49 @@ struct AgentPauseTests {
         #expect(!voiceCommandRouterTakesTheTranscript(sceneIsOnScreen: false, videoIsInFront: false, backgroundAgentsArePaused: true, phaseIsWaitingForAQuizAnswer: true, sceneIsBuilding: false))
     }
 
-    @Test func thePanelSaysTheAgentsArePausedAndTheirTimeStandsStill() throws {
+    @Test func thePanelSaysTheAgentsArePaused() throws {
         let store = makeBackgroundAgentStore()
-        let agentID = store.start(kind: .task)
+        store.start(kind: .task)
         let startedAt = try #require(store.agents.first).startedAt
         #expect(panelAgentsSummary(agents: store.agents, agentsArePaused: false, anApprovalWaits: false, at: startedAt)?.mainText == "1 working")
         store.pauseEveryAgent(at: startedAt.addingTimeInterval(10))
         #expect(panelAgentsSummary(agents: store.agents, agentsArePaused: true, anApprovalWaits: false, at: startedAt)?.mainText == "1 paused · say go ahead")
         // "Go ahead" would answer a waiting request with a yes, so the row asks for the answer first.
         #expect(panelAgentsSummary(agents: store.agents, agentsArePaused: true, anApprovalWaits: true, at: startedAt)?.mainText == "1 paused · answer the request first")
-        let pausedAgent = try #require(store.agents.first { $0.id == agentID })
-        #expect(pausedAgent.elapsedSeconds(at: startedAt.addingTimeInterval(70)) == 10)
-        // A step that finishes during the pause does not move where the time stopped. A 3D model agent has two steps.
-        let modelStore = makeBackgroundAgentStore()
-        let modelAgentID = modelStore.start(kind: .threeDModel)
-        let modelStartedAt = try #require(modelStore.agents.first).startedAt
-        modelStore.pauseEveryAgent(at: modelStartedAt)
-        modelStore.completeStep(for: modelAgentID)
-        let modelAgent = try #require(modelStore.agents.first { $0.id == modelAgentID })
-        #expect(modelAgent.elapsedSeconds(at: modelStartedAt.addingTimeInterval(3600)) == 0)
+    }
+
+    @Test func anAgentsElapsedTimeStandsStillThroughAPauseAndGoesOnWithNoJump() throws {
+        let store = makeBackgroundAgentStore()
+        let agentID = store.start(kind: .task)
+        let startedAt = try #require(store.agents.first).startedAt
+        func elapsedSeconds(atSecond second: TimeInterval) throws -> TimeInterval {
+            try #require(store.agents.first { $0.id == agentID }).elapsedSeconds(at: startedAt.addingTimeInterval(second))
+        }
+        store.pauseEveryAgent(at: startedAt.addingTimeInterval(10))
+        #expect(try elapsedSeconds(atSecond: 70) == 10)
         // After "go ahead" the time goes on from 10 seconds, with no jump by the pause's length.
         store.resumeEveryAgent(at: startedAt.addingTimeInterval(70))
-        let resumedAgent = try #require(store.agents.first { $0.id == agentID })
-        #expect(resumedAgent.elapsedSeconds(at: startedAt.addingTimeInterval(70)) == 10)
-        #expect(resumedAgent.elapsedSeconds(at: startedAt.addingTimeInterval(75)) == 15)
+        #expect(try elapsedSeconds(atSecond: 70) == 10)
+        #expect(try elapsedSeconds(atSecond: 75) == 15)
+        // A second pause is left out too, on top of the first.
+        store.pauseEveryAgent(at: startedAt.addingTimeInterval(80))
+        store.resumeEveryAgent(at: startedAt.addingTimeInterval(100))
+        #expect(try elapsedSeconds(atSecond: 105) == 25)
+        // An agent that ends during a pause keeps the time from where that pause began.
+        store.pauseEveryAgent(at: startedAt.addingTimeInterval(110))
+        store.cancel(agentID, at: startedAt.addingTimeInterval(200))
+        #expect(try elapsedSeconds(atSecond: 300) == 30)
+    }
+
+    @Test func aStepThatFinishesDuringAPauseDoesNotMoveWhereTheTimeStopped() throws {
+        // A 3D model agent has two steps, so its first can finish during the pause.
+        let store = makeBackgroundAgentStore()
+        let agentID = store.start(kind: .threeDModel)
+        let startedAt = try #require(store.agents.first).startedAt
+        store.pauseEveryAgent(at: startedAt.addingTimeInterval(10))
+        store.completeStep(for: agentID)
+        let agent = try #require(store.agents.first { $0.id == agentID })
+        #expect(agent.elapsedSeconds(at: startedAt.addingTimeInterval(3600)) == 10)
     }
 
     @Test func anExperimentStartedDuringAPauseSaysItWaitsForGoAhead() {

@@ -659,8 +659,8 @@ final class BackgroundAgentStore: ObservableObject {
         endRunningAgent(agentID, in: .failed(reason: reason))
     }
 
-    func cancel(_ agentID: UUID) {
-        endRunningAgent(agentID, in: .cancelled)
+    func cancel(_ agentID: UUID, at now: Date = Date()) {
+        endRunningAgent(agentID, in: .cancelled, at: now)
     }
 
     /// Only a running agent changes. A step, a result, or a cancel that arrives after the agent ended does nothing.
@@ -672,10 +672,9 @@ final class BackgroundAgentStore: ObservableObject {
         return true
     }
 
-    private func endRunningAgent(_ agentID: UUID, in endPhase: BackgroundAgentPhase) {
+    private func endRunningAgent(_ agentID: UUID, in endPhase: BackgroundAgentPhase, at endedAt: Date = Date()) {
         let agentEnded = updateRunningAgent(agentID) { agent in
             agent.phase = endPhase
-            let endedAt = Date()
             agent.endedAt = endedAt
             agent.pausedAt = nil
             agent.endThePauseOfItsElapsedTime(at: endedAt)
