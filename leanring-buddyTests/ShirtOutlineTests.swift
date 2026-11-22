@@ -99,19 +99,21 @@ struct ShirtOutlineTests {
     }
 
     @Test func aLoopTracesTheOutlineAsASmoothClosedLine() throws {
-        let outline = [CGPoint(x: 10, y: 10), CGPoint(x: 90, y: 12), CGPoint(x: 88, y: 70), CGPoint(x: 12, y: 68)]
+        // A 40 point circle of radius 30 around (50, 40), the density a shirt's outline has.
+        let outline = (0..<40).map { index -> CGPoint in
+            let angle = Double(index) / 40 * 2 * .pi
+            return CGPoint(x: 50 + 30 * cos(angle), y: 40 + 30 * sin(angle))
+        }
         let snapshot = try #require(RoomArtLoopSnapshot(tracing: outline))
-        #expect(snapshot.keyframeCorners == RoomArtCorners(rect: CGRect(x: 10, y: 10, width: 80, height: 60)))
+        #expect(abs(snapshot.keyframeCorners.topLeft.x - 20) < 0.01 && abs(snapshot.keyframeCorners.bottomRight.y - 70) < 0.01)
         #expect(RoomArtLoopSnapshot(tracing: [CGPoint(x: 0, y: 0), CGPoint(x: 5, y: 5)]) == nil)
 
         let fit = RoomArtVideoFit(cameraSize: CGSize(width: 100, height: 80), viewSize: CGSize(width: 200, height: 160))
         let path = try #require(RoomArtLoopOutline.path(for: snapshot, fit: fit))
-        // Drawn at the panel's scale, through the outline's points, starting at the first.
-        #expect(path.trimmedPath(from: 0, to: 0.0005).currentPoint.map { hypot($0.x - 20, $0.y - 20) < 1 } == true)
-        // The line itself, not its control points, stays near the outline.
+        // Drawn at the panel's scale, starting at the first point, and the line itself stays within a point of the circle.
+        #expect(path.trimmedPath(from: 0, to: 0.0005).currentPoint.map { hypot($0.x - 160, $0.y - 80) < 1 } == true)
         let box = path.cgPath.boundingBoxOfPath
-        #expect(box.minX > 10 && box.maxX < 190 && box.minY > 10 && box.maxY < 150, "\(box)")
-        #expect(box.width > 150 && box.height > 110)
+        #expect(abs(box.minX - 40) < 1 && abs(box.maxX - 160) < 1 && abs(box.minY - 20) < 1 && abs(box.maxY - 140) < 1, "\(box)")
         #expect(RoomArtLoopOutline.closedPath(through: Array(outline.prefix(2))) == nil)
     }
 
