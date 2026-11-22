@@ -519,8 +519,12 @@ nonisolated enum RoomArtBareFloorWindow {
     static let widthShareOfTheFrame = 0.3
     static let heightShareOfTheFrame = 0.18
     /// The lower part of the frame, where the floor shows when the screen is tilted down. The depth service fits the floor
-    /// in a window around and below the anchor, so the lowest rows are left for it.
-    static let centerRowShares = 0.62...0.86
+    /// in a window around and below the anchor, so the lowest rows are left for it. The window's bottom edge stays above
+    /// 0.9 of the height, where the panel's status line starts (`statusLineTopShareOfThePanel`), so the line Clicky's loop
+    /// draws around the window never runs behind "Measuring your floor…".
+    static let centerRowShares = 0.62...0.80
+    /// The share of the panel's height above its status line: 16 points of padding and a 33 point line on a 540 point panel.
+    static let statusLineTopShareOfThePanel = 0.9
     /// How much more a spot at the frame's side edge costs than one in the middle, as a share of its texture: furniture
     /// standing at the edge is cut off by the frame, and the darkest, plainest floor is often a far corner. At 1.0 the
     /// plain dark corner of room-floor.mp4's wood floor still won, so the loop outlined that corner while the piece then
