@@ -65,8 +65,9 @@ enum AgentSparkTimeline {
     /// over half a request loop's normal lap, so the spark speeds up as the work nears its end.
     static let secondsPerLapAtNoProgress: TimeInterval = 4.0
     static let secondsPerLapAtFullProgress: TimeInterval = 1.2
-    /// A finished agent's spark completes its lap at the fastest pace, so it never takes longer than one fast lap.
-    static let secondsAFinishingLapTakesAtMost = secondsPerLapAtFullProgress
+    /// A finished agent's spark reaches the end of the lap it is on in exactly this long, whatever part of the lap is left,
+    /// and the controller keeps the agent on the line for the same time, so the line fades as the spark arrives.
+    static let secondsAFinishingLapTakes: TimeInterval = 1.2
 
     /// How long one lap takes at this progress, from 0 to 1. Progress outside that range counts as the nearest end.
     static func secondsPerLap(atProgress progress: Double) -> TimeInterval {
@@ -74,8 +75,8 @@ enum AgentSparkTimeline {
         return secondsPerLapAtNoProgress + (secondsPerLapAtFullProgress - secondsPerLapAtNoProgress) * clampedProgress
     }
 
-    /// Where the spark of the agent that joined the line in this place starts, in laps, so two agents that start together
-    /// never share one spot. The first agent starts at the line's start.
+    /// Where the spark of the agent that joined the line in this place starts, in laps. Up to four agents that join together
+    /// start a quarter lap apart, and the fifth starts where the first did. The first agent starts at the line's start.
     static func startingLaps(forAgentNumber agentNumber: Int) -> Double {
         Double(agentNumber % 4) * 0.25
     }
@@ -88,12 +89,22 @@ struct AgentSparkPhase: Equatable {
     /// Laps since the line's start, counting whole laps, so it only grows.
     private(set) var laps: Double
     private var lastAdvancedAt: TimeInterval?
-    /// Set once the agent finishes: the whole lap at which the spark stops, a full lap past the one it was on.
-    private(set) var stopsAtLap: Double?
+
+    /// Set when the agent finishes: where the spark was, and the whole lap it runs on to, which is the end of the lap it was
+    /// on, so a spark at the start of a lap gets a full one.
+    private struct LastLap: Equatable {
+        let startedAt: TimeInterval
+        let lapsAtStart: Double
+        let endsAtLap: Double
+    }
+    private var lastLap: LastLap?
 
     init(startingLaps: Double = 0) {
         laps = startingLaps
     }
+
+    /// The whole lap a finished agent's spark stops at, and nil while the agent works.
+    var stopsAtLap: Double? { lastLap?.endsAtLap }
 
     /// Where the spark is on the line, from 0 at the start to 1 at the end of the overshoot.
     var shareAroundTheLine: Double {
@@ -102,19 +113,23 @@ struct AgentSparkPhase: Equatable {
 
     /// True once a finished agent's spark has completed its last lap.
     var hasCompletedItsLastLap: Bool {
-        guard let stopsAtLap else { return false }
-        return laps >= stopsAtLap
+        guard let lastLap else { return false }
+        return laps >= lastLap.endsAtLap
     }
 
-    /// Moves the spark on to `now` at the pace of the agent's progress. The first call only records the time.
+    /// Moves the spark on to `now`: at the pace of the agent's progress while it works, and once it has finished, in a
+    /// straight run to the end of the lap that takes `secondsAFinishingLapTakes`. The first call only records the time.
     mutating func advance(to now: TimeInterval, agentProgress: Double, agentHasFinished: Bool) {
-        if agentHasFinished, stopsAtLap == nil {
-            stopsAtLap = laps.rounded(.down) + 1
-        }
         defer { lastAdvancedAt = now }
+        if agentHasFinished, lastLap == nil {
+            lastLap = LastLap(startedAt: now, lapsAtStart: laps, endsAtLap: laps.rounded(.down) + 1)
+        }
+        if let lastLap {
+            let shareOfTheLastLapRun = min(1, max(0, (now - lastLap.startedAt) / AgentSparkTimeline.secondsAFinishingLapTakes))
+            laps = lastLap.lapsAtStart + (lastLap.endsAtLap - lastLap.lapsAtStart) * shareOfTheLastLapRun
+            return
+        }
         guard let lastAdvancedAt, now > lastAdvancedAt else { return }
-        let secondsPerLap = AgentSparkTimeline.secondsPerLap(atProgress: agentHasFinished ? 1 : agentProgress)
-        let lapsAfterThisStep = laps + (now - lastAdvancedAt) / secondsPerLap
-        laps = stopsAtLap.map { min(lapsAfterThisStep, $0) } ?? lapsAfterThisStep
+        laps += (now - lastAdvancedAt) / AgentSparkTimeline.secondsPerLap(atProgress: agentProgress)
     }
 }

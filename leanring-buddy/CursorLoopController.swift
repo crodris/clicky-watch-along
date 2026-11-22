@@ -5,6 +5,8 @@
 //  Runs the loop around the media Clicky is looking at. It reads the front tab's media rect when
 //  push-to-talk is released, feeds `CursorLoopState` the events that draw and clear the loop, and while a
 //  loop shows it samples the front tab as the loop starts and once a second after, and clears the loop when anything differs.
+//  It also hears when background agents start and end, so the agents that work on the video in front lap sparks around the
+//  same media, and the same poll watches the agents' line when no request's loop shows.
 //
 
 import AppKit
@@ -46,9 +48,9 @@ final class CursorLoopController: ObservableObject {
     /// and before the request sets its own processing state, so an idle ends a loop only after it holds this long.
     static let secondsAnIdleMustHoldToEndTheLoop: TimeInterval = 0.3
     private static let chromeBundleIdentifier = "com.google.Chrome"
-    /// The real wait for a finishing lap, as long as the longest one, which the spark never exceeds.
+    /// The real wait for a finishing lap, as long as the spark takes to run it.
     static func sleepForAFinishingSparkLap() async {
-        try? await Task.sleep(for: .seconds(AgentSparkTimeline.secondsAFinishingLapTakesAtMost))
+        try? await Task.sleep(for: .seconds(AgentSparkTimeline.secondsAFinishingLapTakes))
     }
 
     init(
@@ -156,25 +158,31 @@ final class CursorLoopController: ObservableObject {
         change { $0.agentStarted(id: agentID, sourceTab: sourceTab) }
     }
 
-    /// The agents changed. Each agent on the line is checked against its status: a finished agent's spark completes its
-    /// lap and then goes, and an agent that failed, was cancelled, or has left the store goes at once.
+    /// The agents changed, as a snapshot of the whole store. Each agent the loop remembers is checked against its status: a
+    /// finished agent's spark runs its last lap and then goes, and an agent that failed, was cancelled, or is missing from the
+    /// snapshot goes at once. The store publishes a new agent before `agentStarted` hears of it, so a missing agent has left.
     func agentStatusesChanged(_ statusesByAgentID: [UUID: LoopSparkAgentStatus]) {
-        guard case .showing(let line) = state.agentLine else { return }
-        for agentID in line.agentIDs {
+        for runningAgent in state.runningAgents {
+            let agentID = runningAgent.id
             switch statusesByAgentID[agentID] ?? .endedWithoutFinishing {
             case .working:
                 break
             case .endedWithoutFinishing:
                 finishingLapTasks[agentID]?.cancel()
                 finishingLapTasks[agentID] = nil
-                change { $0.agentLeavesTheLine(id: agentID) }
+                change { $0.agentEnded(id: agentID) }
             case .finished:
+                // A finished agent whose spark is off the line has no lap to run.
+                guard state.agentLineHolds(agentID: agentID) else {
+                    change { $0.agentEnded(id: agentID) }
+                    continue
+                }
                 guard finishingLapTasks[agentID] == nil else { continue }
                 finishingLapTasks[agentID] = Task {
                     await waitForAFinishingSparkLap()
                     guard !Task.isCancelled else { return }
                     finishingLapTasks[agentID] = nil
-                    change { $0.agentLeavesTheLine(id: agentID) }
+                    change { $0.agentEnded(id: agentID) }
                 }
             }
         }
@@ -194,7 +202,8 @@ final class CursorLoopController: ObservableObject {
 
     func end(because reason: CursorLoopEndReason) {
         guard state.loopIsShowing || state.turn != .notWaitingForALoop || (reason.endsTheAgentSparks && state.agentLineIsShowing) else { return }
-        print("Cursor loop: ended because \(reason), \(state.loopIsShowing ? "with the loop showing" : "before any loop drew")")
+        let whatWasShowing = state.loopIsShowing ? "with the loop showing" : (state.agentLineIsShowing ? "with only the agent line showing" : "before any loop drew")
+        print("Cursor loop: ended because \(reason), \(whatWasShowing)")
         change { $0.end(because: reason) }
     }
 

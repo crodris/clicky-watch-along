@@ -934,9 +934,10 @@ final class CompanionManager: ObservableObject {
     }
 
     /// A background agent started from a tab. Its sparks lap the loop when its work is on the video in front, and never
-    /// while a scene covers the media or a quiz question is open, as a request's loop never draws then.
+    /// while a scene covers the media or a quiz question is open, as a request's loop never draws then. With Show Clicky off
+    /// the overlay fades a second after the answer, so no line is kept for sparks that would not show.
     private func theAgentStartedFromTheFrontTab(_ agentID: UUID, sourceTab: AgentSourceTab) {
-        guard requestMayDrawALoop(
+        guard isClickyCursorEnabled, requestMayDrawALoop(
             aSceneIsOnScreen: LiveSceneOverlay.shared.isShowingAScene,
             aQuizQuestionIsOpen: liveScenePhaseIsWaitingForAQuizAnswer || videoQuizQuestionIsActive
         ) else {

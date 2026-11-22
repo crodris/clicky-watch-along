@@ -15,9 +15,13 @@ A background agent that works on the video in front laps its own spark around th
 - `loop-agent-spark` laps one spark for each agent working on the video in front, in the agent's color, over a quiet track when no request loop shows.
   The log says `Cursor loop: agent sparks lap the media in the front tab`.
 - `loop-agent-pace` laps a spark in 4 seconds at no progress and 1.2 seconds at full progress.
-- `loop-agent-finish` completes the lap a finished agent's spark is on, then fades the line with its last agent. A failed or cancelled agent's spark goes at once.
+- `loop-agent-finish` runs a finished agent's spark to the end of its lap in 1.2 seconds, then fades the line with its last agent.
+  A failed or cancelled agent's spark goes at once.
 - `loop-agent-clears` keeps the agent line through a push-to-talk press and the answer's speech, and clears it on a scroll, a tab or media change, an app switch, or a scene starting to show.
-- `loop-agent-reduce-motion` draws a still arc for each agent, as long as its progress, with no spark. Only tests and renders cover it, since this skill never flips Reduce Motion.
+- `loop-agent-reduce-motion` draws a still arc for each agent, as long as its progress, with no spark.
+  Only tests and renders cover it, since this skill never flips Reduce Motion.
+- `loop-agent-rejoin` brings back the spark of an agent still working when the same video is in front again after a scroll cleared the line, at the next push-to-talk release.
+- `loop-agent-show-clicky-off` keeps no line for an agent while Show Clicky is off.
 
 ## How to get to it (user POV)
 
@@ -46,12 +50,14 @@ Preconditions:
   Record the video's display with `screencapture -x -V 60 -D 1 "$RUN/sparks.mov"` and tile frames with `ffmpeg`: two sparks, one lime and one violet, lap a faint accent track around the video, and the log shows `Cursor loop: agent sparks lap the media in the front tab` once.
   When an agent finishes, its spark finishes its lap and the line fades, and `Cursor loop: ended because aSceneStartedToShow` follows when the scene rises.
   The debug endpoint's `debug_seed_agents` joins no line, since a seeded agent has no source tab and the endpoint makes no press.
-- **No line without media.** Run `$V app-launch --harness-brain "build me a 3D model of this"` with Chrome not the front app. No `agent sparks lap` line appears.
+- **No line without media.** Run `$V app-launch --harness-brain "build me a 3D model of this"` with Chrome not the front app.
+  No `agent sparks lap` line appears.
 
 ## Gotchas
 
 - Chrome must be the front app, or the media rect read returns nothing and no loop or agent line draws.
-- The front tab poll runs for as long as an agent line shows, so a long task agent keeps two Apple Events a second going.
+- The front tab poll runs for as long as an agent line shows.
+  A long task agent keeps two Apple Events a second going.
 - A video that fills the whole screen gets no loop, so shoot with Chrome in a normal window.
 - The loop polls the front tab once a second, so a tab left in the background still clears it within that second.
 - Take screenshots with `$V shot`, and look at every display before one goes into a pull request.

@@ -3,8 +3,8 @@
 //  leanring-buddy
 //
 //  The pure part of the loop Clicky draws around the video or image it is looking at: what decides
-//  whether a request draws a loop and when it clears, the outline of the loop, and the timing of the
-//  spark that draws it. Nothing here reads Chrome, the clock, or the screen, so tests drive it with
+//  whether a request draws a loop and when it clears, the line that background agents lap their sparks around, the
+//  outline of the loop, and the timing of the spark that draws it. Nothing here reads Chrome, the clock, or the screen, so tests drive it with
 //  made-up times and rects. `CursorLoopController` does the reading, and `CursorLoopView` the drawing.
 //
 
@@ -136,6 +136,14 @@ struct CursorLoopState: Equatable {
     private(set) var loop = Loop.hidden
     private(set) var agentLine = AgentLine.hidden
 
+    struct RunningAgent: Equatable {
+        let id: UUID
+        let sourceTab: AgentSourceTab
+    }
+    /// The agents that started from a tab and have not ended, in the order they started, whether or not their spark is on the
+    /// line. A scroll or a tab switch clears the line while they work, and they rejoin it when the video is in front again.
+    private(set) var runningAgents: [RunningAgent] = []
+
     var loopIsShowing: Bool {
         if case .showing = loop { return true }
         return false
@@ -164,6 +172,12 @@ struct CursorLoopState: Equatable {
         return false
     }
 
+    /// Whether the agent's spark is on the line that shows. A line that is fading out holds no agent.
+    func agentLineHolds(agentID: UUID) -> Bool {
+        if case .showing(let line) = agentLine { return line.agentIDs.contains(agentID) }
+        return false
+    }
+
     /// The agent line to draw, whether it is showing or fading out.
     var agentLineOnTheMedia: (line: AgentSparkLine, isFadingOut: Bool)? {
         switch agentLine {
@@ -180,24 +194,44 @@ struct CursorLoopState: Equatable {
         return nil
     }
 
-    /// An agent started. Its sparks join the line when its work is on the video in front. The line goes around the media it
-    /// already has, or a loop's, or else the rect the push-to-talk release read for this turn, which a turn that handed off
-    /// to nothing keeps. With no request loop, that rect in hand is what gives an agent a line of its own, and dropping it
-    /// would limit sparks to a loop a request already drew.
+    /// An agent started. Its spark joins the line when its work is on the video in front, and it is remembered so that it
+    /// can rejoin when a later turn has that video's media in hand again. The line goes around the media it already has,
+    /// or a loop's, or else the rect the push-to-talk release read for this turn, which a turn that handed off to nothing
+    /// keeps. With no request loop, that rect in hand is what gives an agent a line of its own, and dropping it would
+    /// limit sparks to a loop a request already drew.
     mutating func agentStarted(id agentID: UUID, sourceTab: AgentSourceTab) {
+        guard !runningAgents.contains(where: { $0.id == agentID }) else { return }
+        runningAgents.append(RunningAgent(id: agentID, sourceTab: sourceTab))
+        joinTheLineIfTheAgentWorksOnTheVideoInFront(RunningAgent(id: agentID, sourceTab: sourceTab))
+    }
+
+    /// Every running agent whose spark is off the line and whose video is in front again joins it.
+    private mutating func runningAgentsRejoinTheLine() {
+        for runningAgent in runningAgents {
+            joinTheLineIfTheAgentWorksOnTheVideoInFront(runningAgent)
+        }
+    }
+
+    private mutating func joinTheLineIfTheAgentWorksOnTheVideoInFront(_ runningAgent: RunningAgent) {
         var candidateMedia: [MediaOnTheFrontTab] = []
         if case .showing(let line) = agentLine { candidateMedia.append(line.media) }
         if let mediaTheLoopIsAround { candidateMedia.append(mediaTheLoopIsAround) }
         if case .rectIsInHand(let mediaInHand) = turn { candidateMedia.append(mediaInHand) }
-        guard let media = candidateMedia.first(where: { agentWorksOnTheVideoInFront(sourceTab: sourceTab, frontTabURL: $0.sample.tabURL) }) else {
+        guard let media = candidateMedia.first(where: { agentWorksOnTheVideoInFront(sourceTab: runningAgent.sourceTab, frontTabURL: $0.sample.tabURL) }) else {
             return
         }
         if case .showing(var line) = agentLine, line.media.sample.tabURL == media.sample.tabURL {
-            if !line.agentIDs.contains(agentID) { line.agentIDs.append(agentID) }
+            if !line.agentIDs.contains(runningAgent.id) { line.agentIDs.append(runningAgent.id) }
             agentLine = .showing(line)
         } else {
-            agentLine = .showing(AgentSparkLine(media: media, agentIDs: [agentID]))
+            agentLine = .showing(AgentSparkLine(media: media, agentIDs: [runningAgent.id]))
         }
+    }
+
+    /// The agent finished and its spark is done, or it ended without finishing. It leaves the line and is forgotten.
+    mutating func agentEnded(id agentID: UUID) {
+        runningAgents.removeAll { $0.id == agentID }
+        agentLeavesTheLine(id: agentID)
     }
 
     /// The agent's spark is done, or the agent ended without finishing. The line fades with its last agent.
@@ -233,12 +267,14 @@ struct CursorLoopState: Equatable {
         }
         guard let handedOffAt else {
             turn = .rectIsInHand(media)
+            runningAgentsRejoinTheLine()
             return
         }
         // The request already became a look at the media, so this is the last chance to draw the loop for it.
         turn = .notWaitingForALoop
         if now - handedOffAt <= Self.secondsTheRectMayArriveAfterTheHandOff {
             loop = .showing(media, since: now, sparkSlowsAt: nil)
+            runningAgentsRejoinTheLine()
         }
     }
 
@@ -254,6 +290,7 @@ struct CursorLoopState: Equatable {
         case .rectIsInHand(let media):
             turn = .notWaitingForALoop
             loop = .showing(media, since: now, sparkSlowsAt: nil)
+            runningAgentsRejoinTheLine()
         }
     }
 
