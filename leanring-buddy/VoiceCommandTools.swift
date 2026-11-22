@@ -207,6 +207,20 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case saveTheme = "save_theme"
     case closeThemeStudio = "close_theme_studio"
 
+    /// Whether a call to the tool can hand the request to a slow path, which then owns what Clicky says, so the turn's
+    /// confirmation is never spoken. These are the tools whose branch in CompanionManager's `appVoiceToolStep` returns
+    /// `.handOff`, which `bench/brainEvals.ts` (`appToolStepKindsIn`) also reads, and a tool that hands off only some of
+    /// the time, such as `build_simulation`, counts.
+    var mayHandOff: Bool {
+        switch self {
+        case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .explainPart,
+             .endQuiz, .showReadyModel, .hearTaskAnswer, .designTheme:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Whether the tool turns the request into a look at the media on screen, which draws the loop around it.
     /// A turn that only runs tools, such as turning a model or seeking a video, never does.
     var handsOffToALookAtTheMedia: Bool {

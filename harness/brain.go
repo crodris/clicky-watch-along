@@ -325,13 +325,21 @@ func nextVoiceStep(calls []toolCall, outcomes []voiceToolOutcome, replyText stri
 	if slices.Contains(outcomes, voiceToolLookedUp) || slices.Contains(outcomes, voiceToolFailed) {
 		return askTheModelAgain{}
 	}
+	return speakAndFinish{spokenLine: spokenLineIfEveryCallChanges(calls)}
+}
+
+// spokenLineIfEveryCallChanges is what Clicky says after a turn whose calls all changed the screen: each call's
+// confirmation, in order, joined with spaces, or "" when no call has one. nextVoiceStep speaks it, and the harness also
+// sends it ahead of the turn's calls (voice_line_if_every_call_changes), so the app can fetch its audio while the calls
+// run. One function writes both, so the early line and the finished line can never differ for the same turn.
+func spokenLineIfEveryCallChanges(calls []toolCall) string {
 	var confirmations []string
 	for _, call := range calls {
 		if confirmation := confirmationOf(call); confirmation != "" {
 			confirmations = append(confirmations, confirmation)
 		}
 	}
-	return speakAndFinish{spokenLine: strings.Join(confirmations, " ")}
+	return strings.Join(confirmations, " ")
 }
 
 // brainUsageLine is the token line of one turn, which the app prints, since the Worker logs no usage for /v1/messages.
