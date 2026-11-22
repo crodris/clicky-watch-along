@@ -1,6 +1,6 @@
 import { parse as parseJavaScript } from "acorn";
 import { z } from "zod";
-import { zodIssuesOnOneLine } from "./anthropic";
+import { zodIssueCodesByPath } from "./anthropic";
 
 export const liveSceneQuizSchema = z.object({
   question: z.string().min(1),
@@ -129,7 +129,9 @@ export function checkLiveSceneModelReply(modelReply: string, kind: LiveSceneRequ
 
   const parsedQuiz = liveSceneQuizSchema.safeParse(quizJSON);
   if (!parsedQuiz.success) {
-    return { accepted: false, reason: zodIssuesOnOneLine(parsedQuiz.error) };
+    // The reason goes into the Worker log and the 422 body, so it names each problem by field and issue code and never
+    // quotes the model's own value, which could carry instructions to anything that reads the reason.
+    return { accepted: false, reason: `The json block breaks the quiz schema at ${zodIssueCodesByPath(parsedQuiz.error)}` };
   }
 
   return { accepted: true, html, quiz: parsedQuiz.data };
