@@ -85,3 +85,13 @@ describe("frame-popout.html focusStop", () => {
     expect(focusStopBody).toContain("yaw + shortestYawTurn");
   });
 });
+
+describe("frame-popout.html replay stop numbers and path", () => {
+  it("draws the path's accent through a style property and keeps a reached number apart from its focused label", () => {
+    // The merge of PR 85 into PR 88 found that a CSS variable in an SVG presentation attribute is not promised to resolve,
+    // and that a reached number and its focused label are both filled with the accent.
+    expect(framePopoutSource).toContain('<path id="replayPathLine" d="" fill="none" style="stroke: var(--clicky-accent)"');
+    const reachedRule = framePopoutSource.slice(framePopoutSource.indexOf(".replay-stop-number.reached {"));
+    expect(reachedRule.slice(0, reachedRule.indexOf("}"))).toContain("border-color: var(--clicky-callout-surface)");
+  });
+});

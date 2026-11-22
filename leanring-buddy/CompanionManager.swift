@@ -2554,6 +2554,8 @@ final class CompanionManager: ObservableObject {
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
+            // The quiz summary Card shows when the quiz ends, so an open replay ends first and its control goes with it.
+            instantReplay.endIfOpen()
             // A question's block below resets the phase, so whether a scene was building is read first.
             let aSceneWasBuilding: Bool
             if case .buildingScene = liveScenePhase { aSceneWasBuilding = true } else { aSceneWasBuilding = false }

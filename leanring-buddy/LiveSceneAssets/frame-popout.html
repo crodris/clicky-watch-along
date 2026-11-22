@@ -17,7 +17,8 @@ body.labels-take-clicks .scene-label { pointer-events: auto; cursor: pointer; -w
 /* Instant replay: each stop's number sits on its label, and a dotted path in the accent links the stops reached so far. */
 svg#replayPath { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .replay-stop-number { position: absolute; left: 0; top: 0; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--clicky-accent); background: var(--clicky-callout-surface); color: #fff; font: 700 11px/17px ui-rounded, -apple-system, sans-serif; text-align: center; z-index: 3; cursor: pointer; pointer-events: auto; -webkit-user-select: none; user-select: none; }
-.replay-stop-number.reached { background: var(--clicky-accent); color: var(--clicky-accent-ink); }
+/* A reached stop is filled with the accent, like its focused label, so a dark edge keeps the two apart. */
+.replay-stop-number.reached { background: var(--clicky-accent); color: var(--clicky-accent-ink); border-color: var(--clicky-callout-surface); }
 .replay-stop-number:hover { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3); }
 </style>
 <script type="importmap">{ "imports": { "three": "clicky-asset://three/three.module.js" } }</script>
@@ -26,7 +27,7 @@ svg#replayPath { position: absolute; inset: 0; width: 100%; height: 100%; pointe
 <div id="backdrop"></div>
 <canvas id="frameBackground"></canvas>
 <svg id="leaders"></svg>
-<svg id="replayPath"><path id="replayPathLine" d="" fill="none" stroke="var(--clicky-accent)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/></svg>
+<svg id="replayPath"><path id="replayPathLine" d="" fill="none" style="stroke: var(--clicky-accent)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/></svg>
 <script>/*CLICKY_FRAME_POPOUT_DATA*/</script>
 <script type="module">
 const popout = window.__framePopout;
