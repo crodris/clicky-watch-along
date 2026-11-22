@@ -92,15 +92,16 @@ $V worker-up 8789 -- --var LIVE_SCENE_MODEL:sonnet  # Sonnet builds them (about 
 ```
 
 **App.**
-The app calls `http://127.0.0.1:8787` in every build (`CompanionManager.swift`), so it needs a Worker on 8787 that this script started:
+The Debug app calls `http://127.0.0.1:8787` (`CompanionManager.swift`), or the port that `app-launch --worker-port` passes, so it needs a Worker on that port that this script started:
 
 ```bash
 $V worker-up 8787 -- --var LIVE_SCENE_MODEL:sonnet
 ```
 
 When another process holds 8787, do not stop it.
-Ask Chris whether it can be stopped, or report the app surface as unverified.
-`app-launch` refuses to run without a Worker this script started on 8787, so the run always serves this checkout's Worker code and captures its usage lines.
+Start a Worker on a free port instead, such as `$V worker-up 8796`, and pass `--worker-port 8796` to `app-launch`, which makes the Debug app call that Worker (`debugWorkerPort`).
+`app-launch --no-speculation` passes `--no-voice-command-speculation`, so no voice command starts on the partial transcript and a run can time the same commands both ways.
+`app-launch` refuses to run without a Worker this script started on 8787, or on its `--worker-port`, so the run always serves this checkout's Worker code and captures its usage lines.
 
 Then launch the app with rehearsal steps.
 It refuses when any Clicky is already running, because two instances fight over the event tap and the overlay.
@@ -133,10 +134,12 @@ A step that starts with `&` first waits up to 3 minutes for every background age
 A step that starts with `^` presses push-to-talk 0.3 seconds after the app writes the step's `voice_command` line to the harness, through the handler a real press runs, and releases it 0.2 seconds later.
 It needs `--harness-brain`, and the log says `Live scene rehearsal: pressing push-to-talk during the voice command`.
 The empty press asks nothing, and the next step goes out as usual.
+A step that starts with `%` stands in for the microphone's partial transcript, so a voice command can start on it at the release as a real press would: `%turn it left` hears the same words at the release and in the final transcript, and `%turn it >> turn it right` hears `turn it` at the release and `turn it right` as the final transcript, which discards the first command.
+It needs `--harness-brain`.
 A step that starts with `+N ` waits N more seconds first, such as `+12 build me a 3D model`, so a recorded take can land a request on a chosen moment of a playing video.
 It goes before any other prefix, and N is a number of seconds up to 600.
 `app-wait` returns when the app logs `Live scene rehearsal: done`.
-It prints the relevant log lines and saves the usage lines the 8787 Worker logged during the run.
+It prints the relevant log lines and saves the usage lines the app's Worker (8787, or the launch's `--worker-port`) logged during the run.
 
 ## Drive
 
@@ -174,9 +177,13 @@ worker-up [port] [-- wrangler args]
 worker-down [port]        Stop the Workers this script started, or only the one on that port.
 post <route> <body.json> [port]
                           POST a JSON body to a Worker this script started, and save the response.
-app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--room-camera-file <video>] [--show-setup] "<steps>"
+app-launch [--brain] [--harness-brain] [--no-app-secret|--wrong-app-secret] [--every-permission] [--worker-port <port>] [--no-speculation] [--room-camera-file <video>] [--show-setup] "<steps>"
                           Launch the Debug app with --live-scene-rehearsal "<steps>" and --voice-tool-debug-server.
                           --brain passes --brain-takes-every-request, and --harness-brain passes --brain-runs-in-the-harness.
+                          --worker-port makes the app call a Worker this script started on that port instead of 8787.
+                          --no-speculation passes --no-voice-command-speculation.
+                          --room-camera-file passes the same Debug argument, so the room art panel loops that video instead of the camera.
+                          --show-setup passes --show-setup, so the menu bar panel opens on the six-step setup checklist without clearing a permission.
 app-wait [seconds]        Wait for "Live scene rehearsal: done" in the app log (default 240).
 app-quit                  Quit the app instance this script launched.
 shot <name>               Save a screenshot of every display into the run.
@@ -204,6 +211,7 @@ A record whose PID now belongs to another process is removed, and that process i
 - Push-to-talk itself.
   It needs the microphone and real speech; `$V key push-to-talk-tap` sends only a press with no words.
   Rehearsal steps enter the pipeline right after transcription, so the transcription providers (AssemblyAI, OpenAI, Apple Speech) stay unverified.
+  Never drive real push-to-talk presses by playing `say` through the speakers into the microphone: the microphone also records people in the room, and their words go to the brain model and to ElevenLabs. A live microphone check is Chris's own press.
 - The menu bar panel's contents, the model picker, and the permission prompts.
   `$V menu-icon click` opens the panel itself, and `$V menu-icon status` says where the icon is, since a status item beside the notch may be missing from the window list.
 - Mouse drag orbit and trackpad pinch.
