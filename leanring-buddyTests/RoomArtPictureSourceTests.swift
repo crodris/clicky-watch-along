@@ -13,6 +13,7 @@ import AppKit
 import Foundation
 import os
 import Testing
+import UniformTypeIdentifiers
 @testable import Clicky
 
 /// Answers requests to `https://pictures.stub/<path>` with the reply a test set for that path, and records the scheme and
@@ -280,7 +281,7 @@ struct RoomArtPictureSourceTests {
 
     @Test func aHostOnThisMacOrAPrivateNetworkIsNeverDownloadedFrom() {
         let refusedHosts = [
-            "localhost", "app.localhost", "printer.local", "wiki.internal", "intranet",
+            "localhost", "app.localhost", "printer.local", "wiki.internal", "router.lan", "nas.home.arpa", "intranet",
             "127.0.0.1", "127.1", "2130706433", "0x7f.0.0.1", "0.0.0.0", "10.0.0.5", "172.16.0.1", "172.31.255.255",
             "192.168.1.1", "169.254.169.254", "100.64.0.1", "198.18.0.1", "224.0.0.1", "255.255.255.255",
             "::1", "::", "fe80::1", "fd00::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
@@ -299,6 +300,22 @@ struct RoomArtPictureSourceTests {
         #expect(!PageImageAnimation.mayDownload(URL(string: "https://[::1]:8443/a.png")))
         #expect(!PageImageAnimation.mayDownload(URL(string: "https://localhost:3000/a.png")))
         #expect(PageImageAnimation.mayDownload(URL(string: "https://example.com:8443/a.png")))
+    }
+
+    @Test func theAnimationPathReadsOnlyTheFormatsAnAnimatedImageComesIn() throws {
+        func multiFrameFile(typeIdentifier: String) throws -> Data {
+            let frameImage = try #require(NSBitmapImageRep(data: pngData(width: 16, height: 16))?.cgImage)
+            let fileData = NSMutableData()
+            let destination = try #require(CGImageDestinationCreateWithData(fileData, typeIdentifier as CFString, 2, nil))
+            CGImageDestinationAddImage(destination, frameImage, nil)
+            CGImageDestinationAddImage(destination, frameImage, nil)
+            #expect(CGImageDestinationFinalize(destination))
+            return fileData as Data
+        }
+        let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        // A two-page GIF is read, and a two-page TIFF holds the same frames but is not a format an animated image comes in.
+        #expect(PageImageAnimation.frames(ofImageData: try multiFrameFile(typeIdentifier: UTType.gif.identifier), frameWidth: 8, frameHeight: 6, backgroundColor: white)?.count == 2)
+        #expect(PageImageAnimation.frames(ofImageData: try multiFrameFile(typeIdentifier: UTType.tiff.identifier), frameWidth: 8, frameHeight: 6, backgroundColor: white) == nil)
     }
 
     @Test func aRedirectToAPrivateHostIsRefusedAndTheScreenIsCaptured() async {

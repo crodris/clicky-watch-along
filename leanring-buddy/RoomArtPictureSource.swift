@@ -37,21 +37,25 @@ enum RoomArtPictureSource {
         downloadDeadlineSeconds: TimeInterval = RoomArtPictureSource.downloadDeadlineSeconds,
         captureTheScreen: () async -> RoomArtPicture?
     ) async -> RoomArtPicture? {
+        var pictureFromTheImageFile: RoomArtPicture?
         if let imageFileURL {
-            if let downloadedPicture = await downloadedPicture(
+            pictureFromTheImageFile = await downloadedPicture(
                 atImageURL: imageFileURL,
                 session: session,
                 deadlineSeconds: downloadDeadlineSeconds
-            ) {
-                print("Room art: used the page's image file (\(downloadedPicture.width)x\(downloadedPicture.height)) from \(imageFileURL.host ?? "its page")")
-                return downloadedPicture
-            }
-            print("Room art: could not use the page's image file, so the picture is a screen capture")
-        } else {
-            print("Room art: the largest picture names no https image file, so the picture is a screen capture")
+            )
         }
-        // Escape or a push-to-talk press cancelled the request, so nothing more is captured.
+        if let pictureFromTheImageFile {
+            print("Room art: used the page's image file (\(pictureFromTheImageFile.width)x\(pictureFromTheImageFile.height)) from \(imageFileURL?.host ?? "its page")")
+            return pictureFromTheImageFile
+        }
+        // Escape or a push-to-talk press cancelled the request, so nothing more is captured, and no log line says it was.
         guard !Task.isCancelled else { return nil }
+        if imageFileURL == nil {
+            print("Room art: the largest picture names no https image file, so the picture is a screen capture")
+        } else {
+            print("Room art: could not use the page's image file, so the picture is a screen capture")
+        }
         return await captureTheScreen()
     }
 

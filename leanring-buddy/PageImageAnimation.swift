@@ -9,6 +9,7 @@
 import AppKit
 import Darwin
 import ImageIO
+import UniformTypeIdentifiers
 
 struct PageImageAnimationFrame: Equatable {
     let jpegBase64: String
@@ -26,6 +27,11 @@ enum PageImageAnimation {
     /// The download runs while Sonnet reads the frame, which takes about 4 seconds.
     nonisolated private static let downloadTimeoutSeconds: TimeInterval = 4
     nonisolated static let largestDownloadByteCount = 8_000_000
+    /// The page names the file, so ImageIO decodes only the formats an animated page image comes in (an APNG is a PNG),
+    /// never TIFF, PSD, RAW, or the like.
+    nonisolated static let animatedImageTypeIdentifiers: Set<String> = [
+        UTType.gif.identifier, UTType.webP.identifier, UTType.png.identifier,
+    ]
     /// No cookies, credentials, or cache, since the URL comes from whatever page is open.
     nonisolated static let downloadSession: URLSession = {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
@@ -92,8 +98,8 @@ enum PageImageAnimation {
         return true
     }
 
-    /// True for a name or address that points at this Mac or a private network: `localhost` and its subdomains, `.local`
-    /// and `.internal` names, a name with no dot, and an IP address (in any form `inet_aton` reads, such as `127.1`) that
+    /// True for a name or address that points at this Mac or a private network: `localhost` and its subdomains, `.local`,
+    /// `.internal`, `.lan`, and `.home.arpa` names, a name with no dot, and an IP address (in any form `inet_aton` reads, such as `127.1`) that
     /// is unspecified, loopback, private, link-local, shared (100.64.0.0/10), benchmarking, multicast, or reserved, for IPv4
     /// and IPv6 (including an IPv4 address mapped into IPv6).
     nonisolated static func hostIsLocalOrPrivate(_ host: String) -> Bool {
@@ -110,7 +116,8 @@ enum PageImageAnimation {
             return ipv6AddressIsLocalOrPrivate(ipv6Bytes)
         }
         if !lowercaseHost.contains(".") { return true }
-        return lowercaseHost.hasSuffix(".localhost") || lowercaseHost.hasSuffix(".local") || lowercaseHost.hasSuffix(".internal")
+        let privateNameSuffixes = [".localhost", ".local", ".internal", ".lan", ".home.arpa"]
+        return privateNameSuffixes.contains { lowercaseHost.hasSuffix($0) }
     }
 
     nonisolated private static func ipv4AddressIsLocalOrPrivate(_ address: UInt32) -> Bool {
@@ -150,7 +157,9 @@ enum PageImageAnimation {
         frameHeight: Int,
         backgroundColor: CGColor
     ) -> [PageImageAnimationFrame]? {
-        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else { return nil }
+        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let imageTypeIdentifier = CGImageSourceGetType(imageSource) as String?,
+              animatedImageTypeIdentifiers.contains(imageTypeIdentifier) else { return nil }
         let frameCount = CGImageSourceGetCount(imageSource)
         guard frameCount > 1, frameCount <= largestFrameCount,
               frameCount * frameWidth * frameHeight <= largestOutputPixelCountForAllFrames else {
@@ -261,7 +270,7 @@ enum PageImageAnimation {
     }
 }
 
-/// A redirect may only move to another https URL.
+/// A redirect may only move to another https URL on a public host (`PageImageAnimation.mayDownload`).
 /// The completion-handler form is used because Swift 6.3 crashes emitting the async form's thunk under main-actor default isolation.
 nonisolated final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(

@@ -641,6 +641,8 @@ final class RoomArtPreviewController: ObservableObject {
         if isOpen { close() }
         openingNumber += 1
         let thisOpening = openingNumber
+        // An earlier request still fetching its picture is stale now, so its download stops instead of running to its deadline.
+        pictureTask?.cancel()
         anOpeningIsUnderway = true
         defer { if thisOpening == openingNumber { anOpeningIsUnderway = false } }
 

@@ -636,6 +636,19 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aSecondRequestStopsTheFirstRequestsPictureDownload() async throws {
+        let harness = RoomArtHarness(secondsToCaptureThePicture: 120)
+        let firstRequest = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        try await waitFor("the first picture capture to start") { harness.recorder.pictureCaptureStarted }
+        let secondRequest = Task { await harness.controller.showTheArtInTheRoom(learnerRequest: whatTheLearnerSaid) }
+        // The 120 second capture only ends early when the second request cancels it.
+        let secondRequestStartedAt = ContinuousClock.now
+        await firstRequest.value
+        #expect(ContinuousClock.now - secondRequestStartedAt < .seconds(5))
+        #expect(harness.controller.closeOnEscape())
+        await secondRequest.value
+    }
+
     @Test func escapeStopsASlowPictureDownloadAtOnce() async throws {
         // The picture takes 120 s, and a close that did not cancel it would leave the request waiting that long.
         let harness = RoomArtHarness(secondsToCaptureThePicture: 120)
