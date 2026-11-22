@@ -544,6 +544,17 @@
         "required": []
       },
       "readOnly": false
+    },
+    {
+      "name": "show_art_in_my_room",
+      "description": "Hang the picture or wall art on Chrome's front tab on the learner's wall in their live camera view, at its real size from the page. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "readOnly": false
     }
   ]
 }

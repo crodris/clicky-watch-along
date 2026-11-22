@@ -176,6 +176,17 @@ final class TetherCalloutPresence: ObservableObject {
     @Published private(set) var leavingExit: TetherCalloutExit?
     /// Counts each appear and leave, so a removal waiting for a leave to play never removes a Callout that appeared since.
     private var removalGeneration = 0
+    /// Runs a removal after the seconds its leave takes. A test passes one it fires by hand, so a removal happens when the
+    /// test says and never depends on how soon a busy main queue gets to a timer.
+    private let scheduleTheRemoval: (_ afterSeconds: TimeInterval, _ removal: @escaping () -> Void) -> Void
+
+    init(
+        scheduleTheRemoval: @escaping (_ afterSeconds: TimeInterval, _ removal: @escaping () -> Void) -> Void = { afterSeconds, removal in
+            DispatchQueue.main.asyncAfter(deadline: .now() + afterSeconds, execute: removal)
+        }
+    ) {
+        self.scheduleTheRemoval = scheduleTheRemoval
+    }
 
     /// The Callout pops in, or comes back from a leave that has not finished.
     func appear() {
@@ -191,7 +202,7 @@ final class TetherCalloutPresence: ObservableObject {
         removalGeneration += 1
         let generationOfThisLeave = removalGeneration
         leavingExit = exit
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.secondsToLeave(exit, reduceMotionIsOn: reduceMotionIsOn)) { [weak self] in
+        scheduleTheRemoval(Self.secondsToLeave(exit, reduceMotionIsOn: reduceMotionIsOn)) { [weak self] in
             guard let self, self.removalGeneration == generationOfThisLeave else { return }
             self.isInTheViewTree = false
             self.leavingExit = nil
