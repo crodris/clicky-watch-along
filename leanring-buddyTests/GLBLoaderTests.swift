@@ -937,11 +937,12 @@ struct GLBLoaderImageBudgetTests {
     }()
 
     /// A quad whose mesh repeats its primitive `primitiveCount` times, each with its own material built by `material`.
-    private func quadWithPrimitives(_ primitiveCount: Int, imageCount: Int, material: (Int) -> [String: Any]) -> SyntheticGLB {
+    /// With `sharingOneMaterial`, every primitive uses the first material instead.
+    private func quadWithPrimitives(_ primitiveCount: Int, imageCount: Int, sharingOneMaterial: Bool = false, material: (Int) -> [String: Any]) -> SyntheticGLB {
         var glb = quadGLB(material: material(0), imageFiles: Array(repeating: (bytes: Self.largePNG, mimeType: "image/png"), count: imageCount))
         var addedMaterialIndices: [Int] = []
         for primitiveIndex in 1..<max(primitiveCount, 1) {
-            addedMaterialIndices.append(glb.appendEntry(material(primitiveIndex), to: "materials"))
+            addedMaterialIndices.append(sharingOneMaterial ? 0 : glb.appendEntry(material(primitiveIndex), to: "materials"))
         }
         glb.changeEntry(of: "meshes", at: 0) { mesh in
             var primitives = mesh["primitives"] as? [[String: Any]] ?? []
@@ -986,7 +987,8 @@ struct GLBLoaderImageBudgetTests {
     }
 
     @Test func aFileWithTooManyPrimitivesIsRefused() throws {
-        let glb = quadWithPrimitives(GLBLoader.mostPrimitivesInAFile + 1, imageCount: 0) { _ in [:] }
+        // One shared material, so only the primitive cap can refuse it.
+        let glb = quadWithPrimitives(GLBLoader.mostPrimitivesInAFile + 1, imageCount: 0, sharingOneMaterial: true) { _ in [:] }
         #expect(throws: GLBLoadError.self) { try GLBLoader.rootNode(fromGLBData: glb.data()) }
     }
 

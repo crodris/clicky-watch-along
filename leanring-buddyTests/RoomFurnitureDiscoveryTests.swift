@@ -169,7 +169,8 @@ struct RoomFurnitureDiscoveryTests {
     }
 
     @Test func pageTextNeverSendsWholeHydrationObjects() throws {
-        let nextData = #"{"props":{"user":{"email":"shopper@example.com","sessionToken":"tok_4f9a8b7c6d5e"},"product":{"dimensions":{"height":{"value":45,"unitCode":"CMT"},"depth":"55 cm"}}}}"#
+        // A size-like key whose value is not a measurement, such as a size chart's contact, is left out too.
+        let nextData = #"{"props":{"user":{"email":"shopper@example.com","sessionToken":"tok_4f9a8b7c6d5e"},"sizeChartContact":"fit-team@example.com","product":{"dimensions":{"height":{"value":45,"unitCode":"CMT"},"depth":"55 cm"}}}}"#
         let nuxt = #"{"state":{"cart":{"id":"cart_123456"},"item":{"seatWidth":"20 in"}}}"#
         let text = try pageText(bodyText: "A table", nextDataJSON: nextData, nuxtJSON: nuxt)
         #expect(text.contains("height: 45 CMT"))
@@ -178,6 +179,7 @@ struct RoomFurnitureDiscoveryTests {
         #expect(!text.contains("shopper@example.com"))
         #expect(!text.contains("tok_4f9a8b7c6d5e"))
         #expect(!text.contains("cart_123456"))
+        #expect(!text.contains("fit-team@example.com"))
     }
 
     @Test func pageTextCutsTheVisibleTextSoTheSizesStillFit() throws {

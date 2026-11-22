@@ -880,6 +880,19 @@ struct RoomArtPreviewControllerTests {
         harness.controller.close()
     }
 
+    @Test func aDepthServiceThatIsDownFailsTheFloorWithNoWallRequest() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 502, body: #"{"error":"The depth service is not answering"}"#))
+        let harness = RoomArtHarness(worker: worker)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+
+        try await waitFor("the panel to fail on the depth service") { harness.controller.phase == .failed(.depthServiceUnavailable) }
+        #expect(worker.wallRequests.isEmpty)
+        harness.controller.close()
+    }
+
     @Test func aFloorThatIsNotLevelWithTheWallIsADeskAndNotTheFloor() async throws {
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)

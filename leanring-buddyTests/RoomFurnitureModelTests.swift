@@ -104,8 +104,9 @@ struct RoomFurnitureModelFitTests {
     }
 
     @Test func aSmallMismatchKeepsTheModelsOwnFront() throws {
-        // Width and depth 10 percent off is a measuring difference, not a model turned on its side.
-        let fit = try #require(RoomFurnitureModelFit.fit(modelExtent: SIMD3(0.6, 0.45, 0.5), widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55))
+        // Width 9 percent and depth 13 percent off is a measuring difference, not a model turned on its side, even though the
+        // turned model would fit a little better.
+        let fit = try #require(RoomFurnitureModelFit.fit(modelExtent: SIMD3(0.6, 0.45, 0.52), widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.6))
         #expect(!fit.wasTurnedAQuarter)
     }
 
