@@ -15,11 +15,15 @@ Both routes answer 403 for a request with an Origin header and 415 for a body th
 application/json, so a web page in a browser on this Mac cannot reach the service.
 
 Depth Pro loads once at start. `plane.py` holds the geometry and has no torch import.
+The last two depth maps are kept by a hash of the JPEG and the focal hint, so furniture's wall
+measurement on the same keyframe as its floor measurement costs no second Depth Pro run.
 """
 
 import base64
 import binascii
+import collections
 import dataclasses
+import hashlib
 import io
 import json
 import os
@@ -43,6 +47,11 @@ PERSON_MASK_THRESHOLD = 100
 
 # One Depth Pro run at a time: parallel runs share the GPU and each takes longer.
 DEPTH_LOCK = threading.Lock()
+# Furniture measures the floor and then the wall on one keyframe, so the last depth maps are kept.
+# Two cover that pair and a click's new keyframe, at about 4 MB each for a 1280 x 720 frame.
+DEPTH_CACHE_SIZE = 2
+DEPTH_CACHE_LOCK = threading.Lock()
+depth_cache = collections.OrderedDict()
 depth_model = None
 depth_transform = None
 depth_device = None
@@ -64,6 +73,31 @@ def load_depth_pro(checkpoint_path):
     depth_model, depth_transform = depth_pro.create_model_and_transforms(config=config, device=depth_device, precision=torch.float16)
     depth_model.eval()
     print(f"Depth Pro loaded in {time.time() - started_at:.1f} s on {depth_device}", flush=True)
+
+
+def depth_cache_key(jpeg_base64, focal_hint):
+    """The same JPEG and focal hint give the same depth, so their hash names a cached run."""
+    return hashlib.sha256(f"{jpeg_base64}|{focal_hint!r}".encode()).hexdigest()
+
+
+def cached_depth(cache_key, frame_rgb, focal_hint):
+    """(depth, focal length, whether it came from the cache). A miss runs Depth Pro and keeps the result.
+
+    Two requests for the same frame that arrive together may both run Depth Pro; the app sends the
+    wall request only after the floor's reply, so that never happens in practice.
+    """
+    with DEPTH_CACHE_LOCK:
+        if cache_key in depth_cache:
+            depth_cache.move_to_end(cache_key)
+            depth_m, focal_px = depth_cache[cache_key]
+            return depth_m, focal_px, True
+    depth_m, focal_px = infer_depth(frame_rgb, focal_hint)
+    with DEPTH_CACHE_LOCK:
+        depth_cache[cache_key] = (depth_m, focal_px)
+        depth_cache.move_to_end(cache_key)
+        while len(depth_cache) > DEPTH_CACHE_SIZE:
+            depth_cache.popitem(last=False)
+    return depth_m, focal_px, False
 
 
 def infer_depth(frame_rgb, focal_hint):
@@ -132,11 +166,12 @@ GEOMETRY_BY_ROUTE = {"/wall": plane.wall_frame, "/floor": plane.floor_frame}
 def measure_plane(route, body):
     started_at = time.time()
     frame_rgb, person_mask, anchor, focal_hint = parse_plane_request(body)
-    depth_m, focal_px = infer_depth(frame_rgb, focal_hint)
+    depth_m, focal_px, depth_was_cached = cached_depth(depth_cache_key(body["jpegBase64"], focal_hint), frame_rgb, focal_hint)
     inference_seconds = time.time() - started_at
     frame = GEOMETRY_BY_ROUTE[route](depth_m, focal_px, person_mask, anchor)
     return {
         **frame,
+        "depthWasCached": depth_was_cached,
         "inferenceSeconds": round(inference_seconds, 2),
         "seconds": round(time.time() - started_at, 2),
     }
@@ -211,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
             print(
                 f"[{route}] 200 distance={result['distanceMeters']} m {angle_name}={angle} deg "
                 f"inliers={result['planeInlierShare']} focal={result['focalPx']} px "
-                f"inference={result['inferenceSeconds']} s total={result['seconds']} s",
+                f"inference={result['inferenceSeconds']} s total={result['seconds']} s cached={result['depthWasCached']}",
                 flush=True,
             )
         else:

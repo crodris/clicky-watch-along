@@ -33,6 +33,11 @@ import Vision
 nonisolated struct RoomArtKeyframe: Sendable {
     let measurementRequest: RoomWallRequest
     let wallLight: RoomArtWallLight
+    /// The barest wall spot in this keyframe, where furniture's wall is measured: the wall checks that a measured floor is
+    /// level, and stands the piece against it when the camera sees no floor. Nil when the frame processor did not find one.
+    var wallSpotAnchor: CGPoint? = nil
+    /// Counts up with each keyframe the processor takes, so a render made for one keyframe is never drawn on another.
+    var keyframeNumber = 0
 }
 
 // MARK: - Frame processor
@@ -61,6 +66,9 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     /// With no anchor, the spot is the bare wall spot for the wall and the bare floor spot for the floor.
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe?
     func showTheItem(_ itemImage: CGImage, keyframeCorners: RoomArtCorners, on surfaceKind: RoomArtSurfaceKind)
+    /// Replaces the furniture's flat cutout with layers rendered or painted for the keyframe numbered `keyframeNumber`, with
+    /// a short crossfade. Layers for an older keyframe, such as one a click has replaced, are dropped.
+    func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int)
     func putBackTheItemFromBeforeTheMove()
     /// Starts drawing a shirt instead of tracking a surface: each frame finds the torso, and `onTheFramingSettled` runs on
     /// the main actor each time the framing settles on a new kind (`ShirtFramingDebouncer`). The loop traces the torso.
@@ -94,6 +102,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var theSurfaceIsLostAsLastReported = false
     private var latestFrame: CVPixelBuffer?
     private var latestPersonMask: CVPixelBuffer?
+    /// The lowest row the newest person mask reaches, as a share of the frame's height, or nil with no person in it.
+    private var latestPersonLowestRowShare: Double?
     /// A frame is being segmented, so the next frames skip segmentation until it is done.
     private var segmentationIsRunning = false
     private var latestTrackGrayscale: RoomGrayscaleImage?
@@ -101,9 +111,17 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     private var tracker: RoomTracker?
     private var keyframeWallLight = RoomArtWallLight.neutral
     private var placedArt: PlacedArt?
-    /// The tracker and the item from before a click's keyframe, put back when that move's measurement fails.
+    /// The drawing the furniture's layers replaced and when, faded out over `crossfadeSeconds` so the better look arrives
+    /// softly instead of popping.
+    private var crossfadeFrom: (placedArt: PlacedArt, startedAt: CFTimeInterval)?
+    private static let crossfadeSeconds = 0.5
+    /// The number of the newest keyframe, which `showTheFurnitureLayers` checks.
+    private var keyframeNumber = 0
+    /// The tracker, the item, and the keyframe number from before a click's keyframe, put back when that move's
+    /// measurement fails.
     private var trackerBeforeTheMove: RoomTracker?
     private var placedArtBeforeTheMove: PlacedArt?
+    private var keyframeNumberBeforeTheMove = 0
     /// The shirt try-on, on while the item is a top. The pose tracker and the renderer belong to this queue's session,
     /// and the renderer is only ever called from this queue.
     private var shirtTryOnIsOn = false
@@ -127,9 +145,18 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
     /// The item as it is drawn on every frame: already lit like the room and softened like the camera, with its shadow.
     private struct PlacedArt {
-        let litArt: CIImage
-        let shadow: CIImage
+        enum Drawing {
+            /// A picture warped onto its four corners: wall art, or furniture's flat cutout.
+            case warpedOntoItsCorners(litArt: CIImage, shadow: CIImage)
+            /// Furniture rendered or painted over the whole keyframe, moved with the room by the tracker's warp.
+            case keyframeLayers(item: CIImage, shadow: CIImage?, grainStandardDeviation: Double)
+        }
+        let drawing: Drawing
+        /// The keyframe points the tracker moves each frame: the item's corners, or the frame's corners for keyframe layers.
         let keyframeCorners: [CGPoint]
+        /// Where furniture stands on the floor in the keyframe, which decides whether it draws over the learner. Nil for
+        /// wall art, which is always behind them.
+        let keyframeBasePoint: CGPoint?
     }
 
     private struct FrameStatistics {
@@ -176,8 +203,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             shirtRenderer.reset()
             trackerBeforeTheMove = nil
             placedArtBeforeTheMove = nil
+            crossfadeFrom = nil
             latestFrame = nil
             latestPersonMask = nil
+            latestPersonLowestRowShare = nil
             latestTrackGrayscale = nil
             latestTrackRoomMask = nil
             tracker = nil
@@ -197,6 +226,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             self.onTheSurfaceLostOrFound = nil
             self.onTheShirtFramingSettled = nil
             self.placedArt = nil
+            self.crossfadeFrom = nil
             self.shirtTryOnIsOn = false
             self.shirtGarment = nil
         }
@@ -266,16 +296,19 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         }
 
         var artCorners: [CGPoint]?
+        var fadingArtCorners: [CGPoint]?
         if let placedArt, let trackStep {
             reportWhetherTheSurfaceIsLost(trackStep.theArtIsHidden)
             if !trackStep.theArtIsHidden, let cameraWarp {
                 let currentCorners = placedArt.keyframeCorners.map(cameraWarp.apply)
                 artCorners = smoothedCorners(previous: smoothedArtCorners, current: currentCorners)
                 smoothedArtCorners = artCorners
+                // The drawing fading out follows the same warp, unsmoothed for its half second.
+                fadingArtCorners = crossfadeFrom?.placedArt.keyframeCorners.map(cameraWarp.apply)
             }
         }
         // A frame that found no drawable was not shown, so it does not count toward the frame rate.
-        if draw(cameraFrame: cameraFrame, artCorners: artCorners, shirtTorso: shirtTorsoToDraw) {
+        if draw(cameraFrame: cameraFrame, artCorners: artCorners, fadingArtCorners: fadingArtCorners, shirtTorso: shirtTorsoToDraw) {
             noteTheFrame(trackMilliseconds: trackMilliseconds)
         }
     }
@@ -322,11 +355,15 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 print("Room art: person segmentation failed: \(error)")
             }
             let segmentMilliseconds = Date().timeIntervalSince(segmentStartedAt) * 1000
+            let personLowestRowShare = personMask.flatMap(lowestPersonRowShare(in:))
             self.processingQueue.async {
                 self.segmentationIsRunning = false
                 // A mask from a closed panel's frame never reaches the next one.
                 guard sessionWhenStarted == self.sessionNumber else { return }
-                if let personMask { self.latestPersonMask = personMask }
+                if let personMask {
+                    self.latestPersonMask = personMask
+                    self.latestPersonLowestRowShare = personLowestRowShare
+                }
                 self.statistics.framesSegmented += 1
                 self.statistics.segmentMillisecondsTotal += segmentMilliseconds
             }
@@ -360,11 +397,23 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     // MARK: Drawing
 
     /// Draws the frame into the layer's next drawable. False when no drawable was free or Core Image refused the frame.
-    private func draw(cameraFrame: CVPixelBuffer, artCorners: [CGPoint]?, shirtTorso: BodyTorso?) -> Bool {
+    private func draw(cameraFrame: CVPixelBuffer, artCorners: [CGPoint]?, fadingArtCorners: [CGPoint]?, shirtTorso: BodyTorso?) -> Bool {
         let frameImage = CIImage(cvPixelBuffer: cameraFrame)
         var composedImage = frameImage
         if let placedArt, let artCorners, let latestPersonMask {
             composedImage = frameWithTheArt(frameImage: frameImage, placedArt: placedArt, artCorners: artCorners, personMask: latestPersonMask)
+            if let crossfadeFrom, let fadingArtCorners {
+                let fadeProgress = (CACurrentMediaTime() - crossfadeFrom.startedAt) / Self.crossfadeSeconds
+                if fadeProgress >= 1 {
+                    self.crossfadeFrom = nil
+                } else {
+                    let fadingImage = frameWithTheArt(frameImage: frameImage, placedArt: crossfadeFrom.placedArt, artCorners: fadingArtCorners, personMask: latestPersonMask)
+                    composedImage = fadingImage.applyingFilter("CIDissolveTransition", parameters: [
+                        kCIInputTargetImageKey: composedImage,
+                        kCIInputTimeKey: max(0, fadeProgress),
+                    ])
+                }
+            }
         } else if let shirtTorso, let shirtGarment, let latestPersonMask {
             // The renderer reads the mask's values as they are, which a mask tagged with no color space keeps.
             let personMask = CIImage(cvPixelBuffer: latestPersonMask, options: [.colorSpace: NSNull()])
@@ -397,13 +446,50 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     }
     #endif
 
-    /// The art and its shadow warped onto `artCorners` (camera pixels, y down), over the frame, with the person drawn back
-    /// on top through the segmentation mask, so the learner stays in front of the art.
+    /// The item over the frame where the tracker put `artCorners` (camera pixels, y down), with the person drawn back on top
+    /// through the segmentation mask, so the learner stays in front of it, unless furniture stands nearer the camera than
+    /// the learner's feet (`roomFurnitureDrawsOverThePerson`).
     private func frameWithTheArt(frameImage: CIImage, placedArt: PlacedArt, artCorners: [CGPoint], personMask: CVPixelBuffer) -> CIImage {
+        let itemOverTheFrame: CIImage
+        switch placedArt.drawing {
+        case .warpedOntoItsCorners(let litArt, let shadow):
+            itemOverTheFrame = pictureWarpedOntoItsCorners(frameImage: frameImage, litArt: litArt, shadow: shadow, artCorners: artCorners)
+        case .keyframeLayers(let item, let shadow, let grainStandardDeviation):
+            guard let keyframeToCurrent = RoomFurnitureComposition.keyframeToCurrentFrame(
+                keyframePoints: placedArt.keyframeCorners, currentPoints: artCorners, frameHeight: frameImage.extent.height
+            ) else { return frameImage }
+            itemOverTheFrame = RoomFurnitureComposition.frameWithTheFurniture(
+                frame: frameImage,
+                itemLayer: item,
+                shadowLayer: shadow,
+                keyframeToCurrent: keyframeToCurrent,
+                grainStandardDeviation: grainStandardDeviation,
+                // A new offset each frame, so the grain moves like the camera's own.
+                grainOffset: CGPoint(x: Double.random(in: 0..<512), y: Double.random(in: 0..<512))
+            )
+        }
+        if let keyframeBasePoint = placedArt.keyframeBasePoint,
+           let currentBasePoint = currentPoint(of: keyframeBasePoint, keyframeCorners: placedArt.keyframeCorners, currentCorners: artCorners),
+           roomFurnitureDrawsOverThePerson(itemBaseRow: currentBasePoint.y, personLowestRow: latestPersonLowestRowShare.map { $0 * frameImage.extent.height }) {
+            return itemOverTheFrame
+        }
+        return withThePersonOnTop(of: itemOverTheFrame, frameImage: frameImage, personMask: personMask)
+    }
+
+    /// Where a keyframe point is now, through the affine map the tracked corners give, in camera pixels with y down.
+    private func currentPoint(of keyframePoint: CGPoint, keyframeCorners: [CGPoint], currentCorners: [CGPoint]) -> CGPoint? {
+        // The map works in Core Image's y-up space, so the point goes in and comes back out with y flipped about 0.
+        guard let keyframeToCurrent = RoomFurnitureComposition.keyframeToCurrentFrame(keyframePoints: keyframeCorners, currentPoints: currentCorners, frameHeight: 0) else { return nil }
+        let movedPoint = CGPoint(x: keyframePoint.x, y: -keyframePoint.y).applying(keyframeToCurrent)
+        return CGPoint(x: movedPoint.x, y: -movedPoint.y)
+    }
+
+    /// The picture and its shadow warped onto `artCorners`, over the frame.
+    private func pictureWarpedOntoItsCorners(frameImage: CIImage, litArt: CIImage, shadow: CIImage, artCorners: [CGPoint]) -> CIImage {
         let frameHeight = frameImage.extent.height
         // Core Image's y grows up from the bottom.
         let cornersFromTheBottom = artCorners.map { CGPoint(x: $0.x, y: frameHeight - $0.y) }
-        let artExtent = placedArt.litArt.extent
+        let artExtent = litArt.extent
         let artExtentCorners = [
             CGPoint(x: artExtent.minX, y: artExtent.maxY), CGPoint(x: artExtent.maxX, y: artExtent.maxY),
             CGPoint(x: artExtent.maxX, y: artExtent.minY), CGPoint(x: artExtent.minX, y: artExtent.minY),
@@ -422,10 +508,13 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 "inputBottomLeft": CIVector(cgPoint: landedCorners[3]),
             ])
         }
-        let artOverTheFrame = placedOnTheWall(placedArt.litArt)
-            .composited(over: placedOnTheWall(placedArt.shadow))
+        return placedOnTheWall(litArt)
+            .composited(over: placedOnTheWall(shadow))
             .composited(over: frameImage)
+    }
 
+    /// The learner from the camera frame drawn back over `artOverTheFrame` through the segmentation mask.
+    private func withThePersonOnTop(of artOverTheFrame: CIImage, frameImage: CIImage, personMask: CVPixelBuffer) -> CIImage {
         // The mask's confidence from 0.35 to 0.65 becomes the person's opacity, a slightly hard edge that reads as a real
         // occluder instead of a ghost. Every channel reads the first, so a one-channel mask works whichever channel it fills.
         let maskImage = CIImage(cvPixelBuffer: personMask)
@@ -472,8 +561,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
 
         trackerBeforeTheMove = tracker
         placedArtBeforeTheMove = placedArt
+        keyframeNumberBeforeTheMove = keyframeNumber
+        keyframeNumber += 1
         tracker = RoomTracker(keyframeGrayscale: latestTrackGrayscale, keyframeRoomMask: latestTrackRoomMask)
         placedArt = nil
+        crossfadeFrom = nil
         smoothedArtCorners = nil
         theSurfaceIsLostAsLastReported = false
         // The loop outlines the window around the spot until the item shows, and starts on the keyframe where it was drawn.
@@ -494,9 +586,13 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         guard let personMaskPNGData = ciContext.pngRepresentation(of: maskImage, format: .L8, colorSpace: CGColorSpaceCreateDeviceGray()) else { return nil }
 
         keyframeWallLight = wallLight(around: anchor, in: frameImage, frameWidth: frameWidth, frameHeight: frameHeight)
+        // Furniture's wall is measured on the same keyframe, at the wall spot a wall item would take.
+        let wallSpotInTrackPixels = bareWallSpot(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask)
         return RoomArtKeyframe(
             measurementRequest: RoomWallRequest(keyframeJPEGData: keyframeJPEGData, personMaskPNGData: personMaskPNGData, anchor: anchor),
-            wallLight: keyframeWallLight
+            wallLight: keyframeWallLight,
+            wallSpotAnchor: CGPoint(x: wallSpotInTrackPixels.x * cameraPixelsPerTrackPixel, y: wallSpotInTrackPixels.y * cameraPixelsPerTrackPixel),
+            keyframeNumber: keyframeNumber
         )
     }
 
@@ -536,6 +632,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 .applyingGaussianBlur(sigma: 0.7 * artPixelsPerCameraPixel)
                 .cropped(to: artExtent)
             let shadow: CIImage
+            var keyframeBasePoint: CGPoint?
             switch surfaceKind {
             case .wall:
                 // The shadow sits 2 percent of the art's height below it and spreads 1.5 percent, at 35 percent black.
@@ -547,8 +644,10 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                     .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset).insetBy(dx: -3 * shadowSpread, dy: -3 * shadowSpread))
             case .floor:
                 shadow = self.furnitureContactShadow(artExtent: artExtent)
+                keyframeBasePoint = CGPoint(x: (corners[2].x + corners[3].x) / 2, y: max(corners[2].y, corners[3].y))
             }
-            self.placedArt = PlacedArt(litArt: litArt, shadow: shadow, keyframeCorners: corners)
+            self.placedArt = PlacedArt(drawing: .warpedOntoItsCorners(litArt: litArt, shadow: shadow), keyframeCorners: corners, keyframeBasePoint: keyframeBasePoint)
+            self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
             self.theSurfaceIsLostAsLastReported = false
             self.trackerBeforeTheMove = nil
@@ -576,6 +675,26 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             .cropped(to: CGRect(x: artExtent.midX - shadowWidth / 2, y: artExtent.minY - shadowHeight / 2, width: shadowWidth, height: shadowHeight))
     }
 
+    func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int) {
+        processingQueue.async {
+            guard keyframeNumber == self.keyframeNumber, let latestFrame = self.latestFrame else { return }
+            let frameWidth = Double(CVPixelBufferGetWidth(latestFrame)), frameHeight = Double(CVPixelBufferGetHeight(latestFrame))
+            // The layers move with the room, so the tracker carries the frame's own corners and the layers follow them.
+            let frameCorners = [CGPoint(x: 0, y: 0), CGPoint(x: frameWidth, y: 0), CGPoint(x: frameWidth, y: frameHeight), CGPoint(x: 0, y: frameHeight)]
+            if let placedArt = self.placedArt { self.crossfadeFrom = (placedArt, CACurrentMediaTime()) }
+            self.placedArt = PlacedArt(
+                drawing: .keyframeLayers(
+                    item: CIImage(cgImage: layers.itemLayer),
+                    shadow: layers.shadowLayer.map { CIImage(cgImage: $0) },
+                    grainStandardDeviation: layers.cameraNoiseStandardDeviation
+                ),
+                keyframeCorners: frameCorners,
+                keyframeBasePoint: layers.basePointInTheKeyframe
+            )
+            self.smoothedArtCorners = nil
+        }
+    }
+
     /// The loop where the surface or the torso last was, for the panel to draw or fade out.
     func currentLoop() -> RoomArtLoopSnapshot? {
         latestLoop.withLock { $0 }
@@ -590,6 +709,8 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             guard let placedArtBeforeTheMove = self.placedArtBeforeTheMove else { return }
             self.tracker = self.trackerBeforeTheMove
             self.placedArt = placedArtBeforeTheMove
+            self.keyframeNumber = self.keyframeNumberBeforeTheMove
+            self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
             self.theSurfaceIsLostAsLastReported = false
             self.trackerBeforeTheMove = nil
@@ -609,14 +730,20 @@ nonisolated struct RoomArtFrontTab: Equatable, Sendable {
 }
 
 /// The front tab's address, title, and text, the text cut to what `POST /try-it-item` takes. Nil when Chrome has no window.
-/// The script has no double quotes or backslashes, since it runs inside an AppleScript string.
+/// A store often hides a product's size in a collapsed section, as IKEA hides the height under Measurements, so the read
+/// first opens those sections (`roomArtExpandTheSizeSectionsScript`) and waits a moment for them to fill, and the text then
+/// adds the page's structured data that names a dimension (`roomArtPageTextScript`). The scripts have no double quotes or
+/// backslashes, since they run inside an AppleScript string.
 @MainActor
-func readTheFrontTabForRoomArt() -> RoomArtFrontTab? {
+func readTheFrontTabForRoomArt() async -> RoomArtFrontTab? {
     guard let frontTab = try? ChromeVideoTab.frontTabOfTheFrontWindow() else { return nil }
-    let pageText = try? ChromeVideoTab.runJavaScript(
-        "document.body ? document.body.innerText.slice(0, \(RoomArtPageRequest.longestPageText)) : ''",
-        in: frontTab
-    )
+    let sectionsOpened = (try? ChromeVideoTab.runJavaScript(roomArtExpandTheSizeSectionsScript, in: frontTab)).flatMap { Int($0) } ?? 0
+    if sectionsOpened > 0 {
+        print("Room art: opened \(sectionsOpened) collapsed sections of the page before reading it")
+        // IKEA's Measurements text was in the page 12 ms after its click, and a slower store gets more room than that.
+        try? await Task.sleep(for: .milliseconds(600))
+    }
+    let pageText = try? ChromeVideoTab.runJavaScript(roomArtPageTextScript(longestCharacters: RoomArtPageRequest.longestPageText), in: frontTab)
     return RoomArtFrontTab(url: frontTab.url, title: frontTab.title, text: pageText)
 }
 
@@ -639,7 +766,7 @@ final class RoomArtPreviewController: ObservableObject {
     struct Environment {
         /// Every Worker route the panel calls needs the app secret, so with none set the camera never opens.
         var appSecretIsSet: () -> Bool
-        var readTheFrontTab: () -> RoomArtFrontTab?
+        var readTheFrontTab: () async -> RoomArtFrontTab?
         var capturePicture: () async -> RoomArtPicture?
         var readThePage: (RoomArtPageRequest) async throws -> RoomArtPageReading
         var measureTheWall: (RoomWallRequest) async throws -> WallPlane
@@ -660,6 +787,19 @@ final class RoomArtPreviewController: ObservableObject {
         /// Runs on every close, from Escape, the Close button, or a new request, so a line about this panel that is
         /// still waiting or playing ends with it.
         var endTheSpokenLine: () -> Void
+        /// The store's own 3D model in the front tab, downloaded and loaded, or nil when the page at that address offers none
+        /// the app can read. The furniture's first look.
+        var findTheStoreModel: (_ pageURL: String) async -> RoomFurnitureLoadedModel? = { _ in nil }
+        /// The generation service's client: a generated model (the second look) and a painted composite (the third).
+        var furnitureGeneration: RoomFurnitureGenerating = RoomFurnitureGenerationNotSetUp()
+        /// A model's GLB bytes loaded as a node tree, off the main actor, or nil when they do not load.
+        var loadAGeneratedModel: (_ glbData: Data) async -> RoomFurnitureLoadedModel? = { _ in nil }
+        /// The mask the painted composite is painted inside, from the item box's projected corners, as a PNG.
+        var compositeMaskPNG: (_ projectedCorners: [CGPoint], _ frameWidth: Int, _ frameHeight: Int, _ shadowMarginPixels: Double) -> Data? = { _, _, _, _ in nil }
+        /// Renders a model standing on the floor as keyframe layers, off the main actor, or nil when the render fails.
+        var renderTheFurniture: (RoomFurnitureRenderRequest) async -> RoomFurnitureKeyframeLayers? = { _ in nil }
+        /// Turns a painted keyframe into its item layer (`RoomFurniturePaintedComposite`), off the main actor.
+        var paintedItemLayers: (_ painted: CGImage, _ keyframe: CGImage, _ maskPNG: Data, _ projectedBox: [CGPoint]) async -> RoomFurnitureKeyframeLayers? = { _, _, _, _ in nil }
 
         /// Chrome, the Worker at `workerBaseURL`, the app's defaults for the secret, Vision, and the camera (or a Debug
         /// build's `--room-camera-file`).
@@ -696,7 +836,43 @@ final class RoomArtPreviewController: ObservableObject {
                 clearTheLiveScene: clearTheLiveScene,
                 speak: speak,
                 loopAccentColor: loopAccentColor,
-                endTheSpokenLine: endTheSpokenLine
+                endTheSpokenLine: endTheSpokenLine,
+                findTheStoreModel: { pageURL in await RoomFurnitureModelLoading.findTheStoreModel(onThePageAt: pageURL) },
+                furnitureGeneration: RoomFurnitureGenerationClient(workerBaseURL: workerBaseURL),
+                loadAGeneratedModel: { glbData in
+                    await Task.detached(priority: .userInitiated) { () -> RoomFurnitureLoadedModel? in
+                        do {
+                            let rootNode = try RoomFurnitureModelLoading.rootNode(fromFileData: glbData, kind: .glb)
+                            return RoomFurnitureLoadedModel(rootNode: rootNode, look: .generatedModel, originForTheLog: "generated")
+                        } catch {
+                            print("Room furniture: the generated model did not load: \(error)")
+                            return nil
+                        }
+                    }.value
+                },
+                compositeMaskPNG: { projectedCorners, frameWidth, frameHeight, shadowMarginPixels in
+                    furnitureCompositeMaskPNG(projectedCorners: projectedCorners, frameWidth: frameWidth, frameHeight: frameHeight, shadowMarginPixels: shadowMarginPixels)
+                },
+                renderTheFurniture: { renderRequest in
+                    await withCheckedContinuation { continuation in
+                        roomFurnitureRenderQueue.async {
+                            let rendered = sharedRoomFurnitureRenderer.render(renderRequest)
+                            if let report = rendered?.report { print(report.logLine) }
+                            continuation.resume(returning: rendered?.layers)
+                        }
+                    }
+                },
+                paintedItemLayers: { painted, keyframe, maskPNG, projectedBox in
+                    // CGImages are immutable, so the detached task may read them.
+                    nonisolated(unsafe) let paintedImage = painted, keyframeImage = keyframe
+                    return await Task.detached(priority: .userInitiated) { () -> RoomFurnitureKeyframeLayers? in
+                        let composite = RoomFurniturePaintedComposite.itemLayers(painted: paintedImage, keyframe: keyframeImage, maskPNG: maskPNG, projectedBox: projectedBox)
+                        if let ratio = composite.paintedHeightRatio {
+                            print(String(format: "Room furniture: the painted item is %.0f%% of the measured box's outline", ratio * 100))
+                        }
+                        return composite.layers
+                    }.value
+                }
             )
         }
     }
@@ -755,6 +931,30 @@ final class RoomArtPreviewController: ObservableObject {
     /// The theme's accent, which the panel draws the loop in.
     var loopAccentColor: Color { environment.loopAccentColor() }
 
+    // MARK: The furniture's looks
+
+    /// Where the search for a model of the furniture stands: the store's model, else a generated one, else none, when the
+    /// painted composite is the only step. The flat cutout shows meanwhile.
+    private enum FurnitureLookSearch {
+        case searching
+        case found(RoomFurnitureLoadedModel)
+        case paintTheComposite
+        /// Nothing more to try, so the flat cutout stays.
+        case keepTheCutout
+    }
+    private var furnitureLookSearch: FurnitureLookSearch?
+    private var furnitureLookSearchTask: Task<Void, Never>?
+    /// Renders or paints the best look for the placement showing now. A new placement or a close cancels it.
+    private var furnitureUpgradeTask: Task<Void, Never>?
+    /// The keyframe of the measurement that just finished, kept until its result is applied.
+    private var keyframeOfTheLatestMeasurement: RoomArtKeyframe?
+    /// The furniture showing now, the keyframe it was placed on, and the floor it stands on.
+    private var furniturePlacementShowing: (furniture: RoomFurniture, keyframe: RoomArtKeyframe, floor: FloorPlane)?
+    /// The product photo the page read used, which the generation service works from.
+    private var productPhotoJPEG: Data?
+    /// The composite service said it is not set up, so no later placement in this panel asks it again.
+    private var compositeServiceIsUnavailable = false
+
     /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe, a torso, or a
     /// camera frame.
     func currentLoopOutline(cameraSize: CGSize, panelSize: CGSize) -> Path? {
@@ -785,7 +985,7 @@ final class RoomArtPreviewController: ObservableObject {
             environment.speak(RoomArtFailure.appSecretMissing.spokenLine, true)
             return
         }
-        guard let frontTab = environment.readTheFrontTab() else {
+        guard let frontTab = await environment.readTheFrontTab() else {
             environment.speak(roomArtNoPictureLine, true)
             return
         }
@@ -813,6 +1013,7 @@ final class RoomArtPreviewController: ObservableObject {
         }
         self.pictureImage = pictureImage
         pageRequest = RoomArtPageRequest(pageURL: frontTab.url, pageTitle: frontTab.title, pageText: pageText, learnerRequest: learnerRequest, picture: picture)
+        productPhotoJPEG = picture.jpegData
         hereItIsWasSaid = false
         floorNotFoundWasSaid = false
         shirtCoachingWasSaid = false
@@ -885,6 +1086,15 @@ final class RoomArtPreviewController: ObservableObject {
         pictureTask = nil
         measurementTask?.cancel()
         measurementTask = nil
+        furnitureLookSearchTask?.cancel()
+        furnitureLookSearchTask = nil
+        furnitureUpgradeTask?.cancel()
+        furnitureUpgradeTask = nil
+        furnitureLookSearch = nil
+        furniturePlacementShowing = nil
+        keyframeOfTheLatestMeasurement = nil
+        productPhotoJPEG = nil
+        compositeServiceIsUnavailable = false
         frameSource?.stop()
         frameSource = nil
         frameProcessor.endTheSession()
@@ -953,6 +1163,8 @@ final class RoomArtPreviewController: ObservableObject {
 
         case .standOnTheFloor(let furnitureReading, let size):
             print("Room art: \"\(furnitureReading.title)\" at \(size.label), because \(furnitureReading.whyThisSize)")
+            // The better looks are searched for while the cutout is made and the floor measured, which take seconds.
+            startSearchingForTheFurnituresBestLook(itemTitle: furnitureReading.title, pageURL: pageRequest.pageURL, thisOpening: thisOpening)
             let cutoutImage = await environment.cutOutTheFurniture(pictureImage, furnitureReading.itemCorners)
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             guard let cutoutImage else {
@@ -963,6 +1175,7 @@ final class RoomArtPreviewController: ObservableObject {
                 title: furnitureReading.title,
                 widthMeters: size.widthCentimeters / 100,
                 heightMeters: size.heightCentimeters / 100,
+                depthMeters: size.depthCentimeters / 100,
                 cutoutImage: cutoutImage
             )))
 
@@ -1038,11 +1251,12 @@ final class RoomArtPreviewController: ObservableObject {
                     print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
                     surface = .wall(wall)
                 case .floor:
-                    let floor = try await environment.measureTheFloor(keyframe.measurementRequest)
-                    print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100))
+                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured)
+                    print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane%@", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100, floor.inferredFromTheWall ? ", inferred from the wall" : ""))
                     surface = .floor(floor)
                 }
                 guard !Task.isCancelled else { return }
+                keyframeOfTheLatestMeasurement = keyframe
                 apply(phase.withTheSurfaceMeasured(surface, measurementID: measurementID))
             } catch {
                 guard !Task.isCancelled else { return }
@@ -1070,6 +1284,11 @@ final class RoomArtPreviewController: ObservableObject {
             guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
             frameProcessor.showTheItem(item.image, keyframeCorners: keyframeCorners, on: item.surfaceKind)
             sayHereItIsOnce(item.hereItIsLine)
+            // Furniture's flat cutout is the placeholder: its best look is rendered or painted for this placement.
+            if case .furniture(let furniture) = item, case .floor(let floor) = surface, let keyframe = keyframeOfTheLatestMeasurement {
+                furniturePlacementShowing = (furniture, keyframe, floor)
+                showTheFurnituresBestLook()
+            }
         case .waitingForAFloorClick:
             // The camera keeps running, so the learner can tilt the screen down and click the floor.
             guard !floorNotFoundWasSaid else { return }
@@ -1095,6 +1314,183 @@ final class RoomArtPreviewController: ObservableObject {
         environment.speak(line, false)
     }
 }
+
+extension RoomArtPreviewController {
+    // MARK: The floor under furniture
+
+    /// The floor furniture stands on, measured at the keyframe's anchor and checked against the wall measured on the same
+    /// keyframe, which the depth service answers from its cached depth in a fraction of a second. A floor that is not level
+    /// with the wall (a desk or a bed) is not the floor. With no floor, a floor inferred from the wall stands the piece with
+    /// its back on the wall, when at least a third of its box is in the frame. A depth service that is down or refuses the
+    /// request fails as it is, with no wall measurement.
+    fileprivate func measureTheFurnituresFloor(on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?) async throws -> FloorPlane {
+        var measuredFloor: FloorPlane?
+        var floorError: Error?
+        do {
+            measuredFloor = try await environment.measureTheFloor(keyframe.measurementRequest)
+        } catch {
+            guard roomArtFailure(forAFailedMeasurementOf: .floor, error: error) == .floorNotFound else { throw error }
+            floorError = error
+        }
+        guard !Task.isCancelled else { throw CancellationError() }
+        let wallRequest = RoomWallRequest(
+            keyframeJPEGData: keyframe.measurementRequest.keyframeJPEGData,
+            personMaskPNGData: keyframe.measurementRequest.personMaskPNGData,
+            anchor: keyframe.wallSpotAnchor ?? keyframe.measurementRequest.anchor
+        )
+        let wall: WallPlane?
+        do {
+            wall = try await environment.measureTheWall(wallRequest)
+        } catch {
+            print("Room furniture: the wall behind the floor was not measured: \(error)")
+            wall = nil
+        }
+        if let measuredFloor {
+            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return measuredFloor }
+            print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
+        }
+        if let wall, case .furniture(let furniture) = item,
+           let inferredFloor = FloorPlane.inferred(fromTheWall: wall, itemDepthMeters: furniture.depthMeters),
+           let boxCorners = inferredFloor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) {
+            let frameSize = CGSize(width: inferredFloor.principalPoint.x * 2, height: inferredFloor.principalPoint.y * 2)
+            let shareInTheFrame = shareOfTheBoxInsideTheFrame(projectedCorners: boxCorners, frameSize: frameSize)
+            print(String(format: "Room furniture: no floor in view, so the floor is inferred from the wall, with %.0f%% of the piece in the frame", shareInTheFrame * 100))
+            if shareInTheFrame >= roomFurnitureLeastShareOfTheBoxInTheFrame { return inferredFloor }
+        }
+        throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"The floor is not level with the wall"}"#)
+    }
+
+    // MARK: The furniture's best look
+
+    /// Searches for the furniture's best look while the cutout shows: the store's own model in the page, else a model the
+    /// generation service makes, else the painted composite. The result is shown on the placement showing then, and on
+    /// every placement after it.
+    fileprivate func startSearchingForTheFurnituresBestLook(itemTitle: String, pageURL: String, thisOpening: Int) {
+        furnitureLookSearch = .searching
+        furnitureLookSearchTask?.cancel()
+        let productPhotoJPEG = productPhotoJPEG
+        furnitureLookSearchTask = Task {
+            var foundModel = await environment.findTheStoreModel(pageURL)
+            if let foundModel {
+                print("Room furniture: found the store's own model at \(foundModel.originForTheLog)")
+            } else if let productPhotoJPEG {
+                do {
+                    let glbData = try await environment.furnitureGeneration.generateAModel(productJPEG: productPhotoJPEG, itemTitle: itemTitle)
+                    guard !Task.isCancelled else { return }
+                    foundModel = await environment.loadAGeneratedModel(glbData)
+                } catch {
+                    print("Room furniture: no generated model: \(error)")
+                }
+            }
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            furnitureLookSearch = foundModel.map { .found($0) } ?? .paintTheComposite
+            showTheFurnituresBestLook()
+        }
+    }
+
+    /// Shows the best look found so far for the furniture showing now. A model (the store's or a generated one) is rendered
+    /// first, which takes under a second, and then the painted composite is asked for, which takes 15 to 20 seconds and
+    /// looked more real than the render on the same frame (a real contact shadow and the room's own light), so it replaces
+    /// the render when it stands at the measured height. With no model, the composite is the only step. The frame processor
+    /// crossfades each step. While the search runs, the search calls this again when it ends.
+    fileprivate func showTheFurnituresBestLook() {
+        guard let placementShowing = furniturePlacementShowing, let furnitureLookSearch else { return }
+        furnitureUpgradeTask?.cancel()
+        let thisOpening = openingNumber
+        let furniture = placementShowing.furniture, keyframe = placementShowing.keyframe, floor = placementShowing.floor
+        let modelToRender: RoomFurnitureLoadedModel?
+        switch furnitureLookSearch {
+        case .searching, .keepTheCutout: return
+        case .found(let model): modelToRender = model
+        case .paintTheComposite: modelToRender = nil
+        }
+        furnitureUpgradeTask = Task {
+            guard let keyframeImage = decodedKeyframe(keyframe) else { return }
+            if let modelToRender {
+                await renderTheModel(modelToRender, furniture: furniture, keyframe: keyframe, keyframeImage: keyframeImage, floor: floor, thisOpening: thisOpening)
+            }
+            guard !Task.isCancelled, thisOpening == openingNumber, !compositeServiceIsUnavailable else { return }
+            await paintTheComposite(furniture: furniture, keyframe: keyframe, keyframeImage: keyframeImage, floor: floor, thisOpening: thisOpening)
+        }
+    }
+
+    private func renderTheModel(
+        _ model: RoomFurnitureLoadedModel, furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int
+    ) async {
+        guard let placement = RoomFurniturePlacement(floor: floor, widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters) else { return }
+        let layers = await environment.renderTheFurniture(RoomFurnitureRenderRequest(
+            modelRootNode: model.rootNode,
+            placement: placement,
+            focalLengthPixels: floor.focalLengthPixels,
+            principalPoint: floor.principalPoint,
+            keyframeImage: keyframeImage,
+            look: model.look
+        ))
+        guard !Task.isCancelled, thisOpening == openingNumber else { return }
+        guard let layers else {
+            print("Room furniture: the \(model.look.rawValue) did not render, so the composite is next")
+            return
+        }
+        frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
+        print("Room furniture: showing the \(model.look.rawValue) from \(model.originForTheLog)")
+    }
+
+    private func paintTheComposite(furniture: RoomFurniture, keyframe: RoomArtKeyframe, keyframeImage: CGImage, floor: FloorPlane, thisOpening: Int) async {
+        guard let productPhotoJPEG,
+              let projectedBox = floor.keyframeBoxCorners(widthMeters: furniture.widthMeters, heightMeters: furniture.heightMeters, depthMeters: furniture.depthMeters),
+              let maskPNG = environment.compositeMaskPNG(projectedBox, keyframeImage.width, keyframeImage.height, Self.compositeShadowMarginPixels) else { return }
+        do {
+            let painted = try await environment.furnitureGeneration.paintTheItemIntoTheKeyframe(
+                keyframeJPEG: keyframe.measurementRequest.keyframeJPEGData,
+                keyframeWidth: keyframeImage.width,
+                keyframeHeight: keyframeImage.height,
+                productJPEG: productPhotoJPEG,
+                maskPNG: maskPNG,
+                itemTitle: furniture.title,
+                itemSizeWords: furniture.sizeInWords
+            )
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            #if DEBUG
+            // Verification reads the painting the height check judged, kept or refused. Debug builds only.
+            writeThePaintingForVerification(painted)
+            #endif
+            guard let layers = await environment.paintedItemLayers(painted, keyframeImage, maskPNG, projectedBox) else {
+                print("Room furniture: the painted item is shorter than the box's front or taller than its outline, so the look before it stays")
+                return
+            }
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            frameProcessor.showTheFurnitureLayers(layers, keyframeNumber: keyframe.keyframeNumber)
+            print("Room furniture: showing the painted composite")
+        } catch {
+            guard !Task.isCancelled, thisOpening == openingNumber else { return }
+            print("Room furniture: no painted composite: \(error)")
+            // A Worker with no OpenAI key stays that way for this panel, so later placements do not ask again. Any other
+            // failure may pass, so the next placement asks again.
+            if case RoomFurnitureGenerationError.serviceIsNotSetUp = error { compositeServiceIsUnavailable = true }
+        }
+    }
+
+    #if DEBUG
+    private func writeThePaintingForVerification(_ painted: CGImage) {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clicky-room-furniture-painting-\(Int(Date().timeIntervalSince1970)).png")
+        guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, "public.png" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(destination, painted, nil)
+        if CGImageDestinationFinalize(destination) { print("Room furniture: wrote the painting to \(fileURL.path)") }
+    }
+    #endif
+
+    /// The painted composite's mask reaches this far past the box, so the item's shadow on the floor is painted too.
+    fileprivate static let compositeShadowMarginPixels = 24.0
+
+    private func decodedKeyframe(_ keyframe: RoomArtKeyframe) -> CGImage? {
+        guard let keyframeSource = CGImageSourceCreateWithData(keyframe.measurementRequest.keyframeJPEGData as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(keyframeSource, 0, nil)
+    }
+}
+
+/// The furniture renderer's queue: one render at a time, off the main actor and the camera's queue.
+nonisolated let roomFurnitureRenderQueue = DispatchQueue(label: "com.crodris.clicky.room-furniture.render", qos: .userInitiated)
+nonisolated let sharedRoomFurnitureRenderer = RoomFurnitureRenderer()
 
 /// What Clicky says once the shirt first shows on the learner.
 nonisolated let roomArtShirtHereItIsLine = "Here it is on you."

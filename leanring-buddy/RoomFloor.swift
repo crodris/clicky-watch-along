@@ -35,41 +35,23 @@ nonisolated struct FloorPlane: Equatable, Sendable {
     let distanceMeters: Double
     let floorTiltDegrees: Double
     let planeInlierShare: Double
+    /// True for a floor the app inferred from the wall because the camera saw none (`FloorPlane.inferred`), so the item
+    /// stands square to the wall with its back on it, instead of turning toward the camera.
+    var inferredFromTheWall = false
 
-    /// A corner closer to the camera plane than this is behind the camera, as `WallPlane.keyframeCorners` counts it.
-    private static let nearestCornerDepthMeters = 0.01
-
-    /// The furniture's corners in the keyframe, in camera pixels: an upright rectangle `widthMeters` wide and `heightMeters`
-    /// tall, with its bottom edge on the floor and centered on `center`, facing the camera, projected through the pinhole.
+    /// The flat cutout's corners in the keyframe, in camera pixels: an upright rectangle `widthMeters` wide and
+    /// `heightMeters` tall, the front face of `RoomFurniturePlacement` with no depth, so the cutout and a 3D model stand in
+    /// the same place. On a measured floor it faces the camera (its width runs along `up` x the level direction toward the
+    /// camera, which is `right` when the anchor is straight ahead and turns with the anchor when it is off to the side, so a
+    /// piece to the side is not seen at a slant the product photo never had), and on a floor inferred from the wall it is
+    /// square to the wall. The width direction is image-right for any floor the camera sees from the front, so the cutout is
+    /// never mirrored.
     ///
-    /// It faces the camera by taking the horizontal direction from `center` toward the camera as its normal (the camera is
-    /// the origin, so that is `-center` with its part along `up` removed). Its width runs along `up` x that normal, which is
-    /// `right` when the anchor is straight ahead and turns with the anchor when it is off to the side, so a piece to the side
-    /// is not seen at a slant the product photo never had. `up` x `-center` is the same direction as `up` x that normal,
-    /// since the cross product drops the part of `-center` along `up`, so the code takes it directly. `up` x (the direction
-    /// toward the camera) is image-right for any floor the camera sees from the front (`forward` points away from the camera,
-    /// so the direction toward it is -`forward`, and `up` x -`forward` is `right`), so the cutout is never mirrored.
-    ///
-    /// Nil when a corner is not in front of the camera, when the camera is straight above `center` so no horizontal direction
+    /// Nil when a corner is not in front of the camera, when the camera is straight above `center` so no level direction
     /// toward it exists, or when the size is not a positive number.
     func keyframeCorners(widthMeters: Double, heightMeters: Double) -> RoomArtCorners? {
-        guard widthMeters.isFinite, heightMeters.isFinite, widthMeters > 0, heightMeters > 0 else { return nil }
-        let widthDirectionBeforeNormalizing = simd_cross(up, -center)
-        guard simd_length(widthDirectionBeforeNormalizing) > 1e-6 else { return nil }
-        let widthDirection = simd_normalize(widthDirectionBeforeNormalizing)
-
-        let halfWidth = widthMeters / 2
-        let cornerOffsets: [(alongWidth: Double, alongUp: Double)] = [(-1, 1), (1, 1), (1, 0), (-1, 0)]
-        var projectedCorners: [CGPoint] = []
-        for offset in cornerOffsets {
-            let point = center + widthDirection * (halfWidth * offset.alongWidth) + up * (heightMeters * offset.alongUp)
-            guard point.z > Self.nearestCornerDepthMeters else { return nil }
-            projectedCorners.append(CGPoint(
-                x: point.x * focalLengthPixels / point.z + principalPoint.x,
-                y: point.y * focalLengthPixels / point.z + principalPoint.y
-            ))
-        }
-        return RoomArtCorners(clockwiseFromTopLeft: projectedCorners)
+        guard let boxCorners = keyframeBoxCorners(widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: 0) else { return nil }
+        return RoomArtCorners(clockwiseFromTopLeft: Array(boxCorners.prefix(4)))
     }
 }
 
@@ -135,6 +117,8 @@ nonisolated struct RoomFurniture: Equatable, @unchecked Sendable {
     let widthMeters: Double
     /// Floor to top, from the page.
     let heightMeters: Double
+    /// Front to back, from the page, which the 3D box and a model's fit use. The flat cutout has no depth.
+    let depthMeters: Double
     /// The product with a transparent background, trimmed to its own pixels, so its lowest pixel stands on the floor.
     let cutoutImage: CGImage
 

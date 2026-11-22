@@ -593,7 +593,7 @@ struct RoomArtToolTests {
 }
 
 private func furniture() -> RoomFurniture {
-    RoomFurniture(title: "LACK side table", widthMeters: 0.55, heightMeters: 0.45, cutoutImage: sharedFurnitureImage)
+    RoomFurniture(title: "LACK side table", widthMeters: 0.55, heightMeters: 0.45, depthMeters: 0.55, cutoutImage: sharedFurnitureImage)
 }
 
 /// A floor 2 m ahead and 1 m below a camera with a 1000 pixel focal length.
