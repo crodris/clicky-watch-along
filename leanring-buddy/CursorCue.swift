@@ -5,8 +5,9 @@
 //  The ring around the cursor, which gives Clicky's voice states one home: a ring of ticks that follows
 //  your voice while you speak, and three dots orbiting the cursor while Clicky thinks. Speaking hides the
 //  ring, because the speech Callout brightens its words with the voice. A status line's Callout sits above the cursor and
-//  does not hide the ring, so the ring keeps showing, and a dot crosses the Callout's tail once a lap. While a loop shows around the media Clicky is
-//  looking at, the loop's spark is the thinking light instead, and the dots stay away.
+//  does not hide the ring, so the ring keeps showing, and the dots' orbit (24 points out) reaches about 3 points into the
+//  Callout's body each time a dot passes the top. While a loop shows around the media Clicky is looking at, the loop's
+//  spark is the thinking light instead, and the dots stay away.
 //
 //  The cues hand off to one another instead of cutting: on release the ticks shrink into the dots (0.3 s), and when speech
 //  starts the dots fly into the speech Callout's tail (0.38 s). Reduce Motion crossfades every cue change.
