@@ -833,8 +833,9 @@ struct BlueCursorView: View {
                 navigationBubbleOpacity = 0.0
                 startFlyingBackToCursor()
             case .giveWayToThePointingElsewhere:
-                // The buddy shows on the target's screen, so this one goes back to following the mouse, out of sight.
-                finishNavigationAndResumeFollowing()
+                // The buddy shows on the target's screen, so this one goes back to following the mouse, out of sight,
+                // and leaves the shared pointing to that screen.
+                finishNavigationAndResumeFollowing(clearingTheSharedPointing: false)
             }
         }
     }
@@ -900,7 +901,9 @@ struct BlueCursorView: View {
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
-    private func finishNavigationAndResumeFollowing() {
+    /// `clearingTheSharedPointing` is false only when this screen gives way to a pointing on another display, which that
+    /// display's buddy is about to show.
+    private func finishNavigationAndResumeFollowing(clearingTheSharedPointing: Bool = true) {
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = nil
         buddyIsFrozenWhereItStopped = false
@@ -915,7 +918,9 @@ struct BlueCursorView: View {
         flightFadeOpacity = 1.0
         navigationBubbleText = ""
         navigationBubbleOpacity = 0.0
-        companionManager.clearDetectedElementLocation()
+        if clearingTheSharedPointing {
+            companionManager.clearDetectedElementLocation()
+        }
     }
 
     // MARK: - Welcome Animation
