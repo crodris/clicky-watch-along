@@ -494,7 +494,7 @@ final class AgentTokenDockController {
             print("Recap gather: the dock changed while the Card is open, so the discs show again")
             sendTheDiscsBackAtOnce()
         }
-        moveTheKeyboardFocusIfItsDiscChanged(aPauseMovePlays: pauseMove != nil)
+        moveTheKeyboardFocusIfItsDiscChanged()
     }
 
     private var reduceMotionIsOn: Bool {
@@ -1028,12 +1028,13 @@ final class AgentTokenDockController {
 
     /// After a refresh, the ring moves to the disc that now stands for the focused agent, such as the paused disc after
     /// "hold on", the agent's own disc after "go ahead", or its disc on another display the mouse moved to. It stays put when
-    /// that disc did not change. While a pause or a resume plays, only the ring moves: the new disc is still fading in or
-    /// flying back, so its peek card would show beside an empty slot, and the old disc's peek card goes with the ring.
-    private func moveTheKeyboardFocusIfItsDiscChanged(aPauseMovePlays: Bool) {
+    /// that disc did not change. Only the ring moves, and the old disc's peek card goes: a new disc may still be fading in or
+    /// flying back, or hidden by the recap, so a peek card there would show beside an empty slot. The next focus change from
+    /// the keyboard shows the peek card again.
+    private func moveTheKeyboardFocusIfItsDiscChanged() {
         guard let agentIDWithTheKeyboardFocus, discID(of: agentIDWithTheKeyboardFocus) != discIDWithTheKeyboardFocus else { return }
-        if aPauseMovePlays, let discIDWithTheKeyboardFocus, discIDOfThePeek == discIDWithTheKeyboardFocus { hideThePeek() }
-        showTheKeyboardFocus(onTheDiscOf: agentIDWithTheKeyboardFocus, showsThePeek: !aPauseMovePlays)
+        if let discIDWithTheKeyboardFocus, discIDOfThePeek == discIDWithTheKeyboardFocus { hideThePeek() }
+        showTheKeyboardFocus(onTheDiscOf: agentIDWithTheKeyboardFocus, showsThePeek: false)
     }
 
     /// The keyboard moved the focus to the panel's chip for an agent: its disc shows the focus ring and its peek card at

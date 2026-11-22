@@ -169,6 +169,27 @@ struct AgentListHoverViewTests {
     }
 }
 
+@MainActor
+struct AgentListGlideInCloseTests {
+    @Test(.enabled(if: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !NSScreen.screens.isEmpty, "the list Glides only with Reduce Motion off and a screen"))
+    func aListClosedDuringItsGlideInShowsNothingWhole() throws {
+        let themeSettings = makeThemeSettings()
+        let controller = AgentListPanelController(
+            store: BackgroundAgentStore(themeSettings: themeSettings),
+            themeSettings: themeSettings,
+            approvalDesk: HarnessApprovalDesk { _, _, _ in },
+            actions: AgentListActions(cancelAgent: { _ in }, showReadyScene: {}, hearTaskAnswer: {}, tryAgain: { _ in }, answerApproval: { _, _, _ in })
+        )
+        controller.toggle()
+        let glideIn = try #require(controller.openingFlight, "the list should Glide out of the mouse")
+        #expect(!glideIn.carriedViewIsHidden)
+        // Escape or a click outside before the Glide lands.
+        controller.close()
+        #expect(glideIn.carriedViewIsHidden)
+        #expect(!controller.isOpen)
+    }
+}
+
 struct AgentListDiscClickTests {
     @Test func aClickOnTheDiscTheListIsOpenFromClosesItButAMenuItemThatOpensItKeepsIt() {
         #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: true, theClickOnlyOpens: false) == .close)

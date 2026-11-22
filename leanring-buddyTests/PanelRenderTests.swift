@@ -181,6 +181,30 @@ struct PanelRenderTests {
         #expect(reportedHovers == [true, false])
     }
 
+    @Test func theAgentListsFlipsRefreshEachRowsHoverFromWhereThePointerIs() {
+        let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        let rowHoverView = HoverAndPointerNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        contentView.addSubview(rowHoverView)
+        var mouseLocationInTheWindow = CGPoint(x: 200, y: 200)
+        rowHoverView.mouseLocationInTheWindow = { _ in mouseLocationInTheWindow }
+        var reportedHovers: [Bool] = []
+        rowHoverView.onHoverChange = { reportedHovers.append($0) }
+        window.contentView = contentView
+        window.orderFrontRegardless()
+        defer { window.close() }
+        // The pointer crossed into the row while the window ignored the mouse, so no entry arrived; the flip to taking the
+        // mouse finds it there.
+        mouseLocationInTheWindow = CGPoint(x: 40, y: 20)
+        refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: false)
+        #expect(reportedHovers == [true])
+        // The pointer left the row for the shadow margin, and the flip to passing the mouse through clears the hover.
+        mouseLocationInTheWindow = CGPoint(x: 200, y: 200)
+        refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: true)
+        #expect(reportedHovers == [true, false])
+    }
+
     // MARK: - The approval badge on a light menu bar
 
     @Test func theSettledMarksAndAPausedChipKeepTheirShapesInsideTheDisc() throws {

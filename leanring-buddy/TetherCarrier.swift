@@ -253,6 +253,10 @@ final class CarrierFlight {
     private var tetherLayer: CALayer?
     private var hasLanded = false
 
+    /// Whether the carried view was taken off the screen at once (`landAtOnce(hidingTheCarriedView:)`), which a surface's
+    /// test reads to see that a close during its move shows nothing whole.
+    var carriedViewIsHidden: Bool { carriedView?.isHidden ?? true }
+
     fileprivate init(plan: CarrierFlightPlan, onLanded: @escaping () -> Void, onGone: @escaping (CarrierFlight) -> Void, onFinished: @escaping (CarrierFlight) -> Void) {
         self.plan = plan
         self.onLanded = onLanded

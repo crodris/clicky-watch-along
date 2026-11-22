@@ -324,8 +324,8 @@ final class AgentListPanelController {
     /// Where the Card Glides out of and closes back into: the disc it was opened from, or the cursor. Nil when no display
     /// holds it, and the list then crossfades.
     private var glideOrigin: GlideOrigin?
-    /// The open Glide, held so a close before it lands can end it where it is.
-    private var openingFlight: CarrierFlight?
+    /// The open Glide, held so a close before it lands can end it where it is. Readable by tests.
+    private(set) var openingFlight: CarrierFlight?
     /// Where the real list's approval card sits in its window, top-left origin, or nil while none shows.
     private var approvalCardFrameInTheWindow: CGRect?
     /// The center of an agent's disc on a display, which `CompanionManager` reads from the dock, so an ended approval card
@@ -443,17 +443,8 @@ final class AgentListPanelController {
             let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
             if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
                 agentListPanel.ignoresMouseEvents = passesTheMouseThrough
-                // A row's tracking area missed every move while the window ignored the mouse. On the way in, each row adds its
-                // area again, so AppKit reads its inside state from where the pointer is now and a later exit still arrives, and
-                // reports the hover there. On the way out, each row reports again, so no hover stays behind in the margin.
                 if let contentView = agentListPanel.contentView {
-                    for hoverView in hoverAndPointerViews(in: contentView) {
-                        if passesTheMouseThrough {
-                            hoverView.reportTheHoverWhereTheMouseAlreadyIs()
-                        } else {
-                            hoverView.updateTrackingAreas()
-                        }
-                    }
+                    refreshTheRowHovers(in: contentView, windowPassesTheMouseThrough: passesTheMouseThrough)
                 }
             }
         }
@@ -651,12 +642,13 @@ final class AgentListPanelController {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil
         }
-        // A Glide still playing ends where it is, so its tether and copy of the list never outlast the list.
+        // A Glide still playing ends where it is, so its tether and copy of the list never outlast the list. The copy goes at
+        // once with it, since the real list will not show, so a close during the glide-in never shows the whole list.
         let flightToEnd = openingFlight
         openingFlight = nil
         let closingPanel = panel
         panel = nil
-        flightToEnd?.landAtOnce()
+        flightToEnd?.landAtOnce(hidingTheCarriedView: true)
         return closingPanel
     }
 
@@ -742,8 +734,8 @@ final class HoverAndPointerNSView: NSView {
     /// no mouse to read.
     var mouseLocationInTheWindow: (NSWindow) -> CGPoint = { $0.mouseLocationOutsideOfEventStream }
 
-    /// Also run by the agent list when its window starts taking the mouse again, since an entry that crossed the Card's edge
-    /// while the window ignored the mouse never reached this view's tracking area.
+    /// Also run by the agent list when its window starts passing the mouse through, so a hover the margin cut off does not
+    /// stay behind (`refreshTheRowHovers`).
     func reportTheHoverWhereTheMouseAlreadyIs() {
         guard let window, window.isVisible else { return }
         reportTheHover(atMouseLocationInTheView: convert(mouseLocationInTheWindow(window), from: nil))
@@ -776,6 +768,20 @@ final class HoverAndPointerNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// A row's tracking area misses every move while the agent list's window ignores the mouse. When the window takes the mouse
+/// again, each row adds its area again, so AppKit reads its inside state from where the pointer is now, a later exit still
+/// arrives, and the row reports its hover there. When the window starts passing the mouse through, each row reports again,
+/// so no hover stays behind in the margin.
+func refreshTheRowHovers(in contentView: NSView, windowPassesTheMouseThrough: Bool) {
+    for hoverView in hoverAndPointerViews(in: contentView) {
+        if windowPassesTheMouseThrough {
+            hoverView.reportTheHoverWhereTheMouseAlreadyIs()
+        } else {
+            hoverView.updateTrackingAreas()
+        }
+    }
 }
 
 /// Every hover view inside a view, at any depth.
