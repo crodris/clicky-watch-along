@@ -38,6 +38,8 @@ nonisolated struct RoomArtKeyframe: Sendable {
     var wallSpotAnchor: CGPoint? = nil
     /// Counts up with each keyframe the processor takes, so a render made for one keyframe is never drawn on another.
     var keyframeNumber = 0
+    /// The keyframe's texture with the person marked, which furniture's spot choice reads to prefer bare floor.
+    var floorTexture: RoomFloorTextureMap? = nil
 }
 
 // MARK: - Frame processor
@@ -592,7 +594,13 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
             measurementRequest: RoomWallRequest(keyframeJPEGData: keyframeJPEGData, personMaskPNGData: personMaskPNGData, anchor: anchor),
             wallLight: keyframeWallLight,
             wallSpotAnchor: CGPoint(x: wallSpotInTrackPixels.x * cameraPixelsPerTrackPixel, y: wallSpotInTrackPixels.y * cameraPixelsPerTrackPixel),
-            keyframeNumber: keyframeNumber
+            keyframeNumber: keyframeNumber,
+            floorTexture: surfaceKind == .floor ? RoomFloorTextureMap(
+                width: latestTrackGrayscale.width,
+                height: latestTrackGrayscale.height,
+                texture: textureWithThePersonMarked(grayscale: latestTrackGrayscale, roomMask: latestTrackRoomMask),
+                cameraPixelsPerMapPixel: cameraPixelsPerTrackPixel
+            ) : nil
         )
     }
 
@@ -954,6 +962,9 @@ final class RoomArtPreviewController: ObservableObject {
     private var productPhotoJPEG: Data?
     /// The composite service said it is not set up, so no later placement in this panel asks it again.
     private var compositeServiceIsUnavailable = false
+    /// The latest furniture spot shows only part of the piece, so Clicky asks the learner to step back.
+    fileprivate var theWholePieceDoesNotShow = false
+    private var stepBackWasSaid = false
 
     /// The loop's line as the panel draws it this moment, in panel points, or nil before there is a keyframe, a torso, or a
     /// camera frame.
@@ -1095,6 +1106,8 @@ final class RoomArtPreviewController: ObservableObject {
         keyframeOfTheLatestMeasurement = nil
         productPhotoJPEG = nil
         compositeServiceIsUnavailable = false
+        theWholePieceDoesNotShow = false
+        stepBackWasSaid = false
         frameSource?.stop()
         frameSource = nil
         frameProcessor.endTheSession()
@@ -1251,7 +1264,7 @@ final class RoomArtPreviewController: ObservableObject {
                     print(String(format: "Room art: wall %.2f m away at %.0f degrees, %.0f%% of it fits the plane", wall.distanceMeters, wall.wallAngleDegrees, wall.planeInlierShare * 100))
                     surface = .wall(wall)
                 case .floor:
-                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured)
+                    let floor = try await measureTheFurnituresFloor(on: keyframe, for: measuringPhase.itemBeingMeasured, anchorWasClicked: anchorInCameraPixels != nil)
                     print(String(format: "Room art: floor %.2f m away, tilted %.0f degrees, %.0f%% of it fits the plane%@", floor.distanceMeters, floor.floorTiltDegrees, floor.planeInlierShare * 100, floor.inferredFromTheWall ? ", inferred from the wall" : ""))
                     surface = .floor(floor)
                 }
@@ -1284,6 +1297,10 @@ final class RoomArtPreviewController: ObservableObject {
             guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
             frameProcessor.showTheItem(item.image, keyframeCorners: keyframeCorners, on: item.surfaceKind)
             sayHereItIsOnce(item.hereItIsLine)
+            if case .furniture = item, theWholePieceDoesNotShow, !stepBackWasSaid {
+                stepBackWasSaid = true
+                environment.speak(roomFurnitureStepBackLine, false)
+            }
             // Furniture's flat cutout is the placeholder: its best look is rendered or painted for this placement.
             if case .furniture(let furniture) = item, case .floor(let floor) = surface, let keyframe = keyframeOfTheLatestMeasurement {
                 furniturePlacementShowing = (furniture, keyframe, floor)
@@ -1323,7 +1340,7 @@ extension RoomArtPreviewController {
     /// with the wall (a desk or a bed) is not the floor. With no floor, a floor inferred from the wall stands the piece with
     /// its back on the wall, when at least a third of its box is in the frame. A depth service that is down or refuses the
     /// request fails as it is, with no wall measurement.
-    fileprivate func measureTheFurnituresFloor(on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?) async throws -> FloorPlane {
+    fileprivate func measureTheFurnituresFloor(on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) async throws -> FloorPlane {
         var measuredFloor: FloorPlane?
         var floorError: Error?
         do {
@@ -1346,7 +1363,9 @@ extension RoomArtPreviewController {
             wall = nil
         }
         if let measuredFloor {
-            guard let wall, !measuredFloor.agrees(withTheWall: wall) else { return measuredFloor }
+            guard let wall, !measuredFloor.agrees(withTheWall: wall) else {
+                return floorWhereTheWholePieceShows(measuredFloor, on: keyframe, for: item, anchorWasClicked: anchorWasClicked)
+            }
             print("Room furniture: the measured floor is not level with the wall, so it is a desk or a bed, not the floor")
         }
         if let wall, case .furniture(let furniture) = item,
@@ -1358,6 +1377,26 @@ extension RoomArtPreviewController {
             if shareInTheFrame >= roomFurnitureLeastShareOfTheBoxInTheFrame { return inferredFloor }
         }
         throw floorError ?? RoomArtWorkerError.workerReturned(statusCode: 422, body: #"{"error":"The floor is not level with the wall"}"#)
+    }
+
+    /// The floor anchored where the whole piece shows (`roomFurnitureSpotWhereTheWholePieceFits`), since the bare spot it was
+    /// measured at is often a corner where the frame cuts the piece off. A click keeps the spot the learner clicked, and a
+    /// piece no spot shows whole is placed where most of it shows, with the step back line said once after "Here it is".
+    private func floorWhereTheWholePieceShows(_ measuredFloor: FloorPlane, on keyframe: RoomArtKeyframe, for item: RoomArtPlacedItem?, anchorWasClicked: Bool) -> FloorPlane {
+        theWholePieceDoesNotShow = false
+        guard !anchorWasClicked, case .furniture(let furniture) = item else { return measuredFloor }
+        let spot = roomFurnitureSpotWhereTheWholePieceFits(
+            measuredFloor: measuredFloor,
+            widthMeters: furniture.widthMeters,
+            heightMeters: furniture.heightMeters,
+            depthMeters: furniture.depthMeters,
+            // The depth service's principal point is the frame's center.
+            frameSize: CGSize(width: measuredFloor.principalPoint.x * 2, height: measuredFloor.principalPoint.y * 2),
+            texture: keyframe.floorTexture
+        )
+        theWholePieceDoesNotShow = !spot.wholePieceFits
+        print("Room furniture: \(spot.wholePieceFits ? "moved the piece to where all of it shows" : "no spot shows the whole piece, so it stands where most of it shows")")
+        return spot.floor
     }
 
     // MARK: The furniture's best look

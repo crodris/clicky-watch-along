@@ -567,25 +567,7 @@ nonisolated private func quietestSpot(
     spotWhenNothingFits: CGPoint
 ) -> CGPoint {
     let width = grayscale.width, height = grayscale.height
-    let pixels = grayscale.pixels
-    // The Sobel gradient's size at each pixel.
-    var texture = [Float](repeating: 0, count: width * height)
-    if width >= 3 && height >= 3 {
-        for row in 1..<(height - 1) {
-            for column in 1..<(width - 1) {
-                let index = row * width + column
-                let alongX = (pixels[index - width + 1] + 2 * pixels[index + 1] + pixels[index + width + 1])
-                    - (pixels[index - width - 1] + 2 * pixels[index - 1] + pixels[index + width - 1])
-                let alongY = (pixels[index + width - 1] + 2 * pixels[index + width] + pixels[index + width + 1])
-                    - (pixels[index - width - 1] + 2 * pixels[index - width] + pixels[index - width + 1])
-                texture[index] = (alongX * alongX + alongY * alongY).squareRoot()
-            }
-        }
-    }
-    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
-    for index in texture.indices where personNearby[index] {
-        texture[index] = 1_000
-    }
+    let texture = textureWithThePersonMarked(grayscale: grayscale, roomMask: roomMask)
 
     // A summed table, so each window's total is four lookups.
     var summed = [Double](repeating: 0, count: (width + 1) * (height + 1))
@@ -623,6 +605,31 @@ nonisolated private func quietestSpot(
         }
     }
     return bestSpot
+}
+
+/// The Sobel gradient's size at each pixel of `grayscale`, with every pixel within 15 of the person set to 1,000, the most
+/// texture there is, so a spot search stays off them.
+nonisolated func textureWithThePersonMarked(grayscale: RoomGrayscaleImage, roomMask: [Float]) -> [Float] {
+    let width = grayscale.width, height = grayscale.height
+    let pixels = grayscale.pixels
+    var texture = [Float](repeating: 0, count: width * height)
+    if width >= 3 && height >= 3 {
+        for row in 1..<(height - 1) {
+            for column in 1..<(width - 1) {
+                let index = row * width + column
+                let alongX = (pixels[index - width + 1] + 2 * pixels[index + 1] + pixels[index + width + 1])
+                    - (pixels[index - width - 1] + 2 * pixels[index - 1] + pixels[index + width - 1])
+                let alongY = (pixels[index + width - 1] + 2 * pixels[index + width] + pixels[index + width + 1])
+                    - (pixels[index - width - 1] + 2 * pixels[index - width] + pixels[index - width + 1])
+                texture[index] = (alongX * alongX + alongY * alongY).squareRoot()
+            }
+        }
+    }
+    let personNearby = grownSquare(roomMask.map { $0 < 0.5 }, width: width, height: height, reach: 15)
+    for index in texture.indices where personNearby[index] {
+        texture[index] = 1_000
+    }
+    return texture
 }
 
 /// Whether each pixel is within `reach` pixels (a square) of a marked pixel, by a row pass and a column pass.

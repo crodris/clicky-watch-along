@@ -362,3 +362,124 @@ nonisolated func lowestPersonRowShare(in personMask: CVPixelBuffer) -> Double? {
     }
     return nil
 }
+
+// MARK: - Where the whole piece fits
+
+/// The keyframe's texture at the track size, for choosing bare floor: the Sobel texture of each pixel, 1,000 on and near
+/// the person (`textureWithThePersonMarked`).
+nonisolated struct RoomFloorTextureMap: Equatable, Sendable {
+    let width: Int
+    let height: Int
+    let texture: [Float]
+    let cameraPixelsPerMapPixel: Double
+
+    /// The mean texture in a square around a camera pixel, `halfSideCameraPixels` on each side, with the part outside the
+    /// map left out. 1,000 when none of the square is on the map.
+    func meanTexture(around cameraPixel: CGPoint, halfSideCameraPixels: Double) -> Double {
+        let halfSide = max(halfSideCameraPixels / cameraPixelsPerMapPixel, 1)
+        let center = CGPoint(x: cameraPixel.x / cameraPixelsPerMapPixel, y: cameraPixel.y / cameraPixelsPerMapPixel)
+        let left = max(0, Int(center.x - halfSide)), right = min(width - 1, Int(center.x + halfSide))
+        let top = max(0, Int(center.y - halfSide)), bottom = min(height - 1, Int(center.y + halfSide))
+        guard left <= right, top <= bottom else { return 1_000 }
+        var total = 0.0, count = 0
+        for row in top...bottom {
+            for column in left...right {
+                total += Double(texture[row * width + column])
+                count += 1
+            }
+        }
+        return total / Double(count)
+    }
+}
+
+extension FloorPlane {
+    /// The same floor anchored at another pixel: the floor point that pixel's ray meets, which costs no new measurement,
+    /// since a floor is one plane. Nil when the ray does not meet the floor in front of the camera (a pixel above its
+    /// horizon). The result is a measured floor, so its piece faces the camera.
+    func moved(toAnchorPixel anchorPixel: CGPoint) -> FloorPlane? {
+        let ray = SIMD3((anchorPixel.x - principalPoint.x) / focalLengthPixels, (anchorPixel.y - principalPoint.y) / focalLengthPixels, 1)
+        let rayAlongUp = simd_dot(ray, up)
+        guard abs(rayAlongUp) > 1e-9 else { return nil }
+        let distanceAlongTheRay = simd_dot(center, up) / rayAlongUp
+        guard distanceAlongTheRay > 0 else { return nil }
+        let movedCenter = ray * distanceAlongTheRay
+        return FloorPlane(
+            center: movedCenter, right: right, up: up, forward: forward,
+            focalLengthPixels: focalLengthPixels, principalPoint: principalPoint,
+            distanceMeters: simd_length(movedCenter), floorTiltDegrees: floorTiltDegrees, planeInlierShare: planeInlierShare
+        )
+    }
+}
+
+/// Where furniture stands on a measured floor, and whether all of it shows.
+nonisolated struct RoomFurnitureSpot: Equatable, Sendable {
+    let floor: FloorPlane
+    /// Every corner of the piece's box is inside the frame by `roomFurnitureFrameMarginShare`.
+    let wholePieceFits: Bool
+}
+
+/// The piece's whole box stays this share of the frame's size inside each edge, so it never touches the frame.
+nonisolated let roomFurnitureFrameMarginShare = 0.04
+/// A furniture spot may lie this much farther along the floor than the measured one, which a measuring difference covers.
+nonisolated let farthestBeyondTheMeasuredSpotMeters = 0.1
+/// What Clicky says once when no spot on the floor shows the whole piece.
+nonisolated let roomFurnitureStepBackLine = "Step back so I can show the whole piece."
+
+/// The spot on the measured floor where the piece stands: of the floor points whose whole box (footprint and full height,
+/// from the page's size) fits inside the frame with `roomFurnitureFrameMarginShare` to spare, the one nearest the lower
+/// middle of the frame, with bare floor preferred (`texture`, when given). The bare spot the floor was measured at is
+/// often a dark, plain corner where the frame cuts the piece off, which a viewer reads as broken. A spot is never farther
+/// back than the measured one (`farthestBeyondTheMeasuredSpotMeters`), since the plane goes on forever in the math while
+/// the room ends at a wall, and any piece would fit far enough back. When no spot fits, it is the spot that shows the
+/// largest share of the box, and `wholePieceFits` is false.
+nonisolated func roomFurnitureSpotWhereTheWholePieceFits(
+    measuredFloor: FloorPlane,
+    widthMeters: Double,
+    heightMeters: Double,
+    depthMeters: Double,
+    frameSize: CGSize,
+    texture: RoomFloorTextureMap?
+) -> RoomFurnitureSpot {
+    let frameWidth = Double(frameSize.width), frameHeight = Double(frameSize.height)
+    let insideTheMargins = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
+        .insetBy(dx: frameWidth * roomFurnitureFrameMarginShare, dy: frameHeight * roomFurnitureFrameMarginShare)
+    let lowerMiddle = CGPoint(x: frameWidth * 0.5, y: frameHeight * 0.82)
+
+    struct Candidate { let floor: FloorPlane; let fits: Bool; let shareInTheFrame: Double; let score: Double }
+    var candidates: [Candidate] = []
+    let farthestDistanceAlongTheFloor = simd_dot(measuredFloor.center, measuredFloor.forward) + farthestBeyondTheMeasuredSpotMeters
+    func consider(_ floor: FloorPlane, anchorPixel: CGPoint) {
+        guard simd_dot(floor.center, measuredFloor.forward) <= farthestDistanceAlongTheFloor else { return }
+        guard let boxCorners = floor.keyframeBoxCorners(widthMeters: widthMeters, heightMeters: heightMeters, depthMeters: depthMeters) else { return }
+        let fits = boxCorners.allSatisfy { insideTheMargins.contains($0) }
+        // Nearness to the lower middle, in frame widths, plus the floor's texture under the piece's front, so a bare patch
+        // a little farther out wins over a busy one at the middle. The person's 1,000 rules a spot out.
+        let distance = hypot(anchorPixel.x - lowerMiddle.x, anchorPixel.y - lowerMiddle.y) / frameWidth
+        let frontWidthPixels = abs(boxCorners[2].x - boxCorners[3].x)
+        let bareness = texture.map { min($0.meanTexture(around: anchorPixel, halfSideCameraPixels: frontWidthPixels / 2) / 100, 10) } ?? 0
+        candidates.append(Candidate(
+            floor: floor,
+            fits: fits,
+            shareInTheFrame: shareOfTheBoxInsideTheFrame(projectedCorners: boxCorners, frameSize: frameSize),
+            score: distance + 0.25 * bareness
+        ))
+    }
+
+    if let measuredAnchor = pinholeProjection(of: measuredFloor.center, focalLengthPixels: measuredFloor.focalLengthPixels, principalPoint: measuredFloor.principalPoint) {
+        consider(measuredFloor, anchorPixel: measuredAnchor)
+    }
+    let columnCount = 48, rowCount = 36
+    for rowIndex in 0...rowCount {
+        let row = frameHeight * (0.35 + 0.65 * Double(rowIndex) / Double(rowCount))
+        for columnIndex in 0...columnCount {
+            let anchorPixel = CGPoint(x: frameWidth * Double(columnIndex) / Double(columnCount), y: row)
+            if let movedFloor = measuredFloor.moved(toAnchorPixel: anchorPixel) { consider(movedFloor, anchorPixel: anchorPixel) }
+        }
+    }
+
+    if let bestFitting = candidates.filter(\.fits).min(by: { $0.score < $1.score }) {
+        return RoomFurnitureSpot(floor: bestFitting.floor, wholePieceFits: true)
+    }
+    let mostShown = candidates.max { ($0.shareInTheFrame, -$0.score) < ($1.shareInTheFrame, -$1.score) }
+    return RoomFurnitureSpot(floor: mostShown?.floor ?? measuredFloor, wholePieceFits: false)
+}
