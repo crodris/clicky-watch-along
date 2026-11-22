@@ -67,7 +67,7 @@ nonisolated protocol RoomArtFrameProcessing: AnyObject, Sendable {
     func process(_ cameraFrame: CVPixelBuffer)
     /// With no anchor, the spot is the bare wall spot for the wall and the bare floor spot for the floor.
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe?
-    func showTheItem(_ itemImage: CGImage, keyframeCorners: RoomArtCorners, on surfaceKind: RoomArtSurfaceKind)
+    func showTheWallArt(_ flattenedArtImage: CGImage, keyframeCorners: RoomArtCorners)
     /// Shows layers rendered or painted for the keyframe numbered `keyframeNumber`, with a short crossfade from the look
     /// before them, or from the bare room when nothing showed yet. Layers for an older keyframe, such as one a click has
     /// replaced, are dropped.
@@ -152,7 +152,7 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
     /// The item as it is drawn on every frame: already lit like the room and softened like the camera, with its shadow.
     private struct PlacedArt {
         enum Drawing {
-            /// A picture warped onto its four corners: wall art, or furniture's flat cutout.
+            /// Wall art warped onto its four corners.
             case warpedOntoItsCorners(litArt: CIImage, shadow: CIImage)
             /// Furniture rendered or painted over the whole keyframe, moved with the room by the tracker's warp.
             case keyframeLayers(item: CIImage, shadow: CIImage?, grainStandardDeviation: Double)
@@ -625,12 +625,11 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
         return RoomArtWallLight(wallRed: Double(averageRGBA[0]), wallGreen: Double(averageRGBA[1]), wallBlue: Double(averageRGBA[2]))
     }
 
-    /// Places the item at `keyframeCorners` (camera pixels in the keyframe), lit like the room around the keyframe's spot,
-    /// with about 0.7 camera pixels of blur and a soft contact shadow: below the art on a wall, and under the base of
-    /// furniture on the floor.
-    func showTheItem(_ itemImage: CGImage, keyframeCorners: RoomArtCorners, on surfaceKind: RoomArtSurfaceKind) {
+    /// Places the wall art at `keyframeCorners` (camera pixels in the keyframe), lit like the room around the keyframe's
+    /// spot, with about 0.7 camera pixels of blur and a soft shadow just below it on the wall.
+    func showTheWallArt(_ flattenedArtImage: CGImage, keyframeCorners: RoomArtCorners) {
         processingQueue.async {
-            let flattenedArt = itemImage
+            let flattenedArt = flattenedArtImage
             let corners = keyframeCorners.clockwiseFromTopLeft
             let artWidth = Double(flattenedArt.width), artHeight = Double(flattenedArt.height)
             let artExtent = CGRect(x: 0, y: 0, width: artWidth, height: artHeight)
@@ -648,48 +647,20 @@ nonisolated final class RoomArtFrameProcessor: RoomArtFrameProcessing, @unchecke
                 .clampedToExtent()
                 .applyingGaussianBlur(sigma: 0.7 * artPixelsPerCameraPixel)
                 .cropped(to: artExtent)
-            let shadow: CIImage
-            var keyframeBasePoint: CGPoint?
-            switch surfaceKind {
-            case .wall:
-                // The shadow sits 2 percent of the art's height below it and spreads 1.5 percent, at 35 percent black.
-                let shadowSpread = artHeight * 0.015
-                let shadowOffset = -artHeight * 0.02
-                shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
-                    .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset))
-                    .applyingGaussianBlur(sigma: shadowSpread)
-                    .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset).insetBy(dx: -3 * shadowSpread, dy: -3 * shadowSpread))
-            case .floor:
-                shadow = self.furnitureContactShadow(artExtent: artExtent)
-                keyframeBasePoint = CGPoint(x: (corners[2].x + corners[3].x) / 2, y: max(corners[2].y, corners[3].y))
-            }
-            self.placedArt = PlacedArt(drawing: .warpedOntoItsCorners(litArt: litArt, shadow: shadow), keyframeCorners: corners, keyframeBasePoint: keyframeBasePoint)
+            // The shadow sits 2 percent of the art's height below it and spreads 1.5 percent, at 35 percent black.
+            let shadowSpread = artHeight * 0.015
+            let shadowOffset = -artHeight * 0.02
+            let shadow = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+                .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset))
+                .applyingGaussianBlur(sigma: shadowSpread)
+                .cropped(to: artExtent.offsetBy(dx: 0, dy: shadowOffset).insetBy(dx: -3 * shadowSpread, dy: -3 * shadowSpread))
+            self.placedArt = PlacedArt(drawing: .warpedOntoItsCorners(litArt: litArt, shadow: shadow), keyframeCorners: corners, keyframeBasePoint: nil)
             self.crossfadeFrom = nil
             self.smoothedArtCorners = nil
             self.theSurfaceIsLostAsLastReported = false
             self.trackerBeforeTheMove = nil
             self.placedArtBeforeTheMove = nil
         }
-    }
-
-    /// A soft dark ellipse across the furniture's base, in the cutout's space (Core Image's y up, the base at y 0), so the
-    /// same warp that stands the cutout on the floor puts the shadow under it. Its lower half shows below the base, which
-    /// reads as the shadow on the floor in front of the piece, and the piece covers the rest. A radial gradient from 45
-    /// percent black at the center to clear at the rim, squashed to the ellipse's height.
-    private func furnitureContactShadow(artExtent: CGRect) -> CIImage {
-        let shadowWidth = artExtent.width * 0.96
-        let shadowHeight = max(artExtent.height * 0.08, 2)
-        guard let gradient = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": CIVector(x: 0, y: 0),
-            "inputRadius0": 0,
-            "inputRadius1": shadowWidth / 2,
-            "inputColor0": CIColor(red: 0, green: 0, blue: 0, alpha: 0.45),
-            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 0),
-        ])?.outputImage else { return CIImage.empty() }
-        return gradient
-            .transformed(by: CGAffineTransform(scaleX: 1, y: shadowHeight / shadowWidth))
-            .transformed(by: CGAffineTransform(translationX: artExtent.midX, y: artExtent.minY))
-            .cropped(to: CGRect(x: artExtent.midX - shadowWidth / 2, y: artExtent.minY - shadowHeight / 2, width: shadowWidth, height: shadowHeight))
     }
 
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int) {
@@ -1347,9 +1318,9 @@ final class RoomArtPreviewController: ObservableObject {
             }
             // Furniture's look was drawn before the panel entered `showing`, so only wall art is placed here. The phase's
             // transitions show the item only on a surface where its corners land, so this always places it.
-            if case .wallArt = item {
+            if case .wallArt(let artwork) = item {
                 guard let keyframeCorners = surface.keyframeCorners(of: item) else { return }
-                frameProcessor.showTheItem(item.image, keyframeCorners: keyframeCorners, on: item.surfaceKind)
+                frameProcessor.showTheWallArt(artwork.flattenedImage, keyframeCorners: keyframeCorners)
             }
             sayHereItIsOnce(item.hereItIsLine)
             if case .furniture = item, theWholePieceDoesNotShow, !stepBackWasSaid {
@@ -1381,7 +1352,7 @@ final class RoomArtPreviewController: ObservableObject {
                 await waitTheLongestForAFurnitureLook()
                 guard !Task.isCancelled, thisOpening == openingNumber, furniturePlacement?.measurementID == measurementID else { return }
                 furnitureWaitRanOut = true
-                showTheFurnitureFallbackIfItIsDue(because: "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s")
+                showTheFurnitureFallbackIfItIsDue()
             }
         case .couldNotDraw:
             // The loop stays and the camera keeps running, so a click on the floor arranges the piece again.
@@ -1400,7 +1371,7 @@ final class RoomArtPreviewController: ObservableObject {
             frameSource = nil
             frameProcessor.endTheSession()
             environment.speak(failure.spokenLine, true)
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner:
+        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner:
             break
         }
     }
@@ -1514,7 +1485,7 @@ extension RoomArtPreviewController {
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             furnitureLookSearch = foundModel.map { .found($0) } ?? .noModel
             startRenderingTheFurnituresModel()
-            showTheFurnitureFallbackIfItIsDue(because: "no painting can come")
+            showTheFurnitureFallbackIfItIsDue()
         }
     }
 
@@ -1537,7 +1508,7 @@ extension RoomArtPreviewController {
                 return
             }
             furniturePaintingCannotCome = true
-            showTheFurnitureFallbackIfItIsDue(because: "no painting can come")
+            showTheFurnitureFallbackIfItIsDue()
         }
     }
 
@@ -1549,12 +1520,14 @@ extension RoomArtPreviewController {
         let thisOpening = openingNumber
         furnitureRenderIsRunning = true
         furnitureRenderTask = Task {
-            defer { if !Task.isCancelled, thisOpening == openingNumber { furnitureRenderIsRunning = false } }
-            guard let keyframeImage = decodedKeyframe(placement.keyframe) else { return }
-            await renderTheModel(model, furniture: placement.furniture, keyframe: placement.keyframe, keyframeImage: keyframeImage, floor: placement.floor, measurementID: placement.measurementID, thisOpening: thisOpening)
+            if let keyframeImage = decodedKeyframe(placement.keyframe) {
+                await renderTheModel(model, furniture: placement.furniture, keyframe: placement.keyframe, keyframeImage: keyframeImage, floor: placement.floor, measurementID: placement.measurementID, thisOpening: thisOpening)
+            }
+            // A render that ended in any way, made or not, may be what the fallback waited for. A newer placement resets
+            // the flag itself, so a cancelled task leaves it alone.
             guard !Task.isCancelled, thisOpening == openingNumber else { return }
             furnitureRenderIsRunning = false
-            showTheFurnitureFallbackIfItIsDue(because: "no painting can come")
+            showTheFurnitureFallbackIfItIsDue()
         }
     }
 
@@ -1571,8 +1544,9 @@ extension RoomArtPreviewController {
     /// piece and a line that says it could not be drawn, since the flat cutout reads as a sticker. A placement that already
     /// shows a look changes nothing, a painting that arrives later still crossfades over the render or shows the piece, and
     /// a render that finishes after the piece could not be drawn still shows it.
-    private func showTheFurnitureFallbackIfItIsDue(because reason: String) {
+    private func showTheFurnitureFallbackIfItIsDue() {
         guard let furniturePlacement else { return }
+        let reason = furnitureWaitRanOut ? "no painting came within \(Int(roomFurnitureSecondsToWaitForALook)) s" : "no painting can come"
         let measurementID = furniturePlacement.measurementID
         switch roomFurnitureFallbackStep(paintingCannotCome: furniturePaintingCannotCome, theWaitRanOut: furnitureWaitRanOut, render: furnitureRenderState) {
         case .keepWaiting:
@@ -1698,7 +1672,7 @@ extension RoomArtPhase {
     /// The item a measurement is running for, nil outside one.
     var itemBeingMeasured: RoomArtPlacedItem? {
         switch self {
-        case .measuring(_, let item), .moving(_, let item, _): return item
+        case .measuring(_, let item), .moving(_, let item, _), .retrying(_, let item, _): return item
         default: return nil
         }
     }
@@ -1706,7 +1680,7 @@ extension RoomArtPhase {
     /// A click places a wall or floor item, so the video shows the crosshair in those phases and not for a shirt.
     var theItemIsPlacedByClicking: Bool {
         switch self {
-        case .waitingForTheCamera, .measuring, .arranging, .couldNotDraw, .showing, .moving, .waitingForAFloorClick: return true
+        case .waitingForTheCamera, .measuring, .arranging, .couldNotDraw, .retrying, .showing, .moving, .waitingForAFloorClick: return true
         default: return false
         }
     }

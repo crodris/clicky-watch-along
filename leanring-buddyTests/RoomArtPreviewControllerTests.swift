@@ -48,6 +48,9 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     }()
 
     private let lock = NSLock()
+    private var keyframeJPEGThatCannotBeDecoded = false
+    /// Hands out keyframes whose JPEG bytes do not decode, as a keyframe the encoder broke would.
+    func handOutKeyframesThatCannotBeDecoded() { lock.withLock { keyframeJPEGThatCannotBeDecoded = true } }
     private var onFirstSegmentedFrame: (@Sendable () -> Void)?
     private var onTheSurfaceLostOrFound: (@Sendable (Bool) -> Void)?
     private var onTheShirtFramingSettled: (@Sendable (ShirtFramingKind) -> Void)?
@@ -101,22 +104,22 @@ nonisolated private final class StandInFrameProcessor: RoomArtFrameProcessing, @
     }
 
     func takeAKeyframe(on surfaceKind: RoomArtSurfaceKind, anchorInCameraPixels: CGPoint?) async -> RoomArtKeyframe? {
-        let keyframeNumber = lock.withLock {
+        let (keyframeNumber, keyframeJPEGData) = lock.withLock {
             recordedKeyframeAnchors.append(anchorInCameraPixels)
             recordedKeyframeSurfaces.append(surfaceKind)
             keyframesTaken += 1
-            return keyframesTaken
+            return (keyframesTaken, keyframeJPEGThatCannotBeDecoded ? Data([1, 2, 3]) : Self.keyframeJPEG)
         }
         return RoomArtKeyframe(
-            measurementRequest: RoomWallRequest(keyframeJPEGData: Self.keyframeJPEG, personMaskPNGData: Data([2]), anchor: anchorInCameraPixels ?? Self.bareSpot),
+            measurementRequest: RoomWallRequest(keyframeJPEGData: keyframeJPEGData, personMaskPNGData: Data([2]), anchor: anchorInCameraPixels ?? Self.bareSpot),
             wallLight: .neutral,
             wallSpotAnchor: Self.bareWallSpot,
             keyframeNumber: keyframeNumber
         )
     }
 
-    func showTheItem(_ itemImage: CGImage, keyframeCorners: RoomArtCorners, on surfaceKind: RoomArtSurfaceKind) {
-        lock.withLock { recordedSurfacesShownOn.append(surfaceKind) }
+    func showTheWallArt(_ flattenedArtImage: CGImage, keyframeCorners: RoomArtCorners) {
+        lock.withLock { recordedSurfacesShownOn.append(.wall) }
     }
 
     func showTheFurnitureLayers(_ layers: RoomFurnitureKeyframeLayers, keyframeNumber: Int) {
@@ -327,11 +330,14 @@ private final class TestGate {
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var timesWaitedOn = 0
+    /// How many waiters went on past the gate. The waiter's own code after `wait()` runs on the main actor with no
+    /// suspension before it, so a test that sees this count rise knows that code has run.
+    private(set) var timesPassed = 0
 
     func wait() async {
         timesWaitedOn += 1
-        if isOpen { return }
-        await withCheckedContinuation { waiters.append($0) }
+        if !isOpen { await withCheckedContinuation { waiters.append($0) } }
+        timesPassed += 1
     }
 
     func open() {
@@ -878,7 +884,7 @@ struct RoomArtPreviewControllerTests {
             Issue.record("The table is not showing on the floor: \(harness.controller.phase)")
             return
         }
-        // The cutout is drawn at its own shape, 60 by 45, at the page's 45 cm height.
+        // The piece's corners use the cutout's own shape, 60 by 45, at the page's 45 cm height.
         #expect(abs(furniture.drawnWidthMeters - 0.6) < 1e-9)
         harness.controller.close()
     }
@@ -1011,7 +1017,6 @@ struct RoomArtPreviewControllerTests {
 
         // The render is made while the painting comes, and nothing shows until the painting arrives.
         try await waitFor("the render and the painting request") { looks.renders == [.storeModel] && paintingGate.timesWaitedOn == 1 }
-        try await Task.sleep(for: .milliseconds(100))
         #expect(harness.frameProcessor.furnitureLayersShown.isEmpty)
         #expect(harness.frameProcessor.surfacesShownOn.isEmpty)
         #expect(harness.statusLine() == "Arranging it in your room…")
@@ -1019,6 +1024,7 @@ struct RoomArtPreviewControllerTests {
 
         paintingGate.open()
         try await waitFor("the painting") { harness.artIsShowing() }
+        // A render shown before the painting would come first in this list.
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
         #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
         harness.controller.close()
@@ -1148,7 +1154,7 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the painting") { harness.artIsShowing() && deadline.timesWaitedOn == 1 }
         deadline.open()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitFor("the wait to run out") { deadline.timesPassed == 1 }
         #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.paintedComposite])
         #expect(harness.spokenLines() == ["Here it is, 21.5 inches wide and 17.5 tall."])
         #expect(harness.controller.loopState.isFadingOut)
@@ -1166,8 +1172,9 @@ struct RoomArtPreviewControllerTests {
 
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         // The painting is refused while the store's page is still searched, so the piece waits for that render.
+        // The refused painting's ending runs on the main actor with no suspension after the stub throws, so it has run by
+        // the time this wait sees the count.
         try await waitFor("the painting to be refused") { looks.paintings == 1 }
-        try await Task.sleep(for: .milliseconds(200))
         #expect(harness.spokenLines().isEmpty)
         #expect(harness.statusLine() == "Arranging it in your room…")
 
@@ -1201,6 +1208,69 @@ struct RoomArtPreviewControllerTests {
         await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
         try await waitFor("the line that the piece could not be drawn", seconds: 10) { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
         renderGate.open()
+        harness.controller.close()
+    }
+
+    @Test func aRetryClickWhoseMeasurementFailsSaysItCouldNotDrawAgainAndKeepsThePanel() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+
+        // The depth service is down for the click the panel asked for.
+        worker.floorReply = .failure(RoomArtWorkerError.workerReturned(statusCode: 502, body: "{}"))
+        harness.controller.placeTheItem(atCameraPixel: CGPoint(x: 300, y: 320))
+        try await waitFor("the retry's failure") { harness.spokenLines().count == 2 }
+        #expect(harness.spokenLines() == [roomFurnitureNotDrawnLine, roomFurnitureNotDrawnLine])
+        guard case .couldNotDraw = harness.controller.phase else {
+            Issue.record("A failed retry ended the panel: \(harness.controller.phase)")
+            return
+        }
+        #expect(harness.controller.isOpen)
+        #expect(harness.camera.isDeliveringFrames)
+        harness.controller.close()
+    }
+
+    @Test func aRenderThatFinishesAfterThePieceCouldNotBeDrawnShowsIt() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        let renderGate = TestGate()
+        looks.renderGate = renderGate
+        looks.paintedImage = furnitureCutoutImage()
+        looks.paintingGate = TestGate()
+        let deadline = TestGate()
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, furnitureLookDeadline: deadline)
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the render and the wait to start") { renderGate.timesWaitedOn == 1 && deadline.timesWaitedOn == 1 }
+        deadline.open()
+        try await waitFor("the line that the piece could not be drawn") { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+
+        renderGate.open()
+        try await waitFor("the late render") { harness.artIsShowing() }
+        #expect(harness.frameProcessor.furnitureLayersShown.map(\.look) == [.storeModel])
+        #expect(harness.spokenLines() == [roomFurnitureNotDrawnLine, "Here it is, 21.5 inches wide and 17.5 tall."])
+        harness.controller.close()
+    }
+
+    @Test func aKeyframeThatCannotBeDecodedSaysItCouldNotDrawAtOnce() async throws {
+        let worker = WorkerStub()
+        worker.pageReading = .success(sideTableReading)
+        let looks = FurnitureLookStub()
+        looks.storeModel = FurnitureLookStub.model(.storeModel)
+        looks.paintedImage = furnitureCutoutImage()
+        // The wait never runs out here, so only the ends of the painting and the render can let the fallback through.
+        let harness = RoomArtHarness(worker: worker, furnitureLooks: looks, furnitureLookDeadline: TestGate())
+        harness.frameProcessor.handOutKeyframesThatCannotBeDecoded()
+
+        await harness.controller.showTheArtInTheRoom(learnerRequest: "how would this table look in my room")
+        try await waitFor("the line that the piece could not be drawn", seconds: 10) { harness.spokenLines() == [roomFurnitureNotDrawnLine] }
+        #expect(looks.renders.isEmpty && looks.paintings == 0)
         harness.controller.close()
     }
 
@@ -1286,7 +1356,7 @@ struct RoomArtPreviewControllerTests {
     }
 
     @Test func aPaintingAtTheWrongHeightIsAskedForOnceMore() async throws {
-        // With no model, a refused painting would leave the flat cutout, so a second painting is asked for first.
+        // With no model, a refused painting would leave the piece undrawn, so a second painting is asked for first.
         let worker = WorkerStub()
         worker.pageReading = .success(sideTableReading)
         let looks = FurnitureLookStub()

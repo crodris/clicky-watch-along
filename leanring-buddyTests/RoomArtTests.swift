@@ -749,9 +749,20 @@ struct RoomArtPhaseTests {
         // A painting that still arrives for this placement shows the piece, and one for another does nothing.
         #expect(couldNotDraw.withTheFurnitureShowing(measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
         #expect(couldNotDraw.withTheFurnitureShowing(measurementID: firstMeasurement) == couldNotDraw)
-        // A click measures again where the learner clicked.
+        // A click measures again where the learner clicked, and its failure never ends the panel.
         let third = RoomArtMeasurementID(number: 3)
-        #expect(couldNotDraw.startingAMeasurement(id: third) == .measuring(id: third, item: .furniture(furniture())))
+        let retrying = couldNotDraw.startingAMeasurement(id: third)
+        #expect(retrying == .retrying(id: third, item: .furniture(furniture()), surfaceBeforeTheRetry: .floor(floor)))
+        #expect(retrying.statusLine == "Measuring your floor…")
+        #expect(retrying.theItemIsPlacedByClicking)
+        #expect(retrying.startingAMeasurement(id: RoomArtMeasurementID(number: 4)) == retrying)
+        #expect(RoomArtLoopState.drawing(beganAt: 3).after(phaseChangedTo: retrying, at: 9) == .drawing(beganAt: 3))
+        #expect(retrying.withTheSurfaceMeasured(.floor(floor), measurementID: third) == .arranging(id: third, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(retrying.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == retrying)
+        #expect(retrying.withTheSurfaceMeasured(.floor(floorBehindTheCamera), measurementID: third) == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(retrying.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: third) == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(retrying.afterTheMeasurementFailed(.floorNotFound, measurementID: third) == .waitingForAFloorClick(.furniture(furniture())))
+        #expect(retrying.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == retrying)
         #expect(roomFurnitureNotDrawnLine == "I couldn't draw it this time. Click the floor to try again.")
     }
 

@@ -246,7 +246,8 @@ nonisolated func roomFurniturePaintingIsWorthAskingForAgain(after error: Error) 
     }
 }
 
-/// How long furniture with no look yet waits after its floor is measured before the flat cutout shows instead. A painting
+/// How long furniture with no look yet waits after its floor is measured before its fallback shows (the model's render,
+/// else the could-not-draw line). A painting
 /// takes 15 to 20 seconds, and a second painting after a refused one about as long again.
 nonisolated let roomFurnitureSecondsToWaitForALook = 45.0
 
@@ -270,7 +271,6 @@ nonisolated enum RoomFurnitureFallbackStep: Equatable, Sendable {
 
 /// What Clicky says, as a failure, when furniture's painting did not come and its model has no render.
 nonisolated let roomFurnitureNotDrawnLine = "I couldn't draw it this time. Click the floor to try again."
-
 
 /// The painting is the only first look, so the fallback waits for it until it cannot come (the service is not set up,
 /// two paintings were refused, or the request failed) or the wait runs out (`roomFurnitureSecondsToWaitForALook`). The

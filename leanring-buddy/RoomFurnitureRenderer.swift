@@ -23,7 +23,8 @@ import simd
 
 // MARK: - What the renderer returns
 
-/// Which of the furniture's looks a layer came from, best first. The flat cutout is the placeholder below all three.
+/// Which of the furniture's looks a layer came from, best first. The flat cutout is never drawn, and is only what the
+/// generation services work from.
 nonisolated enum RoomFurnitureLook: String, Equatable, Sendable {
     case storeModel
     case generatedModel
