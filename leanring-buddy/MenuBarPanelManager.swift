@@ -27,12 +27,51 @@ extension Notification.Name {
 /// .nonactivatingPanel style, allowing text fields to receive focus.
 private class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
+
+    /// When Escape last closed the panel, which the app's own Escape handler reads (`menuPanelTookTheEscape`).
+    var closedOnEscapeAt: Date?
+
+    /// Escape with no control that handles it, such as a rename field, closes the panel.
+    override func cancelOperation(_ sender: Any?) {
+        closedOnEscapeAt = Date()
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+    }
+}
+
+/// Whether Clicky's Worker answers at all, which the panel's banner and state line read. Any HTTP reply counts, since the
+/// check only asks whether the server can be reached: a GET of the Worker's root answers 404 with no model call.
+@MainActor
+final class WorkerReachability: ObservableObject {
+    @Published private(set) var isUnreachable = false
+    private let workerRootURL: URL?
+    private let session: URLSession
+
+    /// How long the panel waits between checks while the Worker cannot be reached and the panel is open.
+    static let secondsBetweenChecksWhileUnreachable: TimeInterval = 10
+
+    init(workerBaseURL: String) {
+        workerRootURL = URL(string: workerBaseURL)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 4
+        configuration.timeoutIntervalForResource = 4
+        session = URLSession(configuration: configuration)
+    }
+
+    func check() async {
+        guard let workerRootURL else { return }
+        do {
+            let (_, response) = try await session.data(from: workerRootURL)
+            isUnreachable = !(response is HTTPURLResponse)
+        } catch {
+            isUnreachable = true
+        }
+    }
 }
 
 @MainActor
 final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
-    private var panel: NSPanel?
+    private var panel: KeyablePanel?
     private var clickOutsideMonitor: Any?
     /// A global monitor never sees a click the window server delivers to this app's own window, so a click on the
     /// shadow around the card needs this local one to count as outside.
@@ -40,7 +79,11 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
     private var clickMenuBarIconObserver: NSObjectProtocol?
-    private var savedThemesSubscription: AnyCancellable?
+    /// What the panel's view reads about the window: open or not, and the page it shows.
+    private let presentation = PanelPresentation()
+    private let workerReachability: WorkerReachability
+    /// Checks the Worker every 10 seconds while the panel is open and the Worker cannot be reached.
+    private var reachabilityTask: Task<Void, Never>?
     /// Keeps the status item's icon in step with the voice state, the shown theme, and the approval desk.
     private var statusIconController: MenuBarStatusIconController?
 
@@ -53,7 +96,16 @@ final class MenuBarPanelManager: NSObject {
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
+        workerReachability = WorkerReachability(workerBaseURL: CompanionManager.workerBaseURL)
         super.init()
+        companionManager.menuPanelTookTheEscape = { [weak self] in
+            guard let panel = self?.panel else { return false }
+            return menuPanelTookTheEscape(panelIsKey: panel.isKeyWindow, panelClosedOnEscapeAt: panel.closedOnEscapeAt, now: Date())
+        }
+        companionManager.menuPanelShowsTheApprovalCard = { [weak self] in
+            guard let self else { return false }
+            return self.panel?.isVisible == true && self.presentation.page == .home
+        }
         createStatusItem()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
@@ -160,21 +212,59 @@ final class MenuBarPanelManager: NSObject {
             createPanel()
         }
 
+        // Each open starts at the home, or at the setup checklist while setup is not finished.
+        presentation.page = companionManager.setupIsFinished ? .home : .setup
+        presentation.openCount += 1
+        presentation.tallestPageHeight = tallestPageHeightOnTheIconsScreen()
+        presentation.isOpen = true
+        panel?.contentView?.layoutSubtreeIfNeeded()
         positionPanelBelowStatusItem()
 
         panel?.makeKeyAndOrderFront(nil)
         panel?.orderFrontRegardless()
         installClickOutsideMonitor()
+        startCheckingTheWorker()
     }
 
     private func hidePanel() {
+        // Many actions post the dismiss notice with the panel already closed, and those change nothing here.
+        let panelWasShowing = panel?.isVisible == true
         panel?.orderOut(nil)
+        presentation.isOpen = false
+        // The approval card's seen ranges and clock belong to this open, so a closed panel's reading never counts, and a
+        // request it showed opens the agent list.
+        if panelWasShowing { companionManager.theMenuPanelStoppedShowingTheApprovalCard() }
+        // A disc keeps no focus ring once the panel that held the keyboard is gone.
+        companionManager.endTheKeyboardFocusOnTheAgentDisc(of: nil)
+        reachabilityTask?.cancel()
+        reachabilityTask = nil
         removeClickOutsideMonitor()
     }
 
+    /// One check when the panel opens, then one every 10 seconds while the Worker cannot be reached, until the panel closes.
+    private func startCheckingTheWorker() {
+        reachabilityTask?.cancel()
+        let workerReachability = workerReachability
+        reachabilityTask = Task { @MainActor in
+            await workerReachability.check()
+            while workerReachability.isUnreachable, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(WorkerReachability.secondsBetweenChecksWhileUnreachable))
+                guard !Task.isCancelled else { return }
+                await workerReachability.check()
+            }
+        }
+    }
+
     private func createPanel() {
-        let companionPanelView = CompanionPanelView(companionManager: companionManager)
-            .frame(width: windowWidth)
+        let companionPanelView = CompanionPanelView(
+            companionManager: companionManager,
+            themeSettings: companionManager.themeSettings,
+            backgroundAgentStore: companionManager.backgroundAgentStore,
+            presentation: presentation,
+            workerReachability: workerReachability,
+            approvalDesk: companionManager.approvalDesk
+        )
+        .frame(width: windowWidth)
 
         let hostingView = NSHostingView(rootView: companionPanelView)
         hostingView.frame = NSRect(x: 0, y: 0, width: windowWidth, height: panelHeight)
@@ -203,18 +293,20 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.contentView = hostingView
         panel = menuBarPanel
 
-        // The panel's frame is fitted to its content only when it opens, so a saved theme row deleted while it is open would
-        // leave the card floating with empty space below it. The list publishes before it changes, so the refit waits one
-        // main queue turn for SwiftUI to lay out the new rows.
-        savedThemesSubscription = companionManager.themeSettings.$savedCustomThemesWithSavedDates
-            .dropFirst()
-            .sink { [weak self] _ in
-                DispatchQueue.main.async {
-                    guard let self, self.panel?.isVisible == true else { return }
-                    self.panel?.contentView?.layoutSubtreeIfNeeded()
-                    self.positionPanelBelowStatusItem()
-                }
+        // The card reports each change of its size, such as a page, the banner, or a deleted theme, and the window follows it
+        // with its top edge kept under the menu bar. The refit waits one main queue turn for SwiftUI's layout to finish.
+        presentation.onCardSizeChanged = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.panel?.isVisible == true else { return }
+                self.positionPanelBelowStatusItem()
             }
+        }
+    }
+
+    /// The tallest a page may be on the screen that shows the menu bar icon, so the card ends above the screen's bottom.
+    private func tallestPageHeightOnTheIconsScreen() -> CGFloat {
+        guard let screenHeight = statusItem?.button?.window?.screen?.visibleFrame.height else { return panelTallestPageHeightWithNoScreen }
+        return panelTallestPageHeight(visibleScreenHeight: screenHeight, shadowMargin: shadowMargin)
     }
 
     private func positionPanelBelowStatusItem() {
@@ -222,7 +314,7 @@ final class MenuBarPanelManager: NSObject {
         guard let buttonWindow = statusItem?.button?.window else { return }
 
         let statusItemFrame = buttonWindow.frame
-        let gapBelowMenuBar: CGFloat = 4
+        let gapBelowMenuBar = panelGapUnderTheMenuBar
 
         // Calculate the window's height from the hosting view's fitting size so it snugly wraps the
         // SwiftUI content (the card plus its shadow margin) instead of using a fixed height.

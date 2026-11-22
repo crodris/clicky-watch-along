@@ -375,6 +375,22 @@ nonisolated struct VideoQuizSummary: Equatable, Sendable {
     }
 }
 
+/// How a running quiz is going, which the menu bar panel's state line shows: "Quiz · 3 of 4 right".
+nonisolated struct VideoQuizProgress: Equatable, Sendable {
+    let rightCount: Int
+    let answeredCount: Int
+
+    /// "Quiz · watching" before the first answer, since "0 of 0 right" says nothing.
+    var stateLineText: String {
+        answeredCount == 0 ? "Quiz · watching" : "Quiz · \(rightCount) of \(answeredCount) right"
+    }
+
+    init(quizResults: [StudyGuideQuizResult]) {
+        answeredCount = quizResults.count
+        rightCount = quizResults.filter { $0.result == .gotIt }.count
+    }
+}
+
 // MARK: - Session
 
 @MainActor
@@ -424,6 +440,8 @@ final class VideoQuizSession {
     private var questionPopoutsByAskedSeconds: [Double: VideoFramePopout] = [:]
     /// Called once when a quiz ends with at least one question finished, whether every moment was asked or the learner stopped it.
     var onQuizEnded: ((VideoQuizSummary) -> Void)?
+    /// Called when a quiz starts, after each finished question, and with nil when it stops.
+    var onProgressChanged: ((VideoQuizProgress?) -> Void)?
 
     init(
         workerBaseURL: String,
@@ -448,6 +466,7 @@ final class VideoQuizSession {
         framePopoutTasksByMomentIndex = [:]
         quizResultsOfThisQuiz = []
         questionPopoutsByAskedSeconds = [:]
+        onProgressChanged?(VideoQuizProgress(quizResults: []))
         runningTask = Task {
             await self.planAndRunQuiz()
         }
@@ -468,6 +487,7 @@ final class VideoQuizSession {
         // A failure or a stop during planning would otherwise leave the planning label up.
         LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.videoQuizPlanningLines)
         print("Video quiz: stopped")
+        onProgressChanged?(nil)
         if let summary = VideoQuizSummary(quizResults: quizResultsOfThisQuiz) {
             print("Video quiz: \(summary.scoreText), \(summary.missedQuestions.count) to look at again")
             onQuizEnded?(summary)
@@ -735,6 +755,7 @@ final class VideoQuizSession {
         guard studyGuideQuizLog.closeTheOpenQuestion(with: outcome) else { return false }
         if let currentVideoTab, let recordedResult = studyGuideQuizLog.results(forVideoURL: currentVideoTab.url).last {
             quizResultsOfThisQuiz.append(recordedResult)
+            onProgressChanged?(VideoQuizProgress(quizResults: quizResultsOfThisQuiz))
         }
         return true
     }
