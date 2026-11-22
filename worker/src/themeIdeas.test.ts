@@ -291,6 +291,7 @@ describe("springs", () => {
     const systemPrompt = sentBody.system.map((block) => block.text).join("\n");
     expect(systemPrompt).toContain("pop response 0.2 to 0.45");
     expect(systemPrompt).toContain("Bouncy or playful");
+    expect(systemPrompt).toContain("such as pop 0.22 and 0.9");
   });
 });
 

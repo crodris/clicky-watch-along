@@ -164,6 +164,7 @@ struct ThemeMotionParsingTests {
         #expect(try feel(0.3, 0.55) == "bouncy motion")
         #expect(try feel(0.42, 1) == "calm motion")
         #expect(try feel(0.2, 0.9) == "snappy motion")
+        #expect(try feel(0.22, 0.9) == "snappy motion", "the prompt's own snappy example")
         #expect(try feel(0.32, 0.8) == "custom motion")
         #expect(themeMotionFeel(of: .standard) == nil)
     }

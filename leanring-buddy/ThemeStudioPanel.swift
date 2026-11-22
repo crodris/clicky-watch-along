@@ -430,15 +430,15 @@ struct ThemeStudioCardView: View {
 
 // MARK: - Tiles
 
-/// One idea: its cursor running its real thinking motion and streaks while it is the highlighted one, its name, its colors
-/// as swatches, a small agent token in its first agent color, and, on the highlighted tile, a speaker button that plays the
-/// idea's three sounds in a row.
 /// The size of a tile: a tile that is not highlighted sits a little smaller, so picking it springs it up with its own idea's
 /// Pop. With Reduce Motion on the size never changes.
 nonisolated func themeStudioTileScale(isHighlighted: Bool, reduceMotionIsOn: Bool) -> CGFloat {
     isHighlighted || reduceMotionIsOn ? 1 : 0.92
 }
 
+/// One idea: its cursor running its real thinking motion and streaks while it is the highlighted one, its name, its colors
+/// as swatches, a small agent token in its first agent color, and, on the highlighted tile, a speaker button that plays the
+/// idea's three sounds in a row.
 private struct ThemeStudioTileView: View {
     let idea: ClickyTheme
     let ideaIndex: Int
