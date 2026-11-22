@@ -169,6 +169,8 @@ struct ThemeCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PanelPressStyle())
+        // Dragging the card out of the panel makes a .clickytheme file where it lands (`ThemeFileDrag`).
+        .onDrag { ThemeFileDrag.itemProvider(for: theme) }
         .hoverAndPointer { isNowHovered in
             isHovered = isNowHovered
             // A failed delete's phrase stays while the pointer is on the card, and a refused name's stays until the field closes.

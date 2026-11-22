@@ -138,41 +138,6 @@ nonisolated func themeSoundPreviewPlan(for idea: ClickyTheme, secondsBetweenSoun
     }
 }
 
-/// What the card says about the highlighted idea, in words, as short tags: a picture cursor's look, how it moves, and the sounds.
-nonisolated func themeStudioTags(for idea: ClickyTheme) -> [String] {
-    var tags: [String] = []
-    // A drawn cursor shows itself on the tile, so only a picture cursor gets a tag, since its fit and tint are easy to miss.
-    if case .picture(let style) = idea.cursor {
-        var pictureTag = "cursor: your picture"
-        if style.fit == .circle { pictureTag += ", round" }
-        if style.tintHex != nil && style.tintStrength > 0 { pictureTag += ", tinted" }
-        tags.append(pictureTag)
-    }
-    if idea.motion.turnsTowardMovement { tags.append("turns as it moves") }
-    if idea.motion.trailStreaks > 0 {
-        tags.append(idea.motion.trailStreaks == 1 ? "1 trail streak" : "\(idea.motion.trailStreaks) trail streaks")
-    }
-    switch idea.motion.whileThinking {
-    case .none: break
-    case .spin: tags.append("spins while thinking")
-    case .pulse: tags.append("pulses while thinking")
-    case .wobble: tags.append("wobbles while thinking")
-    }
-    if idea.motion.whileListening == .pulse { tags.append("pulses while you talk") }
-    if let springs = idea.motion.springs, let feel = themeMotionFeel(of: springs) { tags.append(feel) }
-    tags.append("sounds: \(idea.sounds.done.rawValue), \(idea.sounds.correct.rawValue), \(idea.sounds.needsYourOK.rawValue)")
-    return tags
-}
-
-/// The word for how a theme's springs feel, from its Pop spring, or nil for Clicky's own. The Worker's prompt asks for these
-/// ranges when the learner says bouncy, calm, or snappy, so the card repeats the word they used.
-nonisolated func themeMotionFeel(of springs: ThemeMoveSprings) -> String? {
-    guard springs != .standard else { return nil }
-    if springs.pop.dampingFraction < 0.65 { return "bouncy motion" }
-    if springs.pop.response >= 0.38 && springs.pop.dampingFraction >= 0.95 { return "calm motion" }
-    if springs.pop.response <= 0.25 { return "snappy motion" }
-    return "custom motion"
-}
 
 nonisolated extension ThemeRGBColor {
     /// Whether dark letters read better than white ones on this color, by WCAG contrast: dark wins above a luminance of about
