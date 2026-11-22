@@ -893,6 +893,9 @@ func (driver *protocolDriver) expectLineContaining(text string) string {
 // The app writes a finished call's result before its cancel_task, so the harness reads both back to back. The command
 // is cancelled either way, and the call's action line must reach the next command every time, not only when a select
 // that saw both ready picked the result. The turn has a second call, so the command cannot finish before the cancel.
+// Whether that second call is sent before the harness reads the cancel depends on how the two goroutines interleave. A
+// call that was sent may have run, so it reaches the next command as cut off, and a call the cancel kept from being sent
+// leaves no line. Either is right, and the call must never be reported as done (brainsession_test.go pins the cut off line).
 func TestAFinishedCallsResultThenACancelStillReportsTheCallToTheNextCommand(t *testing.T) {
 	worker := newFakeWorker(t, func(writer http.ResponseWriter, _ *http.Request, recorded recordedRequest, _ int) {
 		if strings.Contains(lastUserText(t, recorded.body), "turn and zoom") {
@@ -917,11 +920,10 @@ func TestAFinishedCallsResultThenACancelStillReportsTheCallToTheNextCommand(t *t
 
 		requests := worker.requests()
 		got := lastUserText(t, requests[len(requests)-1].body)
-		if !strings.Contains(got, `<interrupted_before>rotate_model {"yawDegrees":-45} -> ok</interrupted_before>`) {
-			t.Fatalf("run %d: the next message did not report the call that finished before the cancel: %s", run, got)
-		}
-		if strings.Contains(got, "zoom {") {
-			t.Fatalf("run %d: the call still waiting at the cancel was reported as done: %s", run, got)
+		const finishedCallAlone = `<interrupted_before>rotate_model {"yawDegrees":-45} -> ok</interrupted_before>`
+		const finishedCallThenTheCutOffOne = `<interrupted_before>rotate_model {"yawDegrees":-45} -> ok; zoom {"factor":2} -> cut off, may have run</interrupted_before>`
+		if !strings.Contains(got, finishedCallAlone) && !strings.Contains(got, finishedCallThenTheCutOffOne) {
+			t.Fatalf("run %d: the next message did not report the call that finished before the cancel, and only it or the cut off call after it: %s", run, got)
 		}
 	}
 }
