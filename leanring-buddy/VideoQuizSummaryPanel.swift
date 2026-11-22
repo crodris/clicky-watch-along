@@ -185,15 +185,33 @@ final class VideoQuizSummaryPanelController {
             },
             close: { [weak self] in self?.close(animated: true) }
         )
-        let hostingView = FirstMouseHostingView(rootView: cardView)
-        let cardSize = hostingView.fittingSize
+        // The window is larger than the Card by the margins the other Cards use, so the Card's shadow has room to draw.
+        let hostingView = FirstMouseHostingView(rootView: cardView.padding(EdgeInsets(
+            top: AgentListWindowMargins.top,
+            leading: AgentListWindowMargins.leading,
+            bottom: AgentListWindowMargins.bottom,
+            trailing: AgentListWindowMargins.trailing
+        )))
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = .clear
+        let windowSize = hostingView.fittingSize
+        let cardSize = CGSize(
+            width: windowSize.width - AgentListWindowMargins.horizontal,
+            height: windowSize.height - AgentListWindowMargins.vertical
+        )
         let mouseLocation = NSEvent.mouseLocation
         let screen = videoRect.flatMap { rect in NSScreen.screens.first { $0.frame.intersects(rect) } }
             ?? NSScreen.screens.first { $0.frame.contains(mouseLocation) }
             ?? NSScreen.main
         guard let screen else { return }
         let cardFrame = videoQuizSummaryCardFrame(cardSize: cardSize, videoRect: videoRect, visibleFrame: screen.visibleFrame)
-        let summaryPanel = NonKeyFloatingPanel(contentRect: cardFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let windowFrame = CGRect(
+            x: cardFrame.minX - AgentListWindowMargins.leading,
+            y: cardFrame.minY - AgentListWindowMargins.bottom,
+            width: windowSize.width,
+            height: windowSize.height
+        )
+        let summaryPanel = NonKeyFloatingPanel(contentRect: windowFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         summaryPanel.isOpaque = false
         summaryPanel.backgroundColor = .clear
         summaryPanel.hasShadow = false
