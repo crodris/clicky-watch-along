@@ -943,14 +943,6 @@ nonisolated enum RoomArtPlacedItem: Equatable, Sendable {
         }
     }
 
-    /// The picture drawn on the surface.
-    var image: CGImage {
-        switch self {
-        case .wallArt(let artwork): return artwork.flattenedImage
-        case .furniture(let furniture): return furniture.cutoutImage
-        }
-    }
-
     /// What Clicky says once it shows, with the size from the measured centimeters.
     var hereItIsLine: String {
         switch self {
@@ -1013,6 +1005,22 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// The item is on its surface. `moveFailure` is why the last click could not move it, shown in the status line until
     /// the next move, with the item back where it was.
     case showing(item: RoomArtPlacedItem, surface: RoomArtSurface, moveFailure: RoomArtFailure?)
+    /// Furniture stands on its measured floor, and its first real look is still on its way: the render of the store's model
+    /// or the painted composite. Nothing is drawn meanwhile, since the flat cutout floats above the floor and reads as a
+    /// sticker, so Clicky's loop stays around the footprint and the status line says the piece is being arranged. When no
+    /// painting can come, or none came within `roomFurnitureSecondsToWaitForALook`, the model's render shows, else the
+    /// phase becomes `couldNotDraw`. `id` is the measurement's, so a look or a deadline for an older placement changes
+    /// nothing.
+    case arranging(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surface: RoomArtSurface)
+    /// No painting came for the arranged furniture and its model has no render, so nothing is drawn: the loop stays, Clicky
+    /// says so as a failure, and a click on the floor measures there and arranges the piece again. A painting that still
+    /// arrives for this placement shows it. `retryFailure` is why the last retry click failed, which the status line and
+    /// the spoken line give instead of the not-drawn line, so the learner knows when a click cannot help.
+    case couldNotDraw(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surface: RoomArtSurface, retryFailure: RoomArtFailure?)
+    /// A click after the furniture could not be drawn measures the floor there. Any failure, a floor not found included,
+    /// goes back to `couldNotDraw` on the floor before it with its reason, and the camera keeps running, since the panel
+    /// asked for the click.
+    case retrying(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheRetry: RoomArtSurface)
     /// A click moves the item: a new keyframe and a new measurement. The surface it stood on comes back if the new one is
     /// not measured.
     case moving(id: RoomArtMeasurementID, item: RoomArtPlacedItem, surfaceBeforeTheMove: RoomArtSurface)
@@ -1059,9 +1067,12 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         switch self {
         case .waitingForTheCamera(let item), .waitingForAFloorClick(let item):
             return .measuring(id: id, item: item)
+        case .couldNotDraw(_, let item, let surface, _):
+            return .retrying(id: id, item: item, surfaceBeforeTheRetry: surface)
         case .showing(let item, let surface, _):
             return .moving(id: id, item: item, surfaceBeforeTheMove: surface)
-        case .closed, .readingThePage, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt, .failed:
+        // Furniture still being arranged has no look yet, so a click waits as it does during a measurement.
+        case .closed, .readingThePage, .measuring, .arranging, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt, .failed:
             return self
         }
     }
@@ -1070,15 +1081,47 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         switch self {
         case .measuring(let measuringID, let item) where measuringID == measurementID && surface.kind == item.surfaceKind:
             guard surface.keyframeCorners(of: item) != nil else { return Self.afterTheFirstMeasurementFailed(item.surfaceKind.cannotPlaceFailure, item: item) }
-            return .showing(item: item, surface: surface, moveFailure: nil)
+            return Self.placed(item, on: surface, measurementID: measurementID)
+        case .retrying(let retryingID, let item, let surfaceBeforeTheRetry) where retryingID == measurementID && surface.kind == item.surfaceKind:
+            guard surface.keyframeCorners(of: item) != nil else {
+                return .couldNotDraw(id: retryingID, item: item, surface: surfaceBeforeTheRetry, retryFailure: item.surfaceKind.cannotPlaceFailure)
+            }
+            return Self.placed(item, on: surface, measurementID: measurementID)
         case .moving(let movingID, let item, let surfaceBeforeTheMove) where movingID == measurementID && surface.kind == item.surfaceKind:
             guard surface.keyframeCorners(of: item) != nil else {
                 return .showing(item: item, surface: surfaceBeforeTheMove, moveFailure: item.surfaceKind.cannotPlaceFailure)
             }
+            return Self.placed(item, on: surface, measurementID: measurementID)
+        default:
+            return self
+        }
+    }
+
+    /// Wall art shows as soon as its wall is measured. Furniture waits for its first real look (`arranging`).
+    private static func placed(_ item: RoomArtPlacedItem, on surface: RoomArtSurface, measurementID: RoomArtMeasurementID) -> RoomArtPhase {
+        switch item {
+        case .wallArt: return .showing(item: item, surface: surface, moveFailure: nil)
+        case .furniture: return .arranging(id: measurementID, item: item, surface: surface)
+        }
+    }
+
+    /// Furniture's first look is drawn: the painted composite, or the model's render as its fallback, or a painting that
+    /// arrived after the piece could not be drawn. Clicky says "Here it is" as the panel enters `showing`, so the line comes
+    /// with the piece.
+    func withTheFurnitureShowing(measurementID: RoomArtMeasurementID) -> RoomArtPhase {
+        switch self {
+        case .arranging(let placementID, let item, let surface) where placementID == measurementID,
+             .couldNotDraw(let placementID, let item, let surface, _) where placementID == measurementID:
             return .showing(item: item, surface: surface, moveFailure: nil)
         default:
             return self
         }
+    }
+
+    /// No painting can come for the arranged furniture, or none came in time, and its model has no render.
+    func afterTheFurnitureCouldNotBeDrawn(measurementID: RoomArtMeasurementID) -> RoomArtPhase {
+        guard case .arranging(let arrangingID, let item, let surface) = self, arrangingID == measurementID else { return self }
+        return .couldNotDraw(id: measurementID, item: item, surface: surface, retryFailure: nil)
     }
 
     /// A measurement failed. A first measurement's failure ends the panel, except a floor that was not found, which waits
@@ -1089,6 +1132,10 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
             return Self.afterTheFirstMeasurementFailed(failure, item: item)
         case .moving(let movingID, let item, let surfaceBeforeTheMove) where movingID == measurementID:
             return .showing(item: item, surface: surfaceBeforeTheMove, moveFailure: failure)
+        case .retrying(let retryingID, let item, let surfaceBeforeTheRetry) where retryingID == measurementID:
+            // Every failure goes back to couldNotDraw with its reason, a floor not found included, so a later click is a
+            // retry too and no click the panel asked for ends it.
+            return .couldNotDraw(id: retryingID, item: item, surface: surfaceBeforeTheRetry, retryFailure: failure)
         default:
             return self
         }
@@ -1142,6 +1189,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
         case .waitingForTheCamera: return "Starting the camera…"
         case .measuring(_, let item): return item.surfaceKind.measuringStatusLine
         case .moving(_, let item, _): return item.surfaceKind.measuringStatusLine
+        case .retrying(_, let item, _): return item.surfaceKind.measuringStatusLine
+        case .arranging: return "Arranging it in your room…"
+        case .couldNotDraw(_, _, _, let retryFailure): return retryFailure?.statusLine ?? "I couldn't draw it this time. Click the floor to try again"
         case .showing(let item, _, let moveFailure):
             if theSurfaceIsLost { return item.surfaceKind.lostLine }
             return moveFailure?.statusLine ?? item.showingStatusLine
@@ -1156,9 +1206,9 @@ nonisolated enum RoomArtPhase: Equatable, Sendable {
     /// Whether the status line says what went wrong, so the panel draws it in the failure color.
     func statusLineIsAFailure(theSurfaceIsLost: Bool) -> Bool {
         switch self {
-        case .failed, .waitingForAFloorClick: return true
+        case .failed, .waitingForAFloorClick, .couldNotDraw: return true
         case .showing(_, _, let moveFailure): return moveFailure != nil && !theSurfaceIsLost
-        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt:
+        case .closed, .readingThePage, .waitingForTheCamera, .measuring, .arranging, .retrying, .moving, .preparingTheShirt, .waitingToSeeTheLearner, .showingTheShirt:
             return false
         }
     }

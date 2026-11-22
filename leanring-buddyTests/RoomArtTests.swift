@@ -728,11 +728,89 @@ struct RoomArtPhaseTests {
         #expect(measuring.statusLine == "Measuring your floor…")
         // A wall reply never places furniture, so a mixed-up reply changes nothing.
         #expect(measuring.withTheSurfaceMeasured(.wall(wall), measurementID: firstMeasurement) == measuring)
-        let showing = measuring.withTheSurfaceMeasured(.floor(floor), measurementID: firstMeasurement)
+        // Furniture is arranged with no look until its painting or its fallback shows.
+        let arranging = measuring.withTheSurfaceMeasured(.floor(floor), measurementID: firstMeasurement)
+        #expect(arranging == .arranging(id: firstMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(arranging.statusLine == "Arranging it in your room…")
+        #expect(!arranging.statusLineIsAFailure(theSurfaceIsLost: false))
+        let showing = arranging.withTheFurnitureShowing(measurementID: firstMeasurement)
         #expect(showing == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
         #expect(showing.statusLine == "On your floor, 21.5 inches wide and 17.5 tall")
         #expect(RoomArtPlacedItem.furniture(furniture()).hereItIsLine == "Here it is, 21.5 inches wide and 17.5 tall.")
         #expect(RoomArtPlacedItem.wallArt(artwork()).hereItIsLine == "Here it is at 16 by 20 inches.")
+    }
+
+    @Test func furnitureBeingArrangedWaitsForItsOwnLookAndIgnoresClicksAndOlderReplies() {
+        let arranging = RoomArtPhase.arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor))
+        // A look or a wait that ran out for an older placement changes nothing.
+        #expect(arranging.withTheFurnitureShowing(measurementID: firstMeasurement) == arranging)
+        // A click, a late measurement reply, and a late failure all wait, as during a measurement.
+        #expect(arranging.startingAMeasurement(id: RoomArtMeasurementID(number: 3)) == arranging)
+        #expect(arranging.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == arranging)
+        #expect(arranging.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == arranging)
+        #expect(arranging.theItemIsPlacedByClicking)
+        // Only an arranged piece takes a look: a piece already showing keeps its phase, so "Here it is" is said once.
+        let showing = arranging.withTheFurnitureShowing(measurementID: secondMeasurement)
+        #expect(showing.withTheFurnitureShowing(measurementID: secondMeasurement) == showing)
+        #expect(RoomArtPhase.measuring(id: secondMeasurement, item: .furniture(furniture())).withTheFurnitureShowing(measurementID: secondMeasurement) == .measuring(id: secondMeasurement, item: .furniture(furniture())))
+        // A move arranges the piece again on its new floor, and the camera failing ends it.
+        let moving = showing.startingAMeasurement(id: RoomArtMeasurementID(number: 3))
+        #expect(moving.withTheSurfaceMeasured(.floor(floor), measurementID: RoomArtMeasurementID(number: 3)) == .arranging(id: RoomArtMeasurementID(number: 3), item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(arranging.afterTheCameraFailed(.noCamera) == .failed(.noCamera))
+        #expect(arranging.closing() == .closed)
+    }
+
+    @Test func furnitureThatCouldNotBeDrawnKeepsItsLoopAndAClickOnTheFloorTriesAgain() {
+        let arranging = RoomArtPhase.arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor))
+        #expect(arranging.afterTheFurnitureCouldNotBeDrawn(measurementID: firstMeasurement) == arranging)
+        let couldNotDraw = arranging.afterTheFurnitureCouldNotBeDrawn(measurementID: secondMeasurement)
+        #expect(couldNotDraw == .couldNotDraw(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor), retryFailure: nil))
+        #expect(couldNotDraw.statusLine == "I couldn't draw it this time. Click the floor to try again")
+        #expect(couldNotDraw.statusLineIsAFailure(theSurfaceIsLost: false))
+        #expect(couldNotDraw.theItemIsPlacedByClicking)
+        #expect(RoomArtLoopState.drawing(beganAt: 3).after(phaseChangedTo: couldNotDraw, at: 9) == .drawing(beganAt: 3))
+        // A painting that still arrives for this placement shows the piece, and one for another does nothing.
+        #expect(couldNotDraw.withTheFurnitureShowing(measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
+        #expect(couldNotDraw.withTheFurnitureShowing(measurementID: firstMeasurement) == couldNotDraw)
+        // A click measures again where the learner clicked, and its failure never ends the panel.
+        let third = RoomArtMeasurementID(number: 3)
+        let retrying = couldNotDraw.startingAMeasurement(id: third)
+        #expect(retrying == .retrying(id: third, item: .furniture(furniture()), surfaceBeforeTheRetry: .floor(floor)))
+        #expect(retrying.statusLine == "Measuring your floor…")
+        #expect(retrying.theItemIsPlacedByClicking)
+        #expect(retrying.startingAMeasurement(id: RoomArtMeasurementID(number: 4)) == retrying)
+        #expect(RoomArtLoopState.drawing(beganAt: 3).after(phaseChangedTo: retrying, at: 9) == .drawing(beganAt: 3))
+        #expect(retrying.withTheSurfaceMeasured(.floor(floor), measurementID: third) == .arranging(id: third, item: .furniture(furniture()), surface: .floor(floor)))
+        #expect(retrying.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == retrying)
+        #expect(retrying.withTheSurfaceMeasured(.floor(floorBehindTheCamera), measurementID: third) == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor), retryFailure: .floorNotFound))
+        // A failed retry says why, and a floor not found stays a retry too, so a click after it never ends the panel.
+        let failedRetry = retrying.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: third)
+        #expect(failedRetry == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor), retryFailure: .depthServiceUnavailable))
+        #expect(failedRetry.statusLine == RoomArtFailure.depthServiceUnavailable.statusLine)
+        #expect(failedRetry.statusLineIsAFailure(theSurfaceIsLost: false))
+        let noFloorRetry = retrying.afterTheMeasurementFailed(.floorNotFound, measurementID: third)
+        #expect(noFloorRetry == .couldNotDraw(id: third, item: .furniture(furniture()), surface: .floor(floor), retryFailure: .floorNotFound))
+        let fourth = RoomArtMeasurementID(number: 4)
+        #expect(noFloorRetry.startingAMeasurement(id: fourth) == .retrying(id: fourth, item: .furniture(furniture()), surfaceBeforeTheRetry: .floor(floor)))
+        #expect(retrying.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: secondMeasurement) == retrying)
+        #expect(roomFurnitureNotDrawnLine == "I couldn't draw it this time. Click the floor to try again.")
+    }
+
+    @Test func furnituresFallbackWaitsForThePaintingAndPrefersTheRender() {
+        // While the painting may still come, nothing but the loop shows.
+        for render in [RoomFurnitureRenderState.coming, .ready, .none] {
+            #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: false, render: render) == .keepWaiting)
+        }
+        // No painting can come: the render, else no piece and the line that says so, and a render still being made is
+        // waited for.
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, render: .ready) == .showTheRender)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, render: .none) == .sayItCouldNotBeDrawn)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: true, theWaitRanOut: false, render: .coming) == .keepWaiting)
+        // The 45 second wait ran out: whatever is ready now.
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, render: .ready) == .showTheRender)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, render: .none) == .sayItCouldNotBeDrawn)
+        #expect(roomFurnitureFallbackStep(paintingCannotCome: false, theWaitRanOut: true, render: .coming) == .sayItCouldNotBeDrawn)
+        #expect(roomFurnitureSecondsToWaitForALook == 45)
     }
 
     @Test func aFloorThatIsNotFoundWaitsForAClickAndTheClickMeasuresAgain() {
@@ -747,7 +825,7 @@ struct RoomArtPhaseTests {
         // The click measures again, and a floor found stands the piece on it.
         let measuringAgain = waitingForAClick.startingAMeasurement(id: secondMeasurement)
         #expect(measuringAgain == .measuring(id: secondMeasurement, item: .furniture(furniture())))
-        #expect(measuringAgain.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == .showing(item: .furniture(furniture()), surface: .floor(floor), moveFailure: nil))
+        #expect(measuringAgain.withTheSurfaceMeasured(.floor(floor), measurementID: secondMeasurement) == .arranging(id: secondMeasurement, item: .furniture(furniture()), surface: .floor(floor)))
         // Any other failure of the first floor measurement ends the panel.
         #expect(measuring.afterTheMeasurementFailed(.depthServiceUnavailable, measurementID: firstMeasurement) == .failed(.depthServiceUnavailable))
     }
