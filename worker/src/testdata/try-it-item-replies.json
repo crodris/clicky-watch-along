@@ -1,5 +1,5 @@
 {
-  "description": "One POST /try-it-item response per kind, shaped exactly as the Worker returns it. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading, so the Worker's response and the app's reader cannot drift apart. The corners fit the picture size below.",
+  "description": "POST /try-it-item responses shaped exactly as the Worker returns them: one for each kind, plus wall art and furniture whose page states no size. worker/src/tryItItem.test.ts feeds each one to handleTryItItem as the model's reply and expects it back unchanged, and leanring-buddyTests/RoomArtTests.swift parses each one with RoomArtPageReading and checks its whole reading by case name, failing on a case it has no expectation for, so the Worker's response and the app's reader cannot drift apart. The corners fit the picture size below.",
   "picture": { "width": 400, "height": 500 },
   "cases": [
     {

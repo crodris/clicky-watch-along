@@ -67,7 +67,8 @@ private func wallArtItem(sizeFound: String = "true", size: String = #"{"label": 
     #"{"kind": "wallArt", "wallArt": {"sizeFoundOnPage": \#(sizeFound), "size": \#(size), "otherSizes": []}}"#
 }
 
-/// The fixture the Worker's tests read too: one `POST /try-it-item` response per kind, shaped as the Worker returns it.
+/// The fixture the Worker's tests read too: `POST /try-it-item` responses shaped as the Worker returns them, one for each
+/// kind plus wall art and furniture whose page states no size.
 private struct TryItItemRepliesFixture: Decodable {
     struct PictureSize: Decodable {
         let width: Int
