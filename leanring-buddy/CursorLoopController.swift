@@ -29,6 +29,9 @@ final class CursorLoopController: ObservableObject {
     /// The wait between front tab samples. Tests pass one that counts its calls, so they check when the poll waits without
     /// reading the clock of a busy machine.
     private let waitBetweenFrontTabPolls: () async -> Void
+    /// Where the front app changing is heard. A test passes its own center, since a real app switch on a busy machine would
+    /// otherwise end the loop a test is checking.
+    private let appActivationNotificationCenter: NotificationCenter
 
     static let secondsBetweenFrontTabPolls: TimeInterval = 1
     /// The real wait between front tab polls. A cancelled poll ends its sleep early and then sees that it was cancelled.
@@ -43,13 +46,15 @@ final class CursorLoopController: ObservableObject {
     init(
         readTheMediaInTheFrontTab: @escaping (FrontTabReadAtRelease) -> MediaOnTheFrontTab? = CursorLoopController.readTheMediaInTheFrontTab,
         readTheFrontTabSample: @escaping () -> FrontTabSample? = CursorLoopController.readTheFrontTabSample,
-        waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls
+        waitBetweenFrontTabPolls: @escaping () async -> Void = CursorLoopController.sleepBetweenFrontTabPolls,
+        appActivationNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     ) {
         self.readTheMediaInTheFrontTab = readTheMediaInTheFrontTab
         self.readTheFrontTabSample = readTheFrontTabSample
         self.waitBetweenFrontTabPolls = waitBetweenFrontTabPolls
+        self.appActivationNotificationCenter = appActivationNotificationCenter
         // The front app changing is a system event, so a notification is the only way to hear it.
-        appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        appActivationObserver = appActivationNotificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
@@ -66,7 +71,7 @@ final class CursorLoopController: ObservableObject {
 
     deinit {
         if let appActivationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(appActivationObserver)
+            appActivationNotificationCenter.removeObserver(appActivationObserver)
         }
     }
 
