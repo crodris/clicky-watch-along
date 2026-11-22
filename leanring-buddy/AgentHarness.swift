@@ -342,9 +342,10 @@ final class HarnessTaskRouter {
 
 /// A screen that shows the approval card. Each surface keeps its own seen ranges and its own 1 second clock, so a click
 /// counts only on the surface whose card was read, and a voice answer's press-time check accepts any surface. The agent
-/// list is the only one today; the menu panel's card joins it as a second surface.
+/// list shows the card, and so does the menu bar panel's banner slot, which takes the keyboard.
 nonisolated enum ApprovalCardSurface: Hashable, Sendable {
     case agentList
+    case menuPanel
 }
 
 /// Whether a Yes or an Always on the oldest approval request counts yet. A No counts at once, so this never holds it
@@ -452,9 +453,10 @@ final class HarnessApprovalDesk: ObservableObject {
     /// for a request the desk's own timeout declined, since "Declined it" above the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
-    /// Whether the agent list is open, so a request that becomes the oldest shows in its card.
+    /// Whether a surface shows the card: the agent list is open, or the menu bar panel is open on its home. A request that
+    /// becomes the oldest then shows there.
     var listIsShowing: () -> Bool = { false }
-    /// A request became the oldest while the list was closed, so its summary is on no screen until the list opens.
+    /// A request became the oldest while no surface showed the card, so its summary is on no screen until the list opens.
     var onOldestRequestNeedsShowing: ((HarnessApprovalRequest) -> Void)?
     /// Whether a task still runs. A request can cross a cancel on its way from the harness, and a request for an ended
     /// task would take the oldest spot, with buttons on an ended agent's row, until it timed out.
