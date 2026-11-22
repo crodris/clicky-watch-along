@@ -1229,7 +1229,12 @@ final class VideoQuizSession {
         if javaScriptResult == "no-video" {
             throw VideoQuizFailure.noVideoOnThePage
         }
-        return try JSONDecoder().decode(VideoFrameGrab.self, from: Data(javaScriptResult.utf8))
+        let frameGrab = try JSONDecoder().decode(VideoFrameGrab.self, from: Data(javaScriptResult.utf8))
+        // The page's script made these bytes, so nothing decodes them until they are known to be a JPEG.
+        guard frameGrabHoldsAJPEG(base64JPEG: frameGrab.jpeg) else {
+            throw VideoQuizFailure.chromeScriptFailed("The frame grab was not a JPEG")
+        }
+        return frameGrab
     }
 
     private func readPlaybackState(of videoTab: ChromeVideoTab) throws -> VideoPlaybackState {

@@ -9,6 +9,7 @@
 
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 import Vision
 
 /// A frame to lift a subject out of: what the grab JavaScript in Chrome returns for a video,
@@ -32,6 +33,18 @@ struct VideoFrameGrab: Decodable {
     var source: FramePopoutSource {
         videoSeconds == nil ? .pageImage : .pausedYouTubeFrame
     }
+}
+
+/// Whether `base64JPEG` decodes to a JPEG. A YouTube frame grab comes from a script in the page (canvas.toDataURL), so the
+/// page could hand back bytes in any format, and ImageIO decodes every format it knows, some with a history of memory bugs,
+/// in an app that holds the camera, Screen Recording, and Accessibility. Only the type is read here, from the file's header.
+nonisolated func frameGrabHoldsAJPEG(base64JPEG: String) -> Bool {
+    guard let jpegData = Data(base64Encoded: base64JPEG),
+          let imageSource = CGImageSourceCreateWithData(jpegData as CFData, nil),
+          let imageType = CGImageSourceGetType(imageSource) as String? else {
+        return false
+    }
+    return imageType == UTType.jpeg.identifier
 }
 
 struct VideoFramePopout {
