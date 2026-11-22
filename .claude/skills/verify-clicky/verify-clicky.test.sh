@@ -158,6 +158,10 @@ scroll_error="$(command_scroll "-2147483648" 2>&1)" || true
 check "scroll refuses a value of more than 6 digits" "$scroll_error" "$scroll_refusal"
 scroll_error="$(command_scroll "1000000" 2>&1)" || true
 check "scroll refuses a positive value of 7 digits" "$scroll_error" "$scroll_refusal"
+# The menu bar icon's window can be missing from the window list, so a driver clicks it through the app. Its usage must say so.
+check "usage lists the menu-icon command" "$(usage | grep -c 'menu-icon <status|click>')" "1"
+menu_icon_error="$(command_menu_icon "sideways" 2>&1)" || true
+check "menu-icon refuses an unknown action" "$menu_icon_error" "menu-icon takes status or click"
 # A second launch in the same run must not leave the first launch's lines where app-wait reads.
 run_directory="$test_directory/run"
 mkdir -p "$run_directory"
