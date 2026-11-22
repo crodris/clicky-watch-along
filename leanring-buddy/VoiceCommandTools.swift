@@ -59,6 +59,8 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     case showArtInMyRoom = "show_art_in_my_room"
     case closeScene = "close_scene"
     case explainPart = "explain_part"
+    case replayExplanation = "replay_explanation"
+    case replayStep = "replay_step"
     case pauseVideo = "pause_video"
     case playVideo = "play_video"
     case seekRelative = "seek_relative"
@@ -91,7 +93,7 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
     var mayHandOff: Bool {
         switch self {
         case .answerWithScreen, .buildNewScene, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .explainPart,
-             .endQuiz, .showReadyModel, .hearTaskAnswer, .designTheme:
+             .endQuiz, .showReadyModel, .hearTaskAnswer, .designTheme, .replayExplanation, .replayStep:
             return true
         default:
             return false
@@ -140,6 +142,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
         var backgroundAgentIsRunning = false
         /// The learner paused every agent, so "go ahead" lets them go on (`BackgroundAgentStore.agentsArePaused`).
         var backgroundAgentsArePaused = false
+        /// The narration of the pop-out on screen recorded its pointing stops, so it can be replayed with no model call.
+        var replayStopsAreRecorded = false
+        /// An instant replay is open, so next, back, and stop step through it instead of moving the video or closing the scene.
+        var replayIsOpen = false
     }
 
     static func available(in context: Context) -> [AppVoiceTool] {
@@ -159,6 +165,11 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
                 return context.sceneIsOnScreen && !context.quizQuestionIsOpen
             case .explainPart:
                 return context.sceneIsOnScreen && context.sceneHasLabels && !context.quizQuestionIsOpen
+            // A quiz question's pop-out belongs to the question, so a replay waits until the learner answers or skips.
+            case .replayExplanation:
+                return context.replayStopsAreRecorded && !context.quizQuestionIsOpen
+            case .replayStep:
+                return context.replayIsOpen && !context.quizQuestionIsOpen
             case .pauseVideo, .playVideo, .seekRelative, .seekToTime, .setSpeed:
                 return context.videoIsInFront
             case .findMoment, .seekToMoment:
@@ -265,6 +276,10 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             return "Close the 3D scene on screen. A paused video plays again."
         case .explainPart:
             return "Say what one labeled part does, while the camera turns to it. label must be one of the scene state's labels. Use it, not answer_with_screen, for a question about a labeled part, such as \"what does the valve do\" or \"what is the crankshaft for\"."
+        case .replayExplanation:
+            return "Replay Clicky's last explanation of the pop-out on screen, silently: the camera turns back to each part it named and the cursor points at it with the same sentence, with no new model call. Use it when the learner asks to see it again, such as \"show me again\", \"replay that\", or \"can you go through that again\". The replay is silent, so the confirmation is never spoken."
+        case .replayStep:
+            return "Step through the instant replay that is open. step is next for the next part, back for the part before, or end to stop the replay and leave the pop-out where it is. While a replay is open, next, back, previous, go back, stop, and that's enough mean this tool, never seek_relative or close_scene. The replay is silent, so the confirmation is never spoken."
         case .pauseVideo:
             return "Pause the video in Chrome's front tab."
         case .playVideo:
@@ -326,8 +341,17 @@ nonisolated enum AppVoiceTool: String, CaseIterable, Sendable {
             .object(["type": .string("number"), "description": .string(description)])
         }
         switch self {
-        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .pauseVideo, .playVideo, .endQuiz:
+        case .answerWithScreen, .buildSimulation, .popOut, .animatePicture, .showArtInMyRoom, .closeScene, .pauseVideo, .playVideo, .endQuiz, .replayExplanation:
             return objectSchema([:], required: [])
+        case .replayStep:
+            return objectSchema(
+                ["step": .object([
+                    "type": .string("string"),
+                    "enum": .array(InstantReplayStep.allCases.map { .string($0.rawValue) }),
+                    "description": .string("next, back, or end."),
+                ])],
+                required: ["step"]
+            )
         case .buildNewScene:
             return objectSchema(
                 ["asQuiz": .object(["type": .string("boolean"), "description": .string("true when they asked to be quizzed or tested on it.")])],
@@ -453,6 +477,15 @@ nonisolated struct VoiceToolCall: Equatable, Sendable {
             return "Putting it back"
         case "explain_part":
             return textInput("label").map { partLabel in "The \(partLabel)" }
+        case "replay_explanation":
+            return "Showing it again"
+        case "replay_step":
+            switch textInput("step").flatMap(InstantReplayStep.init(rawValue:)) {
+            case .next: return "Next stop"
+            case .back: return "Back a stop"
+            case .end: return "Ended the replay"
+            case nil: return nil
+            }
         case "pause_video":
             return "Pausing the video"
         case "play_video":
