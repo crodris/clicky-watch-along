@@ -547,7 +547,7 @@
     },
     {
       "name": "show_art_in_my_room",
-      "description": "Hang the picture or wall art on Chrome's front tab on the learner's wall in their live camera view, at its real size from the page. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room'.",
+      "description": "Try the item on Chrome's front tab in the learner's room, in their live camera view. Wall art hangs on their wall at its real size from the page. Furniture and clothes are read too, but not placed yet, and the app says so. Use for 'how would this look in my room', 'show this on my wall', 'try this in my room', also when the item is a chair or a shirt.",
       "inputSchema": {
         "type": "object",
         "properties": {},
