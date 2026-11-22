@@ -360,6 +360,8 @@ final class CompanionManager: ObservableObject {
     /// What Clicky says after a run. A newer run's line replaces it.
     private var simulationRunNarrationTask: Task<Void, Never>?
 
+    /// The Card that sums up a quiz when it ends.
+    private let videoQuizSummaryPanelController = VideoQuizSummaryPanelController()
     private lazy var videoQuizSession = VideoQuizSession(
         workerBaseURL: Self.workerBaseURL,
         canAskQuestionNow: { [weak self] in
@@ -488,9 +490,17 @@ final class CompanionManager: ObservableObject {
         }
         LiveSceneOverlay.shared.onASceneStartedToShow = { [weak self] in
             self?.cursorLoopController.end(because: .aSceneStartedToShow)
+            // A scene rises over the video the quiz summary sits on, so the Card goes back into the video.
+            self?.videoQuizSummaryPanelController.close(animated: true)
         }
         LiveSceneOverlay.shared.onPartTapped = { [weak self] untrustedTappedLabel in
             self?.explainTheTappedPart(untrustedTappedLabel: untrustedTappedLabel)
+        }
+        videoQuizSession.onQuizEnded = { [weak self] summary in
+            self?.showTheVideoQuizSummary(summary)
+        }
+        LiveSceneOverlay.shared.accentHexForTheNextPage = { [weak self] in
+            self?.themeSettings.shownTheme.cursorColorHex ?? DS.Colors.overlayCursorBlueHex
         }
         LiveSceneOverlay.shared.onPageError = { [weak self] pageErrorText in
             self?.handleLiveScenePageError(pageErrorText)
@@ -2332,7 +2342,7 @@ final class CompanionManager: ObservableObject {
         scheduleTransientHideIfNeeded()
     }
 
-    /// The first wrong answer keeps the model's sentence, which does not give the answer away.
+    /// The first wrong answer keeps the model's sentence, which does not give the answer away, and offers a hint.
     /// A second wrong answer uses the closing line, so the learner hears what the part does.
     private func applyJudgedLiveSceneAnswer(
         grade: LiveSceneQuizGrade,
@@ -2363,7 +2373,7 @@ final class CompanionManager: ObservableObject {
         case .wrong:
             if wrongAnswerCount == 0 {
                 liveScenePhase = .awaitingAnswer(quiz, wrongAnswerCount: 1)
-                return judgeSpokenReply
+                return firstWrongAnswerSpokenLine(judgeSpokenReply: judgeSpokenReply)
             }
             liveScenePhase = .allLabelsShowing
             return spokenLineAfterTheQuizEnds(quiz: quiz, learnerSaidWhatThePartDoes: false)
@@ -2460,6 +2470,7 @@ final class CompanionManager: ObservableObject {
         let spokenLine: String
         switch videoQuizCommand {
         case .start:
+            videoQuizSummaryPanelController.close(animated: true)
             videoQuizSession.start()
             spokenLine = "Sure, let me read through this video."
         case .stop:
@@ -2603,7 +2614,8 @@ final class CompanionManager: ObservableObject {
 
     /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
     /// is, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
-    /// Theme Studio card when that is open, keeping the old theme. Otherwise it ends the scene and anything Clicky is still saying about it.
+    /// Theme Studio card when that is open, keeping the old theme, then answers an "Add theme?" card with a no, then closes the
+    /// quiz summary Card. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
     /// With no scene on screen, it skips the answer Clicky is giving.
     private func closeLiveSceneOnEscape() {
@@ -2628,6 +2640,11 @@ final class CompanionManager: ObservableObject {
         }
         // An "Add theme?" card is answered with a no.
         if themeInstallConfirmation.cancelOnEscape() {
+            return
+        }
+        // With the quiz summary open, Escape closes it.
+        if videoQuizSummaryPanelController.isShowing {
+            videoQuizSummaryPanelController.close(animated: true)
             return
         }
         // A second Escape while a pop-out lands in its frame hides it at once.
@@ -2677,6 +2694,74 @@ final class CompanionManager: ObservableObject {
         voiceState = .idle
         scheduleTransientHideIfNeeded()
         print("Escape: stopped the reply")
+    }
+
+    /// Shows the Card that sums up a quiz that just ended, out of the quiz video when its tab is in front.
+    private func showTheVideoQuizSummary(_ summary: VideoQuizSummary) {
+        let mainDisplayHeight = NSScreen.screens.first?.frame.height ?? 0
+        let videoRect = videoQuizSession.quizVideoIsTheTabInFront()
+            ? ChromeVideoTab.screenRectOfTheLargestVisibleMediaInFrontTab().map { appKitRect(of: $0, mainDisplayHeight: mainDisplayHeight) }
+            : nil
+        videoQuizSummaryPanelController.show(
+            summary: summary,
+            videoRect: videoRect,
+            accentColor: themeSettings.shownTheme.cursorColor,
+            goBackToTheMissedQuestion: { [weak self] missedQuestion in
+                self?.goBackToTheMissedQuizQuestion(missedQuestion)
+            }
+        )
+    }
+
+    /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label
+    /// named and the narration a requested pop-out has. Clearing it resumes the video.
+    private func goBackToTheMissedQuizQuestion(_ missedQuestion: VideoQuizMissedQuestion) {
+        currentResponseTask?.cancel()
+        elevenLabsTTSClient.stopPlayback()
+        // A scene still building would replace the pop-out when it finishes, so it is cancelled as "stop the quiz" cancels one.
+        if case .buildingScene = liveScenePhase {
+            liveSceneRequestTask?.cancel()
+            liveSceneRequestTask = nil
+            liveSceneRequestGeneration += 1
+            LiveSceneStatusLabel.shared.hide(onlyIfShowingOneOf: LiveSceneStatusLine.sceneBuildLines)
+            liveScenePhase = .idle
+        }
+        // The video is about to move back to the question, so a scene on screen goes without its "back to the video".
+        clearFinishedLiveScene(resumesTheVideo: false)
+        let framePopout: VideoFramePopout
+        switch videoQuizSession.goBackToTheMissedQuestion(missedQuestion) {
+        case .showsItsPopout(let popoutOfTheQuestion):
+            framePopout = popoutOfTheQuestion
+        case .playsFromBeforeIt:
+            return
+        case .couldNotGoBack:
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        guard let overlayScreen = overlayScreen(showing: framePopout.frameGrab),
+              let popoutPageHTML = framePopoutPageHTML(for: framePopout, overlayScreen: overlayScreen, theme: themeSettings.shownTheme),
+              LiveSceneOverlay.shared.playLiveScene(html: popoutPageHTML, hidesQuizLabel: false, isFramePopout: true, overlayScreen: overlayScreen) else {
+            // No pop-out opened, so nothing will clear it and resume the video the go-back paused.
+            videoQuizSession.resumeVideoAfterRequestedScene()
+            currentResponseTask = Task { await self.sayTheQuizQuestionCouldNotBeShownAgain() }
+            return
+        }
+        liveScenePhase = .touring(quizToAskAfterTour: nil)
+        liveScenePageOnScreen = .framePopout(framePopout)
+        voiceState = .idle
+        currentResponseTask = Task {
+            await self.narrateTheFramePopout(framePopout, narrationTrigger: .afterTour)
+            guard !Task.isCancelled else { return }
+            self.voiceState = .idle
+            self.scheduleTransientHideIfNeeded()
+        }
+    }
+
+    private func sayTheQuizQuestionCouldNotBeShownAgain() async {
+        VoiceToolCallChip.shared.show("Couldn't go back to that question", sender: .failure)
+        await speakLiveSceneLine("Sorry, I couldn't go back to that question.")
+        guard !Task.isCancelled else { return }
+        voiceState = .idle
+        scheduleTransientHideIfNeeded()
     }
 
     private func skipTheVideoQuizQuestion() {
