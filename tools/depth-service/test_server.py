@@ -17,6 +17,12 @@ import server
 from test_plane import FLOOR_ANCHOR, FOCAL_PX, FRAME_H, FRAME_W, floor_depth, noisy_wall_depth  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def an_empty_depth_cache(monkeypatch):
+    # Every test sends the same gray JPEG, so a depth kept by one test would answer the next.
+    monkeypatch.setattr(server, "depth_cache", server.collections.OrderedDict())
+
+
 @pytest.fixture
 def depth_service_port():
     http_server = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -102,3 +108,39 @@ def test_wall_route_keeps_its_reply_and_a_wall_sent_to_floor_is_a_plane_not_meas
     assert "forward" not in wall_reply
     with pytest.raises(plane.PlaneNotMeasuredError):
         server.measure_plane("/floor", body)
+
+
+def test_a_second_measurement_of_the_same_frame_reuses_its_depth(monkeypatch):
+    depth_runs = []
+
+    def count_the_depth_runs(frame_rgb, focal_hint):
+        depth_runs.append(focal_hint)
+        return floor_depth(), FOCAL_PX
+
+    monkeypatch.setattr(server, "infer_depth", count_the_depth_runs)
+    body = frame_body(FLOOR_ANCHOR)
+
+    first_reply = server.measure_plane("/floor", body)
+    second_reply = server.measure_plane("/floor", body)
+
+    assert len(depth_runs) == 1
+    assert (first_reply["depthWasCached"], second_reply["depthWasCached"]) == (False, True)
+    assert first_reply["center"] == second_reply["center"]
+
+
+def test_the_cache_keeps_only_the_newest_frames(monkeypatch):
+    depth_runs = []
+
+    def count_the_depth_runs(frame_rgb, focal_hint):
+        depth_runs.append(focal_hint)
+        return floor_depth(), FOCAL_PX
+
+    monkeypatch.setattr(server, "infer_depth", count_the_depth_runs)
+    bodies = [{**frame_body(FLOOR_ANCHOR), "focalPx": focal} for focal in (900, 1000, 1100)]
+
+    for body in bodies:
+        server.measure_plane("/floor", body)
+    server.measure_plane("/floor", bodies[0])
+
+    assert depth_runs == [900, 1000, 1100, 900]
+    assert len(server.depth_cache) == server.DEPTH_CACHE_SIZE
