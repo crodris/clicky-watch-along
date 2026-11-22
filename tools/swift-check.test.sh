@@ -22,12 +22,25 @@ caller_nice="$(ps -o nice= -p $$ | tr -d ' ')"
 expected_nice=$((caller_nice + 10 > 20 ? 20 : caller_nice + 10))
 failures=0
 for stand_in in swiftc swift; do
+  if [ ! -f "$scratch/$stand_in.nice" ]; then
+    echo "FAIL: swift-check.sh never ran $stand_in"
+    failures=$((failures + 1))
+    continue
+  fi
   actual_nice="$(cat "$scratch/$stand_in.nice")"
   if [ "$actual_nice" != "$expected_nice" ]; then
     echo "FAIL: $stand_in ran at nice $actual_nice, expected $expected_nice (the caller's $caller_nice plus 10)"
     failures=$((failures + 1))
   fi
 done
+
+# The build folder records its checkout, so the cleanup in a later run can tell when the checkout is gone.
+checkout_root="$(git -C "$(dirname "$script")" rev-parse --show-toplevel)"
+recorded_checkouts="$(cat "$scratch"/tmp/clicky-swift-check-*/.checkout-path 2>/dev/null || true)"
+if [ "$recorded_checkouts" != "$checkout_root" ]; then
+  echo "FAIL: the build folder recorded \"$recorded_checkouts\", expected \"$checkout_root\""
+  failures=$((failures + 1))
+fi
 
 if [ "$failures" -gt 0 ]; then
   exit 1

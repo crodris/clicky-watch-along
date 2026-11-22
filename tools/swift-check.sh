@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
 # Builds the app's Swift sources and runs leanring-buddyTests without xcodebuild, which resets Clicky's
-# privacy permissions on this Mac. It assembles a throwaway Swift package that links the sources in place, in a
-# folder per checkout that later runs reuse, and each run deletes the folders of checkouts that are gone.
+# privacy permissions on this Mac. It assembles a throwaway Swift package that links the sources in place.
+# The package lives in a folder per checkout that later runs reuse.
+# Each run deletes the folders of checkouts that are gone.
 # Arguments pass through to `swift test`, such as --filter Voice.
 set -euo pipefail
 
 # The build uses every core, and several worktrees often check at once, which made the whole Mac slow.
-# A nice value 10 higher than the caller's lets the apps in use run first, and every compile and test process inherits it.
+# A nice value 10 higher than the caller's lets the apps in use run first.
+# Every compile and test process this script starts inherits it.
 renice -n 10 -p $$ >/dev/null
 
 checkout_root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 check_files="$checkout_root/tools/swift-check"
 package_dir="${TMPDIR:-/tmp}/clicky-swift-check-$(printf '%s' "$checkout_root" | shasum | cut -c1-12)"
 
-# Delete the build folders of worktrees that are gone, before this run adds its own.
-# A failed cleanup only costs disk space, so it never stops the check.
-bash "$check_files/prune-build-folders.sh" "${TMPDIR:-/tmp}" "$package_dir" || echo "swift-check: could not remove old build folders" >&2
-
 mkdir -p "$package_dir/Sources/Clicky" "$package_dir/Tests/ClickyTests"
 # Names the checkout this folder belongs to, so a later run can tell when the checkout is gone.
+# It is written before the cleanup, so a cleanup that another check runs at the same time keeps this folder.
 printf '%s\n' "$checkout_root" > "$package_dir/.checkout-path"
+
+# Delete the build folders of worktrees that are gone.
+# A failed cleanup only costs disk space, so it never stops the check.
+bash "$check_files/prune-build-folders.sh" "${TMPDIR:-/tmp}" "$package_dir" || echo "swift-check: could not remove old build folders" >&2
 cp "$check_files/Package.swift" "$package_dir/Package.swift"
 
 # Links are rebuilt each run, so a file added or deleted in the app shows up here too.

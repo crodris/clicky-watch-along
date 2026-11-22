@@ -5,10 +5,15 @@ script="$(cd "$(dirname "$0")" && pwd)/prune-build-folders.sh"
 failures=0
 
 scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
+# A folder that loses its permissions below must get them back before the scratch folder can be removed.
+trap 'chmod -R u+rwx "$scratch" 2>/dev/null; rm -rf "$scratch"' EXIT
 temp_folder="$scratch/tmp"
 live_checkout="$scratch/live-checkout"
 mkdir -p "$temp_folder" "$live_checkout/.git"
+# A worktree's .git is a file that points at the main checkout.
+live_worktree="$scratch/live-worktree"
+mkdir -p "$live_worktree"
+echo "gitdir: $scratch/live-checkout/.git/worktrees/live-worktree" > "$live_worktree/.git"
 
 # Makes a build folder with a file in it, as old as the given touch -t time, and with the given checkout record
 # (or no record when the record argument is "none").
@@ -42,6 +47,13 @@ expect_kept() {
 
 make_build_folder clicky-swift-check-aaaaaaaaaaaa "$two_days_ago" "$scratch/deleted-checkout"
 make_build_folder clicky-swift-check-bbbbbbbbbbbb "$two_days_ago" "$live_checkout"
+make_build_folder clicky-swift-check-ffffffffffff "$two_days_ago" "$live_worktree"
+make_build_folder clicky-swift-check-444444444444 "$one_hour_ago" "$scratch/deleted-checkout"
+# A folder whose size read and delete both fail, here through a subfolder with no permissions, is skipped.
+# The folders after it are still removed. Its name sorts first, so the glob reaches it before the others.
+make_build_folder clicky-swift-check-000000000000 "$two_days_ago" "$scratch/deleted-checkout"
+chmod 000 "$temp_folder/clicky-swift-check-000000000000/.build"
+touch -t "$two_days_ago" "$temp_folder/clicky-swift-check-000000000000/.build"
 make_build_folder clicky-swift-check-cccccccccccc "$now" "$scratch/deleted-checkout"
 make_build_folder clicky-swift-check-dddddddddddd "$two_days_ago" none
 make_build_folder clicky-swift-check-eeeeeeeeeeee "$one_hour_ago" none
@@ -64,6 +76,9 @@ output="$(bash "$script" "$temp_folder" "$temp_folder/clicky-swift-check-9999999
 
 expect_removed clicky-swift-check-aaaaaaaaaaaa "a gone checkout's folder"
 expect_kept clicky-swift-check-bbbbbbbbbbbb "a live checkout's folder"
+expect_kept clicky-swift-check-ffffffffffff "a live worktree's folder, whose .git is a file"
+expect_removed clicky-swift-check-444444444444 "a gone checkout's folder changed an hour ago"
+expect_kept clicky-swift-check-000000000000 "a folder whose delete failed"
 expect_kept clicky-swift-check-cccccccccccc "a recent folder of a gone checkout"
 expect_removed clicky-swift-check-dddddddddddd "an old folder with no record"
 expect_kept clicky-swift-check-eeeeeeeeeeee "a folder with no record changed an hour ago"
@@ -79,7 +94,7 @@ if [ ! -e "$scratch/link-target" ]; then
   echo "FAIL: a symbolic link's target was removed"
   failures=$((failures + 1))
 fi
-if [[ "$output" != "swift-check: removed 4 build folders of checkouts that are gone ("*")" ]]; then
+if [[ "$output" != "swift-check: removed 5 build folders of checkouts that are gone ("*")" ]]; then
   echo "FAIL: the log line: got \"$output\""
   failures=$((failures + 1))
 fi
