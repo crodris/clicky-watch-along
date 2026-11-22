@@ -213,6 +213,16 @@ final class CompanionThemeSettings: ObservableObject {
     /// Every theme Shuffle may give an agent: the bundled ones and the saved ones.
     var themesAgentsMayShuffleThrough: [ClickyTheme] { bundledThemes + savedCustomThemes }
 
+    /// Calls `apply` with the shown theme's Pop, Glide, and Point springs now, and again whenever the saved theme or the studio's
+    /// preview changes them. `$theme` and `$previewTheme` publish the new value before the stored one changes, so the closure
+    /// reads what the publishers send and never `shownTheme`. The caller keeps the returned subscription alive.
+    func observeShownMoveSprings(_ apply: @escaping (ThemeMoveSprings) -> Void) -> AnyCancellable {
+        $theme.combineLatest($previewTheme)
+            .map { savedTheme, previewTheme in (previewTheme ?? savedTheme).moveSprings }
+            .removeDuplicates()
+            .sink(receiveValue: apply)
+    }
+
     func preview(_ idea: ClickyTheme, picture: NSImage?) {
         previewTheme = idea
         previewPicture = picture
