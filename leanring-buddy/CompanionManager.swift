@@ -3339,7 +3339,7 @@ final class CompanionManager: ObservableObject {
 
     private func sayTheQuizQuestionCouldNotBeShownAgain() async {
         VoiceToolCallChip.shared.show("Couldn't go back to that question", sender: .failure)
-        await speakLiveSceneLine("Sorry, I couldn't go back to that question.")
+        await speakLiveSceneLine("Sorry, I couldn't go back to that question.", isAFailure: true)
         guard !Task.isCancelled else { return }
         voiceState = .idle
         scheduleTransientHideIfNeeded()
