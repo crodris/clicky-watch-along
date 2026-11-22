@@ -55,25 +55,22 @@ func cursorLoopDrawWay(reduceMotionIsOn: Bool, theBuddyIsFree: Bool) -> CursorLo
     reduceMotionIsOn || !theBuddyIsFree ? .itFadesInWhole : .theCursorTracesIt
 }
 
-/// One screen's buddy drawing one loop: which loop, how much of its line shows, and whether the buddy is still away on it,
-/// from its flight to the line's start until it is back at the mouse or a pointing or a scrub took it. The overlay moves the
-/// cursor, and each step here is pure, so tests walk a draw through its steps and its land-at-once paths.
+/// One screen's buddy drawing one loop: which loop, and how much of its line shows. The overlay moves the cursor and keeps
+/// its own record of whether the buddy is away, since a newer loop can replace this one while the buddy still flies back
+/// from the older. Each step here is pure, so tests walk a draw through its steps and its land-at-once paths.
 struct BuddyLoopDraw: Equatable {
     let loopBeganAt: TimeInterval
     private(set) var ink: CursorLoopInk
-    private(set) var holdsTheBuddy: Bool
 
-    /// A loop the cursor traces starts with nothing drawn and the buddy on its way. One that fades in whole shows whole from
-    /// the loop's first moment, and the buddy stays where it is.
+    /// A loop the cursor traces starts with nothing drawn while the buddy is on its way. One that fades in whole shows whole
+    /// from the loop's first moment.
     init(loopBeganAt: TimeInterval, way: CursorLoopDrawWay) {
         self.loopBeganAt = loopBeganAt
         switch way {
         case .theCursorTracesIt:
             ink = .waitingForTheCursor
-            holdsTheBuddy = true
         case .itFadesInWhole:
             ink = .whole(since: loopBeganAt)
-            holdsTheBuddy = false
         }
     }
 
@@ -99,11 +96,6 @@ struct BuddyLoopDraw: Equatable {
     /// already whole keeps its shimmer's clock.
     mutating func landAtOnce(at now: TimeInterval) {
         ink.landAtOnce(at: now)
-    }
-
-    /// The buddy is back at the mouse, or another job took it.
-    mutating func theBuddyLeft() {
-        holdsTheBuddy = false
     }
 
     /// The ink to draw for `loop`. A loop the buddy has not picked up yet, which is the one frame before the overlay hears of
@@ -184,9 +176,9 @@ struct CursorLoopView: View {
 
 /// A loop's line cut into short straight pieces with the length up to each point, so the tracer's place and heading at any
 /// share of the line cost a search instead of a path trim, and the ink ends exactly under the tracer. Every share is a share
-/// of the line's length, so a glyph moved by share goes at an even speed along any closed path and turns with it: the
-/// rounded rectangle of `CursorLoopOutline` is one caller, and a shirt's contour or a furniture footprint, given as a closed
-/// path or as its corners in order (`init(closedThrough:)`), are others.
+/// of the line's length, so a glyph moved by share goes at an even speed along any closed path and turns with it. The
+/// rounded rectangle of `CursorLoopOutline` is one caller. `init(closedThrough:)` takes a closed outline as its corners in
+/// order, for loops around a shape that is not a rectangle, such as a shirt's contour or a furniture footprint.
 ///
 /// A loop line ends with a short overshoot past its start (`CursorLoopOutline`). A lap goes around the closed part only,
 /// which ends where the overshoot passes nearest the start, and the first lap starts where the overshoot ended, so a glyph

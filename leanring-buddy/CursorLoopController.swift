@@ -96,18 +96,29 @@ final class CursorLoopController: ObservableObject {
 
     var isShowingTheLoop: Bool { state.loopIsShowing }
 
-    /// The screen whose buddy is away drawing the loop, from its flight to the line's start until it is back at the mouse.
-    /// The loop draws only on the screen that holds the media, and the mouse may be on another, so every other screen hides
-    /// its buddy meanwhile, the way a pointing on another display hides it.
-    @Published private(set) var screenFrameWhereTheBuddyDrawsTheLoop: CGRect?
+    /// The buddy that is away drawing the loop, from its flight to the line's start until it is back at the mouse: its screen,
+    /// and the token its draw was given. The loop draws only on the screen that holds the media, and the mouse may be on another,
+    /// so every other screen hides its buddy meanwhile, the way a pointing on another display hides it.
+    struct BuddyAwayForTheLoop: Equatable {
+        let screenFrame: CGRect
+        let token: UUID
+    }
+    @Published private(set) var buddyAwayForTheLoop: BuddyAwayForTheLoop?
 
-    func theBuddyStartedDrawingTheLoop(onScreenWithFrame screenFrame: CGRect) {
-        screenFrameWhereTheBuddyDrawsTheLoop = screenFrame
+    var screenFrameWhereTheBuddyDrawsTheLoop: CGRect? { buddyAwayForTheLoop?.screenFrame }
+
+    /// Returns the token that ends this draw. A newer draw replaces an older one.
+    func theBuddyStartedDrawingTheLoop(onScreenWithFrame screenFrame: CGRect) -> UUID {
+        let token = UUID()
+        buddyAwayForTheLoop = BuddyAwayForTheLoop(screenFrame: screenFrame, token: token)
+        return token
     }
 
-    func theBuddyFinishedDrawingTheLoop(onScreenWithFrame screenFrame: CGRect) {
-        guard screenFrameWhereTheBuddyDrawsTheLoop == screenFrame else { return }
-        screenFrameWhereTheBuddyDrawsTheLoop = nil
+    /// Only the draw with this token ends, so an old overlay's late close never ends a newer draw, and a display whose frame
+    /// changed mid-draw still ends its own.
+    func theBuddyFinishedDrawingTheLoop(token: UUID) {
+        guard buddyAwayForTheLoop?.token == token else { return }
+        buddyAwayForTheLoop = nil
     }
 
     /// Whether the loop shows on the screen with this frame. The cursor's cue asks per screen, since the loop's shimmer

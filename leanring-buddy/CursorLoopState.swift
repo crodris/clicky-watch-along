@@ -526,7 +526,7 @@ enum CursorLoopTimeline {
     enum TracerPlace: Equatable {
         /// Drawing the line. `share` runs from 0 at the start to 1 at the end of the overshoot.
         case tracing(share: Double)
-        /// Lapping the finished line. `lapShare` runs from 0 to 1 around the closed part of it (`CursorLoopLine.lapPoint`).
+        /// Lapping the finished line. `lapShare` runs from 0 to 1 around the closed part of it (`CursorLoopLine.shareOfTheLine(atLapShare:)`).
         case lapping(lapShare: Double)
     }
 

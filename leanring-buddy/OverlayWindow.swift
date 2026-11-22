@@ -251,6 +251,10 @@ struct BlueCursorView: View {
     /// The loop this screen's buddy draws, and how much of its line shows. The trace runs on `navigationAnimationTimer`, so
     /// every path that stops a flight stops a trace too.
     @State private var loopDraw: BuddyLoopDraw?
+    /// The token `CursorLoopController` gave this screen's buddy when it left the mouse to draw a loop, until it is back or a
+    /// pointing or a scrub takes it. It is kept apart from `loopDraw`, since a newer loop can replace the draw while the buddy
+    /// still flies back from the older one.
+    @State private var loopDrawAwayToken: UUID?
 
     // MARK: - Onboarding Video Layout
 
@@ -496,6 +500,10 @@ struct BlueCursorView: View {
             typeNavigationBubble(phrase: newBubbleText)
         }
         .onChange(of: cursorScrubController.request) { newScrubRequest in
+            // A scrub on another display takes the one buddy there, so this screen's loop draw lands and its buddy goes back.
+            if let newScrubRequest, !targetDisplayIsThisScreen(newScrubRequest.displayFrame) {
+                landTheLoopDrawAtOnce(sendingTheBuddyBack: true, evenWhileItFliesBack: true)
+            }
             if let newScrubRequest {
                 startScrubbing(newScrubRequest)
             } else if playingScrubID != nil {
@@ -523,8 +531,10 @@ struct BlueCursorView: View {
                 return
             }
 
-            // Only navigate if the target is on THIS screen
+            // Only navigate if the target is on THIS screen. A pointing on another display takes the one buddy there, so this
+            // screen's loop draw lands and its buddy goes back.
             guard targetDisplayIsThisScreen(displayFrame) else {
+                landTheLoopDrawAtOnce(sendingTheBuddyBack: true, evenWhileItFliesBack: true)
                 return
             }
 
@@ -547,7 +557,7 @@ struct BlueCursorView: View {
                 return false
             }
             if let screenFrameWhereTheBuddyDrawsTheLoop = cursorLoopController.screenFrameWhereTheBuddyDrawsTheLoop,
-               screenFrameWhereTheBuddyDrawsTheLoop != screenFrame {
+               screenFrameWhereTheBuddyDrawsTheLoop != screenFrame, loopDrawAwayToken == nil {
                 return false
             }
             return isCursorOnThisScreen
@@ -860,9 +870,13 @@ struct BlueCursorView: View {
     /// the bubble hides, and the buddy keeps its position and heading. A buddy following the mouse has nothing to stop.
     private func freezeTheBuddyWhereItIs() {
         guard buddyNavigationMode != .followingCursor, !isReturningToCursor else { return }
+        // A buddy drawing a loop is not the replay's, so it goes back to the mouse instead of freezing on the line.
+        guard loopDrawAwayToken == nil else {
+            landTheLoopDrawAtOnce(sendingTheBuddyBack: true)
+            return
+        }
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = nil
-        landTheLoopDrawAtOnce(sendingTheBuddyBack: false)
         navigationBubbleTypingGeneration += 1
         navigationBubbleOpacity = 0.0
         // A buddy stopped mid-flight stands still, so it loses the flight's stretch.
@@ -989,7 +1003,7 @@ struct BlueCursorView: View {
 
     /// Whether the buddy is away for a pointing, which owns the shared pointing location, and not for a scrub or a loop draw.
     private var buddyOwnsTheSharedPointing: Bool {
-        playingScrubID == nil && loopDraw?.holdsTheBuddy != true
+        playingScrubID == nil && loopDrawAwayToken == nil
     }
 
     /// Returns the buddy to normal cursor-following mode after navigation completes.
@@ -1044,7 +1058,8 @@ struct BlueCursorView: View {
             return
         }
         guard loopDraw?.loopBeganAt != loop.beganAt else { return }
-        landTheLoopDrawAtOnce(sendingTheBuddyBack: true)
+        // A buddy still flying back from an older loop comes back at once, so it is free to draw this one.
+        landTheLoopDrawAtOnce(sendingTheBuddyBack: true, evenWhileItFliesBack: true)
         let way = loopDrawWayNow
         loopDraw = BuddyLoopDraw(loopBeganAt: loop.beganAt, way: way)
         guard way == .theCursorTracesIt else { return }
@@ -1055,18 +1070,21 @@ struct BlueCursorView: View {
     private func flyToTheLoopAndTraceIt(_ loop: CursorLoopOnScreen) {
         let line = CursorLoopLine(outline: loop.outline)
         let loopBeganAt = loop.beganAt
+        // The facing is read once per draw, so a theme change mid-draw never moves the glyph off the spot it landed on.
+        let cursorFacing = themeSettings.shownTheme.cursorFacing
         cursorPositionWhenNavigationStarted = convertScreenPointToSwiftUICoordinates(NSEvent.mouseLocation)
         buddyNavigationMode = .navigatingToTarget
         isReturningToCursor = false
         endTheLandingRing()
-        cursorLoopController.theBuddyStartedDrawingTheLoop(onScreenWithFrame: screenFrame)
-        let lineStart = CursorLoopTracerPlacement(on: line, atShare: 0, cursorFacing: themeSettings.shownTheme.cursorFacing)
+        let awayToken = cursorLoopController.theBuddyStartedDrawingTheLoop(onScreenWithFrame: screenFrame)
+        loopDrawAwayToken = awayToken
+        let lineStart = CursorLoopTracerPlacement(on: line, atShare: 0, cursorFacing: cursorFacing)
         animateBezierFlightArc(to: lineStart.glyphCenter) {
             guard self.loopDraw?.loopBeganAt == loopBeganAt,
-                  self.loopDraw?.holdsTheBuddy == true,
+                  self.loopDrawAwayToken == awayToken,
                   self.buddyNavigationMode == .navigatingToTarget,
                   !self.isReturningToCursor else { return }
-            self.traceTheLoop(line, loopBeganAt: loopBeganAt)
+            self.traceTheLoop(line, loopBeganAt: loopBeganAt, cursorFacing: cursorFacing)
         }
     }
 
@@ -1074,18 +1092,26 @@ struct BlueCursorView: View {
     /// the ink ends under it.
     /// The triangle keeps its pointer angle with the ink at its tip, and a cursor that turns toward movement faces along the
     /// line. Once the line is whole, the buddy flies back to the mouse.
-    private func traceTheLoop(_ line: CursorLoopLine, loopBeganAt: TimeInterval) {
+    private func traceTheLoop(_ line: CursorLoopLine, loopBeganAt: TimeInterval, cursorFacing: CursorFacing) {
         let traceBeganAt = ProcessInfo.processInfo.systemUptime
         loopDraw?.theCursorReachedTheStart()
+        // The cursor sets off along the line at once, so the flight's landing squash does not play under the trace.
+        buddyLandedAt = nil
         let rotationWhenTheTraceBegan = triangleRotationDegrees
+        // Read by pattern, since an enum's Equatable conformance is the main actor's and a timer's closure is not.
+        let keepsItsPointerAngle: Bool
+        if case .pointerAngle = cursorFacing { keepsItsPointerAngle = true } else { keepsItsPointerAngle = false }
         navigationAnimationTimer?.invalidate()
         navigationAnimationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
+            // Every exit stops this timer, and this guard keeps a tick that slipped through from moving the cursor for an
+            // older loop.
+            guard self.loopDraw?.loopBeganAt == loopBeganAt else {
+                self.navigationAnimationTimer?.invalidate()
+                self.navigationAnimationTimer = nil
+                return
+            }
             let now = ProcessInfo.processInfo.systemUptime
             let secondsSinceTheTraceBegan = now - traceBeganAt
-            let cursorFacing = self.themeSettings.shownTheme.cursorFacing
-            // Read by pattern, since an enum's Equatable conformance is the main actor's and a timer's closure is not.
-            let keepsItsPointerAngle: Bool
-            if case .pointerAngle = cursorFacing { keepsItsPointerAngle = true } else { keepsItsPointerAngle = false }
             guard !CursorLoopTimeline.traceIsDone(secondsSinceTheTraceBegan: secondsSinceTheTraceBegan) else {
                 self.navigationAnimationTimer?.invalidate()
                 self.navigationAnimationTimer = nil
@@ -1106,19 +1132,25 @@ struct BlueCursorView: View {
                 secondsSinceTheTraceBegan: secondsSinceTheTraceBegan
             )
             self.buddyFlightDirectionDegrees = placement.headingDegrees
-            self.buddyFlightSpeedShare = CursorLoopTimeline.traceSpeedShare(secondsSinceTheTraceBegan: secondsSinceTheTraceBegan)
+            // The Point move's stretch scales about the glyph's center, which would pull the triangle's tip off the ink, so the
+            // triangle traces unstretched. A cursor with the ink at its center stretches and shows its streaks with the speed.
+            self.buddyFlightSpeedShare = keepsItsPointerAngle
+                ? 0
+                : CursorLoopTimeline.traceSpeedShare(secondsSinceTheTraceBegan: secondsSinceTheTraceBegan)
         }
     }
 
     /// The whole line shows at once. `sendingTheBuddyBack` puts a buddy still on the line back with the mouse, as a press
-    /// does, and is false when a pointing or a scrub takes the buddy from here. A buddy already flying back keeps flying.
-    private func landTheLoopDrawAtOnce(sendingTheBuddyBack: Bool) {
-        guard var draw = loopDraw else { return }
-        draw.landAtOnce(at: ProcessInfo.processInfo.systemUptime)
-        loopDraw = draw
-        guard draw.holdsTheBuddy else { return }
+    /// does, and is false when a pointing or a scrub on this screen takes the buddy from here. A buddy already flying back keeps
+    /// flying, unless `evenWhileItFliesBack` asks for it at once, for a newer loop or a pointing or scrub on another display.
+    private func landTheLoopDrawAtOnce(sendingTheBuddyBack: Bool, evenWhileItFliesBack: Bool = false) {
+        if var draw = loopDraw {
+            draw.landAtOnce(at: ProcessInfo.processInfo.systemUptime)
+            loopDraw = draw
+        }
+        guard loopDrawAwayToken != nil else { return }
         if sendingTheBuddyBack {
-            guard !isReturningToCursor else { return }
+            guard !isReturningToCursor || evenWhileItFliesBack else { return }
             navigationAnimationTimer?.invalidate()
             navigationAnimationTimer = nil
             finishNavigationAndResumeFollowing(clearingTheSharedPointing: false)
@@ -1129,9 +1161,9 @@ struct BlueCursorView: View {
 
     /// The buddy is back at the mouse, or another job took it, so the other screens show their buddy again.
     private func releaseTheBuddyFromTheLoopDraw() {
-        guard loopDraw?.holdsTheBuddy == true else { return }
-        loopDraw?.theBuddyLeft()
-        cursorLoopController.theBuddyFinishedDrawingTheLoop(onScreenWithFrame: screenFrame)
+        guard let loopDrawAwayToken else { return }
+        self.loopDrawAwayToken = nil
+        cursorLoopController.theBuddyFinishedDrawingTheLoop(token: loopDrawAwayToken)
     }
 
     // MARK: - Scrub by voice

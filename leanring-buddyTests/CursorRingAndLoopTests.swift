@@ -3,7 +3,7 @@
 //  leanring-buddyTests
 //
 //  The ring around the cursor and the loop around the media Clicky is looking at: when a request draws a loop and
-//  when it clears, the loop's outline, the spark's timing, and the ring's ticks and dots.
+//  when it clears, the loop's outline, the lap's pace and the shimmer's slowdown, and the ring's ticks and dots.
 //
 
 import CoreGraphics
@@ -395,7 +395,7 @@ func theLoopClosesWithAnOvershootThatPassesItsStartAndStaysInsideTheLine(mediaRe
     #expect(cursorCue(voiceState: .listening, loopIsShowing: false) == .listening)
     #expect(cursorCue(voiceState: .processing, loopIsShowing: false) == .thinkingWithDots)
     #expect(cursorCue(voiceState: .responding, loopIsShowing: false) == .speaking)
-    // The loop's spark is the thinking light, so the dots stay away while it shows.
+    // The loop's shimmer is the thinking light, so the dots stay away while it shows.
     #expect(cursorCue(voiceState: .processing, loopIsShowing: true) == .thinkingWithLoop)
 }
 

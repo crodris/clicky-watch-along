@@ -198,9 +198,6 @@ struct CursorDrawsTheLoopTests {
         draw.theCursorReachedTheStart()
         draw.theCursorTraced(toShare: 0.5)
         #expect(draw.ink == .whole(since: 12))
-        #expect(draw.holdsTheBuddy)
-        draw.theBuddyLeft()
-        #expect(!draw.holdsTheBuddy)
     }
 
     @Test func landingTheDrawAtOnceShowsTheWholeLineFromThatMoment() {
@@ -212,8 +209,6 @@ struct CursorDrawsTheLoopTests {
         tracing.theCursorReachedTheStart()
         tracing.landAtOnce(at: 11.3)
         #expect(tracing.ink == .whole(since: 11.3))
-        // Landing keeps the buddy's record, which the overlay clears when the buddy is back or another job takes it.
-        #expect(tracing.holdsTheBuddy)
 
         // A line already whole keeps its shimmer's clock.
         var finished = BuddyLoopDraw(loopBeganAt: 10, way: .theCursorTracesIt)
@@ -223,10 +218,9 @@ struct CursorDrawsTheLoopTests {
         #expect(finished.ink == .whole(since: 12))
     }
 
-    @Test func aLineThatFadesInIsWholeFromTheLoopsStartAndLeavesTheBuddyAlone() {
+    @Test func aLineThatFadesInIsWholeFromTheLoopsStart() {
         let draw = BuddyLoopDraw(loopBeganAt: 10, way: .itFadesInWhole)
         #expect(draw.ink == .whole(since: 10))
-        #expect(!draw.holdsTheBuddy)
     }
 
     @Test func theInkForALoopFollowsItsDrawAndShowsWholeWhileTheLoopFades() {
@@ -276,12 +270,13 @@ struct CursorDrawsTheLoopTests {
         let firstScreen = CGRect(x: 0, y: 0, width: 1512, height: 982)
         let secondScreen = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
         #expect(controller.screenFrameWhereTheBuddyDrawsTheLoop == nil)
-        controller.theBuddyStartedDrawingTheLoop(onScreenWithFrame: secondScreen)
+        let olderToken = controller.theBuddyStartedDrawingTheLoop(onScreenWithFrame: firstScreen)
+        let newerToken = controller.theBuddyStartedDrawingTheLoop(onScreenWithFrame: secondScreen)
         #expect(controller.screenFrameWhereTheBuddyDrawsTheLoop == secondScreen)
-        // Only the screen that is drawing clears it.
-        controller.theBuddyFinishedDrawingTheLoop(onScreenWithFrame: firstScreen)
+        // Only the newest draw's token ends it, so an older overlay's late close leaves the newer draw alone.
+        controller.theBuddyFinishedDrawingTheLoop(token: olderToken)
         #expect(controller.screenFrameWhereTheBuddyDrawsTheLoop == secondScreen)
-        controller.theBuddyFinishedDrawingTheLoop(onScreenWithFrame: secondScreen)
+        controller.theBuddyFinishedDrawingTheLoop(token: newerToken)
         #expect(controller.screenFrameWhereTheBuddyDrawsTheLoop == nil)
     }
 
