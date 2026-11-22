@@ -25,6 +25,28 @@
       }
     },
     {
+      "name": "wall art with no size on the page",
+      "kind": "wallArt",
+      "response": {
+        "title": "Water Lilies print",
+        "whyThisSize": "The page text states no size.",
+        "itemCorners": {
+          "topLeft": { "x": 40, "y": 50 },
+          "topRight": { "x": 360, "y": 50 },
+          "bottomRight": { "x": 360, "y": 450 },
+          "bottomLeft": { "x": 40, "y": 450 }
+        },
+        "item": {
+          "kind": "wallArt",
+          "wallArt": {
+            "sizeFoundOnPage": false,
+            "size": { "label": "", "widthCentimeters": 0, "heightCentimeters": 0, "includesFrame": false },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
       "name": "furniture only 5 centimeters deep",
       "kind": "furniture",
       "response": {
@@ -41,6 +63,28 @@
           "furniture": {
             "sizeFoundOnPage": true,
             "size": { "label": "50 x 170 cm", "widthCentimeters": 50, "heightCentimeters": 170, "depthCentimeters": 5 },
+            "otherSizes": []
+          }
+        }
+      }
+    },
+    {
+      "name": "furniture with no size on the page",
+      "kind": "furniture",
+      "response": {
+        "title": "Slim floor mirror",
+        "whyThisSize": "The page text states no size.",
+        "itemCorners": {
+          "topLeft": { "x": 120, "y": 20 },
+          "topRight": { "x": 280, "y": 20 },
+          "bottomRight": { "x": 280, "y": 480 },
+          "bottomLeft": { "x": 120, "y": 480 }
+        },
+        "item": {
+          "kind": "furniture",
+          "furniture": {
+            "sizeFoundOnPage": false,
+            "size": { "label": "", "widthCentimeters": 0, "heightCentimeters": 0, "depthCentimeters": 0 },
             "otherSizes": []
           }
         }

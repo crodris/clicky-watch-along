@@ -89,17 +89,57 @@ private struct TryItItemRepliesFixture: Decodable {
     }
 }
 
-private func kindName(of reading: RoomArtPageReading) -> String {
-    switch reading {
-    case .wallArt, .sizeNotOnThePage: "wallArt"
-    case .furniture: "furniture"
-    case .clothing: "clothing"
-    case .other: "other"
+/// What each case of the shared fixture must read as, written next to the case's name. A case with no expectation here fails.
+private func expectedReading(ofFixtureCaseNamed caseName: String) -> RoomArtPageReading? {
+    let pictureCorners = { (left: Double, top: Double, right: Double, bottom: Double) in
+        RoomArtCorners(topLeft: CGPoint(x: left, y: top), topRight: CGPoint(x: right, y: top), bottomRight: CGPoint(x: right, y: bottom), bottomLeft: CGPoint(x: left, y: bottom))
+    }
+    switch caseName {
+    case "wall art with a stated size":
+        return .wallArt(RoomArtWallArtReading(
+            title: "Water Lilies print, framed",
+            chosenSize: RoomArtSize(label: "16 x 20 in", widthCentimeters: 40.6, heightCentimeters: 50.8),
+            chosenSizeIncludesFrame: true,
+            whyThisSize: "The page's size menu shows 16 x 20 in selected.",
+            otherSizes: [RoomArtSize(label: "8 x 10 in", widthCentimeters: 20.3, heightCentimeters: 25.4)],
+            artworkCorners: pictureCorners(40, 50, 360, 450)
+        ))
+    case "wall art with no size on the page":
+        return .sizeNotOnThePage(title: "Water Lilies print")
+    case "furniture only 5 centimeters deep":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Slim floor mirror",
+            chosenSize: RoomArtFurnitureSize(label: "50 x 170 cm", widthCentimeters: 50, heightCentimeters: 170, depthCentimeters: 5),
+            whyThisSize: "The page lists one size, 50 x 170 cm.",
+            itemCorners: pictureCorners(120, 20, 280, 480)
+        ))
+    case "furniture with no size on the page":
+        return .furniture(RoomArtFurnitureReading(
+            title: "Slim floor mirror",
+            chosenSize: nil,
+            whyThisSize: "The page text states no size.",
+            itemCorners: pictureCorners(120, 20, 280, 480)
+        ))
+    case "clothing":
+        return .clothing(RoomArtClothingReading(
+            title: "Great Wave tee",
+            garment: .tshirt,
+            sleeves: .short,
+            chosenSizeLabel: "M",
+            photoShows: .flatLay,
+            printDescription: "large wave print across the chest",
+            whyThisSize: "The page has size M selected.",
+            itemCorners: pictureCorners(30, 60, 370, 440)
+        ))
+    case "other":
+        return .other(title: "Brass lamp")
+    default:
+        return nil
     }
 }
 
 struct RoomArtTryItReplyFixtureTests {
-    @Test func everyWorkerReplyInTheSharedFixtureParsesAsItsOwnKind() throws {
+    @Test func everyWorkerReplyInTheSharedFixtureReadsAsItsExpectedReading() throws {
         let fixture = try TryItItemRepliesFixture.load()
         #expect(Set(fixture.cases.map(\.kind)) == ["wallArt", "furniture", "clothing", "other"])
 
@@ -107,7 +147,7 @@ struct RoomArtTryItReplyFixtureTests {
             let responseData = try JSONEncoder().encode(fixtureCase.response)
             let reading = try RoomArtPageReading(responseData: responseData, pictureWidth: fixture.picture.width, pictureHeight: fixture.picture.height)
 
-            #expect(kindName(of: reading) == fixtureCase.kind, "the \(fixtureCase.name) reply read as \(reading)")
+            #expect(reading == expectedReading(ofFixtureCaseNamed: fixtureCase.name), "the \(fixtureCase.name) reply read as \(reading)")
         }
     }
 }

@@ -261,14 +261,6 @@ function sizeProblem(sizeName: string, size: Size, range: SizeRange, depthRange:
   return `${sizeName} must be ${rangeText}, and it is ${sides.join(" by ")}.`;
 }
 
-/**
- * A model-written label as it may appear in a problem sentence. The sentence goes into the retry prompt outside any tag
- * and into the logs, so a label cannot close a tag with "<" or start a new line.
- */
-function labelSafeForProblemText(label: string): string {
-  return label.replaceAll("<", "‹").replace(/[\r\n\v\f\u0085\u2028\u2029]/g, " ");
-}
-
 /** Checks the labels and the size range of a wallArt or furniture object, other sizes included. Only furniture has a depth. */
 function sizedItemProblem(
   kindName: string,
@@ -285,8 +277,10 @@ function sizedItemProblem(
   }
   return (
     sizeProblem(`${kindName}.size`, details.size, range, depthRange) ??
+    // The entry is named by its position, never its label: the sentence goes into the retry prompt outside any tag,
+    // and a model-written label could carry instructions.
     details.otherSizes
-      .map((size) => sizeProblem(`The ${kindName}.otherSizes entry "${labelSafeForProblemText(size.label)}"`, size, range, depthRange))
+      .map((size, index) => sizeProblem(`The ${kindName}.otherSizes entry ${index + 1}`, size, range, depthRange))
       .find((otherSizeProblem) => otherSizeProblem !== undefined)
   );
 }
