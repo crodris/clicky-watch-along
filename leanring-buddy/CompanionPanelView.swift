@@ -853,8 +853,8 @@ struct SetupChecklistView: View {
                     Text("All set. Try a first question:")
                         .font(DS.TypeScale.title.font)
                         .foregroundColor(DS.Colors.textPrimary)
-                    // One run of text, so it wraps between words and never inside the quoted question.
-                    (Text("Open a YouTube video, hold ") + Text("⌃ ⌥").fontWeight(.bold).foregroundColor(DS.Colors.textPrimary) + Text(", and ask \u{201C}what is this?\u{201D}"))
+                    // One run of text, with no-break spaces inside the quoted question, so it never wraps inside the quote.
+                    (Text("Open a YouTube video, hold ") + Text("⌃ ⌥").fontWeight(.bold).foregroundColor(DS.Colors.textPrimary) + Text(", and ask \u{201C}what\u{00A0}is\u{00A0}this?\u{201D}"))
                         .font(DS.TypeScale.caption.font)
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
