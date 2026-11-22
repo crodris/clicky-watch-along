@@ -8,6 +8,8 @@
 //  disc, a quieter second part in gray, and a longer stay, so the learner sees which agent it speaks for. A failure uses
 //  red with a cross and one small shake, and with Reduce Motion on the red and the cross carry it. The chip pops in
 //  from its tail's tip, leaves with a 6 point rise and a fade, and shrinks into the cursor when the learner interrupts.
+//  A new chip with other words pushes the one on screen up one step, so two chips stack: the newest has its tail on the
+//  cursor, and the one above it keeps its own time on screen (`VoiceToolCallChipStack`). Each chip has its own panel.
 //
 
 import AppKit
@@ -59,13 +61,12 @@ private final class VoiceToolCallChipModel: ObservableObject {
     @Published var secondaryChipText: String?
     /// The call as code, set in a monospaced face, instead of a plain phrase.
     @Published var chipTextIsCode = false
-    /// Whether the chip counts as showing. It goes false the moment a leave starts, while the Callout still plays it.
-    @Published var isVisible = false
     /// Whether the Callout is on screen and how it is leaving.
     let presence = TetherCalloutPresence()
-    /// True for a chip a push-to-talk press must leave up, such as an agent's request for the learner's OK, which stays until
-    /// the learner answers it.
-    var survivesARecall = false
+    /// True while this slot holds the chip that was pushed up, which draws one step above the bottom.
+    @Published var isInTheUpperSlot = false
+    /// Counts each chip that pops into this slot, so a new chip pops in even when the slot's Callout is still on screen.
+    @Published var shownChipCount = 0
     /// The Callout's measured width, which places the panel so the tail stays on the cursor. Not published, since the
     /// cursor-follow timer reads it 30 times a second.
     var contentWidth: CGFloat = 0
@@ -126,10 +127,15 @@ private struct VoiceToolCallChipView: View {
                 }
                 .modifier(TetherCalloutShake(startedAt: chipModel.sender.shakesOnAppearing ? chipModel.shownDate : nil))
                 .tetherCalloutPose(presence, reduceMotionIsOn: reduceMotion)
+                .id(chipModel.shownChipCount)
+                .offset(y: chipModel.isInTheUpperSlot ? -VoiceToolCallChip.stackStepHeight : 0)
+                // A chip pushed up moves with the Snap. A slot that takes a new chip goes back to the bottom with no move.
+                .animation(chipModel.isInTheUpperSlot ? DS.Move.snap.animation(reduceMotionIsOn: reduceMotion) : nil, value: chipModel.isInTheUpperSlot)
             }
         }
         .padding(tetherCalloutPanelMargin)
         .tetherCalloutAnimations(presence, reduceMotionIsOn: reduceMotion)
+        .animation(tetherCalloutAnimation(isAppearing: true, exit: .fadeRise, reduceMotionIsOn: reduceMotion), value: chipModel.shownChipCount)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 }
@@ -161,12 +167,23 @@ struct VoiceToolCallChipIcon: View {
     }
 }
 
+/// One of the two places a chip can show: its model, its panel, and the time its chip stays.
+@MainActor
+private final class VoiceToolCallChipSlot {
+    let chipModel = VoiceToolCallChipModel()
+    var panel: NSPanel?
+    var hideWorkItem: DispatchWorkItem?
+}
+
 @MainActor
 final class VoiceToolCallChip {
     static let shared = VoiceToolCallChip()
 
-    /// The Callout's height with its tail (49) and the margin for its halo and shadow on both sides (28).
-    nonisolated static let panelSize = CGSize(width: 520, height: 49 + 28)
+    /// How far a chip rises when a new one pushes it up: the Callout's height with its tail (49) and a gap of 4.
+    nonisolated static let stackStepHeight: CGFloat = 49 + 4
+    /// The panel holds a Callout with its tail (49), the margin for its halo and shadow on both sides (28), and one step
+    /// for the upper slot's chip to rise into.
+    nonisolated static let panelSize = CGSize(width: 520, height: 49 + 28 + stackStepHeight)
     nonisolated static let defaultSecondsOnScreen: TimeInterval = 1.4
 
     /// The theme's accent for a voice tool call's chip. `CompanionManager` sets it to follow the shown theme.
@@ -174,12 +191,15 @@ final class VoiceToolCallChip {
 
     private static let cursorFollowInterval: TimeInterval = 1.0 / 30.0
 
-    private let chipModel = VoiceToolCallChipModel()
-    private var chipPanel: NSPanel?
-    private var hideWorkItem: DispatchWorkItem?
+    /// What shows now. A slot's panel changes role when a push moves its chip up, so the stack says what shows and the two
+    /// slots below say where.
+    private var chipStack = VoiceToolCallChipStack()
+    private var bottomSlot = VoiceToolCallChipSlot()
+    private var upperSlot = VoiceToolCallChipSlot()
     private var cursorFollowTimer: Timer?
 
-    /// A second call while a chip shows swaps the text and restarts its time on screen.
+    /// A second call with other words while a chip shows pushes that chip up one step and pops the new chip below it, and the
+    /// chip above goes away. The same words from the same sender update the chip in place and restart its time on screen.
     /// - `survivesARecall`: a push-to-talk press leaves this chip up, for a chip that waits for an answer.
     func show(
         _ chipText: String,
@@ -189,74 +209,114 @@ final class VoiceToolCallChip {
         survivesARecall: Bool = false,
         secondsOnScreen: TimeInterval = VoiceToolCallChip.defaultSecondsOnScreen
     ) {
-        let panel = chipPanel ?? makeChipPanel()
-        chipPanel = panel
+        let stackingStep = chipStack.show(VoiceToolCallChipStack.Chip(
+            identity: VoiceToolCallChipIdentity(chipText: chipText, sender: sender),
+            survivesARecall: survivesARecall
+        ))
+        if stackingStep.visibleBottomChipRisesToTheUpperSlot {
+            // The slot that held the bottom chip keeps it and moves up. The slot of the chip that goes away takes the new one.
+            (bottomSlot, upperSlot) = (upperSlot, bottomSlot)
+            upperSlot.chipModel.isInTheUpperSlot = true
+            bottomSlot.chipModel.isInTheUpperSlot = false
+        }
+        let slot = bottomSlot
+        let chipModel = slot.chipModel
+        let panel = slot.panel ?? makeChipPanel(for: slot)
+        slot.panel = panel
         chipModel.chipText = chipText
         chipModel.themeAccent = themeAccentProvider()
         chipModel.sender = sender
         chipModel.secondaryChipText = secondaryChipText
         chipModel.chipTextIsCode = chipTextIsCode
-        chipModel.survivesARecall = survivesARecall
-        if !chipModel.isVisible { chipModel.shownDate = Date() }
-        placeChipAboveTheCursor(panel)
+        if stackingStep.bottomChipStep == .popTheNewChip {
+            chipModel.shownDate = Date()
+            chipModel.shownChipCount += 1
+        }
+        placeTheChipsAboveTheCursor()
         panel.orderFrontRegardless()
-        chipModel.isVisible = true
         chipModel.presence.appear()
         // The chip's panel never takes the keyboard, so VoiceOver would never reach it: it reads the chip's words aloud instead.
         if !chipTextIsCode {
             announceForVoiceOver([chipText, secondaryChipText].compactMap { $0 }.joined(separator: " "))
         }
-        // Runs only while the chip is up, so the tail keeps pointing at the cursor as it moves.
+        // Runs only while a chip is up, so the tails keep pointing at the cursor as it moves.
         if cursorFollowTimer == nil {
             cursorFollowTimer = Timer.scheduledTimer(withTimeInterval: Self.cursorFollowInterval, repeats: true) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    guard let self, let panel = self.chipPanel else { return }
-                    self.placeChipAboveTheCursor(panel)
+                    self?.placeTheChipsAboveTheCursor()
                 }
             }
         }
 
-        hideWorkItem?.cancel()
-        let hideWorkItem = DispatchWorkItem { [weak self] in
-            self?.leave(.fadeRise)
+        slot.hideWorkItem?.cancel()
+        let hideWorkItem = DispatchWorkItem { [weak self, weak slot] in
+            guard let self, let slot else { return }
+            self.leaveWhenItsTimeEnds(slot)
         }
-        self.hideWorkItem = hideWorkItem
+        slot.hideWorkItem = hideWorkItem
         DispatchQueue.main.asyncAfter(deadline: .now() + secondsOnScreen, execute: hideWorkItem)
     }
 
-    /// A push-to-talk press: the chip shrinks into the cursor in 180 ms (a Recall), and the press starts the next request.
+    /// A push-to-talk press: each chip shrinks into the cursor in 180 ms (a Recall), and the press starts the next request.
     /// A chip that waits for the learner's answer stays.
     func recall() {
-        guard chipIsRecalledByAPress(isShowing: chipModel.isVisible, survivesARecall: chipModel.survivesARecall) else { return }
-        leave(.recall)
+        for recalledSlotRole in chipStack.recall() {
+            playTheLeave(of: slot(in: recalledSlotRole), .recall)
+        }
+        stopFollowingTheCursorWhenNoChipShows()
     }
 
-    /// Hides the chip now, but only while it still shows `chipText`, so a newer chip is never cut short.
+    /// Hides the chip now, whichever slot it is in, but only while it still shows `chipText`, so a newer chip is never cut short.
     func hide(ifShowing chipText: String) {
-        guard chipModel.isVisible, chipModel.chipText == chipText else { return }
-        leave(.fadeRise)
+        for hiddenSlotRole in chipStack.hide(ifShowing: chipText) {
+            playTheLeave(of: slot(in: hiddenSlotRole), .fadeRise)
+        }
+        stopFollowingTheCursorWhenNoChipShows()
     }
 
-    private func leave(_ exit: TetherCalloutExit) {
-        guard chipModel.isVisible else { return }
-        hideWorkItem?.cancel()
+    private func slot(in slotRole: VoiceToolCallChipSlotRole) -> VoiceToolCallChipSlot {
+        switch slotRole {
+        case .bottom: return bottomSlot
+        case .upper: return upperSlot
+        }
+    }
+
+    /// The chip's time on screen ended. The chip above stays where it is when the bottom one leaves.
+    private func leaveWhenItsTimeEnds(_ slot: VoiceToolCallChipSlot) {
+        let slotRole: VoiceToolCallChipSlotRole = slot === bottomSlot ? .bottom : .upper
+        guard chipStack.chip(in: slotRole) != nil else { return }
+        chipStack.leave(slotRole)
+        playTheLeave(of: slot, .fadeRise)
+        stopFollowingTheCursorWhenNoChipShows()
+    }
+
+    private func playTheLeave(of slot: VoiceToolCallChipSlot, _ exit: TetherCalloutExit) {
+        slot.hideWorkItem?.cancel()
+        slot.chipModel.presence.leave(exit, reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
+    private func stopFollowingTheCursorWhenNoChipShows() {
+        guard chipStack.isEmpty else { return }
         cursorFollowTimer?.invalidate()
         cursorFollowTimer = nil
-        chipModel.isVisible = false
-        chipModel.presence.leave(exit, reduceMotionIsOn: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
 
-    private func placeChipAboveTheCursor(_ panel: NSPanel) {
+    /// Both panels share one origin, each placed from its own Callout's width, so the tails stay on the cursor and the chip
+    /// that was pushed up sits one step above the new one.
+    private func placeTheChipsAboveTheCursor() {
         guard let screenFrame = screenUnderTheMouseCursor()?.frame else { return }
-        panel.setFrameOrigin(voiceToolCallChipOrigin(
-            mouseLocation: NSEvent.mouseLocation,
-            screenFrame: screenFrame,
-            calloutWidth: chipModel.contentWidth,
-            aStatusLabelIsShowing: LiveSceneStatusLabel.shared.statusLabelModel.presence.isInTheViewTree
-        ))
+        for slot in [bottomSlot, upperSlot] {
+            guard let panel = slot.panel else { continue }
+            panel.setFrameOrigin(voiceToolCallChipOrigin(
+                mouseLocation: NSEvent.mouseLocation,
+                screenFrame: screenFrame,
+                calloutWidth: slot.chipModel.contentWidth,
+                aStatusLabelIsShowing: LiveSceneStatusLabel.shared.statusLabelModel.presence.isInTheViewTree
+            ))
+        }
     }
 
-    private func makeChipPanel() -> NSPanel {
+    private func makeChipPanel(for slot: VoiceToolCallChipSlot) -> NSPanel {
         let panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: Self.panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -271,14 +331,15 @@ final class VoiceToolCallChip {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        panel.contentView = NSHostingView(rootView: VoiceToolCallChipView(chipModel: chipModel, presence: chipModel.presence))
+        panel.contentView = NSHostingView(rootView: VoiceToolCallChipView(chipModel: slot.chipModel, presence: slot.chipModel.presence))
         return panel
     }
 }
 
 /// The chip panel's bottom-left corner in AppKit screen points. The chip's tail points at Clicky's triangle, so it sits
 /// above the triangle. While a status line shows at the same spot, the chip sits above that line instead, so neither covers
-/// the other. It stays inside the screen.
+/// the other. It stays inside the screen. The panel is one step taller than a chip, for the chip pushed up, so both chip
+/// panels use this origin, each with its own `calloutWidth`.
 /// `calloutWidth` is the measured width of the chip's Callout, and 0 before the first measure, which places the chip as a
 /// full width one so it never starts past the screen's edge.
 func voiceToolCallChipOrigin(mouseLocation: CGPoint, screenFrame: CGRect, calloutWidth: CGFloat = 0, aStatusLabelIsShowing: Bool = false) -> CGPoint {
