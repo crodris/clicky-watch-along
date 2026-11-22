@@ -6,12 +6,16 @@ learner talks, on a deep blue rounded square.
 
 Run from anywhere:  python3 -I tools/app-icon/render-app-icon.py
 
-It writes two things from one set of shapes, so they cannot differ:
+It writes two things from one set of shapes, so their shapes cannot differ:
   - leanring-buddy/AppIcon.icon   the Icon Composer file, which gives the icon its dark,
                                   tinted, and clear modes: the field as the icon's gradient
                                   fill, and the ticks and the cursor as layers on a full 1024
                                   point canvas. The tile shadow and the cursor's shadow are
-                                  left out, since Icon Composer draws its own.
+                                  left out, since Icon Composer draws its own. Icon Composer's
+                                  canvas is the tile itself, where the PNG's tile is 824 points of
+                                  1024, so on macOS 26 the ticks and the cursor draw at about 80
+                                  percent of their PNG size, which leaves the glass tile a wider margin.
+                                  The file is generated: change the shapes here, never in Icon Composer.
   - leanring-buddy/Assets.xcassets/AppIcon.appiconset/*-mac.png   the sizes macOS before 26 uses
 
 Rasterizing uses headless Google Chrome, since it draws SVG gradients and filters
@@ -19,6 +23,7 @@ exactly and needs no Python packages. Pass --icon-file-only to skip the PNGs.
 """
 
 import json
+import shutil
 import math
 import subprocess
 import sys
@@ -142,7 +147,7 @@ CURSOR_SHADOW = f"""\
   <path d="{CURSOR_PATH}" fill="#06123a" opacity=".38"/>
 </g>"""
 
-# At 32 pixels and below the ticks turn to texture, so only a large white cursor stays. The dart's middle sits 37.5
+# At 32 pixels and below the ticks are too small to read, so only a large white cursor stays. The dart's middle sits 37.5
 # points toward its tip from its origin, so the origin moves that far back along the tip's direction to center it.
 SIMPLE_CURSOR_SCALE = 1.6
 SIMPLE_CURSOR_CENTER_X = 512 + 37.5 * SIMPLE_CURSOR_SCALE * -math.cos(math.radians(CURSOR_ROTATION_DEGREES))
@@ -179,9 +184,17 @@ def write_icon_composer_file() -> None:
     assets_directory.mkdir(parents=True, exist_ok=True)
     # Icon Composer lists a group's layers front first.
     layers = {"cursor": CURSOR_LAYER, "ticks": TICKS_LAYER}
-    for stale_asset in assets_directory.iterdir():
-        if stale_asset.stem not in layers:
-            stale_asset.unlink()
+    layer_file_names = {f"{layer_name}.svg" for layer_name in layers}
+    # Anything else in the file, such as an asset an Icon Composer save added, would ship in the icon unseen by CI.
+    for stale_entry in [*assets_directory.iterdir(), *ICON_COMPOSER_FILE.iterdir()]:
+        if stale_entry.parent == ICON_COMPOSER_FILE and stale_entry.name in {"Assets", "icon.json"}:
+            continue
+        if stale_entry.parent == assets_directory and stale_entry.name in layer_file_names:
+            continue
+        if stale_entry.is_dir() and not stale_entry.is_symlink():
+            shutil.rmtree(stale_entry)
+        else:
+            stale_entry.unlink()
     for layer_name, markup in layers.items():
         (assets_directory / f"{layer_name}.svg").write_text(svg_document(markup))
     icon_description = {
@@ -198,7 +211,7 @@ def write_icon_composer_file() -> None:
         ],
         "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
     }
-    (ICON_COMPOSER_FILE / "icon.json").write_text(json.dumps(icon_description, indent=2) + "\n")
+    (ICON_COMPOSER_FILE / "icon.json").write_text(json.dumps(icon_description, indent=2, separators=(",", " : ")) + "\n")
 
 
 def icon_markup(pixel_size: int) -> str:
