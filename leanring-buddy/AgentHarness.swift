@@ -471,19 +471,32 @@ final class HarnessApprovalDesk: ObservableObject {
     private let secondsAnEndedCardStays: Double
     private let sendAnswer: (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     private let currentDate: () -> Date
+    /// Runs `work` on the main actor after `seconds`, for the request timeout, the answer's settle grace, and the ended
+    /// card's stay. A test passes one it fires by hand, so no test waits on a clock a busy machine can starve.
+    private let scheduleAfter: (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void
 
     init(
         timeoutSeconds: Double = HarnessApprovalDesk.defaultTimeoutSeconds,
         answerSettleGraceSeconds: Double = HarnessApprovalDesk.defaultAnswerSettleGraceSeconds,
         secondsAnEndedCardStays: Double = HarnessApprovalDesk.defaultSecondsAnEndedCardStays,
         currentDate: @escaping () -> Date = Date.init,
+        scheduleAfter: @escaping (_ seconds: Double, _ work: @escaping @MainActor () -> Void) -> Void = HarnessApprovalDesk.scheduleOnTheMainActor,
         sendAnswer: @escaping (_ approvalID: String, _ approved: Bool, _ scope: HarnessApprovalScope) -> Void
     ) {
         self.timeoutSeconds = timeoutSeconds
         self.answerSettleGraceSeconds = answerSettleGraceSeconds
         self.secondsAnEndedCardStays = secondsAnEndedCardStays
         self.currentDate = currentDate
+        self.scheduleAfter = scheduleAfter
         self.sendAnswer = sendAnswer
+    }
+
+    /// The real scheduler: a task that sleeps, then runs the work. A cancelled sleep still runs it, as the timers always did.
+    static func scheduleOnTheMainActor(afterSeconds seconds: Double, work: @escaping @MainActor () -> Void) {
+        Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            work()
+        }
     }
 
     /// After any change to the queue that may have put a new request first. Every surface's clock starts over for the new
@@ -578,8 +591,7 @@ final class HarnessApprovalDesk: ObservableObject {
         print("Agent harness: approval \(request.approvalID) requested for \(request.capability)")
         onRequestArrived?(request)
         onWaitingRequestsChanged?(waitingRequests)
-        Task { [weak self, timeoutSeconds] in
-            try? await Task.sleep(for: .seconds(timeoutSeconds))
+        scheduleAfter(timeoutSeconds) { [weak self] in
             self?.declineIfStillWaiting(approvalID: request.approvalID)
         }
     }
@@ -597,8 +609,7 @@ final class HarnessApprovalDesk: ObservableObject {
     private func showTheEnding(_ ending: ApprovalCardEnding, of request: HarnessApprovalRequest) {
         let endedCard = ShownApprovalCard(request: request, phase: .ended(ending))
         lastEndedCard = endedCard
-        Task { [weak self, secondsAnEndedCardStays] in
-            try? await Task.sleep(for: .seconds(secondsAnEndedCardStays))
+        scheduleAfter(secondsAnEndedCardStays) { [weak self] in
             guard let self, self.lastEndedCard == endedCard else { return }
             self.lastEndedCard = nil
         }
@@ -630,8 +641,7 @@ final class HarnessApprovalDesk: ObservableObject {
         answeringApprovalIDs.insert(approvalID)
         print("Agent harness: approval \(approvalID) answered \(approved ? "yes" : "no") (\(scope.rawValue)), waiting for the harness to settle it")
         sendAnswer(approvalID, approved, scope)
-        Task { [weak self, answerSettleGraceSeconds] in
-            try? await Task.sleep(for: .seconds(answerSettleGraceSeconds))
+        scheduleAfter(answerSettleGraceSeconds) { [weak self] in
             self?.dropAnsweringRequestIfTheHarnessNeverSettledIt(approvalID: approvalID)
         }
         return true

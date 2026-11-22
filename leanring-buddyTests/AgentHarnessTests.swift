@@ -409,21 +409,40 @@ struct AgentHarnessTests {
         #expect(answers == ["approval-1"])
     }
 
-    @Test(.timeLimit(.minutes(1))) func aRequestNoOneAnswersIsDeclinedAfterTheTimeoutAndAnAnsweredOneIsNot() async {
+    /// Records each delay the desk schedules and runs one only when a test says, so no desk test waits on a clock.
+    @MainActor private final class ScheduledDelays {
+        private var scheduled: [(afterSeconds: Double, work: @MainActor () -> Void, hasRun: Bool)] = []
+
+        func schedule(afterSeconds: Double, work: @escaping @MainActor () -> Void) {
+            scheduled.append((afterSeconds, work, false))
+        }
+
+        func scheduledCount(afterSeconds: Double) -> Int { scheduled.filter { $0.afterSeconds == afterSeconds }.count }
+
+        /// Runs the earliest scheduled delay of this length that has not run, and says whether there was one.
+        @discardableResult
+        func runTheNext(afterSeconds: Double) -> Bool {
+            guard let index = scheduled.firstIndex(where: { $0.afterSeconds == afterSeconds && !$0.hasRun }) else { return false }
+            scheduled[index].hasRun = true
+            scheduled[index].work()
+            return true
+        }
+    }
+
+    @Test func aRequestNoOneAnswersIsDeclinedAfterTheTimeoutAndAnAnsweredOneIsNot() {
         var answers: [(approvalID: String, approved: Bool)] = []
-        let desk = HarnessApprovalDesk(timeoutSeconds: 0.2) { approvalID, approved, _ in answers.append((approvalID, approved)) }
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(timeoutSeconds: 1, answerSettleGraceSeconds: 2, scheduleAfter: delays.schedule) { approvalID, approved, _ in answers.append((approvalID, approved)) }
 
         desk.receive(anApprovalRequest("approval-1"))
         desk.receive(anApprovalRequest("approval-2"))
         #expect(answers.isEmpty, "a request waits before the timeout")
         #expect(desk.answer(approvalID: "approval-1", approved: true, scope: .always))
 
-        // A loaded runner can start the timeout task late, so wait until the request is declined, with a deadline far past the
-        // timeout, instead of sleeping for a guessed time.
-        let deadline = Date().addingTimeInterval(10)
-        while answers.count < 2, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        // The first request's timeout finds it already answered, and the second's declines it.
+        #expect(delays.runTheNext(afterSeconds: 1))
+        #expect(delays.runTheNext(afterSeconds: 1))
+        #expect(!delays.runTheNext(afterSeconds: 1), "one timeout per request")
         #expect(answers.map(\.approvalID) == ["approval-1", "approval-2"])
         #expect(answers.map(\.approved) == [true, false], "the learner's answer stands and the unanswered request is declined")
         #expect(desk.answeringApprovalIDs == ["approval-1", "approval-2"], "both wait for the harness to settle them")
@@ -431,19 +450,17 @@ struct AgentHarnessTests {
     }
 
     /// The desk's own timeout declines the request, and "Declined it" under the cursor would come with no context.
-    @Test(.timeLimit(.minutes(1))) func aSettlementTheDesksOwnTimeoutCausedShowsNoOutcomeUnlessTheAnswerWasYes() async {
+    @Test func aSettlementTheDesksOwnTimeoutCausedShowsNoOutcomeUnlessTheAnswerWasYes() {
         var shownOutcomes: [Bool] = []
-        let desk = HarnessApprovalDesk(timeoutSeconds: 0.2, answerSettleGraceSeconds: 60) { _, _, _ in }
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(timeoutSeconds: 1, answerSettleGraceSeconds: 2, scheduleAfter: delays.schedule) { _, _, _ in }
         desk.onApprovalSettled = { approved, _ in shownOutcomes.append(approved) }
         desk.receive(anApprovalRequest("approval-timed-out"))
         desk.receive(anApprovalRequest("approval-raced"))
         desk.receive(anApprovalRequest("approval-answered"))
         #expect(desk.answer(approvalID: "approval-answered", approved: false, scope: .once))
 
-        let deadline = Date().addingTimeInterval(10)
-        while desk.answeringApprovalIDs.count < 3, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        for _ in 1...3 { delays.runTheNext(afterSeconds: 1) }
         #expect(desk.answeringApprovalIDs.count == 3, "the timeout declined the two requests no one answered")
 
         desk.settle(approvalID: "approval-timed-out", approved: false, scope: .once)
@@ -457,10 +474,11 @@ struct AgentHarnessTests {
 
     /// A harness that hung after it took an answer never sends approval_settled, which would leave the card stuck on
     /// "Sending your answer..." for as long as the task lives, since `answer` refuses an ID that is already answering.
-    @Test(.timeLimit(.minutes(1))) func anAnsweredRequestTheHarnessNeverSettlesIsDroppedAfterTheGracePeriodWithNoOutcome() async {
+    @Test func anAnsweredRequestTheHarnessNeverSettlesIsDroppedAfterTheGracePeriodWithNoOutcome() {
         var shownOutcomeCount = 0
         var changedQueues: [[String]] = []
-        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 0.2) { _, _, _ in }
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 2, scheduleAfter: delays.schedule) { _, _, _ in }
         desk.onApprovalSettled = { _, _ in shownOutcomeCount += 1 }
         desk.onWaitingRequestsChanged = { waitingRequests in changedQueues.append(waitingRequests.map(\.approvalID)) }
         desk.receive(anApprovalRequest("approval-stuck"))
@@ -468,10 +486,7 @@ struct AgentHarnessTests {
         #expect(desk.answer(approvalID: "approval-stuck", approved: true, scope: .once))
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-stuck", "approval-next"], "the card waits through the grace period")
 
-        let deadline = Date().addingTimeInterval(10)
-        while desk.waitingRequests.count > 1, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(delays.runTheNext(afterSeconds: 2))
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-next"], "the stuck card is dropped and the next request becomes the oldest")
         #expect(desk.answeringApprovalIDs.isEmpty)
         #expect(changedQueues.last == ["approval-next"])
@@ -483,14 +498,15 @@ struct AgentHarnessTests {
     }
 
     /// A settled request is gone before its grace period ends, so the grace task finds nothing to drop.
-    @Test(.timeLimit(.minutes(1))) func aRequestTheHarnessSettledInTimeKeepsItsLaterRequestsAfterTheGracePeriod() async {
-        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 0.2) { _, _, _ in }
+    @Test func aRequestTheHarnessSettledInTimeKeepsItsLaterRequestsAfterTheGracePeriod() {
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(answerSettleGraceSeconds: 2, scheduleAfter: delays.schedule) { _, _, _ in }
         desk.receive(anApprovalRequest("approval-1"))
         #expect(desk.answer(approvalID: "approval-1", approved: true, scope: .once))
         desk.settle(approvalID: "approval-1", approved: true, scope: .once)
         desk.receive(anApprovalRequest("approval-2"))
 
-        try? await Task.sleep(for: .milliseconds(600))
+        #expect(delays.runTheNext(afterSeconds: 2), "the grace period of the settled request still ends")
         #expect(desk.waitingRequests.map(\.approvalID) == ["approval-2"], "the grace period of an answered request never touches a later one")
     }
 
@@ -565,9 +581,10 @@ struct AgentHarnessTests {
 
     /// The card shows only what the desk knows: sending until the harness settles, then how the request ended, for a
     /// moment when no other request waits, while a request behind it shows at once.
-    @Test(.timeLimit(.minutes(1))) func theCardShowsEachEndingFromTheDeskAndTheNextRequestAtOnce() async {
+    @Test func theCardShowsEachEndingFromTheDeskAndTheNextRequestAtOnce() {
         let now = Date(timeIntervalSince1970: 1_000)
-        let desk = HarnessApprovalDesk(timeoutSeconds: 60, answerSettleGraceSeconds: 60, secondsAnEndedCardStays: 0.2, currentDate: { now }) { _, _, _ in }
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(timeoutSeconds: 60, answerSettleGraceSeconds: 61, secondsAnEndedCardStays: 3, currentDate: { now }, scheduleAfter: delays.schedule) { _, _, _ in }
         desk.receive(anApprovalRequest("approval-1"))
         #expect(desk.answerByClick(approvalID: "approval-1", approved: false, scope: .once, on: .agentList))
         #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .sending)
@@ -580,10 +597,10 @@ struct AgentHarnessTests {
         desk.settle(approvalID: "approval-2", approved: true, scope: .always)
         #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .ended(.allowed(.always)))
 
-        let deadline = Date().addingTimeInterval(10)
-        while desk.cardToShow(on: .agentList, at: now) != nil, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        // The first ending's stay was replaced by the second, so it removes nothing, and the second's removes the card.
+        #expect(delays.runTheNext(afterSeconds: 3))
+        #expect(desk.cardToShow(on: .agentList, at: now)?.phase == .ended(.allowed(.always)), "an older ending's timer never removes a newer card")
+        #expect(delays.runTheNext(afterSeconds: 3))
         #expect(desk.cardToShow(on: .agentList, at: now) == nil, "the ended card goes")
     }
 
@@ -629,16 +646,14 @@ struct AgentHarnessTests {
 
     /// The learner sent nothing for a request the desk's own timeout declined, so a harness that never settles it leaves a
     /// card that says it timed out, never "Sent, but the agent never confirmed it."
-    @Test(.timeLimit(.minutes(1))) func aTimedOutRequestTheHarnessNeverSettlesEndsAsTimedOut() async {
-        let desk = HarnessApprovalDesk(timeoutSeconds: 0.1, answerSettleGraceSeconds: 0.1, secondsAnEndedCardStays: 60) { _, _, _ in }
+    @Test func aTimedOutRequestTheHarnessNeverSettlesEndsAsTimedOut() {
+        let delays = ScheduledDelays()
+        let desk = HarnessApprovalDesk(timeoutSeconds: 1, answerSettleGraceSeconds: 2, secondsAnEndedCardStays: 60, scheduleAfter: delays.schedule) { _, _, _ in }
         desk.receive(anApprovalRequest("approval-1"))
 
-        // Wait for the card itself: it shows "sending" for the 0.1 s grace after the request leaves the waiting list, and a
-        // loaded machine read it inside that gap.
-        let deadline = Date().addingTimeInterval(30)
-        while desk.cardToShow(on: .agentList, at: Date())?.phase != .ended(.timedOut), Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        #expect(delays.runTheNext(afterSeconds: 1), "the desk's own timeout declines it")
+        #expect(desk.cardToShow(on: .agentList, at: Date())?.phase == .sending, "the card says sending until the grace period ends")
+        #expect(delays.runTheNext(afterSeconds: 2))
         #expect(desk.waitingRequests.isEmpty)
         #expect(desk.cardToShow(on: .agentList, at: Date())?.phase == .ended(.timedOut))
     }
