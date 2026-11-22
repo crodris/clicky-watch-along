@@ -177,8 +177,8 @@ function liveSceneInstructionLines(kind: LiveSceneRequestKind): string {
 }
 
 /**
- * Appended to the shared rules for a simulation, which leave out the two 3D-only rules above, and it keeps the whole
- * window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 15.
+ * Appended to the shared rules for a simulation. For a simulation those rules leave out the two 3D-only rules above, and
+ * this part keeps the whole window.liveScene contract. It replaces the quiz, the "?" label, and the tour, and adds rules 8 to 15.
  */
 const simulationInstructions = [
   "",

@@ -30,7 +30,7 @@ if (process.env.FAKE_CHROME_DEVTOOLS === undefined) {
   const server = createServer((request, response) => {
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
     if (path === "/json/new") {
-      const port = (server.address() as { port: number }).port;
+      const port = (server.address() as { port: number }).port /* a server listening on a TCP port returns an object with a port, never a pipe's string */;
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "page-1", webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/page-1` }));
     } else {
       response.writeHead(200).end("{}");
@@ -133,7 +133,7 @@ if (process.env.FAKE_CHROME_DEVTOOLS === undefined) {
   });
 
   server.listen(0, "127.0.0.1", () => {
-    const port = (server.address() as { port: number }).port;
+    const port = (server.address() as { port: number }).port /* a server listening on a TCP port returns an object with a port, never a pipe's string */;
     writeFileSync(join(profileDirectory, "DevToolsActivePort"), `${port}\n/devtools/browser/fake\n`);
     writeFileSync(pidFile, String(process.pid));
   });

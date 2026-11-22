@@ -316,6 +316,7 @@ describe("SceneCamera drives a page through the fake Chrome's DevTools", { timeo
     const probeLine = output.split("\n").find((line) => line.startsWith("probe "));
     assert.ok(probeLine !== undefined, `the driver printed no probe line: ${output}`);
 
+    // JSON.parse returns any, and each assertion below checks the field it reads.
     const probe = JSON.parse(probeLine.slice("probe ".length)) as Record<string, unknown>;
     assert.equal(probe.tourFinished, true);
     assert.deepEqual(probe.pageErrors, ["TypeError: parts is not iterable"]);
