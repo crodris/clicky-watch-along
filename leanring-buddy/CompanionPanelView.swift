@@ -28,9 +28,15 @@ final class PanelPresentation: ObservableObject {
     /// Counts the opens, so the approval card is a new view on each one and measures its summary from the top again.
     @Published var openCount = 0
     /// The tallest a page under the header may be before it scrolls, so the card never runs past the screen's bottom.
-    @Published var tallestPageHeight: CGFloat = 600
+    @Published var tallestPageHeight: CGFloat = panelTallestPageHeightWithNoScreen
     /// Called when the card's size changes, so the window follows it with its top edge kept under the menu bar.
     var onCardSizeChanged: (() -> Void)?
+}
+
+extension EnvironmentValues {
+    /// False while the menu bar panel is closed. Its window keeps its views, so a clock in it, such as a hovered theme
+    /// card's motion, reads this and stops.
+    @Entry var menuPanelIsOpen = true
 }
 
 struct CompanionPanelView: View {
@@ -46,6 +52,8 @@ struct CompanionPanelView: View {
     @State private var hasGlidedIn = false
     /// The agent chip the learner picked, whose actions show under the agents row.
     @State private var selectedAgentID: UUID?
+    /// The banner slot's height, which the page under it gives up so the card still ends above the screen's bottom.
+    @State private var bannerSlotHeight: CGFloat = 0
 
     /// The panel card's width, without the shadow margin around it.
     static let contentWidth: CGFloat = 340
@@ -73,26 +81,45 @@ struct CompanionPanelView: View {
             )
             .panelRowRise(order: 0, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
 
-            // A tall page, such as the home with an approval card, scrolls under the header instead of running off the
-            // bottom of the screen.
-            ScrollView(.vertical) {
-                switch presentation.page {
-                case .home: homePage
-                case .allThemes: allThemesPage
-                case .setup: setupPage
-                }
+            // The banner slot is pinned under the header, as the agent list pins its card, so the approval card never
+            // scrolls out of sight while its clock runs.
+            if presentation.page == .home, let banner {
+                bannerSlot(banner)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bannerSlotHeight = $0 }
+                    .onDisappear { bannerSlotHeight = 0 }
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(maxHeight: presentation.tallestPageHeight)
+
+            switch presentation.page {
+            case .allThemes:
+                // All themes scrolls its own grid, so it sits outside the page scroll and never nests two of them.
+                allThemesPage
+            case .home, .setup:
+                // A tall page scrolls under the header instead of running off the bottom of the screen.
+                ScrollView(.vertical) {
+                    if presentation.page == .home { homePage } else { setupPage }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: max(PanelMetrics.shortestScrollingPageHeight, presentation.tallestPageHeight - bannerSlotHeight))
+            }
+        }
+        .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: banner)
+        .onChange(of: presentation.page) { _, pageNow in
+            // The approval card shows only on the home, so leaving it stops the card's clock and lets the desk show the
+            // request elsewhere.
+            if pageNow != .home { companionManager.theMenuPanelStoppedShowingTheApprovalCard() }
         }
         .frame(width: Self.contentWidth)
         .fixedSize(horizontal: false, vertical: true)
         .tetherCard()
-        .scaleEffect(hasGlidedIn || reduceMotion ? 1 : 0.96, anchor: .top)
+        .scaleEffect(hasGlidedIn || reduceMotion ? 1 : PanelMetrics.cardStartScale, anchor: .top)
         .opacity(hasGlidedIn ? 1 : 0)
         .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: hasGlidedIn)
         .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: presentation.page)
         .onGeometryChange(for: CGSize.self, of: { $0.size }) { _ in presentation.onCardSizeChanged?() }
+        .environment(\.menuPanelIsOpen, presentation.isOpen)
         .task(id: presentation.isOpen) { await glideInOrResetForTheNextOpen() }
     }
 
@@ -171,8 +198,6 @@ struct CompanionPanelView: View {
             // A new request, or a new open of the panel, gets a new card, so its summary is measured from the top: the
             // desk forgot what this surface had seen when the panel closed.
             .id("\(shownCard.request.approvalID)-\(presentation.openCount)")
-            // A card that leaves the screen, such as for All themes, is no longer being read, so its clock stops.
-            .onDisappear { approvalDesk.theCardHasNotShownTheWholeSummary(on: .menuPanel) }
         }
     }
 
@@ -180,13 +205,6 @@ struct CompanionPanelView: View {
 
     private var homePage: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let banner {
-                bannerSlot(banner)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-            }
-
             // The closed panel keeps its view, so the row's clock runs only while the panel is open.
             if presentation.isOpen {
                 TimelineView(.periodic(from: .now, by: 1)) { timelineContext in
@@ -255,7 +273,6 @@ struct CompanionPanelView: View {
             footer
                 .panelRowRise(order: 6, hasGlidedIn: hasGlidedIn, reduceMotion: reduceMotion)
         }
-        .animation(DS.Move.glide.animation(reduceMotionIsOn: reduceMotion), value: banner)
         .transition(.opacity)
     }
 
@@ -304,6 +321,11 @@ struct CompanionPanelView: View {
         }
     }
 
+    /// The All themes grid shows about three rows before it scrolls.
+    private static let tallestThemeGridHeight: CGFloat = 420
+    /// The All themes page's title bar, Shuffle row, and hint above its grid.
+    private static let allThemesChromeHeight: CGFloat = 120
+
     static let newIssueURLString = "https://github.com/crodris/clicky-watch-along/issues/new"
 
     // MARK: - All themes
@@ -335,11 +357,12 @@ struct CompanionPanelView: View {
             ScrollView(.vertical) {
                 themeGrid(themes: panelAllThemes(bundledThemes: themeSettings.bundledThemes, savedThemesByName: themeSettings.savedCustomThemes))
                     .padding(.horizontal, 16)
-                    // Room for the focus ring and the full-name pill under the last row.
+                    // Room for the focus ring under the last row.
                     .padding(.vertical, 6)
                     .padding(.bottom, 24)
             }
-            .frame(maxHeight: 420)
+            // Three rows of cards, or less on a short screen, less the page's own title and Shuffle rows.
+            .frame(maxHeight: min(Self.tallestThemeGridHeight, presentation.tallestPageHeight - Self.allThemesChromeHeight))
         }
         .padding(.bottom, 8)
         .transition(.opacity)
@@ -392,21 +415,25 @@ extension View {
     /// Motion on it only fades with the card.
     func panelRowRise(order: Int, hasGlidedIn: Bool, reduceMotion: Bool) -> some View {
         self
-            .offset(y: hasGlidedIn || reduceMotion ? 0 : PanelRowRise.risePoints)
+            .offset(y: hasGlidedIn || reduceMotion ? 0 : PanelMetrics.risePoints)
             .opacity(hasGlidedIn ? 1 : 0)
             .animation(
-                DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)?.delay(reduceMotion ? 0 : Double(order) * PanelRowRise.secondsBetweenRows),
+                DS.Move.glide.animation(reduceMotionIsOn: reduceMotion)?.delay(reduceMotion ? 0 : Double(order) * PanelMetrics.secondsBetweenRows),
                 value: hasGlidedIn
             )
     }
 }
 
-/// How the panel's rows rise as it opens.
-enum PanelRowRise {
+/// The panel's motion and layout numbers.
+enum PanelMetrics {
     /// How far below its place a row starts.
     static let risePoints: CGFloat = 8
     /// The gap between one row's rise and the next one's.
     static let secondsBetweenRows = 0.03
+    /// The card grows from this scale as it Glides in.
+    static let cardStartScale: CGFloat = 0.96
+    /// A page under a tall approval card still shows this much before it scrolls.
+    static let shortestScrollingPageHeight: CGFloat = 160
 }
 
 // MARK: - Header

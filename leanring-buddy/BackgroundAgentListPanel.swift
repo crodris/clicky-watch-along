@@ -1584,8 +1584,8 @@ struct ApprovalCardView: View {
 }
 
 /// One of the card's three equal buttons. They share one look, with no red or green, so no color picks a side. A
-/// disabled button keeps the arrow, shows no hover, and does nothing. Plain `.focusable()` lets Tab reach it with Full
-/// Keyboard Access off, once the card sits on a surface that takes the keyboard.
+/// disabled button keeps the arrow, shows no hover, and does nothing. `panelKeyboardControl` lets Tab reach an enabled one
+/// with Full Keyboard Access off, on a surface that takes the keyboard, and Return or Space answers with it.
 private struct ApprovalAnswerButton: View {
     let title: String
     let isEnabled: Bool

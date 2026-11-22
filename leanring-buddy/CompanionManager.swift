@@ -828,7 +828,8 @@ final class CompanionManager: ObservableObject {
 
     #if DEBUG
     /// A Debug build launched with `--show-setup` shows the setup checklist as a first run does, without clearing a
-    /// permission or writing `hasCompletedOnboarding`, which the everyday Clicky shares. Finishing it only hides it again.
+    /// permission. On a Mac that already finished onboarding, finishing it only hides it again and writes nothing the
+    /// everyday Clicky shares. On one that never did, its Start is the real first run (`finishSetup`).
     @Published private(set) var showsSetupForThisLaunch = CommandLine.arguments.contains("--show-setup")
     #else
     let showsSetupForThisLaunch = false
@@ -922,8 +923,9 @@ final class CompanionManager: ObservableObject {
         NSApp.terminate(nil)
     }
 
-    /// The checklist's Start button. A first run starts Clicky's intro. A Debug `--show-setup` run only hides the checklist
-    /// again, since it must not write the defaults the everyday Clicky shares.
+    /// The checklist's Start button. A first run starts Clicky's intro and writes `hasCompletedOnboarding`. A Debug
+    /// `--show-setup` run on a Mac that already finished onboarding only hides the checklist again, so it writes nothing the
+    /// everyday Clicky shares. On a Mac that never finished onboarding, its Start is the real first run.
     func finishSetup() {
         #if DEBUG
         // Only a Mac that already finished onboarding takes the Debug path. On one that never did, Start is the real one.
@@ -953,6 +955,14 @@ final class CompanionManager: ObservableObject {
 
     /// The desk whose card the panel's banner slot shows, as the agent list does, with its own seen state and clock.
     var approvalDesk: HarnessApprovalDesk { agentHarness.approvalDesk }
+
+    /// The panel closed or left its home, so its approval card is off screen: the desk forgets what that card had shown,
+    /// and a request still waiting opens the agent list, since no other screen shows its summary.
+    func theMenuPanelStoppedShowingTheApprovalCard() {
+        agentHarness.approvalDesk.theCardHasNotShownTheWholeSummary(on: .menuPanel)
+        guard let oldestRequest = agentHarness.approvalDesk.oldestWaitingRequest, !agentListPanelController.isOpen else { return }
+        agentListPanelController.openForAnApprovalRequest(fromAgentID: oldestRequest.taskID)
+    }
 
     /// The agents row: the panel closes and the agent list opens next to the mouse, as the settings dial's Agents slice opens it.
     func openTheAgentListFromThePanel() {
@@ -993,24 +1003,11 @@ final class CompanionManager: ObservableObject {
     func runTheAgentDiscMenuItemFromThePanel(_ menuItem: AgentDiscMenuItem, agentID: UUID) {
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
         guard !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) else { return }
-        // An agent with no disc on screen, such as one counted in "+N", runs the item here, as its disc menu would.
-        switch menuItem {
-        case .reviewRequest:
+        // Only an item that opens the agent list comes back, for an agent with no disc to open it under.
+        if menuItem == .reviewRequest {
             agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
-        case .openAgentList:
-            if !agentListPanelController.isOpen { agentListPanelController.toggle() }
-        case .showReadyScene:
-            guard agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive) else { return }
-            startShowingTheReadyBackgroundScene()
-        case .hearAnswer:
-            guard agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive) else { return }
-            startSpeakingTheTaskAnswer()
-        case .openPage:
-            if let pageURL = backgroundAgentStore.agents.first(where: { $0.id == agentID })?.finishedResult?.pageURL {
-                NSWorkspace.shared.open(pageURL)
-            }
-        case .cancelAgent:
-            cancelBackgroundAgent(agentID)
+        } else if !agentListPanelController.isOpen {
+            agentListPanelController.toggle()
         }
     }
 
@@ -2863,7 +2860,7 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Escape only cancels a text field being edited in Clicky's own window, such as a saved theme's rename field, when one
-    /// is, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
+    /// is, does nothing more when the menu bar panel took it as its own close, only cancels the settings dial when it is open, only closes the agent list when that is open, and then closes the
     /// Theme Studio card when that is open, keeping the old theme, then answers an "Add theme?" card with a no, then closes the
     /// quiz summary Card. Otherwise it ends the scene and anything Clicky is still saying about it.
     /// During a video quiz question it skips that question and plays the video on.
@@ -4030,7 +4027,8 @@ final class CompanionManager: ObservableObject {
     // MARK: - Task Agent Approvals
 
     /// A task agent's tool waits for the learner to allow it. Nothing is spoken, since the learner is usually watching a
-    /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row.
+    /// video: "Pop" plays once and the agent list opens next to the mouse with the request in its agent's row, unless the
+    /// menu bar panel is open on its home, whose banner shows the card.
     private func showTheApprovalRequest(_ approvalRequest: HarnessApprovalRequest) {
         themeSettings.shownTheme.sounds.needsYourOK.play()
         // The panel's banner already shows the card, so the list does not open over it.

@@ -89,6 +89,8 @@ struct PanelButton: View {
     /// The shown theme's accent, which only a primary button uses.
     var accentColor: Color = DS.Colors.overlayCursorBlue
     var accessibilityHint: String? = nil
+    /// Stretches the button's fill across its container, as a card's armed Delete bar does.
+    var fillsTheWidth = false
     let action: () -> Void
 
     @State private var isHovered = false
@@ -111,6 +113,7 @@ struct PanelButton: View {
             .foregroundColor(foregroundColor)
             .padding(.horizontal, prominence == .quiet ? 6 : 10)
             .padding(.vertical, prominence == .quiet ? 4 : 6)
+            .frame(maxWidth: fillsTheWidth ? .infinity : nil)
             .background(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous).fill(backgroundColor))
             .overlay {
                 if prominence == .secondary {

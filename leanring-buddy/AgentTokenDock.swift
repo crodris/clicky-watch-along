@@ -503,7 +503,11 @@ final class AgentTokenDockController {
     }
 
     private func remove(_ disc: AgentTokenDisc) {
-        if let discID = discsByID.first(where: { $0.value === disc })?.key, discID == discIDOfThePeek { hideThePeek() }
+        if let discID = discsByID.first(where: { $0.value === disc })?.key {
+            if discID == discIDOfThePeek { hideThePeek() }
+            // A disc that leaves takes the keyboard focus ring with it, so a later end of that focus changes nothing.
+            if discID == discIDWithTheKeyboardFocus { discIDWithTheKeyboardFocus = nil }
+        }
         if reduceMotionIsOn {
             disc.panel.orderOut(nil)
             disc.panel.contentView = nil
@@ -773,23 +777,32 @@ final class AgentTokenDockController {
         showThePeek(forDiscWithID: focusedDiscID)
     }
 
-    /// Takes the focus ring and its peek card off the agent's disc, or off any disc for nil. It does nothing when the ring
-    /// is on another agent's disc, or on none, so a peek card the mouse opened stays.
+    /// Takes the focus ring off the agent's disc, or off any disc for nil, and that disc's peek card with it. It does nothing
+    /// when the ring is on another agent's disc, or on none, and it never hides a peek card the mouse opened on another disc.
     func endTheKeyboardFocus(onTheDiscOf agentID: UUID?) {
         guard let focusedDiscID = discIDWithTheKeyboardFocus else { return }
         if let agentID, focusedDiscID.tokenSlot != .agent(agentID) { return }
         discsByID[focusedDiscID]?.discModel.hasTheKeyboardFocus = false
         discIDWithTheKeyboardFocus = nil
-        hideThePeek()
+        if discIDOfThePeek == focusedDiscID { hideThePeek() }
     }
 
-    /// Runs one of a disc's menu items for an agent, as its right-click menu does. False when the agent has no disc on screen,
-    /// so the caller opens the agent list itself.
+    /// Runs one of a disc's menu items for an agent, as its right-click menu does, also for an agent with no disc on screen,
+    /// such as one counted in "+N". False only for an item that opens the agent list under a disc the agent does not have,
+    /// so the caller opens the list next to the mouse instead.
     func run(_ menuItem: AgentDiscMenuItem, forTheDiscOf agentID: UUID) -> Bool {
         endTheKeyboardFocus(onTheDiscOf: nil)
-        guard let agentDiscID = discID(of: agentID) else { return false }
-        run(menuItem, forDiscWithID: agentDiscID, agent: store.agents.first { $0.id == agentID })
-        return true
+        let agent = store.agents.first { $0.id == agentID }
+        if let agentDiscID = discID(of: agentID) {
+            run(menuItem, forDiscWithID: agentDiscID, agent: agent)
+            return true
+        }
+        switch menuItem {
+        case .reviewRequest, .openAgentList: return false
+        default:
+            runTheAgentAction(menuItem, agent: agent)
+            return true
+        }
     }
 
     /// Pops the disc's right-click menu: the actions of the agent list's row, one click from the disc.
@@ -818,6 +831,15 @@ final class AgentTokenDockController {
     private func run(_ menuItem: AgentDiscMenuItem, forDiscWithID discID: AgentTokenDiscID, agent: BackgroundAgent?) {
         switch menuItem {
         case .reviewRequest, .openAgentList: clickDisc(withID: discID)
+        default: runTheAgentAction(menuItem, agent: agent)
+        }
+    }
+
+    /// The menu items that act on the agent itself and need no disc: show its scene, hear its answer, open its page, or
+    /// cancel it.
+    private func runTheAgentAction(_ menuItem: AgentDiscMenuItem, agent: BackgroundAgent?) {
+        switch menuItem {
+        case .reviewRequest, .openAgentList: break
         case .showReadyScene: menuActions.showReadyScene()
         case .hearAnswer: menuActions.hearTaskAnswer()
         case .openPage:

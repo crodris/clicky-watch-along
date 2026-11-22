@@ -2,7 +2,7 @@
 //  PanelHomeTests.swift
 //  leanring-buddyTests
 //
-//  The menu bar panel's home: the header's state line, the one banner slot, the agents row, which themes the home's cards
+//  The menu bar panel's rules: the header's state line, the one banner slot, the agents row, which themes the home's cards
 //  show, how the arrow keys move between cards, and what VoiceOver reads for an agent's disc.
 //
 

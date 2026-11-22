@@ -139,9 +139,11 @@ struct PanelRenderTests {
             approvalDesk: companionManager.approvalDesk
         )
         let bitmap = try render(panelView.frame(width: CompanionPanelView.contentWidth + 56), named: "panel-home-capped")
-        // The card is the header and at most 250 points of page, plus its shadow margin and the render's padding.
+        // The card is the header and 250 points of page, plus its shadow margin and the render's padding. The home is
+        // taller than 250 points, so a page that scrolls fills the cap exactly, and one that collapsed would come out shorter.
         let margin = CompanionPanelView.shadowMargin
-        #expect(bitmap.size.height <= panelHeaderHeight + 250 + margin.top + margin.bottom + 48 + 8)
+        let cappedHeight = panelHeaderHeight + 250 + margin.top + margin.bottom + 48
+        #expect(abs(bitmap.size.height - cappedHeight) <= 2)
     }
 
     // MARK: - Keyboard focus

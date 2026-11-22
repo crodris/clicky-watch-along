@@ -71,7 +71,7 @@ final class WorkerReachability: ObservableObject {
 @MainActor
 final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
-    private var panel: NSPanel?
+    private var panel: KeyablePanel?
     private var clickOutsideMonitor: Any?
     /// A global monitor never sees a click the window server delivers to this app's own window, so a click on the
     /// shadow around the card needs this local one to count as outside.
@@ -99,7 +99,7 @@ final class MenuBarPanelManager: NSObject {
         workerReachability = WorkerReachability(workerBaseURL: CompanionManager.workerBaseURL)
         super.init()
         companionManager.menuPanelTookTheEscape = { [weak self] in
-            guard let panel = self?.panel as? KeyablePanel else { return false }
+            guard let panel = self?.panel else { return false }
             return menuPanelTookTheEscape(panelIsKey: panel.isKeyWindow, panelClosedOnEscapeAt: panel.closedOnEscapeAt, now: Date())
         }
         companionManager.menuPanelShowsTheApprovalCard = { [weak self] in
@@ -227,10 +227,13 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel() {
+        // Many actions post the dismiss notice with the panel already closed, and those change nothing here.
+        let panelWasShowing = panel?.isVisible == true
         panel?.orderOut(nil)
         presentation.isOpen = false
-        // The approval card's seen ranges and clock belong to this open, so a closed panel's reading never counts.
-        companionManager.approvalDesk.theCardHasNotShownTheWholeSummary(on: .menuPanel)
+        // The approval card's seen ranges and clock belong to this open, so a closed panel's reading never counts, and a
+        // request it showed opens the agent list.
+        if panelWasShowing { companionManager.theMenuPanelStoppedShowingTheApprovalCard() }
         // A disc keeps no focus ring once the panel that held the keyboard is gone.
         companionManager.endTheKeyboardFocusOnTheAgentDisc(of: nil)
         reachabilityTask?.cancel()
@@ -302,7 +305,7 @@ final class MenuBarPanelManager: NSObject {
 
     /// The tallest a page may be on the screen that shows the menu bar icon, so the card ends above the screen's bottom.
     private func tallestPageHeightOnTheIconsScreen() -> CGFloat {
-        guard let screenHeight = statusItem?.button?.window?.screen?.visibleFrame.height else { return 600 }
+        guard let screenHeight = statusItem?.button?.window?.screen?.visibleFrame.height else { return panelTallestPageHeightWithNoScreen }
         return panelTallestPageHeight(visibleScreenHeight: screenHeight, shadowMargin: shadowMargin)
     }
 
@@ -311,7 +314,7 @@ final class MenuBarPanelManager: NSObject {
         guard let buttonWindow = statusItem?.button?.window else { return }
 
         let statusItemFrame = buttonWindow.frame
-        let gapBelowMenuBar: CGFloat = 4
+        let gapBelowMenuBar = panelGapUnderTheMenuBar
 
         // Calculate the window's height from the hosting view's fitting size so it snugly wraps the
         // SwiftUI content (the card plus its shadow margin) instead of using a fixed height.

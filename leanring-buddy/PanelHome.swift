@@ -250,12 +250,17 @@ func menuPanelTookTheEscape(panelIsKey: Bool, panelClosedOnEscapeAt: Date?, now:
     return now.timeIntervalSince(panelClosedOnEscapeAt) < secondsAnEscapeStaysThePanels
 }
 
-/// The header's height, which stays above the scrolling page.
-let panelHeaderHeight: CGFloat = 76
+/// The header's height, which stays above the scrolling page: 16 points above the 44 point cursor tile and 12 below it.
+let panelHeaderHeight: CGFloat = 16 + 44 + 12
+
+/// The gap between the menu bar and the card's top edge.
+let panelGapUnderTheMenuBar: CGFloat = 4
+
+/// The tallest page before it scrolls when the icon's screen cannot be read.
+let panelTallestPageHeightWithNoScreen: CGFloat = 600
 
 /// The tallest a page under the header may be on a screen whose visible part is this tall: the screen less the gap under
 /// the menu bar, the shadow margin, and the header. A page past it scrolls.
 func panelTallestPageHeight(visibleScreenHeight: CGFloat, shadowMargin: EdgeInsets) -> CGFloat {
-    let gapUnderTheMenuBar: CGFloat = 4
-    return max(200, visibleScreenHeight - gapUnderTheMenuBar - shadowMargin.top - shadowMargin.bottom - panelHeaderHeight)
+    max(200, visibleScreenHeight - panelGapUnderTheMenuBar - shadowMargin.top - shadowMargin.bottom - panelHeaderHeight)
 }

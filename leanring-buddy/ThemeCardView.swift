@@ -112,6 +112,8 @@ struct ThemeCard: View {
     let moveTheFocus: (ThemeGridArrowKey) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A closed panel sends no mouse exit, so a card it closed over would keep its motion's clock running.
+    @Environment(\.menuPanelIsOpen) private var menuPanelIsOpen
     @State private var isHovered = false
     @State private var showsTheFocusRing = false
     @State private var isRenaming = false
@@ -135,7 +137,7 @@ struct ThemeCard: View {
     private var cardHasTheFocus: Bool { focus.wrappedValue?.themeID == theme.id }
     private var cardItselfHasTheFocus: Bool { focus.wrappedValue == .card(themeID: theme.id) }
     /// The cursor moves while the learner looks at the card: on hover, and while it holds the keyboard focus.
-    private var cursorRunsItsMotion: Bool { (isHovered || cardItselfHasTheFocus) && !isRenaming }
+    private var cursorRunsItsMotion: Bool { (isHovered || cardItselfHasTheFocus) && !isRenaming && menuPanelIsOpen }
     private var savedActionsShow: Bool { rename != nil && (isHovered || cardHasTheFocus || deleteIsArmed) && !isRenaming }
 
     var body: some View {
@@ -284,8 +286,7 @@ struct ThemeCard: View {
                 .padding(6)
                 .accessibilityAddTraits(.updatesFrequently)
         } else if deleteIsArmed {
-            PanelButton(title: "Delete", prominence: .destructive, action: confirmDelete)
-            .frame(maxWidth: .infinity)
+            PanelButton(title: "Delete", prominence: .destructive, fillsTheWidth: true, action: confirmDelete)
             .padding(6)
             .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
             .accessibilityLabel("Confirm delete \(theme.name)")

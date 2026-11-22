@@ -453,9 +453,10 @@ final class HarnessApprovalDesk: ObservableObject {
     /// for a request the desk's own timeout declined, since "Declined it" above the cursor would come with no context.
     var onApprovalSettled: ((_ approved: Bool, _ scope: HarnessApprovalScope) -> Void)?
     var onRequestArrived: ((HarnessApprovalRequest) -> Void)?
-    /// Whether the agent list is open, so a request that becomes the oldest shows in its card.
+    /// Whether a surface shows the card: the agent list is open, or the menu bar panel is open on its home. A request that
+    /// becomes the oldest then shows there.
     var listIsShowing: () -> Bool = { false }
-    /// A request became the oldest while the list was closed, so its summary is on no screen until the list opens.
+    /// A request became the oldest while no surface showed the card, so its summary is on no screen until the list opens.
     var onOldestRequestNeedsShowing: ((HarnessApprovalRequest) -> Void)?
     /// Whether a task still runs. A request can cross a cancel on its way from the harness, and a request for an ended
     /// task would take the oldest spot, with buttons on an ended agent's row, until it timed out.
