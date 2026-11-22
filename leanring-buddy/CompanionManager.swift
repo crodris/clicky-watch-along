@@ -137,7 +137,7 @@ final class CompanionManager: ObservableObject {
     /// Base URL for the Cloudflare Worker proxy. All API requests route
     /// through this so keys never ship in the app binary.
     #if DEBUG
-    private static let workerBaseURL = "http://127.0.0.1:8787"
+    static let workerBaseURL = "http://127.0.0.1:8787"
     #else
     // The upstream placeholder is an unowned host, so a release build must not
     // compile until it has a real https Worker URL for screenshots to go to.
@@ -502,6 +502,9 @@ final class CompanionManager: ObservableObject {
         videoQuizSession.onQuizEnded = { [weak self] summary in
             self?.showTheVideoQuizSummary(summary)
         }
+        videoQuizSession.onProgressChanged = { [weak self] progress in
+            self?.videoQuizProgress = progress
+        }
         LiveSceneOverlay.shared.accentHexForTheNextPage = { [weak self] in
             self?.themeSettings.shownTheme.cursorColorHex ?? DS.Colors.overlayCursorBlueHex
         }
@@ -762,6 +765,7 @@ final class CompanionManager: ObservableObject {
                 print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
                 await MainActor.run {
                     isRequestingScreenContent = false
+                    screenTestFailed = !didCapture
                     guard didCapture else { return }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
@@ -775,7 +779,179 @@ final class CompanionManager: ObservableObject {
                 }
             } catch {
                 print("⚠️ Screen content permission request failed: \(error)")
-                await MainActor.run { isRequestingScreenContent = false }
+                await MainActor.run {
+                    isRequestingScreenContent = false
+                    screenTestFailed = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Setup checklist
+
+    /// The last screen test capture failed, such as when the learner cancelled the screen picker. The setup step turns red.
+    @Published private(set) var screenTestFailed = false
+    /// The steps the learner pressed this launch. Screen Recording and Accessibility report only granted or not, so one that
+    /// was pressed and is still not granted reads as turned off, with the way to fix it.
+    @Published private(set) var setupStepsAskedForThisLaunch: Set<SetupStep> = []
+
+    #if DEBUG
+    /// A Debug build launched with `--show-setup` shows the setup checklist as a first run does, without clearing a
+    /// permission or writing `hasCompletedOnboarding`, which the everyday Clicky shares. Finishing it only hides it again.
+    @Published private(set) var showsSetupForThisLaunch = CommandLine.arguments.contains("--show-setup")
+    #else
+    let showsSetupForThisLaunch = false
+    #endif
+
+    /// Whether the panel opens on the setup checklist instead of the home.
+    var setupIsFinished: Bool { hasCompletedOnboarding && !showsSetupForThisLaunch }
+
+    /// What macOS says about each setup step now, read without a prompt.
+    var setupFacts: SetupFacts {
+        SetupFacts(
+            microphoneStatus: AVCaptureDevice.authorizationStatus(for: .audio),
+            speechRecognitionStatus: buddyDictationManager.transcriptionProviderRequiresSpeechRecognitionPermission
+                ? SFSpeechRecognizer.authorizationStatus()
+                : nil,
+            hasScreenRecording: hasScreenRecordingPermission,
+            screenTestPassed: hasScreenContentPermission,
+            screenTestFailed: screenTestFailed,
+            hasAccessibility: hasAccessibilityPermission,
+            chromeControlStatus: chromeAutomationPermissionStatus,
+            stepsAskedForThisLaunch: setupStepsAskedForThisLaunch
+        )
+    }
+
+    /// A setup row's button. Allow shows the macOS prompt, or opens System Settings once macOS will not ask again.
+    func runSetupStep(_ step: SetupStep, action: SetupStepAction) {
+        setupStepsAskedForThisLaunch.insert(step)
+        switch action {
+        case .allow:
+            switch step {
+            case .microphone:
+                if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                    AVCaptureDevice.requestAccess(for: .audio) { _ in
+                        Task { @MainActor [weak self] in self?.refreshAllPermissions() }
+                    }
+                } else {
+                    openPrivacySettings(for: step)
+                }
+            case .speechRecognition:
+                requestSpeechRecognitionPermission()
+            case .screenRecording:
+                _ = WindowPositionManager.requestScreenRecordingPermission()
+            case .screenTest:
+                screenTestFailed = false
+                requestScreenContentPermission()
+            case .accessibility:
+                _ = WindowPositionManager.requestAccessibilityPermission()
+            case .chromeControl:
+                requestChromeAutomationPermission()
+            }
+        case .openSystemSettings:
+            openPrivacySettings(for: step)
+        case .findTheApp:
+            // An unsigned Debug build can be missing from the Accessibility list, so Finder shows it to drag in.
+            WindowPositionManager.revealAppInFinder()
+            WindowPositionManager.openAccessibilitySettings()
+        case .quitAndReopen:
+            quitAndReopenClicky()
+        case .openChrome:
+            if let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+                NSWorkspace.shared.openApplication(at: chromeURL, configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
+    }
+
+    private func openPrivacySettings(for step: SetupStep) {
+        let paneAnchor: String
+        switch step {
+        case .microphone: paneAnchor = "Privacy_Microphone"
+        case .speechRecognition: paneAnchor = "Privacy_SpeechRecognition"
+        case .screenRecording, .screenTest: paneAnchor = "Privacy_ScreenCapture"
+        case .accessibility: paneAnchor = "Privacy_Accessibility"
+        case .chromeControl: paneAnchor = "Privacy_Automation"
+        }
+        if let privacySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(paneAnchor)") {
+            NSWorkspace.shared.open(privacySettingsURL)
+        }
+    }
+
+    /// macOS applies a new Screen Recording grant only to a fresh launch, so this opens Clicky again a second after it quits.
+    private func quitAndReopenClicky() {
+        let relaunch = Process()
+        relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relaunch.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
+        do {
+            try relaunch.run()
+        } catch {
+            print("⚠️ Setup: could not schedule the relaunch: \(error)")
+            return
+        }
+        NSApp.terminate(nil)
+    }
+
+    /// The checklist's Start button. A first run starts Clicky's intro. A Debug `--show-setup` run only hides the checklist
+    /// again, since it must not write the defaults the everyday Clicky shares.
+    func finishSetup() {
+        #if DEBUG
+        if showsSetupForThisLaunch {
+            showsSetupForThisLaunch = false
+            return
+        }
+        #endif
+        triggerOnboarding()
+    }
+
+    // MARK: - Panel actions
+
+    /// How the running video quiz is going, for the panel's state line, or nil with no quiz running.
+    @Published private(set) var videoQuizProgress: VideoQuizProgress?
+
+    /// The state line's Stop quiz button, which does what saying "stop the quiz" does.
+    func stopTheVideoQuizFromThePanel() {
+        handleVideoQuizVoiceCommand(.stop)
+    }
+
+    /// The desk whose card the panel's banner slot shows, as the agent list does, with its own seen state and clock.
+    var approvalDesk: HarnessApprovalDesk { agentHarness.approvalDesk }
+
+    /// The agents row: the panel closes and the agent list opens next to the mouse, as the settings dial's Agents slice opens it.
+    func openTheAgentListFromThePanel() {
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        if !agentListPanelController.isOpen { agentListPanelController.toggle() }
+    }
+
+    /// The "Design one" card: the panel closes and the Theme Studio opens next to the mouse with three new ideas.
+    func designAThemeFromThePanel() {
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        startDesigningATheme(request: "a new theme", basedOnIdea: nil, pictureChoice: .none)
+    }
+
+    /// An agent chip in the panel holds the keyboard focus: its disc in the menu bar shows the focus ring and its peek card,
+    /// so the keyboard reaches the discs, which never take the keyboard themselves. Nil takes the ring and the card away.
+    func showTheKeyboardFocusOnTheAgentDisc(of agentID: UUID?) {
+        agentTokenDockController.showTheKeyboardFocus(onTheDiscOf: agentID)
+    }
+
+    /// What the agent's disc menu offers, for the panel's agent actions.
+    func agentDiscMenuItemsForThePanel(agentID: UUID) -> [AgentDiscMenuItem] {
+        let agent = backgroundAgentStore.agents.first { $0.id == agentID }
+        return agentDiscMenuItems(
+            for: agent,
+            isWaitingForApproval: backgroundAgentStore.agentIDsWaitingForApproval.contains(agentID),
+            aVideoQuizQuestionIsOpen: videoQuizQuestionIsActive
+        )
+    }
+
+    /// Runs one of a disc's menu items from the panel. One that opens the agent list opens it under the disc, or next to the
+    /// mouse when the agent has no disc on screen, such as one counted in "+N".
+    func runTheAgentDiscMenuItemFromThePanel(_ menuItem: AgentDiscMenuItem, agentID: UUID) {
+        NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
+        if !agentTokenDockController.run(menuItem, forTheDiscOf: agentID) {
+            switch menuItem {
+            case .reviewRequest: agentListPanelController.openForAnApprovalRequest(fromAgentID: agentID)
+            default: if !agentListPanelController.isOpen { agentListPanelController.toggle() }
             }
         }
     }

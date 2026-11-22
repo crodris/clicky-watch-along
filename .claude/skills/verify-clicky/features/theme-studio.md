@@ -20,7 +20,7 @@ The learner picks or refines by voice or click, the real cursor previews the hig
   It stops only the studio's own line, so an answer Clicky is giving for a request the router handed off keeps playing.
 - `studio-router` sends every word spoken with the card open to `/voice-command`, with no keyword branch ahead of it, so "two" or "save it" reaches the router even while a scene builds. Quiz phrases such as "can we stop" are the router's too, unless a quiz question is open.
   A failed router request says "Sorry, I couldn't do that one." and leaves the card as it was, instead of answering the words as a question about the screen.
-- `studio-manage` renames or deletes a saved theme from its row under "Team theme" in the menu bar panel (`SavedThemeRow`, `CompanionThemeSettings.renameSavedTheme` and `deleteSavedTheme`). A rename changes only the name in `theme.json` and keeps its modification date, and a delete removes the theme's folder. Escape in the rename field cancels only the rename, and leaves an open studio card or scene alone.
+- `studio-manage` renames or deletes a saved theme from its card in the menu bar panel (`ThemeCard`, `CompanionThemeSettings.renameSavedTheme` and `deleteSavedTheme`). A rename changes only the name in `theme.json` and keeps its modification date, and a delete removes the theme's folder. Escape in the rename field cancels only the rename, and leaves an open studio card or scene alone.
 - `studio-agents` gives each new agent the first theme agent color no running agent or waiting result has, and the picture as its round face when the theme uses it.
 
 ## How to get to it (user POV)
@@ -28,8 +28,8 @@ The learner picks or refines by voice or click, the real cursor previews the hig
 - Hold ctrl+option and say "change my theme", "make me a new theme", or "make my theme from this picture" over a picture in Chrome's front tab.
 - With the card open, say "two", "two, but make the cursor a star that spins while it thinks", "use this picture instead", "save it", or "never mind".
 - Click a tile, Save, or Close on the card, or press Escape.
-- Click a saved theme under "Team theme" in the menu bar panel to switch to it later.
-- Hover a saved theme there for a pencil, which renames it, and a trash can, which deletes it after a second click.
+- Click a saved theme's card in the menu bar panel, on the home or under "All themes", to switch to it later.
+- Hover or Tab to a saved theme's card for a pencil, which renames it, and a trash can, which deletes it after a second click, or right click the card for Rename and Delete.
 
 ## Driving it with verify-clicky.sh
 

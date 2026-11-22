@@ -342,9 +342,10 @@ final class HarnessTaskRouter {
 
 /// A screen that shows the approval card. Each surface keeps its own seen ranges and its own 1 second clock, so a click
 /// counts only on the surface whose card was read, and a voice answer's press-time check accepts any surface. The agent
-/// list is the only one today; the menu panel's card joins it as a second surface.
+/// list shows the card, and so does the menu bar panel's banner slot, which takes the keyboard.
 nonisolated enum ApprovalCardSurface: Hashable, Sendable {
     case agentList
+    case menuPanel
 }
 
 /// Whether a Yes or an Always on the oldest approval request counts yet. A No counts at once, so this never holds it

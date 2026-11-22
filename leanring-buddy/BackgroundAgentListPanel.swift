@@ -596,9 +596,15 @@ final class AgentListPanelController {
 
 /// This panel never becomes key, so its rows get hover and the pointing hand from an always-active tracking area
 /// instead of SwiftUI's hover or cursor rects, the same way LiveSceneWebView gets mouse moves.
-private final class HoverAndPointerNSView: NSView {
+///
+/// A tracking area reports an entry only when the mouse moves across its edge, so a view that appears under a still
+/// pointer, such as a panel that opens there, would show no hover until the next mouse move. Each time the tracking area
+/// is laid out, the view checks where the mouse already is and reports the hover at once (`reportTheHover`).
+final class HoverAndPointerNSView: NSView {
     var onHoverChange: ((Bool) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
+    /// The last hover this view reported, so a check of where the mouse already is never reports the same one twice.
+    private(set) var reportedHover = false
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -613,15 +619,36 @@ private final class HoverAndPointerNSView: NSView {
         )
         addTrackingArea(trackingArea)
         hoverTrackingArea = trackingArea
+        reportTheHoverWhereTheMouseAlreadyIs()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // The window may not be on screen yet in this turn, so the check waits for the next one.
+        DispatchQueue.main.async { [weak self] in self?.reportTheHoverWhereTheMouseAlreadyIs() }
+    }
+
+    private func reportTheHoverWhereTheMouseAlreadyIs() {
+        guard let window, window.isVisible else { return }
+        let mouseLocationInTheView = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        reportTheHover(visibleRect.contains(mouseLocationInTheView))
+        if reportedHover { NSCursor.pointingHand.set() }
+    }
+
+    /// Reports a hover that changed, and nothing for one that did not.
+    func reportTheHover(_ isHovered: Bool) {
+        guard isHovered != reportedHover else { return }
+        reportedHover = isHovered
+        onHoverChange?(isHovered)
     }
 
     override func mouseEntered(with event: NSEvent) {
-        onHoverChange?(true)
+        reportTheHover(true)
     }
 
     override func mouseExited(with event: NSEvent) {
         NSCursor.arrow.set()
-        onHoverChange?(false)
+        reportTheHover(false)
     }
 
     override func cursorUpdate(with event: NSEvent) {

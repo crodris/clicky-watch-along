@@ -140,6 +140,8 @@ final class AgentTokenDiscModel: ObservableObject {
     @Published var isAnOpenSlotAwaitingItsToken: Bool
     /// The ring a serve leaves around the disc when Reduce Motion is on, in the tether's color, or nil.
     @Published var stillRingColor: Color?
+    /// The panel's agent chip for this disc holds the keyboard focus, so the disc shows the panel's focus ring.
+    @Published var hasTheKeyboardFocus = false
 
     init(isAnOpenSlotAwaitingItsToken: Bool = false) {
         self.isAnOpenSlotAwaitingItsToken = isAnOpenSlotAwaitingItsToken
@@ -170,6 +172,34 @@ struct AgentTokenDiscContent: View {
                 }
             }
             .animation(.easeOut(duration: DS.Move.send.reduceMotionForm.fadeSeconds), value: discModel.stillRingColor != nil)
+            .overlay {
+                // The keyboard reaches a disc through the panel's agent chips, and the disc shows where the focus is.
+                Circle()
+                    .strokeBorder(DS.Colors.keyboardFocusRing, lineWidth: 2)
+                    .frame(width: AgentTokenMetrics.discDiameter + 4, height: AgentTokenMetrics.discDiameter + 4)
+                    .opacity(discModel.hasTheKeyboardFocus ? 1 : 0)
+                    .animation(.easeOut(duration: DS.Move.fadeSeconds), value: discModel.hasTheKeyboardFocus)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabelOfTheDisc)
+            .accessibilityAddTraits(.isButton)
+    }
+
+    /// What VoiceOver reads for the disc: the agent and what it is doing, in the peek card's words.
+    private var accessibilityLabelOfTheDisc: String {
+        switch tokenSlot {
+        case .overflow:
+            return "\(overflowCount) more agents"
+        case .agent(let agentID):
+            guard let agent = store.agents.first(where: { $0.id == agentID }) else { return "Agent" }
+            let content = agentTokenPeekContent(
+                for: agent,
+                approvalCapability: store.approvalCapabilitiesByAgentID[agentID],
+                isWaitingForApproval: store.agentIDsWaitingForApproval.contains(agentID),
+                at: Date()
+            )
+            return agentDiscAccessibilityLabel(agentName: agent.displayName, peekContent: content)
+        }
     }
 
     @ViewBuilder private var discView: some View {
@@ -715,6 +745,42 @@ final class AgentTokenDockController {
         peekDelayTask = nil
         discIDOfThePeek = nil
         peekController.hide()
+    }
+
+    // MARK: Keyboard focus from the panel
+
+    /// The disc whose ring shows the panel's keyboard focus.
+    private var discIDWithTheKeyboardFocus: AgentTokenDiscID?
+
+    /// The disc that stands for an agent, on the display with the mouse when the agent has a disc there.
+    private func discID(of agentID: UUID) -> AgentTokenDiscID? {
+        let discIDsOfTheAgent = discsByID.keys.filter { $0.tokenSlot == .agent(agentID) }
+        let mouseDisplayID = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayID
+        return discIDsOfTheAgent.first { $0.displayID == mouseDisplayID } ?? discIDsOfTheAgent.first
+    }
+
+    /// The panel's chip for an agent holds the keyboard focus: its disc shows the focus ring and its peek card at once, as a
+    /// rested hover does. Nil takes both away.
+    func showTheKeyboardFocus(onTheDiscOf agentID: UUID?) {
+        if let discIDWithTheKeyboardFocus { discsByID[discIDWithTheKeyboardFocus]?.discModel.hasTheKeyboardFocus = false }
+        discIDWithTheKeyboardFocus = nil
+        guard let agentID, let focusedDiscID = discID(of: agentID), let focusedDisc = discsByID[focusedDiscID] else {
+            hideThePeek()
+            return
+        }
+        discIDWithTheKeyboardFocus = focusedDiscID
+        focusedDisc.discModel.hasTheKeyboardFocus = true
+        peekDelayTask?.cancel()
+        showThePeek(forDiscWithID: focusedDiscID)
+    }
+
+    /// Runs one of a disc's menu items for an agent, as its right-click menu does. False when the agent has no disc on screen,
+    /// so the caller opens the agent list itself.
+    func run(_ menuItem: AgentDiscMenuItem, forTheDiscOf agentID: UUID) -> Bool {
+        showTheKeyboardFocus(onTheDiscOf: nil)
+        guard let agentDiscID = discID(of: agentID) else { return false }
+        run(menuItem, forDiscWithID: agentDiscID, agent: store.agents.first { $0.id == agentID })
+        return true
     }
 
     /// Pops the disc's right-click menu: the actions of the agent list's row, one click from the disc.

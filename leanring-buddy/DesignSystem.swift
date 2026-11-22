@@ -152,6 +152,10 @@ enum DS {
         /// Destructive used for text on dark backgrounds (brighter for readability).
         static let destructiveText = Color(hex: "#FF6369")    // Radix Red 11
 
+        /// The dark red a turned-off setup step, a refused name, or a problem banner sits on, with a `destructiveEdge` border.
+        static let destructiveSurface = Color(hex: "#2a1517")
+        static let destructiveEdge = Color(hex: "#5a2a2e")
+
         /// Success — checkmarks, granted status, completion indicators.
         /// Independent green so success states are visually distinct from the blue accent.
         static let success = Color(hex: "#34D399")      // Tailwind Emerald 400
@@ -189,6 +193,10 @@ enum DS {
         /// The ink of an icon on an accent-filled disc. Near-black on every accent, Clicky blue included, since white on
         /// `#3380ff` is only 3.9 contrast and this is 5.3.
         static let inkOnAccent = Color(hex: "#0b0c0e")
+
+        /// The ring around the control that holds the keyboard focus in the menu bar panel. It is a fixed light blue, not the
+        /// theme's accent, so it reads beside an accent border and on every theme.
+        static let keyboardFocusRing = Color(hex: "#8fb6ff")
 
         // ── Settings Dial ────────────────────────────────────────────
 

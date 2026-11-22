@@ -89,6 +89,8 @@ check "a process started from the app's binary is a running Clicky" "$(running_c
 parse_app_launch_arguments --harness-brain --brain "turn it to the left|^pause it"
 check "both brain flags pass their launch arguments" "${app_launch_flag_arguments[*]}" "--brain-runs-in-the-harness --brain-takes-every-request"
 check "the steps follow the flags" "$app_launch_rehearsal_steps" "turn it to the left|^pause it"
+parse_app_launch_arguments --show-setup "+30 thanks"
+check "--show-setup passes its launch argument and keeps the steps" "${app_launch_flag_arguments[*]} $app_launch_rehearsal_steps" "--show-setup +30 thanks"
 parse_app_launch_arguments "pop this out"
 check "no flag passes no launch argument" "${#app_launch_flag_arguments[@]}" "0"
 # --no-app-secret and --wrong-app-secret pass the app's own --app-secret-mode argument, so the upgrade paths of the harness
