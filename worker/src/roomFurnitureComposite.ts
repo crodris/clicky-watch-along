@@ -410,7 +410,9 @@ function untrustedTextInTag(tagName: string, untrustedText: string): string {
  * Image 1 is the room and Image 2 the product, and the mask applies to Image 1. OpenAI says the model follows a mask
  * only as guidance, so the prompt also names the masked area's box in Image 1's pixels: without it, the live check drew a
  * table about 15 percent too wide, with two legs past the mask. Each other sentence answers a way the product could come
- * out wrong: restyled, at the photo's angle, floating, or lit differently from the room.
+ * out wrong: restyled, at the photo's angle, floating, lit differently from the room, or with the things that stand around
+ * it in the store's photo. The cutout cannot leave those out: Vision's foreground mask of the West Elm Axel chair's photo
+ * is one instance that holds the chair and the side table in front of it, and every painting added the table.
  */
 export function furnitureCompositePrompt(
   itemTitle: string,
@@ -422,6 +424,7 @@ export function furnitureCompositePrompt(
     "Image 1 is a photo of a room from a camera at about eye level. Image 2 is a store's product photo of one piece of furniture.",
     "Place exactly the product from Image 2 into the room in Image 1, standing on the floor inside the masked area.",
     "It must be the very same product: the same shape, proportions, colors, materials, legs, and details as Image 2. Do not redesign, restyle, recolor, or simplify it, and do not add cushions, objects, or decor.",
+    "Image 2 may also show other things with the product, such as a side table, lamp, or plant beside or in front of it, a pillow or throw on it, or a rug under it. Draw only the one product the item_title tag names, whole, with any part of it those things hide, and leave everything else in Image 2 out of the room: add no other furniture, decor, or objects.",
     "Keep its colors as Image 2 shows them: the room's light may shade it, but never change its hue or make its material lighter or warmer overall.",
     `In Image 1's pixels, from its top left corner, the masked area spans x from ${bounds.left} to ${bounds.right} and y from ${bounds.top} to ${bounds.bottom}.`,
     "The masked area is the space the product takes up in this room at its real size, seen from this camera, plus a margin for its shadow, so the product is a little smaller than the area. Keep every part of the product, its legs and feet included, well inside the area, and never wider or taller than it: its front feet stand on the floor a little above the bottom of the area.",
