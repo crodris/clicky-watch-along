@@ -304,6 +304,20 @@ struct VideoRecapTests {
         #expect(fixture.shownRecaps.count == 2)
     }
 
+    @Test func eachThingClickyDoesOrShowsHoldsTheRecapBackTheMenuBarPanelIncluded() {
+        #expect(!VideoRecapBusyFacts().clickyIsBusy)
+        let eachFact: [WritableKeyPath<VideoRecapBusyFacts, Bool>] = [
+            \.aSceneIsUp, \.clickyIsNotIdle, \.speechIsPlaying, \.aQuizQuestionIsOpen, \.aQuizIsRunning, \.aCardIsShowing,
+            \.theThemeStudioIsOpen, \.theSettingsDialIsOpen, \.theAgentListIsOpen, \.theMenuBarPanelIsOpen,
+            \.theRoomArtPanelIsOpen, \.anAddThemeCardIsOpen, \.anApprovalWaits,
+        ]
+        for fact in eachFact {
+            var busyFacts = VideoRecapBusyFacts()
+            busyFacts[keyPath: fact] = true
+            #expect(busyFacts.clickyIsBusy, "\(fact) alone should hold the recap back")
+        }
+    }
+
     @Test func theCardUnfoldsAfterTheGatherOnlyWhenNobodyMovedOnAndClickyIsFree() {
         #expect(videoRecapCardMayShowAfterTheGather(gatherWasCancelled: false, clickyIsBusy: false))
         #expect(!videoRecapCardMayShowAfterTheGather(gatherWasCancelled: true, clickyIsBusy: false))
@@ -331,12 +345,35 @@ struct VideoRecapTests {
 
     // MARK: - The gather
 
+    @Test func aGatherEndsOnceSoASendBackAfterAnAtOnceEndFliesNothing() {
+        let displayID: CGDirectDisplayID = 1
+        let firstDisc = AgentTokenDiscID(displayID: displayID, tokenSlot: .agent(UUID()))
+        let pausedDisc = AgentTokenDiscID(displayID: displayID, tokenSlot: .paused)
+        var recapGather = AgentTokenRecapGather()
+        recapGather.gathered([
+            .init(discID: firstDisc, overflowCount: 0, center: CGPoint(x: 900, y: 970)),
+            .init(discID: pausedDisc, overflowCount: 0, center: CGPoint(x: 928, y: 970)),
+        ], onDisplay: displayID)
+        // While gathered, a "go ahead" flight that lands, or the paused disc fading in after "hold on", leaves the disc hidden.
+        #expect(recapGather.hides(firstDisc))
+        #expect(recapGather.hides(pausedDisc))
+        #expect(!recapGather.hides(AgentTokenDiscID(displayID: 2, tokenSlot: .agent(UUID()))))
+        // A press ends the gather and shows both discs at once.
+        let shownAtOnce = recapGather.end()
+        #expect(shownAtOnce.discs.map(\.discID) == [firstDisc, pausedDisc])
+        #expect(shownAtOnce.displayID == displayID)
+        // The gather's flights then land and the recap asks to send the discs back, which finds none to fly.
+        let sentBackAfterwards = recapGather.end()
+        #expect(sentBackAfterwards.discs.isEmpty && sentBackAfterwards.displayID == nil)
+        #expect(!recapGather.hides(firstDisc))
+    }
+
     @Test func withNoDiscOnScreenTheGatherFinishesAtOnceAndSendingBackDoesNothing() {
         let themeSettings = makeThemeSettings()
         let dock = AgentTokenDockController(
             store: BackgroundAgentStore(themeSettings: themeSettings),
             themeSettings: themeSettings,
-            menuActions: AgentDiscMenuActions(cancelAgent: { _ in }, showReadyScene: {}, hearTaskAnswer: {}),
+            menuActions: AgentDiscMenuActions(cancelAgent: { _ in }, showReadyScene: {}, hearTaskAnswer: {}, tryAgain: { _ in }),
             onDiscClicked: { _ in }
         )
         var gatheredCount = 0

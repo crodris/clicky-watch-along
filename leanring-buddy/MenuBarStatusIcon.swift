@@ -4,10 +4,11 @@
 //
 //  Clicky's icon in the menu bar. It is 26 points wide in every state, so the neighbors never move, and it mirrors what
 //  Clicky is doing: the cursor shape at rest, the cursor with sound waves while the learner talks, and a small cursor with a
-//  dot orbiting it while Clicky thinks. An amber badge sits on top of any state while an approval waits for the learner's OK.
-//  The icon is a template image, so macOS tints it for a light or dark menu bar. The one exception is the state with the
-//  badge, which is not a template, since a template has no color: it is drawn in the menu bar's own foreground color, read
-//  from the button's appearance, with the amber badge in its top right. macOS draws only a status item's image, never a subview
+//  dot orbiting it while Clicky thinks. An amber badge sits on top of any state while an approval waits for the learner's OK,
+//  and a red one while a required permission is off after setup or the Worker cannot be reached, which the panel's banner
+//  explains. The icon is a template image, so macOS tints it for a light or dark menu bar. The one exception is the state
+//  with a badge, which is not a template, since a template has no color: it is drawn in the menu bar's own foreground color,
+//  read from the button's appearance, with the badge in its top right. macOS draws only a status item's image, never a subview
 //  of its button (a badge view there never showed), so the badge has to be part of the image. The cursor is the shown theme's: a theme
 //  with a drawn cursor draws it as a silhouette, with its open seams cut out, and a theme with a picture cursor falls back to
 //  Clicky's triangle, since a photo makes no readable template shape.
@@ -18,7 +19,7 @@
 //  one loop, ten frames a second, and with Reduce Motion on it holds still at the top.
 //
 //  This file is the pure state rule and the drawing, plus `MenuBarStatusIconController`, which keeps the status item's button
-//  in step with the voice state, the theme, and the approval desk.
+//  in step with the voice state, the theme, the approval desk, the permissions, and the Worker's reachability.
 //
 
 import AppKit
@@ -41,6 +42,29 @@ func menuBarIconState(for voiceState: CompanionVoiceState) -> MenuBarIconState {
     case .listening: return .listening
     case .processing: return .thinking
     }
+}
+
+// MARK: - Badge
+
+/// The dot on the icon's top right, over any state.
+enum MenuBarIconBadge: Equatable {
+    /// An approval waits for the learner's OK: amber.
+    case needsYourOK
+    /// A required permission was turned off after setup, or the Worker cannot be reached: red, the panel's problem banner.
+    case problem
+}
+
+/// The badge for this moment, in the panel banner's order (`panelBanner`): a waiting approval first, since its request times
+/// out, then a problem. A permission that is off counts only after setup, since setup itself lists it until then.
+func menuBarIconBadge(
+    approvalIsWaiting: Bool,
+    setupIsFinished: Bool,
+    aRequiredPermissionIsOff: Bool,
+    workerIsUnreachable: Bool
+) -> MenuBarIconBadge? {
+    if approvalIsWaiting { return .needsYourOK }
+    if (setupIsFinished && aRequiredPermissionIsOff) || workerIsUnreachable { return .problem }
+    return nil
 }
 
 // MARK: - Drawing
@@ -67,12 +91,18 @@ enum MenuBarIconArt {
 
     /// The icon for a state as a template image, so only its shape and opacity count and macOS picks the color.
     /// - `thinkingFrame`: which frame of the orbit to draw, from 0, used only by `thinking`.
-    /// - `badgeOnAForeground`: with a color, the icon is drawn in it with the amber approval badge and is not a template.
-    ///   Nil draws the plain template.
-    static func image(for state: MenuBarIconState, thinkingFrame: Int = 0, cursor: CustomCursorDrawing, badgeOnAForeground: NSColor? = nil) -> NSImage {
+    /// - `badge`: with a badge, the icon is drawn in `foreground`, the menu bar's own foreground color, with the badge, and is
+    ///   not a template. Nil draws the plain template, whose color macOS picks.
+    static func image(
+        for state: MenuBarIconState,
+        thinkingFrame: Int = 0,
+        cursor: CustomCursorDrawing,
+        badge: MenuBarIconBadge? = nil,
+        foreground: NSColor = .black
+    ) -> NSImage {
         let image = NSImage(size: size, flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            let markColor = badgeOnAForeground ?? NSColor.black
+            let markColor = badge == nil ? NSColor.black : foreground
             context.setFillColor(markColor.cgColor)
             context.setStrokeColor(markColor.cgColor)
             switch state {
@@ -92,10 +122,10 @@ enum MenuBarIconArt {
                 let dotCenter = CGPoint(x: center.x + thinkingDotOrbitRadius * sin(angle), y: center.y - thinkingDotOrbitRadius * cos(angle))
                 context.fillEllipse(in: CGRect(x: dotCenter.x - thinkingDotDiameter / 2, y: dotCenter.y - thinkingDotDiameter / 2, width: thinkingDotDiameter, height: thinkingDotDiameter))
             }
-            if badgeOnAForeground != nil { drawApprovalBadge(in: context) }
+            if let badge { drawBadge(badge, in: context) }
             return true
         }
-        image.isTemplate = badgeOnAForeground == nil
+        image.isTemplate = badge == nil
         return image
     }
 
@@ -103,14 +133,18 @@ enum MenuBarIconArt {
     static let badgeCenter = CGPoint(x: size.width / 2 + 5.5, y: size.height / 2 - 5)
     static let badgeDiameter: CGFloat = 7.5
 
-    /// The amber dot with a dark rim, so it reads on a light menu bar too.
-    private static func drawApprovalBadge(in context: CGContext) {
+    /// The amber or red dot with a dark rim, so it reads on a light menu bar too.
+    private static func drawBadge(_ badge: MenuBarIconBadge, in context: CGContext) {
         let badgeRect = CGRect(x: badgeCenter.x - badgeDiameter / 2, y: badgeCenter.y - badgeDiameter / 2, width: badgeDiameter, height: badgeDiameter)
         context.saveGState()
         context.setBlendMode(.normal)
         context.setFillColor(NSColor.black.cgColor)
         context.fillEllipse(in: badgeRect.insetBy(dx: -1, dy: -1))
-        context.setFillColor(NSColor(DS.Colors.warning).cgColor)
+        let badgeColor = switch badge {
+        case .needsYourOK: DS.Colors.warning
+        case .problem: DS.Colors.destructive
+        }
+        context.setFillColor(NSColor(badgeColor).cgColor)
         context.fillEllipse(in: badgeRect)
         context.restoreGState()
     }
@@ -170,36 +204,36 @@ enum MenuBarIconArt {
 // MARK: - Controller
 
 /// Keeps the status item's button in step with what Clicky is doing: the icon for the voice state and the shown theme's
-/// cursor, the thinking dot's turn, and the approval badge.
+/// cursor, the thinking dot's turn, and the badge.
 @MainActor
 final class MenuBarStatusIconController {
     private let button: NSStatusBarButton
     private let voiceState: () -> CompanionVoiceState
     private let shownCursor: () -> CustomCursorDrawing
-    private let approvalIsWaiting: () -> Bool
+    private let badge: () -> MenuBarIconBadge?
     private var subscriptions: Set<AnyCancellable> = []
     private var thinkingTimer: Timer?
     private var thinkingFrame = 0
     /// What the button shows now, so an update that changes nothing draws nothing.
-    private var shownIcon: (state: MenuBarIconState, cursor: CustomCursorDrawing, badgeIsShown: Bool, appearanceIsDark: Bool)?
+    private var shownIcon: (state: MenuBarIconState, cursor: CustomCursorDrawing, badge: MenuBarIconBadge?, appearanceIsDark: Bool)?
     private var appearanceObservation: NSKeyValueObservation?
 
     private var reduceMotionIsOn: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     /// - Parameters:
-    ///   - changes: fires when the voice state, the shown theme, or the approval desk changes. It may fire before the change
-    ///     lands, so the controller reads the values on the next turn of the main run loop.
+    ///   - changes: fires when the voice state, the shown theme, or anything the badge reads changes. It may fire before the
+    ///     change lands, so the controller reads the values on the next turn of the main run loop.
     init(
         button: NSStatusBarButton,
         changes: AnyPublisher<Void, Never>,
         voiceState: @escaping () -> CompanionVoiceState,
         shownCursor: @escaping () -> CustomCursorDrawing,
-        approvalIsWaiting: @escaping () -> Bool
+        badge: @escaping () -> MenuBarIconBadge?
     ) {
         self.button = button
         self.voiceState = voiceState
         self.shownCursor = shownCursor
-        self.approvalIsWaiting = approvalIsWaiting
+        self.badge = badge
 
         changes
             .receive(on: DispatchQueue.main)
@@ -220,13 +254,13 @@ final class MenuBarStatusIconController {
     private func update() {
         let state = menuBarIconState(for: voiceState())
         let cursor = shownCursor()
-        let badgeIsShown = approvalIsWaiting()
+        let badge = badge()
         // The appearance only matters under the badge, which is drawn in the menu bar's foreground color.
         let appearanceIsDark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let newIcon = (state: state, cursor: cursor, badgeIsShown: badgeIsShown, appearanceIsDark: badgeIsShown && appearanceIsDark)
+        let newIcon = (state: state, cursor: cursor, badge: badge, appearanceIsDark: badge != nil && appearanceIsDark)
         guard shownIcon.map({ $0 != newIcon }) ?? true else { return }
         // A change of state or of the badge crossfades, and a new theme cursor swaps at once.
-        let isCrossfading = shownIcon.map { $0.state != state || $0.badgeIsShown != badgeIsShown } ?? false
+        let isCrossfading = shownIcon.map { $0.state != state || $0.badge != badge } ?? false
         shownIcon = newIcon
         thinkingFrame = 0
         showTheIcon(crossfading: isCrossfading)
@@ -241,8 +275,13 @@ final class MenuBarStatusIconController {
             crossfade.duration = DS.Move.fadeSeconds
             button.layer?.add(crossfade, forKey: "icon.crossfade")
         }
-        let badgeForeground: NSColor? = shownIcon.badgeIsShown ? (shownIcon.appearanceIsDark ? .white : .black) : nil
-        button.image = MenuBarIconArt.image(for: shownIcon.state, thinkingFrame: thinkingFrame, cursor: shownIcon.cursor, badgeOnAForeground: badgeForeground)
+        button.image = MenuBarIconArt.image(
+            for: shownIcon.state,
+            thinkingFrame: thinkingFrame,
+            cursor: shownIcon.cursor,
+            badge: shownIcon.badge,
+            foreground: shownIcon.appearanceIsDark ? .white : .black
+        )
     }
 
     /// The dot's turn runs only while Clicky thinks, from a timer of ten frames a second. A timer that only redraws a 26 by

@@ -154,3 +154,20 @@ struct AgentBringBackRingView: View {
             .shadow(color: .black.opacity(0.35), radius: 1.5, x: 0, y: 1)
     }
 }
+
+// MARK: - What a push-to-talk press ends
+
+/// What a push-to-talk press ends on screen, in the order the press handler ends them (`CompanionManager.handleShortcutTransition`).
+/// The order matters twice, so a test pins it.
+enum PushToTalkPressStep: CaseIterable {
+    /// The recap's gather ends and its discs show in their places at once. It comes first: landing the gather's flights before
+    /// the gather knows it was cancelled would unfold the recap Card over the request the press starts.
+    case endTheRecapGather
+    /// A serve, a Bring back spark, and a pause's moves land at once. A landing spark shows the chip it carries.
+    case landTheFlights
+    case hideTheStatusLabel
+    /// The chip shrinks into the cursor. It comes after the landing, so the chip a Bring back spark carries shows first and
+    /// then shrinks like any chip already up.
+    case recallTheChip
+    case endTheCursorLoop
+}

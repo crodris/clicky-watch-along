@@ -292,6 +292,8 @@ struct AgentTokenClick {
     let discPanelFrame: CGRect
     /// Read when the disc is clicked, since AppKit replaces its screen objects when the screen parameters change.
     let screen: NSScreen
+    /// A menu item asked to open the agent list, so a list already open from this disc stays open instead of closing.
+    var opensOnly = false
 }
 
 /// Keeps one panel per disc on every display whose menu bar shows. It runs only while some agent has a token, and polls
@@ -314,18 +316,11 @@ final class AgentTokenDockController {
     private var agentsWerePausedAtTheLastRefresh = false
     /// The discs sent back to their places after a pause, still in the air, so a push-to-talk press can land them.
     private var sendBackFlights: [CarrierFlight] = []
-    /// The token that flies to its slot right now, and the disc it lands on. Nil when no serve runs.
-    private var flight: CarrierFlight?
-    private var discIDTheFlightLandsOn: AgentTokenDiscID?
-    /// The flight that has landed but whose token is still over its disc for a moment, and that disc. The disc waits to slide
-    /// to close a gap until the carried token has left (`agentTokenDiscMustWaitForItsFlight`).
-    private var lingeringFlight: CarrierFlight?
-    private var discIDTheLingeringFlightSitsOn: AgentTokenDiscID?
+    /// The serve's flights: the token in the air and the disc it lands on, the landed token that still covers its disc for a
+    /// moment, and the flight a disc waits under before it slides (`AgentTokenServeFlights`).
+    private var serveFlights = AgentTokenServeFlights<CarrierFlight, AgentTokenDiscID>()
     /// Callers waiting for the token to land (`waitForTheServeToLand`).
     private var callersWaitingForTheLanding: [CheckedContinuation<Void, Never>] = []
-    /// The flight a disc had to wait under, which may slide when that flight's carried token leaves. The landed token's tether
-    /// would then end where the disc used to be, so it ends first (`forgetTheLingeringFlight`).
-    private var flightWhoseDiscWaitedToSlide: CarrierFlight?
     /// The Bring back sparks in the air, so a push-to-talk press can land them.
     private var bringBackFlights: [CarrierFlight] = []
     private let peekController = AgentTokenPeekController()
@@ -480,7 +475,7 @@ final class AgentTokenDockController {
             discsByID[discID] = nil
         }
         // A token cannot land on a disc that left, such as an agent cancelled mid-flight.
-        if let discIDTheFlightLandsOn, !discIDsOnScreen.contains(discIDTheFlightLandsOn) {
+        if let discIDTheFlightLandsOn = serveFlights.discIDTheFlightLandsOn, !discIDsOnScreen.contains(discIDTheFlightLandsOn) {
             landTheServeAtOnce()
         }
         // A display that is gone or shows no disc forgets its positions, so the next tokens start from the left again.
@@ -490,14 +485,15 @@ final class AgentTokenDockController {
         // A recap that hid the discs must not hide what is new: a disc that appeared since, or an agent that waits for the
         // learner's OK, whose "!" badge is on a gathered disc. Either shows every gathered disc again.
         if gatheredDiscsMustShowAgain(
-            gatheredDiscIDs: Set(gatheredDiscs.map(\.discID)),
-            gatheredDisplayID: gatheredDisplayID,
+            gatheredDiscIDs: Set(recapGather.gatheredDiscs.map(\.discID)),
+            gatheredDisplayID: recapGather.gatheredDisplayID,
             discIDsOnScreen: discIDsOnScreen,
             anAgentWaitsForApproval: !store.agentIDsWaitingForApproval.isEmpty
         ) {
             print("Recap gather: the dock changed while the Card is open, so the discs show again")
             sendTheDiscsBackAtOnce()
         }
+        moveTheKeyboardFocusIfItsDiscChanged()
     }
 
     private var reduceMotionIsOn: Bool {
@@ -527,11 +523,7 @@ final class AgentTokenDockController {
             }
             guard existingDisc.panel.frame != panelFrame else { return }
             // The slide happens when the carried token leaves, which refreshes the dock (`forgetTheLingeringFlight`).
-            guard !agentTokenDiscMustWaitForItsFlight(discID, flightLandsOn: discIDTheFlightLandsOn, lingeringFlightSitsOn: discIDTheLingeringFlightSitsOn) else {
-                // The disc waits under the flight it is named for: the lingering one when it sits on this disc, else the one in the air.
-                flightWhoseDiscWaitedToSlide = discID == discIDTheLingeringFlightSitsOn ? lingeringFlight : flight
-                return
-            }
+            guard !serveFlights.discMustWaitBeforeSliding(discID) else { return }
             if reduceMotionIsOn {
                 existingDisc.panel.setFrame(panelFrame, display: true)
             } else {
@@ -561,7 +553,9 @@ final class AgentTokenDockController {
             let fadeDelay = pauseMove == .gatherIntoThePausedDisc ? AgentTokenGather.graySeconds + AgentTokenGather.slideSeconds / 2 : 0
             displayedDisc.panel.alphaValue = 0
             displayedDisc.panel.orderFrontRegardless()
-            DispatchQueue.main.asyncAfter(deadline: .now() + fadeDelay) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + fadeDelay) { [weak self] in
+                // A recap that gathered the discs meanwhile keeps this disc hidden until it sends them back.
+                guard self?.recapGather.hides(discID) != true else { return }
                 NSAnimationContext.runAnimationGroup { animationContext in
                     animationContext.duration = DS.Move.fadeSeconds
                     displayedDisc.panel.animator().alphaValue = 1
@@ -644,7 +638,11 @@ final class AgentTokenDockController {
             carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: .agent(agentID), overflowCount: 0),
             onDisplay: displayID,
             tetherColor: NSColor(agentColor),
-            onLanded: { disc.panel.alphaValue = 1 },
+            // A recap that gathered the discs during the flight keeps this disc hidden until it sends them back.
+            onLanded: { [weak self] in
+                guard self?.recapGather.hides(AgentTokenDiscID(displayID: displayID, tokenSlot: .agent(agentID))) != true else { return }
+                disc.panel.alphaValue = 1
+            },
             onGone: { [weak self] goneFlight in self?.sendBackFlights.removeAll { $0 === goneFlight } }
         )
         sendBackFlights.append(sendBackFlight)
@@ -656,8 +654,7 @@ final class AgentTokenDockController {
         for disc in discsByID.values { remove(disc) }
         discsByID = [:]
         shownAgentIDsByDisplayID = [:]
-        gatheredDiscs = []
-        gatheredDisplayID = nil
+        _ = recapGather.end()
     }
 
     // MARK: Serve
@@ -709,8 +706,7 @@ final class AgentTokenDockController {
             slotDisc.panel.alphaValue = 1
             // The token flies in a square as wide as a disc's own panel, so its shadow fits and its center is the slot's.
             let tokenSide = AgentTokenMetrics.panelWidth
-            discIDTheFlightLandsOn = slotDiscID
-            flight = TetherCarrier.shared.play(
+            let flight = TetherCarrier.shared.play(
                 .send(along: path, carriedSize: CGSize(width: tokenSide, height: tokenSide)),
                 carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: .agent(agentID), overflowCount: 0),
                 onDisplay: cursorDisplayID,
@@ -718,13 +714,14 @@ final class AgentTokenDockController {
                 onLanded: { [weak self] in self?.landTheToken(onDiscWithID: slotDiscID) },
                 onGone: { [weak self] goneFlight in self?.forgetTheLingeringFlight(goneFlight) }
             )
+            serveFlights.flightStarted(flight, landingOn: slotDiscID)
         }
     }
 
     /// Returns once the token that is flying has landed, or at once when none flies. The router's spoken confirmation waits
     /// here, so the learner sees the hand-off before the voice speaks.
     func waitForTheServeToLand() async {
-        guard flight != nil else { return }
+        guard serveFlights.flyingFlight != nil else { return }
         let waitStartedAt = Date()
         await withCheckedContinuation { callersWaitingForTheLanding.append($0) }
         print("Agent token serve: the spoken line waited \(Int(Date().timeIntervalSince(waitStartedAt) * 1000)) ms for the token to land")
@@ -740,7 +737,7 @@ final class AgentTokenDockController {
     }
 
     private func landTheServeAtOnce() {
-        guard let flight else { return }
+        guard let flight = serveFlights.flyingFlight else { return }
         print("Agent token serve: the token lands at once")
         flight.landAtOnce()
     }
@@ -748,47 +745,26 @@ final class AgentTokenDockController {
     private func landTheToken(onDiscWithID discID: AgentTokenDiscID) {
         print("Agent token serve: the token landed in its slot")
         discsByID[discID]?.discModel.isAnOpenSlotAwaitingItsToken = false
-        lingeringFlight = flight
-        discIDTheLingeringFlightSitsOn = discID
-        flight = nil
-        discIDTheFlightLandsOn = nil
+        serveFlights.flightLanded()
         let callersToResume = callersWaitingForTheLanding
         callersWaitingForTheLanding = []
         for callerToResume in callersToResume { callerToResume.resume() }
     }
 
-    /// The flight's token has left the screen, so the disc under it may slide now if the layout moved it meanwhile. A newer
-    /// flight that landed since stays.
+    /// The flight's token has left the screen, so a disc that waited under it may slide now, and that flight's tether ends
+    /// first, since the line, which still fades for a moment, must not end at the disc's old place.
     private func forgetTheLingeringFlight(_ goneFlight: CarrierFlight) {
-        // A disc that waited under this flight slides now, so the line, which still fades for a moment, must not end at its old
-        // place. A newer flight that landed since replaced the lingering one, but the disc still waited under this one.
-        let theTetherMustEnd = agentTokenTetherMustEnd(flightWhoseDiscWaited: flightWhoseDiscWaitedToSlide, goneFlight: goneFlight)
-        if theTetherMustEnd {
-            goneFlight.endTheTetherNow()
-            flightWhoseDiscWaitedToSlide = nil
-        }
-        guard lingeringFlight === goneFlight else {
-            if theTetherMustEnd { refresh() }
-            return
-        }
-        lingeringFlight = nil
-        discIDTheLingeringFlightSitsOn = nil
-        refresh()
+        let whenTheFlightIsGone = serveFlights.flightIsGone(goneFlight)
+        if whenTheFlightIsGone.endsTheTether { goneFlight.endTheTetherNow() }
+        if whenTheFlightIsGone.refreshesTheDock { refresh() }
     }
 
     // MARK: Gather
 
-    /// One disc the recap gathered, so it can go back to the same place.
-    private struct GatheredDisc {
-        let discID: AgentTokenDiscID
-        let tokenSlot: AgentTokenSlot
-        let overflowCount: Int
-        let center: CGPoint
-    }
+    private typealias GatheredDisc = AgentTokenRecapGather.GatheredDisc
 
     /// The discs on the display the mouse is on that the last gather took, and that display. Empty when none are gathered.
-    private var gatheredDiscs: [GatheredDisc] = []
-    private var gatheredDisplayID: CGDirectDisplayID?
+    private var recapGather = AgentTokenRecapGather()
     /// The ghost discs in the air, so a push-to-talk press or a new gather can land them at once.
     private var gatherFlights: [CarrierFlight] = []
 
@@ -799,6 +775,9 @@ final class AgentTokenDockController {
     /// until `sendTheDiscsBack` runs.
     func gatherTheDiscs(at cursorPoint: CGPoint, onGathered: @escaping () -> Void) {
         sendTheDiscsBackAtOnce()
+        // A disc still flying back after "go ahead" lands in its place first, so the gather takes it from there and no second
+        // ghost flies to that place.
+        for sendBackFlight in sendBackFlights { sendBackFlight.landAtOnce() }
         let mouseLocation = NSEvent.mouseLocation
         let displayFramesByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.map { ($0.displayID, $0.frame) })
         guard let cursorDisplayID = agentTokenServeDisplayID(containing: mouseLocation, displayFrames: displayFramesByID) else {
@@ -808,7 +787,7 @@ final class AgentTokenDockController {
         let discsToGather: [GatheredDisc] = discsByID
             .filter { discID, disc in discID.displayID == cursorDisplayID && disc.panel.isVisible }
             .map { discID, disc in
-                GatheredDisc(discID: discID, tokenSlot: discID.tokenSlot, overflowCount: disc.overflowCount, center: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY))
+                GatheredDisc(discID: discID, overflowCount: disc.overflowCount, center: CGPoint(x: disc.panel.frame.midX, y: disc.panel.frame.midY))
             }
             .sorted { $0.center.x < $1.center.x }
         guard !discsToGather.isEmpty else {
@@ -816,11 +795,13 @@ final class AgentTokenDockController {
             onGathered()
             return
         }
-        gatheredDiscs = discsToGather
-        gatheredDisplayID = cursorDisplayID
+        recapGather.gathered(discsToGather, onDisplay: cursorDisplayID)
         if reduceMotionIsOn {
             print("Recap gather: Reduce Motion is on, so \(discsToGather.count) discs fade out")
-            fadeTheGatheredDiscs(toAlpha: 0)
+            NSAnimationContext.runAnimationGroup { animationContext in
+                animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
+                for gatheredDisc in discsToGather { discsByID[gatheredDisc.discID]?.panel.animator().alphaValue = 0 }
+            }
             onGathered()
             return
         }
@@ -832,19 +813,19 @@ final class AgentTokenDockController {
                 flightsLeftToLand -= 1
                 if flightsLeftToLand == 0 { onGathered() }
             }
-            // The ghost is drawn over the disc before the disc goes, so nothing blinks.
-            discsByID[gatheredDisc.discID]?.panel.alphaValue = 0
+            // The ghost is drawn over the disc before the disc goes, so nothing blinks. A fade still running on the disc, such as
+            // a new disc's fade-in, is replaced, so it cannot bring the disc back under the ghost.
+            discsByID[gatheredDisc.discID].map { setTheAlphaReplacingAnyFade(of: $0.panel, to: 0) }
         }
     }
 
     /// The recap's close: each gathered disc flies from the cursor back to its slot, and shows again as it lands. With Reduce
     /// Motion on, the discs fade in. A disc whose agent left meanwhile is not shown again.
     func sendTheDiscsBack(from cursorPoint: CGPoint) {
-        guard let gatheredDisplayID, !gatheredDiscs.isEmpty else { return }
+        // Ended first, so the gather's own landing, which may call this again through the recap's `onGathered`, flies nothing.
+        let (discsToSendBack, gatheredDisplayID) = recapGather.end()
         for gatherFlight in gatherFlights { gatherFlight.landAtOnce() }
-        let discsToSendBack = gatheredDiscs
-        gatheredDiscs = []
-        self.gatheredDisplayID = nil
+        guard let gatheredDisplayID, !discsToSendBack.isEmpty else { return }
         if reduceMotionIsOn {
             NSAnimationContext.runAnimationGroup { animationContext in
                 animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
@@ -858,7 +839,6 @@ final class AgentTokenDockController {
             // The "+N" disc's count may have changed since the gather, so its ghost shows the current one.
             let discToSendBack = GatheredDisc(
                 discID: gatheredDisc.discID,
-                tokenSlot: gatheredDisc.tokenSlot,
                 overflowCount: discsByID[gatheredDisc.discID]?.overflowCount ?? gatheredDisc.overflowCount,
                 center: gatheredDisc.center
             )
@@ -868,18 +848,23 @@ final class AgentTokenDockController {
         }
     }
 
-    /// A press or a new gather ends the recap's flights and shows every gathered disc again, with no animation.
-    private func sendTheDiscsBackAtOnce() {
+    /// A press, Escape, a scene starting, or a new gather ends the recap's flights and shows every gathered disc again at once,
+    /// with no flight back. The gather ends before its flights land, so the send back the recap asks for when they land finds
+    /// nothing left to fly.
+    func sendTheDiscsBackAtOnce() {
+        let (discsToShow, _) = recapGather.end()
         for gatherFlight in gatherFlights { gatherFlight.landAtOnce() }
-        for gatheredDisc in gatheredDiscs { discsByID[gatheredDisc.discID]?.panel.alphaValue = 1 }
-        gatheredDiscs = []
-        gatheredDisplayID = nil
+        for gatheredDisc in discsToShow {
+            discsByID[gatheredDisc.discID].map { setTheAlphaReplacingAnyFade(of: $0.panel, to: 1) }
+        }
     }
 
-    private func fadeTheGatheredDiscs(toAlpha alpha: CGFloat) {
+    /// Sets a disc's alpha now. A plain set leaves an animator fade on the window running, which would then move the alpha
+    /// on from the new value, so this replaces the fade with one of no length.
+    private func setTheAlphaReplacingAnyFade(of panel: NSPanel, to alpha: CGFloat) {
         NSAnimationContext.runAnimationGroup { animationContext in
-            animationContext.duration = DS.Move.send.reduceMotionForm.fadeSeconds
-            for gatheredDisc in gatheredDiscs { discsByID[gatheredDisc.discID]?.panel.animator().alphaValue = alpha }
+            animationContext.duration = 0
+            panel.animator().alphaValue = alpha
         }
     }
 
@@ -888,7 +873,7 @@ final class AgentTokenDockController {
         let tokenSide = AgentTokenMetrics.panelWidth
         let ghostFlight = TetherCarrier.shared.play(
             .send(along: agentTokenServePath(from: startPoint, to: endPoint), carriedSize: CGSize(width: tokenSide, height: tokenSide)),
-            carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: gatheredDisc.tokenSlot, overflowCount: gatheredDisc.overflowCount),
+            carrying: AgentTokenDiscContent(store: store, discModel: AgentTokenDiscModel(), tokenSlot: gatheredDisc.discID.tokenSlot, overflowCount: gatheredDisc.overflowCount),
             onDisplay: displayID,
             tetherColor: NSColor(themeSettings.shownTheme.cursorColor),
             onLanded: onLanded,
@@ -950,11 +935,11 @@ final class AgentTokenDockController {
 
     // MARK: Click, hover, and right click
 
-    private func clickDisc(withID discID: AgentTokenDiscID) {
+    private func clickDisc(withID discID: AgentTokenDiscID, opensOnly: Bool = false) {
         hideThePeek()
         guard let clickedDisc = discsByID[discID],
               let screen = NSScreen.screens.first(where: { $0.displayID == discID.displayID }) else { return }
-        onDiscClicked(AgentTokenClick(discID: discID, discPanelFrame: clickedDisc.panel.frame, screen: screen))
+        onDiscClicked(AgentTokenClick(discID: discID, discPanelFrame: clickedDisc.panel.frame, screen: screen, opensOnly: opensOnly))
     }
 
     /// The mouse rests on a disc: its peek card shows after a short wait. It leaves: the card goes.
@@ -1013,16 +998,28 @@ final class AgentTokenDockController {
 
     // MARK: Keyboard focus from the panel
 
-    /// The disc whose ring shows the panel's keyboard focus.
+    /// The disc whose ring shows the panel's keyboard focus, and the agent whose chip holds that focus. The agent is kept
+    /// apart from the disc, since a pause folds its disc into the paused disc and "go ahead" brings it back, and the ring
+    /// follows (`moveTheKeyboardFocusIfItsDiscChanged`).
     private var discIDWithTheKeyboardFocus: AgentTokenDiscID?
+    private var agentIDWithTheKeyboardFocus: UUID?
 
-    /// The disc that stands for an agent, on the display with the mouse when the agent has a disc there.
+    /// The disc that stands for an agent: its own disc, on the display with the mouse when it has one there, or the paused
+    /// disc during a pause. A disc the recap hid stands for none.
     private func discID(of agentID: UUID) -> AgentTokenDiscID? {
         agentDiscIDTakingTheKeyboardFocus(
             among: Array(discsByID.keys),
             agentID: agentID,
-            mouseDisplayID: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayID
+            mouseDisplayID: NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayID,
+            hiddenDiscIDs: Set(recapGather.gatheredDiscs.map(\.discID))
         )
+    }
+
+    /// After a refresh, the ring moves to the disc that now stands for the focused agent, such as the paused disc after
+    /// "hold on" or the agent's own disc after "go ahead". It stays put when that disc did not change.
+    private func moveTheKeyboardFocusIfItsDiscChanged() {
+        guard let agentIDWithTheKeyboardFocus, discID(of: agentIDWithTheKeyboardFocus) != discIDWithTheKeyboardFocus else { return }
+        showTheKeyboardFocus(onTheDiscOf: agentIDWithTheKeyboardFocus)
     }
 
     /// The keyboard moved the focus to the panel's chip for an agent: its disc shows the focus ring and its peek card at
@@ -1030,6 +1027,7 @@ final class AgentTokenDockController {
     func showTheKeyboardFocus(onTheDiscOf agentID: UUID) {
         if let discIDWithTheKeyboardFocus { discsByID[discIDWithTheKeyboardFocus]?.discModel.hasTheKeyboardFocus = false }
         discIDWithTheKeyboardFocus = nil
+        agentIDWithTheKeyboardFocus = agentID
         guard let focusedDiscID = discID(of: agentID), let focusedDisc = discsByID[focusedDiscID] else { return }
         discIDWithTheKeyboardFocus = focusedDiscID
         focusedDisc.discModel.hasTheKeyboardFocus = true
@@ -1040,8 +1038,9 @@ final class AgentTokenDockController {
     /// Takes the focus ring off the agent's disc, or off any disc for nil, and that disc's peek card with it. It does nothing
     /// when the ring is on another agent's disc, or on none, and it never hides a peek card the mouse opened on another disc.
     func endTheKeyboardFocus(onTheDiscOf agentID: UUID?) {
+        if let agentID, agentIDWithTheKeyboardFocus != agentID { return }
+        agentIDWithTheKeyboardFocus = nil
         guard let focusedDiscID = discIDWithTheKeyboardFocus else { return }
-        if let agentID, focusedDiscID.tokenSlot != .agent(agentID) { return }
         discsByID[focusedDiscID]?.discModel.hasTheKeyboardFocus = false
         discIDWithTheKeyboardFocus = nil
         if discIDOfThePeek == focusedDiscID { hideThePeek() }
@@ -1090,13 +1089,13 @@ final class AgentTokenDockController {
 
     private func run(_ menuItem: AgentDiscMenuItem, forDiscWithID discID: AgentTokenDiscID, agent: BackgroundAgent?) {
         switch menuItem {
-        case .reviewRequest, .openAgentList: clickDisc(withID: discID)
+        case .reviewRequest, .openAgentList: clickDisc(withID: discID, opensOnly: true)
         default: runTheAgentAction(menuItem, agent: agent)
         }
     }
 
-    /// The menu items that act on the agent itself and need no disc: show its scene, hear its answer, open its page, or
-    /// cancel it.
+    /// The menu items that act on the agent itself and need no disc: show its scene, hear its answer, open its page, try it
+    /// again, or cancel it.
     private func runTheAgentAction(_ menuItem: AgentDiscMenuItem, agent: BackgroundAgent?) {
         switch menuItem {
         case .reviewRequest, .openAgentList: break
@@ -1104,6 +1103,8 @@ final class AgentTokenDockController {
         case .hearAnswer: menuActions.hearTaskAnswer()
         case .openPage:
             if let pageURL = agent?.finishedResult?.pageURL { NSWorkspace.shared.open(pageURL) }
+        case .tryAgain:
+            if let agent { menuActions.tryAgain(agent.id) }
         case .cancelAgent:
             if let agent { menuActions.cancelAgent(agent.id) }
         }

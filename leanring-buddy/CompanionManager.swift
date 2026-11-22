@@ -323,20 +323,16 @@ final class CompanionManager: ObservableObject {
     private lazy var agentTokenDockController = AgentTokenDockController(
         store: backgroundAgentStore,
         themeSettings: themeSettings,
-        menuActions: AgentDiscMenuActions(
+        menuActions: .holdingAWaitingResultDuringAQuizQuestion(
+            aVideoQuizQuestionIsOpen: { [weak self] in self?.videoQuizQuestionIsActive ?? false },
             cancelAgent: { [weak self] agentID in self?.cancelBackgroundAgent(agentID) },
-            // A quiz question can open while the menu is up, so each closure checks again, as the agent list's buttons do.
-            showReadyScene: { [weak self] in
-                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
-                self.startShowingTheReadyBackgroundScene()
-            },
-            hearTaskAnswer: { [weak self] in
-                guard let self, agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: self.videoQuizQuestionIsActive) else { return }
-                self.startSpeakingTheTaskAnswer()
-            }
+            showReadyScene: { [weak self] in self?.startShowingTheReadyBackgroundScene() },
+            hearTaskAnswer: { [weak self] in self?.startSpeakingTheTaskAnswer() },
+            // The same path as the agent list's "Try again", which checks again whether the work may start now.
+            tryAgain: { [weak self] agentID in self?.tryTheBackgroundAgentAgain(agentID) }
         )
     ) { [weak self] click in
-        self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen)
+        self?.agentListPanelController.toggle(from: click.discID, discPanelFrame: click.discPanelFrame, on: click.screen, opensOnly: click.opensOnly)
     }
     /// The radial settings dial that holding shift + option opens. Its Agents slice opens the agent list.
     private let settingsDialController = SettingsDialController()
@@ -1050,6 +1046,8 @@ final class CompanionManager: ObservableObject {
     var menuPanelTookTheEscape: () -> Bool = { false }
     /// Set by `MenuBarPanelManager`: whether the panel is open on its home, where the banner slot shows the approval card.
     var menuPanelShowsTheApprovalCard: () -> Bool = { false }
+    /// Set by `MenuBarPanelManager`: whether the panel is open on any page, which holds back the end-of-video recap.
+    var menuPanelIsOpen: () -> Bool = { false }
 
     /// How the running video quiz is going, for the panel's state line, or nil with no quiz running.
     @Published private(set) var videoQuizProgress: VideoQuizProgress?
@@ -1334,14 +1332,17 @@ final class CompanionManager: ObservableObject {
             forgetTheVoiceCommandScreenRead()
             // So is a command the last press started on its partial transcript, whose words the learner is now replacing.
             endTheVoiceCommandSpeculation(because: "a new push-to-talk press")
-            // A token still flying from the cursor to its slot lands there at once, and so does a Bring back spark. The chip a
-            // spark carries shows as it lands, so this comes before the Recall, which then shrinks it into the cursor like any chip.
-            cancelTheVideoRecapGather()
-            agentTokenDockController.finishTheServeAtOnce()
-            // A new press starts a new request, so the label from the last build is out of date, and so is its loop.
-            LiveSceneStatusLabel.shared.hide()
-            VoiceToolCallChip.shared.recall()
-            cursorLoopController.pushToTalkWasPressed()
+            // The moves and labels on screen end in the order `PushToTalkPressStep` gives and its test pins. A new press starts
+            // a new request, so the label from the last build is out of date, and so is its loop.
+            for pressStep in PushToTalkPressStep.allCases {
+                switch pressStep {
+                case .endTheRecapGather: cancelTheVideoRecapGather()
+                case .landTheFlights: agentTokenDockController.finishTheServeAtOnce()
+                case .hideTheStatusLabel: LiveSceneStatusLabel.shared.hide()
+                case .recallTheChip: VoiceToolCallChip.shared.recall()
+                case .endTheCursorLoop: cursorLoopController.pushToTalkWasPressed()
+                }
+            }
 
             showTheCursorOverlayForThisInteraction()
 
@@ -3316,11 +3317,12 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// A press, Escape, or a scene starting ends a recap's gather: the flights land at once, and the Card stays away.
+    /// A press, Escape, or a scene starting ends a recap's gather: the flights land at once, the discs show in their places at
+    /// once with no flight back, and the Card stays away.
     private func cancelTheVideoRecapGather() {
         guard videoRecapIsGatheringTheDiscs else { return }
         videoRecapGatherWasCancelled = true
-        agentTokenDockController.finishTheServeAtOnce()
+        agentTokenDockController.sendTheDiscsBackAtOnce()
     }
 
     private func showTheVideoRecapCard(_ recap: VideoRecap, moment: VideoRecapMoment, videoURL: String, videoRect: CGRect?, cursorPoint: CGPoint? = nil) {
@@ -3372,18 +3374,23 @@ final class CompanionManager: ObservableObject {
     /// speaking, a quiz question or a running quiz, a scene, a Card already up, the Theme Studio card, the settings dial, the
     /// agent list, the room art panel, the "Add theme?" card, or an approval waiting for the learner.
     private var clickyIsBusyForAVideoRecapCard: Bool {
-        guard case .idle = liveScenePhase else { return true }
-        return voiceState != .idle
-            || elevenLabsTTSClient.isPlaying
-            || videoQuizQuestionIsActive
-            || videoQuizSession.isRunning
-            || videoQuizSummaryPanelController.isShowing
-            || themeStudioController.isOpen
-            || settingsDialController.isOpen
-            || agentListPanelController.isOpen
-            || roomArtPreviewController.isOpen
-            || themeInstallConfirmation.isOpen
-            || agentHarness.approvalDesk.oldestWaitingRequest != nil
+        let aSceneIsUp: Bool
+        if case .idle = liveScenePhase { aSceneIsUp = false } else { aSceneIsUp = true }
+        return VideoRecapBusyFacts(
+            aSceneIsUp: aSceneIsUp,
+            clickyIsNotIdle: voiceState != .idle,
+            speechIsPlaying: elevenLabsTTSClient.isPlaying,
+            aQuizQuestionIsOpen: videoQuizQuestionIsActive,
+            aQuizIsRunning: videoQuizSession.isRunning,
+            aCardIsShowing: videoQuizSummaryPanelController.isShowing,
+            theThemeStudioIsOpen: themeStudioController.isOpen,
+            theSettingsDialIsOpen: settingsDialController.isOpen,
+            theAgentListIsOpen: agentListPanelController.isOpen,
+            theMenuBarPanelIsOpen: menuPanelIsOpen(),
+            theRoomArtPanelIsOpen: roomArtPreviewController.isOpen,
+            anAddThemeCardIsOpen: themeInstallConfirmation.isOpen,
+            anApprovalWaits: agentHarness.approvalDesk.oldestWaitingRequest != nil
+        ).clickyIsBusy
     }
 
     /// A click on a question in the quiz summary: the video goes back there and its pop-out shows again, with every label

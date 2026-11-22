@@ -152,6 +152,16 @@ struct AgentListLiveLineTests {
     }
 }
 
+struct AgentListDiscClickTests {
+    @Test func aClickOnTheDiscTheListIsOpenFromClosesItButAMenuItemThatOpensItKeepsIt() {
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: true, theClickOnlyOpens: false) == .close)
+        // Review request on the chip of the agent whose disc the list is open under: no close into the disc and reopen.
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: true, theClickOnlyOpens: true) == .stayOpen)
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: false, theClickOnlyOpens: true) == .openUnderTheDisc)
+        #expect(agentListStepForADiscClick(listIsOpenFromThisDisc: false, theClickOnlyOpens: false) == .openUnderTheDisc)
+    }
+}
+
 struct AgentListWindowPlacementTests {
     private let visibleFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
     private let windowSize = CGSize(width: 348, height: 300)
@@ -171,6 +181,14 @@ struct AgentListWindowPlacementTests {
         let clickInTheShadow = CGPoint(x: cardFrame.midX, y: cardFrame.minY - 20)
         #expect(windowFrame.contains(clickInTheShadow))
         #expect(!cardFrame.contains(clickInTheShadow))
+    }
+
+    @Test func theMousePassesThroughTheShadowMarginAndNotTheCard() {
+        let windowFrame = AgentListWindowMargins.windowFrame(cardTopLeft: CGPoint(x: 500, y: 600), windowSize: windowSize, visibleFrame: visibleFrame)
+        let cardFrame = AgentListWindowMargins.cardFrame(inWindowFrame: windowFrame)
+        #expect(AgentListWindowMargins.windowPassesTheMouseThrough(at: CGPoint(x: cardFrame.midX, y: cardFrame.minY - 20), windowFrame: windowFrame))
+        #expect(AgentListWindowMargins.windowPassesTheMouseThrough(at: CGPoint(x: cardFrame.minX - 10, y: cardFrame.midY), windowFrame: windowFrame))
+        #expect(!AgentListWindowMargins.windowPassesTheMouseThrough(at: CGPoint(x: cardFrame.midX, y: cardFrame.midY), windowFrame: windowFrame))
     }
 
     @Test func aCardAtTheScreenEdgeIsKeptOnScreenWhileItsMarginMayReachPastIt() {

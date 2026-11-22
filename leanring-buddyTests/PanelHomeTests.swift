@@ -222,6 +222,25 @@ struct PanelHomeTests {
         #expect(agentDiscIDTakingTheKeyboardFocus(among: discIDs, agentID: UUID(), mouseDisplayID: 2) == nil)
     }
 
+    @Test func duringAPauseTheKeyboardReachesThePausedDiscAndAfterGoAheadTheAgentsOwnDisc() {
+        let agentID = UUID()
+        let pausedDiscs = [AgentTokenDiscID(displayID: 1, tokenSlot: .paused), AgentTokenDiscID(displayID: 2, tokenSlot: .paused)]
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: pausedDiscs, agentID: agentID, mouseDisplayID: 2) == pausedDiscs[1])
+        let resumedDiscs = [AgentTokenDiscID(displayID: 2, tokenSlot: .agent(agentID))]
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: resumedDiscs, agentID: agentID, mouseDisplayID: 2) == resumedDiscs[0])
+    }
+
+    @Test func aDiscTheRecapHidTakesNoKeyboardFocus() {
+        let agentID = UUID()
+        let discOnTheMouseDisplay = AgentTokenDiscID(displayID: 1, tokenSlot: .agent(agentID))
+        let discOnAnotherDisplay = AgentTokenDiscID(displayID: 2, tokenSlot: .agent(agentID))
+        let both = [discOnTheMouseDisplay, discOnAnotherDisplay]
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: both, agentID: agentID, mouseDisplayID: 1, hiddenDiscIDs: [discOnTheMouseDisplay]) == discOnAnotherDisplay)
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: [discOnTheMouseDisplay], agentID: agentID, mouseDisplayID: 1, hiddenDiscIDs: [discOnTheMouseDisplay]) == nil)
+        let hiddenPausedDisc = AgentTokenDiscID(displayID: 1, tokenSlot: .paused)
+        #expect(agentDiscIDTakingTheKeyboardFocus(among: [hiddenPausedDisc], agentID: agentID, mouseDisplayID: 1, hiddenDiscIDs: [hiddenPausedDisc]) == nil)
+    }
+
     @Test func theDeskCountsThePanelsHomeAsASurfaceThatShowsTheCard() {
         let companionManager = CompanionManager()
         #expect(!companionManager.approvalDesk.listIsShowing())

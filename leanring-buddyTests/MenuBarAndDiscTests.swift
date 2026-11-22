@@ -81,7 +81,7 @@ struct MenuBarAndDiscTests {
 
     @Test func theApprovalBadgeIsAnAmberDotOnTheTopRightAndMakesTheIconAColoredImageNotATemplate() throws {
         let plain = MenuBarIconArt.image(for: .idle, cursor: .triangle)
-        let badged = MenuBarIconArt.image(for: .idle, cursor: .triangle, badgeOnAForeground: .white)
+        let badged = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .needsYourOK, foreground: .white)
         #expect(plain.isTemplate)
         #expect(!badged.isTemplate)
         let bitmap = try renderedBitmap(of: badged)
@@ -91,9 +91,32 @@ struct MenuBarAndDiscTests {
         #expect(badgePixel.alphaComponent > 0.9 && badgePixel.redComponent > 0.9 && badgePixel.greenComponent > 0.5 && badgePixel.blueComponent < 0.4)
         // The plain icon has nothing there, and the badge draws over any state.
         #expect(try alpha(of: plain, atX: badgeCenter.x, y: badgeCenter.y) == 0)
-        let listeningBadged = MenuBarIconArt.image(for: .listening, cursor: .triangle, badgeOnAForeground: .white)
+        let listeningBadged = MenuBarIconArt.image(for: .listening, cursor: .triangle, badge: .needsYourOK, foreground: .white)
         let listeningPixel = try #require(try renderedBitmap(of: listeningBadged).colorAt(x: Int(badgeCenter.x * 2), y: Int(badgeCenter.y * 2)))
         #expect(listeningPixel.redComponent > 0.9 && listeningPixel.blueComponent < 0.4)
+    }
+
+    @Test func theIconGetsARedBadgeForAPermissionOffAfterSetupOrAnOfflineWorkerAndAmberWinsOverIt() {
+        func badge(approval: Bool = false, setupIsFinished: Bool = true, permissionOff: Bool = false, offline: Bool = false) -> MenuBarIconBadge? {
+            menuBarIconBadge(approvalIsWaiting: approval, setupIsFinished: setupIsFinished, aRequiredPermissionIsOff: permissionOff, workerIsUnreachable: offline)
+        }
+        #expect(badge() == nil)
+        #expect(badge(permissionOff: true) == .problem)
+        #expect(badge(offline: true) == .problem)
+        // During setup the checklist lists a permission that is off, so the icon says nothing about it yet.
+        #expect(badge(setupIsFinished: false, permissionOff: true) == nil)
+        #expect(badge(setupIsFinished: false, offline: true) == .problem)
+        // The panel's banner shows the approval card first, and the icon follows the same order.
+        #expect(badge(approval: true, permissionOff: true, offline: true) == .needsYourOK)
+    }
+
+    @Test func theProblemBadgeIsARedDotWhereTheAmberOneSits() throws {
+        let problemIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .problem, foreground: .white)
+        #expect(!problemIcon.isTemplate)
+        let badgeCenter = MenuBarIconArt.badgeCenter
+        let badgePixel = try #require(try renderedBitmap(of: problemIcon).colorAt(x: Int(badgeCenter.x * 2), y: Int(badgeCenter.y * 2)))
+        // Red: much red, little green and blue, unlike the amber badge's green above 0.5.
+        #expect(badgePixel.alphaComponent > 0.9 && badgePixel.redComponent > 0.8 && badgePixel.greenComponent < 0.45 && badgePixel.blueComponent < 0.45)
     }
 
     @Test func aThemesDrawnCursorBecomesASilhouetteWithItsOpenSeamsCutOut() throws {
@@ -202,6 +225,17 @@ struct MenuBarAndDiscTests {
         #expect(content.hint == nil)
     }
 
+    @Test func aPausedAgentsChipSaysItIsPausedAndHowToLetItGoOn() {
+        var agent = runningAgent()
+        let pausedAt = Date()
+        agent.pausedAt = pausedAt
+        let content = agentTokenPeekContent(for: agent, approvalCapability: nil, isWaitingForApproval: false, at: pausedAt)
+        #expect(content.caption.hasPrefix("Paused · Build the experiment · "))
+        #expect(content.hint == "Say go ahead to let it go on")
+        // VoiceOver reads the chip from the same lines.
+        #expect(agentDiscAccessibilityLabel(agentName: agent.displayName, peekContent: content).contains("Paused"))
+    }
+
     @Test func aWaitingAgentsPeekNamesOnlyTheCapabilityNeverTheRequestsSummary() {
         let agent = runningAgent(kind: .task, subject: "Booster catch")
         let capabilities: [(HarnessCapability, String)] = [
@@ -276,6 +310,62 @@ struct MenuBarAndDiscTests {
         var failedAgent = runningAgent()
         failedAgent.phase = .failed(reason: "x")
         #expect(agentDiscMenuItems(for: failedAgent, isWaitingForApproval: false, aVideoQuizQuestionIsOpen: false) == [.openAgentList])
+    }
+
+    @Test func theMenuHoldsAWaitingResultWhileAQuizQuestionOpensAfterTheMenuShowed() {
+        var aQuizQuestionIsOpen = false
+        var showedTheScene = 0
+        var heardTheAnswer = 0
+        var cancelledAgentIDs: [UUID] = []
+        let menuActions = AgentDiscMenuActions.holdingAWaitingResultDuringAQuizQuestion(
+            aVideoQuizQuestionIsOpen: { aQuizQuestionIsOpen },
+            cancelAgent: { cancelledAgentIDs.append($0) },
+            showReadyScene: { showedTheScene += 1 },
+            hearTaskAnswer: { heardTheAnswer += 1 },
+            tryAgain: { _ in }
+        )
+        // The menu was built with no question open, and a question opened before the click.
+        aQuizQuestionIsOpen = true
+        menuActions.showReadyScene()
+        menuActions.hearTaskAnswer()
+        #expect(showedTheScene == 0 && heardTheAnswer == 0)
+        // Cancel is never held.
+        let agentID = UUID()
+        menuActions.cancelAgent(agentID)
+        #expect(cancelledAgentIDs == [agentID])
+        aQuizQuestionIsOpen = false
+        menuActions.showReadyScene()
+        menuActions.hearTaskAnswer()
+        #expect(showedTheScene == 1 && heardTheAnswer == 1)
+    }
+
+    @Test func aFailedAgentThatMayBeTriedAgainOffersTryAgainUntilItWasTried() {
+        var failedAgent = runningAgent(kind: .task)
+        failedAgent.phase = .failed(reason: "x")
+        failedAgent.canBeTriedAgain = true
+        #expect(agentDiscMenuItems(for: failedAgent, isWaitingForApproval: false, aVideoQuizQuestionIsOpen: false) == [.tryAgain])
+        #expect(AgentDiscMenuItem.tryAgain.title == "Try again")
+        // Once the work started again, the store clears the flag (`markTriedAgain`), and the item goes.
+        var triedAgain = failedAgent
+        triedAgain.canBeTriedAgain = false
+        #expect(agentDiscMenuItems(for: triedAgain, isWaitingForApproval: false, aVideoQuizQuestionIsOpen: false) == [.openAgentList])
+        // A cancelled agent never offers it, even with the flag left on.
+        var cancelledAgent = failedAgent
+        cancelledAgent.phase = .cancelled
+        #expect(agentDiscMenuItems(for: cancelledAgent, isWaitingForApproval: false, aVideoQuizQuestionIsOpen: false) == [.openAgentList])
+    }
+
+    // MARK: - The press
+
+    @Test func aPressEndsTheRecapGatherThenLandsTheFlightsThenRecallsTheChip() throws {
+        let pressSteps = PushToTalkPressStep.allCases
+        let recapGatherEnds = try #require(pressSteps.firstIndex(of: .endTheRecapGather))
+        let flightsLand = try #require(pressSteps.firstIndex(of: .landTheFlights))
+        let chipIsRecalled = try #require(pressSteps.firstIndex(of: .recallTheChip))
+        // The gather knows it was cancelled before its flights land, so the Card does not unfold over the new request.
+        #expect(recapGatherEnds < flightsLand)
+        // A Bring back spark lands and shows its chip before the Recall shrinks it into the cursor.
+        #expect(flightsLand < chipIsRecalled)
     }
 
     // MARK: - Bring back
@@ -374,15 +464,6 @@ struct MenuBarAndDiscTests {
         // The ring's top, half a point under the panel's top edge, is drawn and not cut off.
         let ringTopPixel = try #require(pixels.colorAt(x: Int((20 + AgentTokenMetrics.panelWidth / 2) * 2), y: Int((20 + 0.5) * 2)))
         #expect(ringTopPixel.redComponent > 0.8 && ringTopPixel.greenComponent < 0.4 && ringTopPixel.blueComponent > 0.8)
-    }
-
-    @Test func aTetherEndsOnlyWithTheFlightAWaitingDiscWaitedUnder() {
-        let flightTheDiscWaitedUnder = NSObject()
-        let anotherFlight = NSObject()
-        #expect(agentTokenTetherMustEnd(flightWhoseDiscWaited: flightTheDiscWaitedUnder, goneFlight: flightTheDiscWaitedUnder))
-        // A newer flight that landed meanwhile leaves its own tether to fade.
-        #expect(!agentTokenTetherMustEnd(flightWhoseDiscWaited: flightTheDiscWaitedUnder, goneFlight: anotherFlight))
-        #expect(!agentTokenTetherMustEnd(flightWhoseDiscWaited: nil, goneFlight: anotherFlight))
     }
 
     @Test func theStillRingOfAReduceMotionServeStaysForASecond() {

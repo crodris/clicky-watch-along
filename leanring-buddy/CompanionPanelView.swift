@@ -715,6 +715,9 @@ private struct PanelAgentChip: View {
     var body: some View {
         Button(action: pick) {
             AgentTokenDiscView(agent: agent, isWaitingForApproval: isWaitingForApproval, isHovered: isHovered)
+                // A paused agent's chip grays, as its disc in the menu bar does before it folds into the paused disc.
+                .grayscale(agent.pausedAt != nil ? 1 : 0)
+                .animation(.easeOut(duration: AgentTokenGather.graySeconds), value: agent.pausedAt != nil)
                 .frame(width: AgentTokenMetrics.discDiameter + 4, height: AgentTokenMetrics.discDiameter + 4)
                 .background(Circle().fill(isPicked ? Color.white.opacity(0.12) : .clear).padding(-2))
                 .contentShape(Circle())

@@ -360,49 +360,6 @@ final class AgentTokenLoopHostView: NSView {
     }
 }
 
-// MARK: - Agent triangle
-
-/// One agent's triangle. No surface draws it now, since the agent list's rows draw the agent's disc.
-struct AgentTriangleView: View {
-    let agent: BackgroundAgent
-    var size: CGFloat = 11
-
-    /// The same tilt as the blue cursor triangle's resting pose.
-    private static let rotationDegrees = -35.0
-
-    /// A finished agent keeps its color and gets a green check mark, so the learner still sees which agent it was.
-    /// A failed one is a red outline, and a cancelled one is a gray outline.
-    private var color: Color {
-        switch agent.phase {
-        case .running, .finished: return agent.displayColor.color
-        case .failed: return DS.Colors.destructive
-        case .cancelled: return DS.Colors.textTertiary
-        }
-    }
-
-    var body: some View {
-        ZStack {
-            // The fill is drawn before the rotation, so it rises along the triangle's own axis from tail to tip.
-            AgentProgressView(agent: agent) { shownProgress in
-                AgentTriangleFill(progress: shownProgress)
-                    .fill(color)
-            }
-            Triangle()
-                .stroke(color, lineWidth: 1.4)
-        }
-        .frame(width: size, height: size)
-        .rotationEffect(.degrees(Self.rotationDegrees))
-        .overlay(alignment: .bottomTrailing) {
-            if agent.finishedResult != nil {
-                FinishedCheckMark(size: size * 0.8)
-                    .offset(x: size * 0.45, y: size * 0.35)
-                    .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .animation(.easeOut(duration: 0.25), value: agent.phase)
-    }
-}
-
 /// Shows an agent's progress as it moves. It starts at progress(at:) and runs one straight-line animation to where the
 /// current step heads, timed by the clock, so the token and the agent list show the same progress at the same moment,
 /// with no looping animation.
@@ -433,41 +390,6 @@ struct AgentProgressView<Content: View>: View {
                 shownProgress = agent.progress(at: now)
             }
         }
-    }
-}
-
-/// How high the fill rises, as a share of the triangle's height, so the filled area is the progress. The triangle is
-/// widest at its tail, where the fill starts, so filling half its height would cover three quarters of it.
-nonisolated func agentTriangleFillHeightShare(forProgress progress: Double) -> Double {
-    1 - (1 - min(1, max(0, progress))).squareRoot()
-}
-
-/// The filled part of the agent's triangle, from the base up. Animatable, so the area follows the progress in every
-/// frame of an animation, not just at its ends.
-struct AgentTriangleFill: Shape {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        // The same points as Triangle(): tip above the center, base below it.
-        let size = min(rect.width, rect.height)
-        let triangleHeight = size * sqrt(3.0) / 2.0
-        let tipY = rect.midY - triangleHeight / 1.5
-        let baseY = rect.midY + triangleHeight / 3
-        let fillTopY = baseY - triangleHeight * agentTriangleFillHeightShare(forProgress: progress)
-        let halfWidthAtFillTop = (size / 2) * (fillTopY - tipY) / triangleHeight
-        var path = Path()
-        guard fillTopY < baseY else { return path }
-        path.move(to: CGPoint(x: rect.midX - size / 2, y: baseY))
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: baseY))
-        path.addLine(to: CGPoint(x: rect.midX + halfWidthAtFillTop, y: fillTopY))
-        path.addLine(to: CGPoint(x: rect.midX - halfWidthAtFillTop, y: fillTopY))
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -520,7 +442,7 @@ struct AgentTokenBadgeView: View {
     }
 }
 
-/// A white check on a green dot, at the base of a finished agent's token or triangle.
+/// A white check on a green dot, at the base of a finished agent's token.
 struct FinishedCheckMark: View {
     let size: CGFloat
 

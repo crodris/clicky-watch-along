@@ -55,6 +55,13 @@ enum AgentListWindowMargins {
         )
     }
 
+    /// Whether the window lets a mouse event at `mouseLocation` pass to the app under it. The window server routes a click
+    /// to any pixel with some alpha, and the margin's shadow pixels are faint but not clear, so the window ignores the
+    /// mouse while the pointer is in the margin, and the click reaches the page under the shadow.
+    static func windowPassesTheMouseThrough(at mouseLocation: CGPoint, windowFrame: CGRect) -> Bool {
+        !cardFrame(inWindowFrame: windowFrame).contains(mouseLocation)
+    }
+
     /// The frame that keeps the window's Card inside `visibleFrame` when the window is kept inside it, which is how
     /// `agentListPanelOrigin` clamps a panel.
     static func frameToKeepTheWindowIn(forCardVisibleFrame visibleFrame: CGRect) -> CGRect {
@@ -199,6 +206,21 @@ func agentListMayDeliverAWaitingResult(aVideoQuizQuestionIsOpen: Bool) -> Bool {
     !aVideoQuizQuestionIsOpen
 }
 
+/// What a click on a disc does to the agent list.
+enum AgentListStepForADiscClick: Equatable {
+    case openUnderTheDisc
+    case close
+    case stayOpen
+}
+
+/// A click on the disc the list is open from closes it. A menu item that opens the list, such as Review request from the
+/// disc's right-click menu or from its chip in the menu bar panel, only opens it, so a list already open from that disc stays
+/// instead of closing into the disc and opening again.
+func agentListStepForADiscClick(listIsOpenFromThisDisc: Bool, theClickOnlyOpens: Bool) -> AgentListStepForADiscClick {
+    guard listIsOpenFromThisDisc else { return .openUnderTheDisc }
+    return theClickOnlyOpens ? .stayOpen : .close
+}
+
 /// What a row's buttons do besides cancelling a running agent.
 struct AgentListActions {
     let cancelAgent: (UUID) -> Void
@@ -285,9 +307,13 @@ final class AgentListPanelController {
     private let approvalDesk: HarnessApprovalDesk
     private var panel: NonKeyFloatingPanel?
     private var clickOutsideMonitor: Any?
-    /// Sees a click that lands on the window's own shadow margin, which the global monitor never gets, since the window
-    /// server delivers it to this panel.
+    /// Sees a click that lands on the window's own shadow margin in the moment before `clickThroughTimer` lets it pass,
+    /// which the global monitor never gets, since the window server delivers it to this panel.
     private var clickInTheShadowMonitor: Any?
+    /// Reads the mouse 60 times a second while the list is open and lets the mouse pass through the shadow margin
+    /// (`AgentListWindowMargins.windowPassesTheMouseThrough`). A global monitor misses moves over this panel, and the panel
+    /// is never key, so a poll is the one reading that sees the pointer on both sides of the Card's edge.
+    private var clickThroughTimer: Timer?
     /// Where the Card's top-left corner sits, fixed when it opens so a row that expands grows the Card downward.
     private var anchorTopLeft: CGPoint = .zero
     private var visibleFrame: CGRect = .zero
@@ -335,13 +361,20 @@ final class AgentListPanelController {
 
     /// A click on an agent token: open the list under that disc with the agent's row expanded, and "+N" with none.
     /// A click on the disc the list is already open from closes it, and a click on another disc, including the same
-    /// agent's disc on another display, moves it there. The list Glides out of the disc's center.
-    func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen) {
-        let discWasAlreadyOpen = discTheListWasOpenedFrom == discID
-        let listWasOpen = isOpen
-        if listWasOpen && discWasAlreadyOpen {
+    /// agent's disc on another display, moves it there. The list Glides out of the disc's center. A menu item that opens the
+    /// list (`opensOnly`) leaves a list already open from that disc where it is (`agentListStepForADiscClick`).
+    func toggle(from discID: AgentTokenDiscID, discPanelFrame: CGRect, on screen: NSScreen, opensOnly: Bool = false) {
+        switch agentListStepForADiscClick(
+            listIsOpenFromThisDisc: isOpen && discTheListWasOpenedFrom == discID,
+            theClickOnlyOpens: opensOnly
+        ) {
+        case .stayOpen:
+            return
+        case .close:
             closeWithGlide()
             return
+        case .openUnderTheDisc:
+            break
         }
         // Moving to another disc leaves no time for a close, which would play toward the disc it left.
         close()
@@ -396,6 +429,24 @@ final class AgentListPanelController {
         resizePanel(to: initialSize)
         showThePanel(agentListPanel)
         installClickOutsideMonitor()
+        letTheMousePassThroughTheShadow(of: agentListPanel)
+    }
+
+    private func letTheMousePassThroughTheShadow(of agentListPanel: NonKeyFloatingPanel) {
+        let updateWhetherThePanelTakesTheMouse = { [weak agentListPanel] in
+            guard let agentListPanel else { return }
+            let passesTheMouseThrough = AgentListWindowMargins.windowPassesTheMouseThrough(at: NSEvent.mouseLocation, windowFrame: agentListPanel.frame)
+            if agentListPanel.ignoresMouseEvents != passesTheMouseThrough {
+                agentListPanel.ignoresMouseEvents = passesTheMouseThrough
+            }
+        }
+        updateWhetherThePanelTakesTheMouse()
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in
+            MainActor.assumeIsolated { updateWhetherThePanelTakesTheMouse() }
+        }
+        // The common modes keep it running while a menu or a drag tracks the mouse.
+        RunLoop.main.add(timer, forMode: .common)
+        clickThroughTimer = timer
     }
 
     /// Shows the list: it Glides out of its origin on the carrier and the real panel appears at the landing, or, with Reduce
@@ -537,6 +588,8 @@ final class AgentListPanelController {
             NSEvent.removeMonitor(clickInTheShadowMonitor)
             self.clickInTheShadowMonitor = nil
         }
+        clickThroughTimer?.invalidate()
+        clickThroughTimer = nil
         if let resizeObserver {
             NotificationCenter.default.removeObserver(resizeObserver)
             self.resizeObserver = nil

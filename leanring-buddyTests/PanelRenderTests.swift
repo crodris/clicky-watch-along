@@ -185,7 +185,7 @@ struct PanelRenderTests {
 
     @Test func theApprovalBadgeKeepsItsDarkRimOnALightAndADarkMenuBar() throws {
         for (menuBarHex, foreground, fileName) in [("#F2F2F2", NSColor.black, "menu-icon-badge-light-bar"), ("#1E1E1E", NSColor.white, "menu-icon-badge-dark-bar")] {
-            let badgedIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badgeOnAForeground: foreground)
+            let badgedIcon = MenuBarIconArt.image(for: .idle, cursor: .triangle, badge: .needsYourOK, foreground: foreground)
             let iconView = Image(nsImage: badgedIcon).frame(width: MenuBarIconArt.size.width, height: MenuBarIconArt.size.height)
             let bitmap = try render(iconView, named: fileName, background: Color(hex: menuBarHex))
             let padding: CGFloat = 24
