@@ -80,14 +80,14 @@ private func alpha(of image: CIImage, column: Int, row: Int) -> Int {
     return Int(pixel[3])
 }
 
-/// How many pixels of `image` are at least half opaque.
-private func opaquePixelCount(of image: CIImage) -> Int {
+/// How many pixels of `image` have a channel at least half, the alpha by default.
+private func opaquePixelCount(of image: CIImage, channel: Int = 3) -> Int {
     let width = Int(image.extent.width), height = Int(image.extent.height)
     var bytes = [UInt8](repeating: 0, count: width * height * 4)
     bytes.withUnsafeMutableBytes { buffer in
         CIContext().render(image, toBitmap: buffer.baseAddress!, rowBytes: width * 4, bounds: image.extent, format: .RGBA8, colorSpace: nil)
     }
-    return stride(from: 3, to: bytes.count, by: 4).filter { bytes[$0] >= 128 }.count
+    return stride(from: channel, to: bytes.count, by: 4).filter { bytes[$0] >= 128 }.count
 }
 
 struct ShirtModelPoseTests {
@@ -330,5 +330,13 @@ struct ShirtOnModelRendererTests {
         #expect(composition.sleeves.count == 2)
         // An on-model sleeve keeps its angle off the arm, so it is not laid along the arm.
         #expect(composition.sleeves.allSatisfy { !$0.liesAlongTheArm })
+        // The garment area of the frame just drawn is kept for the painted still, and a reset forgets it.
+        let garmentArea = try #require(renderer.lastDrawnGarmentArea)
+        #expect(garmentArea.extent == frame.extent)
+        // The area is a gray mask: covered pixels are light in the red channel, and the room around the model is not.
+        let coveredPixels = opaquePixelCount(of: garmentArea, channel: 0)
+        #expect(coveredPixels > 10_000 && coveredPixels < 400 * 500 / 2)
+        renderer.reset()
+        #expect(renderer.lastDrawnGarmentArea == nil)
     }
 }

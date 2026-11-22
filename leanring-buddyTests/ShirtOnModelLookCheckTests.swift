@@ -141,6 +141,7 @@ enum ShirtOnModelKnownMiss: Hashable {
     case haloInside
     case oldShirtAtTheSleeves
     case shoulderSeamGap
+    case shoulderTeeth
 }
 
 let shirtOnModelKnownMisses: [String: [ShirtOnModelKnownMiss: String]] = [
@@ -151,10 +152,15 @@ let shirtOnModelKnownMisses: [String: [ShirtOnModelKnownMiss: String]] = [
     "model-oyster": [
         .haloInside: "the hem's own fold is lit 13 percent brighter than the cloth above it",
         .oldShirtAtTheSleeves: "3.5 percent of the old sleeve shows under the inner side of the left sleeve",
+        .shoulderTeeth: "the old collar shows beside the neck, above the model's collar line",
     ],
+    "model-orange": [.shoulderTeeth: "the old collar shows beside the neck, above the model's collar line"],
     // The model is turned a quarter away from the camera, so the shirt's near side is foreshortened and its seam
     // lands where the torso map and the sleeve map differ most.
-    "model-stripe-red": [.shoulderSeamGap: "a model turned away from the camera: the seam opens by up to 8 percent"],
+    "model-stripe-red": [
+        .shoulderSeamGap: "a model turned away from the camera: the seam opens by up to 8 percent",
+        .shoulderTeeth: "the old collar shows beside the neck, above the model's collar line",
+    ],
 ]
 
 /// Runs `body`, as a known issue when the photo is known to miss `check`.
@@ -245,6 +251,12 @@ struct ShirtOnModelLookCheckTests {
                 #expect(look.oldShirtAtTheSleevesShare < ShirtLookLimits.oldShirtAtTheSleevesShare, "\(shirtName): old shirt at the sleeves")
             }
             #expect(look.darkOutlinePixelsPerShoulderWidth < ShirtLookLimits.darkOutlinePixelsPerShoulderWidth, "\(shirtName): dark line along the outline")
+            #expect(look.shoulderEdgeTeethPixelsPerShoulderWidth.count == 2, "\(shirtName): both shoulders' edges measured")
+            expectUnlessKnown(.shoulderTeeth, shirtName) {
+                for teeth in look.shoulderEdgeTeethPixelsPerShoulderWidth {
+                    #expect(teeth <= ShirtLookLimits.shoulderEdgeTeethPixelsPerShoulderWidth, "\(shirtName): dark teeth along the shoulder")
+                }
+            }
             #expect(look.frontNecklineBelowTheNecklineInShoulderWidths.map { ShirtLookLimits.frontNecklineBelowTheNeckline.contains($0) } == true, "\(shirtName): front neckline")
             #expect(metrics.neckPixelCount > 0, "\(shirtName): the neck was measured")
             #expect(metrics.neckCoveredShare <= ShirtOnModelLookLimits.neckCoveredShare, "\(shirtName): garment on the learner's neck")

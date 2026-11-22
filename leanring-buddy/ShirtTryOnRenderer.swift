@@ -112,7 +112,11 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     /// shirt's hem 8 percent of a torso below the hips.
     static let garmentBottomInTorsoLengths = 1.08
     /// The analysis masks are blurred by this many of their own pixels once scaled up, which turns their steps into curves.
-    static let analysisMaskSmoothingInSmallPixels = 0.8
+    /// At 0.8 the fill's edge along the tops of the shoulders kept the masks' stairs, one analysis pixel (about 4.5 camera
+    /// pixels) apart, and the old shirt showed between them as dark teeth along the shoulder's outline; at 2.4 the look check
+    /// counts under half as many (`shoulderEdgeTeethPixelsPerShoulderWidth`, at most 0.26 per shoulder width on the flat lays,
+    /// from 0.49).
+    static let analysisMaskSmoothingInSmallPixels = 2.4
     /// The base color fill is closed (grown by twice this, then shrunk by this many analysis pixels), which fills holes a
     /// few pixels wide where a fold read as not the old shirt, and leaves it grown by this much under the garment's edge,
     /// so the two meet with no gap.
@@ -236,6 +240,11 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
     private var smoothedHipWideningInShoulderWidths = [0.0, 0.0]
     /// Each old sleeve, image left first, in shoulder widths.
     private var smoothedOldSleevesInShoulderWidths: [ShirtOldSleeveExtent?] = [nil, nil]
+    /// Where the garment and its fill covered the last frame drawn, 0 to 1 in the red channel (the composition's
+    /// `totalAlpha`), nil before a frame is drawn and after `reset()`. The painted still of the shirt reads it as the area
+    /// to paint the shirt inside, so the painting lands where the live preview showed it. Read it on the queue that calls
+    /// `composite`.
+    private(set) var lastDrawnGarmentArea: CIImage?
     private var lastFrameDrewTheSleevesApart = false
     private var lastFrameLaidTheSleevesAlongTheArms = false
 
@@ -264,6 +273,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         smoothedOldSleevesInShoulderWidths = [nil, nil]
         lastFrameDrewTheSleevesApart = false
         lastFrameLaidTheSleevesAlongTheArms = false
+        lastDrawnGarmentArea = nil
     }
 
     /// `frame` with `garment` drawn over the person's shirt. `personMask` is white where the person is (any size, it is scaled
@@ -431,6 +441,7 @@ nonisolated final class ShirtTryOnRenderer: @unchecked Sendable {
         let image = worn
             .applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: underneath, kCIInputMaskImageKey: totalAlpha])
             .cropped(to: frameExtent)
+        lastDrawnGarmentArea = totalAlpha
         lastFrameDrewTheSleevesApart = !drawnSleeves.isEmpty
         lastFrameLaidTheSleevesAlongTheArms = drawnSleeves.contains(where: \.liesAlongTheArm)
         return ShirtTryOnComposition(

@@ -81,6 +81,10 @@ struct ShirtLookMetrics: Codable {
     /// product photo's background or a soft garment mask still shows here.
     var haloInsideWorstRimRatioOnThePerson = 0.0
     var haloInsideWorstSectorDegreesOnThePerson = 0.0
+    /// For each shoulder, image left first, the dark teeth along its top where it meets the room: the pixels of a dark line
+    /// just outside the cloth (the rule of `darkOutlinePixelsPerShoulderWidth`) from the neck's side to the shoulder's tip,
+    /// per pixel of shoulder width. The old shirt's edge left beside the cloth shows there as teeth one analysis pixel apart.
+    var shoulderEdgeTeethPixelsPerShoulderWidth: [Double] = []
     /// The share of the old shirt's pixels in the torso that the composite left showing: nothing was drawn over them (the
     /// drawn coverage is under one half) and they are as they were. A navy stripe drawn over a navy shirt changes a pixel
     /// little but covers it.
@@ -134,6 +138,7 @@ enum ShirtLookLimits {
     static let oldShirtAtTheSleevesShare = 0.03
     static let fillRowStep = 6.0
     static let darkOutlinePixelsPerShoulderWidth = 3.0
+    static let shoulderEdgeTeethPixelsPerShoulderWidth = 0.3
     static let frontNecklineBelowTheNeckline = -0.1...0.06
     static let darkNecklinePixelsPerShoulderWidth = 0.25
     static let insideOfTheBackDrawnShare = 0.02
@@ -588,6 +593,20 @@ func measure(_ inputs: LookInputs, shirtName: String) -> ShirtLookMetrics {
     }
     metrics.darkOutlinePixelsPerShoulderWidth = Double(darkOutlineCount) / shoulderWidth
 
+    // The same dark pixels along the tops of the shoulders, from 0.15 to 0.6 shoulder widths out from the middle and from
+    // 0.35 shoulder widths above the shoulders to 0.1 below, image left first, the neck's sides included. There the old
+    // shirt's edge, left where the renderer's small analysis masks stop short of the person's outline, shows as dark teeth
+    // spaced one analysis pixel apart.
+    var shoulderTeethCounts = [0, 0]
+    for pixel in 0..<pixelCount where justOutsideTheCloth[pixel] && !roomChannels[0][pixel].isNaN && !clothBeside[pixel].isNaN {
+        let row = Double(pixel / width), across = Double(pixel % width) - Double(shoulderMiddle.x)
+        guard abs(across) >= 0.15 * shoulderWidth, abs(across) <= 0.6 * shoulderWidth,
+              row >= Double(shoulderMiddle.y) - 0.35 * shoulderWidth, row <= Double(shoulderMiddle.y) + 0.1 * shoulderWidth else { continue }
+        let roomLuminance = 0.2126 * roomChannels[0][pixel] + 0.7152 * roomChannels[1][pixel] + 0.0722 * roomChannels[2][pixel]
+        if compositeLuminances[pixel] < 0.7 * min(roomLuminance, clothBeside[pixel]) { shoulderTeethCounts[across < 0 ? 0 : 1] += 1 }
+    }
+    metrics.shoulderEdgeTeethPixelsPerShoulderWidth = shoulderTeethCounts.map { Double($0) / shoulderWidth }
+
     // The same dark line along the neckline, which the outline check leaves out: within 0.3 shoulder widths of the middle,
     // from 0.45 shoulder widths above the shoulders to 0.1 below, a person's pixel within 6 pixels outside the cloth is part
     // of it when it is darker than 0.7 times both the neck's own skin, the median of the person's pixels there that are
@@ -805,6 +824,10 @@ struct ShirtLookCheckTests {
             #expect(metrics.darkOutlinePixelsPerShoulderWidth < ShirtLookLimits.darkOutlinePixelsPerShoulderWidth, "\(shirtName): dark line along the outline")
             #expect(metrics.frontNecklineBelowTheNecklineInShoulderWidths.map { ShirtLookLimits.frontNecklineBelowTheNeckline.contains($0) } == true, "\(shirtName): front neckline")
             #expect(metrics.darkNecklinePixelsPerShoulderWidth < ShirtLookLimits.darkNecklinePixelsPerShoulderWidth, "\(shirtName): dark line along the neckline")
+            #expect(metrics.shoulderEdgeTeethPixelsPerShoulderWidth.count == 2, "\(shirtName): both shoulders' edges measured")
+            for teeth in metrics.shoulderEdgeTeethPixelsPerShoulderWidth {
+                #expect(teeth <= ShirtLookLimits.shoulderEdgeTeethPixelsPerShoulderWidth, "\(shirtName): dark teeth along the shoulder")
+            }
             if let insideOfTheBackDrawnShare = metrics.insideOfTheBackDrawnShare {
                 #expect(insideOfTheBackDrawnShare < ShirtLookLimits.insideOfTheBackDrawnShare, "\(shirtName): inside of the back drawn")
             }
