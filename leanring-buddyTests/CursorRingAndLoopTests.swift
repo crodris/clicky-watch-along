@@ -34,7 +34,7 @@ private let exampleMedia = MediaOnTheFrontTab(
 private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(exampleMedia, at: now - 1)
+    state.mediaRectArrived(exampleMedia, at: now - 1, agentsMayJoinTheLine: true)
     state.requestBecameALookAtTheMedia(at: now)
     return state
 }
@@ -53,7 +53,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
     state.requestBecameALookAtTheMedia(at: 10)
     #expect(!state.loopIsShowing)
     // A quarter second after the hand-off is inside the 300 ms window.
-    state.mediaRectArrived(exampleMedia, at: 10.25)
+    state.mediaRectArrived(exampleMedia, at: 10.25, agentsMayJoinTheLine: true)
     #expect(state.loop == .showing(exampleMedia, since: 10.25, sparkSlowsAt: nil))
 }
 
@@ -61,7 +61,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
     state.requestBecameALookAtTheMedia(at: 10)
-    state.mediaRectArrived(exampleMedia, at: 10.31)
+    state.mediaRectArrived(exampleMedia, at: 10.31, agentsMayJoinTheLine: true)
     #expect(state.loop == .hidden)
     #expect(state.turn == .notWaitingForALoop)
 }
@@ -72,14 +72,14 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
     state.pushToTalkWasReleased()
     state.requestBecameALookAtTheMedia(at: 10)
     state.requestBecameALookAtTheMedia(at: 11)
-    state.mediaRectArrived(exampleMedia, at: 11.2)
+    state.mediaRectArrived(exampleMedia, at: 11.2, agentsMayJoinTheLine: true)
     #expect(state.loop == .hidden)
 }
 
 @Test func aTurnThatNeverHandsOffNeverDrawsALoop() {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(exampleMedia, at: 10)
+    state.mediaRectArrived(exampleMedia, at: 10, agentsMayJoinTheLine: true)
     #expect(state.loop == .hidden)
     // The rect stays unused until the turn ends. A later hand-off from a different turn must not reuse it.
     state.pushToTalkWasPressed()
@@ -97,7 +97,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 @Test func aMissingMediaRectDrawsNothing() {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(nil, at: 10)
+    state.mediaRectArrived(nil, at: 10, agentsMayJoinTheLine: true)
     state.requestBecameALookAtTheMedia(at: 10.1)
     #expect(state.loop == .hidden)
 }
@@ -105,7 +105,7 @@ private func stateShowingALoop(since now: TimeInterval = 10) -> CursorLoopState 
 @Test func aHandOffWithNoReleasedTurnDrawsNothing() {
     var state = CursorLoopState()
     state.requestBecameALookAtTheMedia(at: 10)
-    state.mediaRectArrived(exampleMedia, at: 10.1)
+    state.mediaRectArrived(exampleMedia, at: 10.1, agentsMayJoinTheLine: true)
     #expect(state.loop == .hidden)
 }
 
@@ -125,7 +125,7 @@ func eachEndEventFadesAShowingLoop(reason: CursorLoopEndReason) {
 func eachEndEventStopsARectInHandFromDrawingLater(reason: CursorLoopEndReason) {
     var state = CursorLoopState()
     state.pushToTalkWasReleased()
-    state.mediaRectArrived(exampleMedia, at: 10)
+    state.mediaRectArrived(exampleMedia, at: 10, agentsMayJoinTheLine: true)
     state.end(because: reason)
     state.requestBecameALookAtTheMedia(at: 10.5)
     #expect(state.loop == .hidden)
